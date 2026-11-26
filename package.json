@@ -1,5 +1,6 @@
 {
   "name": "site-intelligence",
+  "description": "Site Intelligence: a browser-only demonstration workspace in which a manufacturer's planner investigates a supply disruption, compares response options and approves one.",
   "private": true,
   "version": "0.1.0",
   "type": "module",
