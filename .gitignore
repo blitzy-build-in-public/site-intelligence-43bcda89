@@ -1,28 +1,6 @@
-# Dependencies
 node_modules/
-
-# Build output
 dist/
-dist-ssr/
-*.local
-
-# Test output
-coverage/
 test-results/
 playwright-report/
-playwright/.cache/
-
-# Environment files are never committed (the application needs no configuration)
 .env
 .env.*
-!.env.example
-
-# Logs
-*.log
-npm-debug.log*
-
-# Editor and OS noise
-.DS_Store
-.idea/
-.vscode/
-*.swp
