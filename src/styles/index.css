@@ -1,0 +1,66 @@
+/* Tailwind 4 entry point; the theme files are imported once, here. */
+@import "tailwindcss";
+@import "../theme/command.css";
+@import "../theme/paper.css";
+@import "../theme/tokens.css";
+
+/* specification §4.3 typefaces — bundled in the repository, never fetched (rule B-1) */
+@font-face {
+  font-family: "Urbanist";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/urbanist-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Urbanist";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/urbanist-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Urbanist";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../assets/fonts/urbanist-600.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/geist-mono-500.woff2") format("woff2");
+}
+
+/* reset in @layer base so Tailwind utilities still win */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans, "Urbanist", ui-sans-serif, system-ui, sans-serif);
+    background-color: var(--color-ground, var(--palette-ground));
+    color: var(--color-text-primary, var(--palette-text-primary));
+  }
+}
+
+/* reduced motion — rule B-3 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
