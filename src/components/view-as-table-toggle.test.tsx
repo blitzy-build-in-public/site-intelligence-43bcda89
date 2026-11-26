@@ -1,69 +1,98 @@
 /**
  * Component suite for `view-as-table-toggle.tsx`, the control that exposes a chart's table form.
  *
- * Success criterion 9 makes a working "View as table" toggle a pass condition, and rule B-3 makes
- * it a keyboard-operable control with an announced state, so each of those properties is asserted
- * here against the component's own contract: the two fixed labels, the `aria-pressed` state, the
- * request an activation makes, keyboard-only operation, the accessible name with and without a
- * chart label, and the shape of the rendered element (one native button, no `tabIndex`, never
- * disabled). The parent that owns the state is exercised through a small harness, which is how
- * `ChartFrame` uses the control.
+ * Two obligations make this control a pass condition rather than a nicety: success criterion 9
+ * requires a working table view of every chart, map and graph, and rule B-3 requires every
+ * interactive element to be keyboard operable with a visible focus indicator and an announced
+ * state. Each case below asserts one clause of the component's own contract — the two labels the
+ * exported constant owns, the `aria-pressed` state that reports which representation is showing,
+ * the request an activation makes, keyboard-only operation, the accessible name with and without a
+ * chart label, the shape of the rendered element (one native button, no `tabIndex`, never
+ * disabled), the 24x24 px target and focus-ring tokens, and rendering under both themes. The
+ * parent that owns the state is exercised through a two-line harness, which is how
+ * `./chart-frame.tsx` composes the control.
  *
- * Renders under the default jsdom environment; nothing here hashes or reads the clock.
+ * Renders under the jsdom environment `vite.config.ts` configures; nothing here hashes, reads the
+ * clock or shows a figure (rule P-6).
  */
 
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { VIEW_AS_TABLE_LABELS, ViewAsTableToggle } from './view-as-table-toggle';
 import type { Viewing } from './view-as-table-toggle';
 
-/** A chart title used as the accessible context in the `chartLabel` case. */
+/**
+ * The two labels the control renders, read from their single owner so this suite never retypes the
+ * wording: a reworded label changes the component and this suite together, and nothing here can
+ * drift from what a user reads.
+ */
+const { showChart, showTable } = VIEW_AS_TABLE_LABELS;
+
+/** A chart title, used as the accessible context of the `chartLabel` clause. */
 const CHART_LABEL = 'Revenue at risk by plant';
 
-/** Renders the control with the props a test does not vary. */
+/** A callback for the cases that assert on the rendered control rather than on the request. */
+const noop = (): void => {};
+
+/**
+ * Renders the control with the props a case does not vary, and hands back its button — the only
+ * element the component renders.
+ *
+ * `chartLabel` is applied only when it is supplied, because the component distinguishes an absent
+ * label from a present one and an explicit `undefined` would not exercise that distinction.
+ */
 function renderToggle(
   viewing: Viewing,
-  onViewingChange: (next: Viewing) => void,
-): ReturnType<typeof render> {
-  return render(<ViewAsTableToggle viewing={viewing} onViewingChange={onViewingChange} />);
+  onViewingChange: (next: Viewing) => void = noop,
+  chartLabel?: string,
+): HTMLButtonElement {
+  render(
+    chartLabel === undefined ? (
+      <ViewAsTableToggle viewing={viewing} onViewingChange={onViewingChange} />
+    ) : (
+      <ViewAsTableToggle
+        viewing={viewing}
+        onViewingChange={onViewingChange}
+        chartLabel={chartLabel}
+      />
+    ),
+  );
+  return screen.getByRole('button');
 }
 
+/** Leaves `<html>` on the default theme for whichever suite runs next. */
+afterEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+});
+
 describe('ViewAsTableToggle', () => {
-  it('states the chart view as "View as table" and the table view as "View as chart"', () => {
-    // The wording is fixed by success criterion 9 and quoted by the browser checks, so it is
-    // asserted here as the single owner's own value rather than retyped in each test.
-    expect(VIEW_AS_TABLE_LABELS.showTable).toBe('View as table');
-    expect(VIEW_AS_TABLE_LABELS.showChart).toBe('View as chart');
-  });
+  it('offers the table while the chart is shown, announcing the pressed state as false', () => {
+    const toggle = renderToggle('chart');
 
-  it('offers the table while the chart is shown, with aria-pressed false', () => {
-    renderToggle('chart', vi.fn());
-
-    const toggle = screen.getByRole('button', { name: VIEW_AS_TABLE_LABELS.showTable });
-
-    expect(toggle).toHaveTextContent(VIEW_AS_TABLE_LABELS.showTable);
+    expect(toggle).toHaveAccessibleName(showTable);
+    expect(toggle).toHaveTextContent(showTable);
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
     expect(toggle).toBeEnabled();
   });
 
-  it('offers the chart while the table is shown, with aria-pressed true', () => {
-    renderToggle('table', vi.fn());
+  it('offers the chart while the table is shown, announcing the pressed state as true', () => {
+    const toggle = renderToggle('table');
 
-    const toggle = screen.getByRole('button', { name: VIEW_AS_TABLE_LABELS.showChart });
-
-    expect(toggle).toHaveTextContent(VIEW_AS_TABLE_LABELS.showChart);
+    expect(toggle).toHaveAccessibleName(showChart);
+    expect(toggle).toHaveTextContent(showChart);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle).toBeEnabled();
   });
 
   it('asks for the table when activated from the chart view', async () => {
     const onViewingChange = vi.fn();
-    renderToggle('chart', onViewingChange);
+    const toggle = renderToggle('chart', onViewingChange);
 
-    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(toggle);
 
     expect(onViewingChange).toHaveBeenCalledTimes(1);
     expect(onViewingChange).toHaveBeenCalledWith('table');
@@ -71,63 +100,113 @@ describe('ViewAsTableToggle', () => {
 
   it('asks for the chart when activated from the table view', async () => {
     const onViewingChange = vi.fn();
-    renderToggle('table', onViewingChange);
+    const toggle = renderToggle('table', onViewingChange);
 
-    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(toggle);
 
     expect(onViewingChange).toHaveBeenCalledTimes(1);
     expect(onViewingChange).toHaveBeenCalledWith('chart');
   });
 
-  it('is reachable and operable by keyboard alone', async () => {
-    const user = userEvent.setup();
+  it.each([
+    { keyPress: '{Enter}', keyName: 'Enter' },
+    // user-event addresses the space bar by its physical code: its keyboard map names no `Space`
+    // key, so `{Space}` would arrive as an unknown key and prove nothing about the control.
+    { keyPress: '[Space]', keyName: 'Space' },
+  ])(
+    'T-16 activates by keyboard alone with $keyName, requesting the table exactly once',
+    async ({ keyPress }) => {
+      const user = userEvent.setup();
+      const onViewingChange = vi.fn();
+      const toggle = renderToggle('chart', onViewingChange);
+
+      await user.tab();
+      expect(toggle).toHaveFocus();
+
+      await user.keyboard(keyPress);
+
+      expect(onViewingChange).toHaveBeenCalledTimes(1);
+      expect(onViewingChange).toHaveBeenCalledWith('table');
+    },
+  );
+
+  it('stays on the representation its parent supplies until the parent switches it', async () => {
     const onViewingChange = vi.fn();
-    renderToggle('chart', onViewingChange);
+    const toggle = renderToggle('chart', onViewingChange);
 
-    await user.tab();
+    await userEvent.click(toggle);
 
-    const toggle = screen.getByRole('button', { name: VIEW_AS_TABLE_LABELS.showTable });
-    expect(toggle).toHaveFocus();
-
-    await user.keyboard('{Enter}');
-    expect(onViewingChange).toHaveBeenLastCalledWith('table');
-
-    await user.keyboard(' ');
-    expect(onViewingChange).toHaveBeenLastCalledWith('table');
-    expect(onViewingChange).toHaveBeenCalledTimes(2);
+    // The control holds no state: with a fixed `viewing` prop it reports the request and keeps
+    // showing the chart until the parent renders the value it was asked for.
+    expect(onViewingChange).toHaveBeenCalledWith('table');
+    expect(toggle).toHaveAccessibleName(showTable);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('button', { name: showChart })).toBeNull();
   });
 
-  it('names the chart it belongs to when a chart label is supplied', () => {
-    render(<ViewAsTableToggle viewing="chart" onViewingChange={vi.fn()} chartLabel={CHART_LABEL} />);
+  it.each([
+    { chartLabel: CHART_LABEL, expectedName: `${showTable}: ${CHART_LABEL}` },
+    { chartLabel: undefined, expectedName: showTable },
+  ])(
+    'names the chart it belongs to so two toggles are distinct, falling back to the label alone (chartLabel: $chartLabel)',
+    ({ chartLabel, expectedName }) => {
+      const toggle = renderToggle('chart', noop, chartLabel);
 
-    const toggle = screen.getByRole('button', {
-      name: `${VIEW_AS_TABLE_LABELS.showTable}: ${CHART_LABEL}`,
-    });
+      expect(toggle).toHaveAccessibleName(expectedName);
+      // The visible label stays a prefix of the accessible name, so the text a user reads and the
+      // name a screen reader announces agree.
+      expect(toggle).toHaveTextContent(showTable);
+    },
+  );
 
-    // The visible label stays a prefix of the accessible name, so the two agree for a
-    // speech-recognition user as well as a screen-reader user.
-    expect(toggle).toHaveTextContent(VIEW_AS_TABLE_LABELS.showTable);
+  it('renders one native button, with no role override and no tab stop of its own', () => {
+    const toggle = renderToggle('chart');
+
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle).toHaveAttribute('type', 'button');
+    expect(toggle).not.toHaveAttribute('tabindex');
+    expect(toggle.tabIndex).toBe(0);
+    expect(document.querySelector('[role="button"]')).toBeNull();
+    // Rule P-8: a control that cannot act must not exist, so neither disabled attribute appears.
+    expect(toggle).not.toHaveAttribute('disabled');
+    expect(toggle).not.toHaveAttribute('aria-disabled');
   });
 
-  it('renders exactly one native button, with no tabIndex and no pointer-only surface', () => {
-    const { container } = renderToggle('chart', vi.fn());
+  it('meets the 24x24 px target and carries the focus-ring token, with no shadow', () => {
+    const toggle = renderToggle('chart');
 
-    const buttons = screen.getAllByRole('button');
-
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]?.tagName).toBe('BUTTON');
-    expect(buttons[0]).toHaveAttribute('type', 'button');
-    expect(buttons[0]).not.toHaveAttribute('tabindex');
-    expect(container.querySelector('[role="button"]')).toBeNull();
+    // Rule B-3's minimum target is asserted as the tokens that produce it at the 4 px spacing
+    // scale, and the focus ring as the 2 px `--color-focus-ring` outline drawn for keyboard focus.
+    expect(toggle).toHaveClass('min-h-6');
+    expect(toggle).toHaveClass('min-w-6');
+    expect(toggle).toHaveClass('focus-visible:outline-2');
+    expect(toggle).toHaveClass('focus-visible:outline-focus-ring');
+    expect(toggle).toHaveClass('rounded-control');
+    expect(toggle).toHaveClass('border-control-boundary');
+    // Specification §4.3 exposes no shadow token, so an elevated control must not exist.
+    expect(toggle.className).not.toMatch(/\bshadow-/);
   });
 
-  it('appends a caller class for layout without dropping its own styling', () => {
-    render(<ViewAsTableToggle viewing="chart" onViewingChange={vi.fn()} className="self-end" />);
+  it.each(['command', 'paper'] as const)(
+    'renders under the %s theme from role tokens alone',
+    (theme) => {
+      document.documentElement.dataset.theme = theme;
 
-    expect(screen.getByRole('button')).toHaveClass('self-end', 'rounded-control');
-  });
+      const toggle = renderToggle('chart');
 
-  it('follows the parent that owns the viewing state', async () => {
+      expect(document.documentElement.dataset.theme).toBe(theme);
+      // Each theme file supplies the value behind these role tokens, so the control renders
+      // unchanged under both and picks no palette value of its own.
+      expect(toggle).toHaveClass('text-text-secondary');
+      expect(toggle).toHaveClass('border-control-boundary');
+      expect(toggle).toHaveClass('focus-visible:outline-focus-ring');
+      expect(toggle.className).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+      expect(toggle).toBeEnabled();
+    },
+  );
+
+  it('follows the parent that owns the viewing state, from the chart to the table and back', async () => {
     const user = userEvent.setup();
 
     function Harness(): ReactElement {
@@ -137,16 +216,22 @@ describe('ViewAsTableToggle', () => {
 
     render(<Harness />);
 
-    await user.click(screen.getByRole('button', { name: VIEW_AS_TABLE_LABELS.showTable }));
+    await user.click(screen.getByRole('button', { name: showTable }));
 
-    const switched = screen.getByRole('button', { name: VIEW_AS_TABLE_LABELS.showChart });
+    const switched = screen.getByRole('button', { name: showChart });
     expect(switched).toHaveAttribute('aria-pressed', 'true');
 
     await user.click(switched);
 
-    expect(screen.getByRole('button', { name: VIEW_AS_TABLE_LABELS.showTable })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: showTable })).toHaveAttribute(
       'aria-pressed',
       'false',
     );
+  });
+
+  it('keeps the caller layout class alongside its own styling', () => {
+    render(<ViewAsTableToggle viewing="chart" onViewingChange={noop} className="self-end" />);
+
+    expect(screen.getByRole('button')).toHaveClass('self-end', 'rounded-control');
   });
 });

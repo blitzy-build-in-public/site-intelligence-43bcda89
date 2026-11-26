@@ -1,3 +1,16 @@
+/**
+ * Component suite for `tooltip.tsx`: the hint that explains a control which cannot act, and the
+ * button pattern that cannot exist without one.
+ *
+ * Two rules are under test. Rule P-8 requires every button to either perform its function or be
+ * visibly disabled with a text explanation, and rule B-3 requires that explanation to be reachable
+ * and operable by keyboard with a visible focus indicator. The reason is therefore asserted on both
+ * paths it has to take — keyboard focus and pointer hover — because either path alone would leave
+ * a user without the explanation, and the disabled control is asserted to refuse activation from
+ * both. Nothing here hashes or reads the clock, so the jsdom environment `vite.config.ts` sets by
+ * default applies.
+ */
+
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -11,6 +24,16 @@ function renderTooltippedButton(): HTMLButtonElement {
     <Tooltip label={STAGE_REASON}>
       <button type="button">Open part</button>
     </Tooltip>,
+  );
+  return screen.getByRole('button', { name: 'Open part' });
+}
+
+/** Renders a disabled `ActionButton` and returns the element it produced. */
+function renderDisabledButton(onClick: () => void): HTMLButtonElement {
+  render(
+    <ActionButton disabled disabledReason={STAGE_REASON} onClick={onClick}>
+      Open part
+    </ActionButton>,
   );
   return screen.getByRole('button', { name: 'Open part' });
 }
@@ -93,7 +116,7 @@ describe('Tooltip', () => {
 });
 
 describe('ActionButton', () => {
-  it('runs the caller handler when it is enabled and clicked', async () => {
+  it('runs the caller handler once per pointer activation while it is enabled', async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();
     render(<ActionButton onClick={onClick}>Request approval for selected plan</ActionButton>);
@@ -105,27 +128,71 @@ describe('ActionButton', () => {
     expect(button).not.toHaveAttribute('aria-disabled');
   });
 
-  it('refuses the click, stays focusable and explains itself when it is disabled', async () => {
+  it('runs the caller handler once per keyboard activation, from Enter and from Space', async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();
-    render(
-      <ActionButton disabled disabledReason={STAGE_REASON} onClick={onClick}>
-        Open part
-      </ActionButton>,
-    );
-    const button = screen.getByRole('button', { name: 'Open part' });
-
-    expect(button).toHaveAttribute('aria-disabled', 'true');
-    expect(button).not.toHaveAttribute('disabled');
+    render(<ActionButton onClick={onClick}>Verify chain</ActionButton>);
+    const button = screen.getByRole('button', { name: 'Verify chain' });
 
     await user.tab();
     expect(button).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    await user.keyboard(' ');
+    expect(onClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('T-16 keeps a disabled control in the tab order and resolves its description to the reason', async () => {
+    const user = userEvent.setup();
+    const button = renderDisabledButton(vi.fn());
+
+    /* The native `disabled` attribute takes a control out of the tab order, which is the defect
+       this assertion exists to prevent: the explanation rule P-8 requires would then be silent to
+       a screen reader and unreachable by keyboard, against rule B-3. */
+    expect(button).not.toHaveAttribute('disabled');
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+
+    await user.tab();
+
+    expect(button).toHaveFocus();
+    expect(screen.getByRole('tooltip')).toHaveTextContent(STAGE_REASON);
+
+    const describedBy = button.getAttribute('aria-describedby');
+    expect(describedBy).not.toBeNull();
+    const description = document.getElementById(describedBy ?? '');
+    expect(description).not.toBeNull();
+    expect(description).toHaveAttribute('role', 'tooltip');
+    expect(description).toHaveTextContent(STAGE_REASON);
+    expect(button).toHaveAccessibleDescription(STAGE_REASON);
+  });
+
+  it('shows the same reason on pointer hover as it does on keyboard focus', async () => {
+    const user = userEvent.setup();
+    const button = renderDisabledButton(vi.fn());
+
+    await user.hover(button);
+
     expect(screen.getByRole('tooltip')).toHaveTextContent(STAGE_REASON);
     expect(button).toHaveAccessibleDescription(STAGE_REASON);
 
+    await user.unhover(button);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('refuses activation from the pointer and from the keyboard while it is disabled', async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const button = renderDisabledButton(onClick);
+
     await user.click(button);
+    await user.tab();
     await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+
     expect(onClick).not.toHaveBeenCalled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('renders both variants from the role utilities only', () => {
@@ -143,12 +210,26 @@ describe('ActionButton', () => {
     expect(primary).toHaveClass('text-action-primary-fg');
     expect(secondary).toHaveClass('bg-surface-2');
     expect(secondary).toHaveClass('border-control-boundary');
+    expect(primary).not.toHaveClass('bg-surface-2');
     for (const button of [primary, secondary]) {
       expect(button).toHaveClass('rounded-control');
-      expect(button).toHaveClass('min-h-6');
-      expect(button).toHaveClass('min-w-6');
       expect(button).not.toHaveClass('shadow-md');
     }
+  });
+
+  it('carries the 24x24 px minimum target and the theme focus-ring role', () => {
+    render(<ActionButton>Ask a suggested question</ActionButton>);
+
+    const button = screen.getByRole('button', { name: 'Ask a suggested question' });
+
+    /* Rule B-3 needs a 24x24 px target and a visible focus indicator. Both are asserted as the
+       tokens that produce them — `min-h-6 min-w-6` is 1.5rem on the 4 px/0.25rem scale, and the
+       ring is the themes' `--color-focus-ring` role at 2 px, drawn for keyboard focus only. */
+    expect(button).toHaveClass('min-h-6');
+    expect(button).toHaveClass('min-w-6');
+    expect(button).toHaveClass('focus-visible:outline-2');
+    expect(button).toHaveClass('focus-visible:outline-offset-2');
+    expect(button).toHaveClass('focus-visible:outline-focus-ring');
   });
 
   it('keeps the layout classes the calling screen passes', () => {

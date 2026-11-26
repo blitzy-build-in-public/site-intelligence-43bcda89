@@ -3,15 +3,17 @@
  *
  * Each case asserts a contract the component promises rather than its markup: the caption that
  * names the table (B-3), the scoped column headers, the sort control that is a real button reporting
- * `aria-sort`, the `J`/`K` row cursor with its wrap-around and single tab stop (AAP §0.12.4), `Enter`
- * and double-click activation, the keys the cursor must leave to the controls it passes through, and
+ * `aria-sort` while the order stays the caller's own, the `J`/`K` row cursor with its wrap-around, its
+ * single tab stop and its focus-ring token (AAP §0.12.4, T-16), `Enter` and double-click activation,
+ * the keys the cursor must leave to the fields and controls it passes through, row heights that
+ * resolve through `--row-height` rather than a pixel value, the same table under both themes, and
  * both empty renderings. The cells hold made-up labels because the component computes nothing (P-6):
  * what a cell shows is entirely the caller's `render`.
  */
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DataTable } from './data-table';
 import type { TableColumn, TableSort } from './data-table';
@@ -95,6 +97,30 @@ function renderTable(options: TableOptions = {}): void {
   );
 }
 
+/** The two themes the switch offers, named as `src/theme/theme-provider.tsx` writes them. */
+const THEMES = ['command', 'paper'] as const;
+
+/** The two row densities, which reach a table only through the `--row-height` token. */
+const DENSITIES = ['compact', 'comfortable'] as const;
+
+/**
+ * Sets a root-scoped attribute for one case, which is where the theme provider puts the theme and
+ * the density. `tokens.css` binds `[data-density]` to `--row-height`, so rendering "under a density"
+ * means exactly this attribute and nothing the table itself has to know about.
+ */
+function setRootAttribute(
+  name: 'data-theme' | 'data-density',
+  value: (typeof THEMES)[number] | (typeof DENSITIES)[number],
+): void {
+  document.documentElement.setAttribute(name, value);
+}
+
+/** Leaves no attribute behind for the next case, since jsdom keeps the document root between tests. */
+afterEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+  document.documentElement.removeAttribute('data-density');
+});
+
 describe('DataTable', () => {
   it('names the table with the supplied caption', () => {
     renderTable();
@@ -116,6 +142,23 @@ describe('DataTable', () => {
       'Name',
       'State',
     ]);
+  });
+
+  it('renders one body row per supplied row with one cell per column', () => {
+    renderTable();
+
+    expect(bodyRows()).toHaveLength(ROWS.length);
+    for (const [index, row] of bodyRows().entries()) {
+      const source = ROWS[index];
+      if (source === undefined) {
+        throw new Error(`the table rendered no row at index ${index}`);
+      }
+      const cells = within(row).getAllByRole('cell');
+      expect(cells).toHaveLength(COLUMNS.length);
+      const [nameCell, stateCell] = cells;
+      expect(nameCell).toHaveTextContent(source.name);
+      expect(stateCell).toHaveTextContent('Awaiting review');
+    }
   });
 
   it('renders a sort control only for a sortable column, named by its header text', () => {
@@ -163,14 +206,58 @@ describe('DataTable', () => {
     expect(onSort).toHaveBeenCalledWith('name');
   });
 
-  it('starts with the first row as the only tab stop', () => {
+  it('reports each sort activation without reordering the rows', async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+    renderTable({ onSort });
+
+    const control = screen.getByRole('button', { name: 'Name' });
+    await user.click(control);
+    await user.click(control);
+
+    expect(onSort).toHaveBeenCalledTimes(2);
+    expect(onSort).toHaveBeenNthCalledWith(1, 'name');
+    expect(onSort).toHaveBeenNthCalledWith(2, 'name');
+    // The order is the caller's state: the table re-renders only when a new `sort` prop arrives,
+    // so two activations report twice and still show the rows in the caller's own order.
+    expect(bodyRows().map((row) => row.textContent)).toEqual(
+      ROWS.map((row) => `${row.name}Awaiting review`),
+    );
+    expect(screen.getAllByRole('columnheader')[0]).toHaveAttribute(
+      'aria-sort',
+      'none',
+    );
+  });
+
+  it('T-16 starts with the first row as the only tab stop', () => {
     renderTable();
 
     expect(cursorRow()).toBe(rowAt(0));
     expect(bodyRows()).toHaveLength(ROWS.length);
   });
 
-  it('moves the row cursor forward on J and back on K', async () => {
+  it('T-16 draws the focus-ring token on the row it moves focus to', async () => {
+    const user = userEvent.setup();
+    renderTable();
+    rowAt(0).focus();
+
+    // The visible focus indicator B-3 requires: a 2px ring in the theme's focus-ring role token,
+    // drawn only on keyboard focus so a pointer user never sees it.
+    const focusRingClass = 'focus-visible:outline-focus-ring';
+    expect(rowAt(0).className).toContain(focusRingClass);
+    expect(rowAt(0).className).toContain('outline-none');
+
+    await user.keyboard('j');
+
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLTableRowElement)) {
+      throw new Error('J moved focus off the table rows');
+    }
+    expect(focused).toBe(rowAt(1));
+    expect(focused.className).toContain(focusRingClass);
+  });
+
+  it('T-16 moves the row cursor forward on J and back on K', async () => {
     const user = userEvent.setup();
     renderTable();
     rowAt(0).focus();
@@ -184,7 +271,7 @@ describe('DataTable', () => {
     expect(cursorRow()).toBe(rowAt(0));
   });
 
-  it('wraps the row cursor at both ends', async () => {
+  it('T-16 wraps the row cursor at both ends', async () => {
     const user = userEvent.setup();
     renderTable();
     rowAt(ROWS.length - 1).focus();
@@ -196,7 +283,7 @@ describe('DataTable', () => {
     expect(document.activeElement).toBe(rowAt(ROWS.length - 1));
   });
 
-  it('opens the focused row on Enter', async () => {
+  it('T-16 opens the focused row on Enter', async () => {
     const user = userEvent.setup();
     const onRowActivate = vi.fn();
     renderTable({ onRowActivate });
@@ -219,7 +306,17 @@ describe('DataTable', () => {
     expect(onRowActivate).toHaveBeenCalledWith(ROWS[2]);
   });
 
-  it('leaves J and Enter to a control inside a row', async () => {
+  it('switches the row hover transition off under reduced motion', () => {
+    renderTable();
+
+    // B-3: a row that opens something fades its hover ground in over 150ms, and a reader who asks
+    // for reduced motion gets the same affordance with no transition at all.
+    const first = rowAt(0);
+    expect(first).toHaveClass('transition-colors');
+    expect(first).toHaveClass('motion-reduce:transition-none');
+  });
+
+  it('T-16 leaves J and Enter to a control inside a row', async () => {
     const user = userEvent.setup();
     const onRowActivate = vi.fn();
     const columns = [
@@ -244,12 +341,42 @@ describe('DataTable', () => {
     expect(onRowActivate).not.toHaveBeenCalled();
   });
 
+  it('T-16 leaves J and Enter typed into a field to that field', async () => {
+    const user = userEvent.setup();
+    const onRowActivate = vi.fn();
+    const columns = [
+      ...COLUMNS,
+      {
+        id: 'note',
+        header: 'Note',
+        render: () => <input aria-label="Shift note" />,
+      },
+    ] as const satisfies readonly TableColumn<Row>[];
+    renderTable({ columns, onRowActivate });
+
+    const field = within(rowAt(1)).getByRole('textbox', { name: 'Shift note' });
+    field.focus();
+    expect(document.activeElement).toBe(field);
+
+    // In a text field J and K are characters, not cursor moves: the keys reach the field and the
+    // row cursor stays on the row that holds it instead of advancing to the next row.
+    await user.keyboard('jk');
+    expect(document.activeElement).toBe(field);
+    expect(field).toHaveValue('jk');
+    expect(cursorRow()).toBe(rowAt(1));
+
+    await user.keyboard('{Enter}');
+    expect(onRowActivate).not.toHaveBeenCalled();
+  });
+
   it('renders the empty message in one cell spanning every column', () => {
     renderTable({ rows: [], emptyMessage: 'Nothing matches these filters' });
 
     const cell = within(rowAt(0)).getByRole('cell');
     expect(cell).toHaveTextContent('Nothing matches these filters');
     expect(cell).toHaveAttribute('colspan', String(COLUMNS.length));
+    // The empty message replaces the rows, not the columns: the header still names what is missing.
+    expect(screen.getAllByRole('columnheader')).toHaveLength(COLUMNS.length);
     expect(
       bodyRows().filter((row) => row.getAttribute('tabindex') === '0'),
     ).toHaveLength(0);
@@ -270,7 +397,9 @@ describe('DataTable', () => {
     expect(screen.getByRole('cell')).toBeEmptyDOMElement();
   });
 
-  it('renders no interactive row when the caller supplies no activation', () => {
+  it('T-16 announces no row as a control and takes no key action when the caller supplies no activation', async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
     render(
       <DataTable<Row>
         columns={COLUMNS}
@@ -278,10 +407,63 @@ describe('DataTable', () => {
         getRowKey={(row) => row.key}
         caption={CAPTION}
         sort={null}
-        onSort={noop}
+        onSort={onSort}
       />,
     );
 
-    expect(rowAt(0)).not.toHaveClass('cursor-pointer');
+    const first = rowAt(0);
+    // A row that opens nothing is not a control: no pointer affordance, no role, no button inside.
+    expect(first).not.toHaveClass('cursor-pointer');
+    expect(first).not.toHaveAttribute('role');
+    expect(within(first).queryByRole('button')).toBeNull();
+
+    first.focus();
+    await user.keyboard('{Enter}');
+
+    expect(onSort).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(first);
+    expect(bodyRows().map((row) => row.getAttribute('tabindex'))).toEqual([
+      '0',
+      '-1',
+      '-1',
+    ]);
   });
+
+  for (const density of DENSITIES) {
+    it(`sizes its rows from the --row-height token under ${density} density`, () => {
+      setRootAttribute('data-density', density);
+      renderTable();
+
+      expect(document.documentElement).toHaveAttribute('data-density', density);
+      for (const row of bodyRows()) {
+        // The height is the density token, so the global switch resizes every table in the app.
+        expect(row.className).toContain('h-[var(--row-height)]');
+        // A pixel height here would ignore the switch entirely.
+        expect(row.className).not.toMatch(/\d+px/);
+        expect(row.getAttribute('style')).toBeNull();
+      }
+    });
+  }
+
+  for (const theme of THEMES) {
+    it(`renders the same table under the ${theme} theme through role tokens only`, () => {
+      setRootAttribute('data-theme', theme);
+      renderTable();
+
+      expect(document.documentElement).toHaveAttribute('data-theme', theme);
+      expect(screen.getByRole('table')).toHaveAccessibleName(CAPTION);
+      expect(screen.getAllByRole('columnheader')).toHaveLength(COLUMNS.length);
+      expect(bodyRows()).toHaveLength(ROWS.length);
+      expect(cursorRow()).toBe(rowAt(0));
+
+      // Colour reaches the markup only as a role token (`text-text-primary`, `border-hairline`), so
+      // both themes resolve at runtime and neither palette is baked into the component.
+      const table = screen.getByRole('table');
+      for (const element of Array.from(table.querySelectorAll('[class]'))) {
+        expect(element.getAttribute('class') ?? '').not.toMatch(
+          /#[0-9a-f]{3,8}|\brgba?\(/i,
+        );
+      }
+    });
+  }
 });
