@@ -1,0 +1,97 @@
+/*
+ * Role tokens form the single bridge between the two theme palette files and
+ * Tailwind. src/styles/index.css loads tailwindcss, command.css and paper.css
+ * ahead of this file and owns that order, so nothing is loaded twice and this
+ * file pulls in no other stylesheet.
+ *
+ * The block below is declared inline because every role value is a reference to
+ * another custom property. Declared that way, Tailwind emits the referenced
+ * variable into each utility instead of copying a literal, so `bg-ground`
+ * compiles to `background-color: var(--palette-ground)` and the same class
+ * resolves per theme at runtime. Clearing the colour namespace first removes
+ * Tailwind's default palette, so the only colour utility that exists is a role
+ * token, and raw palette values stay in the theme files where a component
+ * cannot select them.
+ */
+
+@theme inline {
+  --color-*: initial;
+
+  /* Surfaces and text */
+  --color-ground: var(--palette-ground);
+  --color-surface-1: var(--palette-surface-1);
+  --color-surface-2: var(--palette-surface-2);
+  --color-text-primary: var(--palette-text-primary);
+  --color-text-secondary: var(--palette-text-secondary);
+  --color-text-caption: var(--palette-text-caption);
+
+  /* Boundaries */
+  --color-control-boundary: var(--palette-control-boundary);
+  --color-hairline: var(--palette-hairline);
+
+  /* Accent and primary action */
+  --color-accent: var(--palette-accent);
+  --color-action-primary-bg: var(--palette-action-primary-bg);
+  --color-action-primary-fg: var(--palette-action-primary-fg);
+
+  /* Focus ring and map land */
+  --color-focus-ring: var(--palette-focus-ring);
+  --color-map-land: var(--palette-map-land);
+
+  /* Status vocabulary, specification §4.2: one colour per meaning. These are
+     the six meanings a status indicator renders, and each is always shown
+     together with its icon and its label. */
+  --color-status-pass: var(--palette-status-pass);
+  --color-status-fail: var(--palette-status-fail);
+  --color-status-warning: var(--palette-status-warning);
+  --color-status-review: var(--palette-status-review);
+  --color-status-empty: var(--palette-status-empty);
+  --color-status-simulated: var(--palette-status-simulated);
+
+  /* Competitor series, specification §4.2: CMP-01, CMP-02 and CMP-03 in this
+     order, so a legend, a radar series and an atlas mark agree on which colour
+     belongs to which company. */
+  --color-competitor-1: var(--palette-competitor-1);
+  --color-competitor-2: var(--palette-competitor-2);
+  --color-competitor-3: var(--palette-competitor-3);
+
+  /* Specification §4.3: no shadows. Clearing the namespace leaves no
+     box-shadow utility to select. */
+  --shadow-*: initial;
+
+  /* Specification §4.3 fixes the type scale, so it is closed at these six
+     sizes and no other size is available as a utility. */
+  --text-*: initial;
+  --font-sans: "Urbanist", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --text-12: 12px;
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+  --text-28: 28px;
+
+  /* Radii, specification §4.3. The default radius namespace stays available
+     because a circular mark legitimately needs the full radius; these three
+     are additions, not replacements. */
+  --radius-control: 2px;
+  --radius-card: 4px;
+  --radius-panel: 8px;
+}
+
+/* Row density, specification §4.3: plain custom properties, so both the
+   density rules below and the data table read the same values. */
+:root {
+  --row-compact: 32px;
+  --row-comfortable: 44px;
+}
+
+/* theme-provider.tsx sets data-density on <html> before the first paint, and
+   the data table sizes its rows from --row-height. */
+[data-density="compact"] {
+  --row-height: var(--row-compact);
+}
+
+[data-density="comfortable"] {
+  --row-height: var(--row-comfortable);
+}
