@@ -598,6 +598,12 @@ export function ComparisonMatrix({
                           {scenario.name}
                         </button>
                       )}
+                      {/* The option's own identifier, so every column is identifiable by the
+                          reference the rest of the screen quotes — the recommendation block, the
+                          set-aside list, an evidence reference and the audit trail — rather than by
+                          its name alone. It is an identifier, not a figure, so it is not wrapped in
+                          an evidence trigger. */}
+                      <MonoValue kind="id" value={scenario.id} />
                       <StatusIndicator
                         meaning="simulated"
                         label={ORIGIN_SIM_LABEL[scenario.origin]}
