@@ -25,7 +25,11 @@
  * would be a cycle.
  *
  * OPEN ITEM: contracts §7.1 is the authority for the exact cells and is not readable in this run, so
- * every cell below is settled from the AAP fact that names it and stays open to correction:
+ * every cell below is settled from the AAP fact that names it and stays open to correction. The table
+ * covers 8 roles x 14 permissions = 112 cells, of which 40 are granted and 72 are denied; those 40
+ * grants are a documented derivation rather than a transcription, and `platform-contracts.md` §7.1
+ * supersedes every line of it, the holder sets recorded below included, the moment §7.1 is supplied.
+ * Per cell:
  * - `approval.decide` to `plant-manager` alone — the persona table (AAP 0.2.3), the plant manager's
  *   home route `/approvals` (AAP 0.12.4) and the journey in which a planner requests a plan and the
  *   plant manager decides it (AAP 0.2.2, T-07, T-08). `Approval.eligibleApproverRoles` is a list, so
@@ -36,21 +40,26 @@
  * - `sovereignty.read` and `policy.read` to `platform-administrator` and `auditor`; `admin.read` and
  *   `policy.exception.request` to `platform-administrator` alone, from its home route
  *   `/admin/sovereignty` and the time-boxed exception it grants (AAP 0.12.4, SCR-07).
- * - `document.confidential.read` to the planning roles, and to neither the platform administrator
- *   nor the external supplier engineer: USR-04 cannot open the body of a customer-confidential
- *   document, which the mock adapter redacts inside the service (AAP 0.2.1).
- * - `competitive.read` to every role except the external supplier engineer, for whom
- *   `GET /market-intelligence/atlas` is forbidden (AAP 0.12.3).
+ * - `document.confidential.read` to `material-planner`, `plant-manager` and `head-of-supply-chain`,
+ *   and to neither the platform administrator nor the external supplier engineer: USR-04 cannot open
+ *   the body of a customer-confidential document, which the mock adapter redacts inside the service
+ *   (AAP 0.2.1), and the planning role `production-planner` holds none.
+ * - `competitive.read` to `plant-manager`, `head-of-supply-chain` and `platform-administrator`, and to
+ *   none of the other five roles: `GET /market-intelligence/atlas` is forbidden for the external
+ *   supplier engineer (AAP 0.12.3) and SCR-13 is forbidden for that persona (AAP 0.12.4), while no
+ *   input fixes the cell for the four roles left, so the holder set is part of the derivation above.
  * - `evidence.read` to all eight roles: every figure a screen shows opens its evidence (principle
  *   PR-6), so a role that may see a figure must be able to open the evidence behind it.
  * - `evidence.review` to `supplier-quality-engineer` alone, the role that reviews extraction
  *   (AAP 0.12.1).
- * - `exception.work` and `scenario.create` to the roles that assign, note, dismiss or compare
+ * - `exception.work` to `material-planner`, `plant-manager`, `production-planner` and
+ *   `supplier-quality-engineer`, and `scenario.create` to `material-planner`, `plant-manager`,
+ *   `head-of-supply-chain` and `production-planner`: the roles that assign, note, dismiss or compare
  *   options (AAP 0.12.4, SCR-02 row actions and SCR-04).
- * OPEN ITEM: specification §3 fixes each persona's own plant assignment and is not readable in this
- * run, so the plant scope below is the demonstration's declared default. The mock adapter builds each
- * seeded persona's `plantIds` from `plantScopeFor`, so the declared scope and the enforced scope
- * cannot disagree.
+ * OPEN ITEM: specification §3 fixes each persona's own plant assignment and is absent from this run,
+ * so the sets below are the demonstration's declared default; a supplied §3 transcribes over them
+ * without a consumer change. The mock adapter builds each persona's `plantIds` from `plantScopeFor`,
+ * and that output equals the record's own `plantScope` because the two tables state one fact.
  * OPEN ITEM: own-vendor message redaction is deliberately not a cell of this matrix. USR-08 sees only
  * its own vendor's pins and USR-04 never receives a customer-confidential document body, and the mock
  * adapter applies both before a record crosses the service boundary (AAP 0.2.1). Filtering here
@@ -73,29 +82,37 @@ export interface ScopedSubject {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * Plant scope — contracts §7.1, AAP 0.2.3
+ * Plant scope — contracts §7.1, AAP 0.12.2 (`Scope`)
  * ------------------------------------------------------------------------------------------- */
 
-/** The four plants of the demonstration, in the order AAP 0.2.3 lists them. */
+/** The four plants of the demonstration, in the order the `Scope` row of AAP 0.12.2 lists them. */
 const ALL_PLANTS: readonly PlantId[] = ['PLT-RGB', 'PLT-BRN', 'PLT-QRO', 'PLT-RAK'];
 
 /**
- * The plants each role's scope covers — contracts §7.1, with the assignments of AAP 0.2.3.
+ * The plants each role's scope covers — contracts §7.1, restating the seeded persona records.
  *
- * The head of supply chain, the platform administrator and the auditor span all four plants; every
- * other persona is scoped to the plant it works in, the supplier quality engineer included, and the
- * external supplier engineer sees the plant its supplier serves. No role is scoped to none: a role
- * that may act nowhere could not be named by a disabled control's explanation (rule P-8).
+ * Each persona's plant scope is declared once, by its record in `src/seed/users.ts`. This module
+ * imports types and nothing else (rule P-2), so it cannot read that seed and restates the eight sets
+ * here verbatim: the two tables state one fact and are changed together, and a plant added to a
+ * persona's record without its line here would make the declared scope and the enforced scope
+ * disagree. Every set contains the plant of each exception the persona owns, so the flagship
+ * `EXC-2026-1184` at `PLT-BRN` is inside `USR-01`'s scope and no owner is denied a record it owns.
+ *
+ * The head of supply chain, the platform administrator and the auditor span all four plants; the
+ * supplier quality engineer reaches all four between the plants it inspects and the exceptions it
+ * owns; every other persona is scoped to the plants it works in, and the external supplier engineer
+ * sees the plant its supplier serves. No role is scoped to none: a role that may act nowhere could
+ * not be named by a disabled control's explanation (rule P-8).
  */
 const PLANT_SCOPE = {
-  'material-planner': ['PLT-RGB'],
+  'material-planner': ['PLT-RGB', 'PLT-BRN'],
   'plant-manager': ['PLT-BRN'],
   'head-of-supply-chain': ALL_PLANTS,
   'platform-administrator': ALL_PLANTS,
-  'production-planner': ['PLT-RGB'],
+  'production-planner': ['PLT-BRN', 'PLT-QRO', 'PLT-RAK'],
   auditor: ALL_PLANTS,
-  'supplier-quality-engineer': ['PLT-QRO'],
-  'external-supplier-engineer': ['PLT-RAK'],
+  'supplier-quality-engineer': ['PLT-RGB', 'PLT-BRN', 'PLT-QRO', 'PLT-RAK'],
+  'external-supplier-engineer': ['PLT-BRN'],
 } as const satisfies Readonly<Record<Role, readonly PlantId[]>>;
 
 /**
@@ -249,14 +266,14 @@ export function hasPermission(
 }
 
 /**
- * The plants a role's scope covers — contracts §7.1, with the assignments of AAP 0.2.3.
+ * The plants a role's scope covers — contracts §7.1, restating the seeded persona records.
  *
  * The returned array is freshly allocated, so a caller may sort, filter or mutate it without
  * reaching the table behind it. It is never empty: a role that may act nowhere could not be named by
  * a disabled control's explanation (rule P-8).
  *
  * @param role The role to read the plant scope of.
- * @returns The role's plants, in the order AAP 0.2.3 lists them.
+ * @returns The role's plants, in the order the `Scope` row of AAP 0.12.2 lists them.
  */
 export function plantScopeFor(role: Role): PlantId[] {
   return [...PLANT_SCOPE[role]];

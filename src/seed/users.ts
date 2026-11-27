@@ -34,15 +34,22 @@
  *
  * Plant scope. A persona's `plantScope` is the fixed set its lists and aggregates are narrowed to,
  * intersected by the service with the top-bar plant filter (AAP 0.12.2, `Scope` in
- * `src/types/service.ts`). The assignment below is record content chosen from the shape the plant and
- * line records of `src/seed/plants.ts` give: a plant manager's single plant, the final-assembly plants
- * a material planner tracks, the two plants that each run exactly one final-assembly line for the
- * production planner, the plants whose incoming material the quality engineer inspects, the full set
- * for the three cross-plant roles, and one receiving plant for the external engineer — the narrowest
- * scope of the eight, which is what the mock adapter relies on when it narrows this persona's
- * evidence pins to its own vendor's records. Every scope therefore contains `PLT-BRN`, the plant the
- * demonstrated supply exception and the plan whose side effect the approval flow acknowledges are
- * recorded against, so the disruption of AAP 0.2.1 reaches every persona who can act on it.
+ * `src/types/service.ts`). One rule assigns it: a persona's scope covers the plants it works across
+ * and the plant of every exception it owns, so no owner is outside the scope of a record it owns.
+ * This record set holds that fact's one declaration; `src/domain/policy/permissions.ts` imports types
+ * and nothing else (rule P-2) and so restates the eight sets, which is why the two are changed
+ * together.
+ *
+ * The assignment below is record content chosen from the shape the plant and line records of
+ * `src/seed/plants.ts` give: a plant manager's single plant, the final-assembly plants a material
+ * planner tracks, the two plants that each run exactly one final-assembly line for the production
+ * planner, the plants whose incoming material the quality engineer inspects, the full set for the
+ * three cross-plant roles, and one receiving plant for the external engineer, which is what the mock
+ * adapter relies on when it narrows this persona's evidence pins to its own vendor's records. The
+ * rule above then extends the two sets whose owned exceptions reach past those plants, `USR-05` and
+ * `USR-07`. Every scope therefore contains `PLT-BRN`, the plant the demonstrated supply exception and
+ * the plan whose side effect the approval flow acknowledges are recorded against, so the disruption of
+ * AAP 0.2.1 reaches every persona who can act on it.
  *
  * Rules this module is built to satisfy:
  * - P-3: these records exist to drive a demonstration control. Nothing here states or implies that a
@@ -149,8 +156,11 @@ export const USERS: readonly SeededUser[] = [
     id: 'USR-05',
     name: 'Petra Novakova',
     role: 'production-planner',
-    /** The two plants that each run exactly one final-assembly line, which is the pair this role plans. */
-    plantScope: ['PLT-BRN', 'PLT-QRO'],
+    /**
+     * The two plants that each run exactly one final-assembly line, which is the pair this role
+     * plans, plus `PLT-RAK`, where it owns `EXC-2026-1186`.
+     */
+    plantScope: ['PLT-BRN', 'PLT-QRO', 'PLT-RAK'],
     homeRoute: '/canvas',
     jobTitle: 'Production planner',
   },
@@ -167,8 +177,11 @@ export const USERS: readonly SeededUser[] = [
     id: 'USR-07',
     name: 'Sofia Almeida',
     role: 'supplier-quality-engineer',
-    /** The two European plants whose incoming purchased material this role inspects. */
-    plantScope: ['PLT-RGB', 'PLT-BRN'],
+    /**
+     * The European plants whose incoming purchased material this role inspects, plus `PLT-QRO` for
+     * `EXC-2026-1187` and `EXC-2026-1189` and `PLT-RAK` for `EXC-2026-1192`, which it owns there.
+     */
+    plantScope: ['PLT-RGB', 'PLT-BRN', 'PLT-QRO', 'PLT-RAK'],
     homeRoute: '/canvas',
     jobTitle: 'Supplier quality engineer',
   },
@@ -176,7 +189,7 @@ export const USERS: readonly SeededUser[] = [
     id: 'USR-08',
     name: 'Jonas Weiler',
     role: 'external-supplier-engineer',
-    /** One receiving plant: the narrowest scope of the eight, as an outside engineer's view of it. */
+    /** One receiving plant, tied with the plant manager for the narrowest of the eight. */
     plantScope: ['PLT-BRN'],
     homeRoute: '/evidence',
     jobTitle: 'Supplier engineer, external',
