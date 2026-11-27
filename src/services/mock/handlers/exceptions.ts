@@ -418,8 +418,8 @@ function requireWork(ctx: HandlerContext, exception: OperationalException): void
  * (AAP 0.2.1). Nothing in this module re-derives a scope, reads a store or looks at a URL.
  *
  * @param ctx - The call's context, whose persona the role is read from.
- * @param selection - The shell's selection, as the adapter carried it: one plant and one product, each
- *   absent for "all".
+ * @param selection - The shell's selection, as the adapter carried it: the plants and the product it
+ *   names, each absent for "all".
  * @returns The resolved scope; its `plants` member empty means nothing is in scope.
  */
 function scopeOf(ctx: HandlerContext, selection: ScopeFilterInput): Scope {

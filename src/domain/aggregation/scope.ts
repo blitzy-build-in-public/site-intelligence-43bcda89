@@ -19,11 +19,14 @@
  *   `plantScopeFor` returns, so no plant table is restated beside it.
  *
  * What resolution does, member by member:
- * - `plants` is the selection intersected with `plantScopeFor(role)`. An absent selection is the
- *   "All plants" selection and resolves to the role's scope unfiltered. A selection naming a plant
- *   outside the role's scope resolves to an empty array: it is not widened to the role's scope and the
- *   role is not ignored, because the empty answer is what surfaces the empty or forbidden state
- *   instead of showing another plant's records.
+ * - `plants` is the selection intersected with `plantScopeFor(role)`, and the selection is read as a
+ *   set of plants rather than as a single value: a selection naming several plants resolves to the
+ *   ones of them the role reaches, so a two-plant selection narrows the population instead of being
+ *   set aside. An absent or empty selection — the `plantIds` list and the `plantId` member both
+ *   stating nothing — is the "All plants" selection and resolves to the role's scope unfiltered. A
+ *   selection every plant of which lies outside the role's scope resolves to an empty array: it is not
+ *   widened to the role's scope and the role is not ignored, because the empty answer is what surfaces
+ *   the empty or forbidden state instead of showing another plant's records.
  * - `products` is the selection passed through. Products are not plant-scoped — a product is built at
  *   the lines of more than one plant — so no role narrows the member and this module adds no rule of
  *   its own.
@@ -77,22 +80,29 @@ import { plantScopeFor } from '../policy/permissions';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The shell's selection as the top bar holds it: one plant filter and one product filter, each able to
- * stand for "all".
+ * The selection a read is narrowed by: the plants and the product it names, each able to stand for
+ * "all".
  *
  * Declared here rather than in `src/types` because it is not a contracts type but the minimal shape of
- * the call. The shell store in `src/app/` holds these two values and this module may not import that
- * folder (AAP 0.6.2, AAP 0.13.2), so the boundary is stated structurally instead. Precedent for a
+ * the call. The shell store in `src/app/` holds the top bar's filters and this module may not import
+ * that folder (AAP 0.6.2, AAP 0.13.2), so the boundary is stated structurally instead. Precedent for a
  * module-local exported type in this layer: `ScopedSubject` in `src/domain/policy/permissions.ts`.
  *
- * Both members take their type from `Scope` itself — a plant here is exactly one element of
- * `Scope['plants']` — so a single-value selection and the resolved collection cannot drift apart. A
- * member that is absent, or explicitly `undefined`, is the "All plants" or "All products" selection,
- * which is also the spelling a store holding `PlantId | undefined` hands over under
- * `exactOptionalPropertyTypes`.
+ * The plant selection has two spellings and one reading. `plantIds` states the whole selection — the
+ * shape a port member's `Scope.plants` arrives in — and `plantId` states the one plant the top bar's
+ * filter holds; where both are given, `plantIds` is the selection the caller means and `plantId` adds
+ * nothing to it. A member that is absent, empty or explicitly `undefined` is the "All plants" or
+ * "All products" selection, which is also the spelling a store holding `PlantId | undefined` hands
+ * over under `exactOptionalPropertyTypes`.
+ *
+ * Every member takes its type from `Scope` itself — a plant here is exactly one element of
+ * `Scope['plants']` — so a selection and the collection resolved from it cannot drift apart.
  */
 export interface ScopeFilterInput {
-  /** The selected plant, absent or `undefined` for "All plants". */
+  /** The selected plants, absent or empty for "All plants". */
+  readonly plantIds?: readonly Scope['plants'][number][] | undefined;
+
+  /** The one selected plant, absent or `undefined` for "All plants". */
   readonly plantId?: Scope['plants'][number] | undefined;
 
   /** The selected product, absent or `undefined` for "All products". */
@@ -104,10 +114,29 @@ export interface ScopeFilterInput {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * The plants a selection names, as the set the role's scope is intersected with.
+ *
+ * The caller's whole selection when it states one, so a two-plant selection narrows to those two
+ * plants rather than to the role's every plant; otherwise the top bar's single plant; otherwise
+ * nothing, which is the "All plants" selection. Reading both spellings into one set here is what keeps
+ * a single `Scope` from standing for two populations downstream (AAP 0.2.1).
+ *
+ * @param filters The top bar's plant and product selection, each member absent for "all".
+ * @returns The selected plants, in the caller's order; empty for "All plants".
+ */
+function selectedPlantsOf(filters: ScopeFilterInput): readonly Scope['plants'][number][] {
+  if (filters.plantIds !== undefined && filters.plantIds.length > 0) {
+    return filters.plantIds;
+  }
+
+  return filters.plantId === undefined ? [] : [filters.plantId];
+}
+
+/**
  * Resolves the shell's selection against a role's plant scope — contracts §5; AAP 0.12.1, scope
  * resolution.
  *
- * The plant list is built by walking the role's own scope and keeping the plant the selection names,
+ * The plant list is built by walking the role's own scope and keeping the plants the selection names,
  * which gives the intersection and the canonical order in one pass without a plant identifier written
  * into this file. The product selection is passed through, because no role narrows it.
  *
@@ -118,9 +147,9 @@ export interface ScopeFilterInput {
  *   inside the role's scope, which no reader may mistake for "all plants".
  */
 export function resolveScope(filters: ScopeFilterInput, role: Role): Scope {
-  const selectedPlant: Scope['plants'][number] | undefined = filters.plantId;
+  const selectedPlants: readonly Scope['plants'][number][] = selectedPlantsOf(filters);
   const plants: Scope['plants'] = plantScopeFor(role).filter(
-    (plant) => selectedPlant === undefined || plant === selectedPlant,
+    (plant) => selectedPlants.length === 0 || selectedPlants.includes(plant),
   );
 
   const selectedProduct: Scope['products'][number] | undefined = filters.productId;

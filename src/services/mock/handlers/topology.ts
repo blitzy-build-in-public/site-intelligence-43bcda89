@@ -667,8 +667,8 @@ function copyPinCounts(
  * scope, reads a store or looks at a URL.
  *
  * @param ctx The session and the persona the call acts as, whose role caps the selection.
- * @param selection The shell's selection as the adapter carried it: one plant and one product, each
- *   absent for "all".
+ * @param selection The shell's selection as the adapter carried it: the plants and the product it
+ *   names, each absent for "all".
  * @returns The resolved scope; its `plants` member empty means nothing is in scope.
  */
 function scopeOf(ctx: HandlerContext, selection: ScopeFilterInput): Scope {

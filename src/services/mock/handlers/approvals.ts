@@ -147,6 +147,7 @@ import type {
   Money,
   OperationalException,
   Permission,
+  PlantId,
   PolicyDecision,
   PolicyId,
   Problem,
@@ -873,8 +874,43 @@ function statusForDecision(ctx: HandlerContext, decision: Decision): ApprovalSta
 }
 
 /* ---------------------------------------------------------------------------------------------
- * H. Ordering and paging the inbox — contracts §9 list parameters
+ * H. Narrowing, ordering and paging the inbox — contracts §9 list parameters
  * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Whether an approval answers the two narrowings the inbox query carries beyond the role's scope.
+ *
+ * Each is applied only where the query states it: the status the caller asked for, and the plant set
+ * the shell's selection resolved to. The plant set is the resolver's answer for the acting role, so a
+ * set that names no plant means nothing is in scope rather than everything, and the set is tested
+ * against the exception the approval is the plan for, which is where an approval's plant lives. An
+ * approval whose exception the records do not hold is excluded rather than admitted: a scope filter
+ * fails closed, so a subject nobody can place is not a licence to hand the record to every role.
+ *
+ * @param ctx - The call's context, whose state the approval's exception is read from.
+ * @param approval - The approval to test.
+ * @param status - The status the query asked for, or `undefined` when it asked for every status.
+ * @param plantIds - The plants in scope, or `undefined` when the read is narrowed by no plant at all.
+ * @returns `true` when the approval answers every narrowing the query states.
+ */
+function admitsQuery(
+  ctx: HandlerContext,
+  approval: Approval,
+  status: ApprovalStatus | undefined,
+  plantIds: readonly PlantId[] | undefined,
+): boolean {
+  if (status !== undefined && approval.status !== status) {
+    return false;
+  }
+
+  if (plantIds === undefined) {
+    return true;
+  }
+
+  const exception = exceptionOf(ctx.state, approval);
+
+  return exception !== undefined && plantIds.includes(exception.plantId);
+}
 
 /**
  * The approval members a caller may order the inbox by, spelled as `sort=field:dir` names them.
@@ -1467,9 +1503,18 @@ function requireRecordEligibility(ctx: HandlerContext, approval: Approval): void
 /**
  * Reads the approval inbox: the plans inside the acting role's plant scope, ordered and paged.
  *
- * The scope is the contracts §7.1 matrix's own answer per record, so an approval at a plant the role
- * does not reach is not handed out and the count a screen shows is the count it may act on. The
- * ordering is `sort=field:dir` over the record's own members, the default is the identifier
+ * The population is narrowed before it is ordered and paged, in this order: the role's plant scope
+ * first — the contracts §7.1 matrix's own answer per record, so an approval at a plant the role does not
+ * reach is not handed out and an approval whose exception the records do not hold is excluded rather
+ * than admitted — then the status when the query names one, then the plant set when the query names one.
+ * `status` and `plantIds` therefore bound what the caller asked for, and `limit` below applies to that
+ * set instead of to a page cut before the filter ran; a cursor is a position in the order of the
+ * filtered population, so paging it neither skips nor repeats a record that answers the query (contracts
+ * §9, and the port's own `listApprovals` states the same rule). The plant set is the shell's selection
+ * resolved with the acting role's scope, so a set naming no plant leaves nothing in scope rather than
+ * widening to every plant the role reaches.
+ *
+ * The ordering is `sort=field:dir` over the record's own members, the default is the identifier
  * ascending, `limit` bounds the page and `cursor` continues it — the list parameters contracts §9
  * fixes for every list read. Each returned record is a copy, so a caller cannot reach the session
  * through what it was handed.
@@ -1478,16 +1523,22 @@ function requireRecordEligibility(ctx: HandlerContext, approval: Approval): void
  * for every call; the body awaits nothing and performs no I/O.
  *
  * @param ctx - The call's context: the persona the scope is resolved for, the triggers and the records.
- * @param query - The ordering and page position the read carries.
- * @returns One page of the visible approvals, in the requested order.
+ * @param query - The ordering, page position, status and plant set the read carries; the status and the
+ *   plant set are applied to the population rather than to a page of it.
+ * @returns One page of the approvals that answer the query, in the requested order.
  * @throws Problem - A `'permission'` failure when the plans are not readable, or a `'validation'`
  *   one when the cursor names no record of the ordered page.
  */
-export async function listApprovals(ctx: HandlerContext, query: ListQuery): Promise<Approval[]> {
+export async function listApprovals(
+  ctx: HandlerContext,
+  query: ListQuery & { status?: ApprovalStatus; plantIds?: readonly PlantId[] },
+): Promise<Approval[]> {
   requireRead(ctx);
 
-  const visible = approvalsFor(ctx.state).filter((approval) =>
-    landsInScope(ctx, ctx.state, approval),
+  const visible = approvalsFor(ctx.state).filter(
+    (approval) =>
+      landsInScope(ctx, ctx.state, approval) &&
+      admitsQuery(ctx, approval, query.status, query.plantIds),
   );
   const order = sortOrderOf(query.sort);
   const ordered = [...visible].sort((left, right) => compareApprovals(left, right, order));

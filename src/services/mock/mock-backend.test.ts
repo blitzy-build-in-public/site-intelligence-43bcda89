@@ -5,9 +5,13 @@
  *
  * `src/services/service-conformance.test.ts` proves the shape of both adapters; this suite proves the
  * behaviour of `MockBackend`, because the duties rule P-2 loads onto the service have nowhere else to
- * be observed. The cases are grouped one `describe` per duty:
+ * be observed. The cases are grouped one `describe` per duty, listed below in the order the file
+ * states them.
+ */
+
+/*
+ * The duties this suite proves, in the order the file states them:
  *
-/* ---------------------------------------------------------------------------------------------
  * 1. the bootstrap, which hashes the seeded trail before the first call answers;
  * 2. the latency band that keeps a loading state observable;
  * 3. the refusal an approval meets while the order book is stale — the service half of the
@@ -26,20 +30,26 @@
  * 13. the loading trigger, which leaves every served call pending while the controls that lift it still
  *     answer;
  * 14. the empty trigger, which empties every collection a read returns rather than the queue alone.
- * 15. the shell's selection: the plant and product the top bar names, resolved once and applied to every
- *     read it narrows.
+ * 15. the shell's selection: the plants and product the top bar names, resolved once and applied to
+ *     every read it narrows — one reading of a multi-plant selection across the members that take it,
+ *     a plant set that names no plant admitting nothing, and a record whose subject the session cannot
+ *     place reaching nobody;
  * 16. the port's remaining reads: the canvas ribbon, one audit event, the outcome card, the write-back
  *     retry and the assistant's suggestions, each reached through the port rather than through a
  *     handler;
  * 17. the browser-built exports, which resolve a download payload whose document equals the one the
  *     shared composition produces from the same reads, and which refuse the pack to a persona that may
  *     not read the audit trail;
- * 18. the list parameters the four collection reads carry, where `limit` bounds the page, `cursor`
- *     continues from the position a previous page ended at, and `sort` orders the records by the
- *     member it names in both directions.
- * 19. the policy exception request: the pending record SCR-07's grant flow writes, readable back
+ * 18. the list parameters the four collection reads carry, where `limit` bounds the population a
+ *     filter leaves rather than a page of it, `cursor` continues from the position a previous page
+ *     ended at, and `sort` orders the records by the member it names in both directions;
+ * 19. the response envelope every served result carries — the source freshness records, the literal
+ *     `simulated` marker and the trace identifier of the call;
+ * 20. the policy exception request: the pending record SCR-07's grant flow writes, readable back
  *     through the policy detail it names, the reset that clears it, and the reads that append nothing.
- *
+ */
+
+/**
  * WHY THE NODE ENVIRONMENT, MANDATORY ON THE FIRST LINE ABOVE. The bootstrap hashes the 200 seeded
  * events through `crypto.subtle.digest`, which is a platform call rather than a DOM one: under
  * Vitest's jsdom default `globalThis.crypto` and `window.crypto` are already the platform's Web
@@ -55,18 +65,25 @@
  *   and the assistant's fixed notice arrive as the constants `./seed-loader.ts` re-exports (rule P-2).
  * - It retypes no simulation label: where a label reaches an assertion it is compared against
  *   `SIM_LABELS` from `src/types` (rule P-1).
- * - It uses no test hook. Every call goes through a member of the port plus the three members the
- *   adapter adds — `whenReady()`, `switchRole()` and `getActiveUser()` — and the demonstration control
- *   `setSimulation()` the popover drives. No private field is read, no global is set and no query
- *   parameter is consulted, so the behaviour asserted is the behaviour a screen meets.
+ * - It uses no test hook. A call goes through a member of the port plus the three members the
+ *   adapter adds — `whenReady()`, `switchRole()` and `getActiveUser()` — or through the
+ *   demonstration control `setSimulation()` the popover drives, with one exception stated where
+ *   it is made: the approval family's exported handler is called directly by the case that places
+ *   a record the session's exceptions cannot resolve, because the adapter member is a pure
+ *   delegation of that handler and the plant-scope test therefore lives there. That case builds
+ *   its session with the adapter's own factory, so no production hook, no private field, no
+ *   global and no query parameter is involved, and the behaviour asserted is still the behaviour a
+ *   screen meets.
  * - It names no real company, customer, carmaker or cloud product, and carries no credential-shaped
- *   text, so the scans that cover `src/**` find nothing new here (rules P-7 and B-2).
+ *   text, so the scans that cover the source tree find nothing new here (rules P-7 and B-2).
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   ActiveUser,
+  Approval,
+  ApprovalStatus,
   DocumentBody,
   EvidencePin,
   ExceptionId,
@@ -76,6 +93,7 @@ import type {
   LedgerRow,
   Levers,
   ListQuery,
+  PlantId,
   PolicyDetail,
   PolicyException,
   PolicyId,
@@ -94,16 +112,20 @@ import type {
   UserId,
 } from '../../types';
 import { DEMO_CLOCK, PERMISSIONS, SIM_LABELS, SOURCE_IDS, SOURCE_LABELS } from '../../types';
+import { hasPermission, plantScopeFor } from '../../domain/policy/permissions';
 import { buildChokepointBrief } from '../exports/chokepoint-brief';
 import { buildEvidencePack } from '../exports/evidence-pack';
 import { buildScenarioComparisonCsv } from '../exports/scenario-csv';
+import { listApprovals } from './handlers/approvals';
 import { MockBackend } from './mock-backend';
+import { createMockState, type HandlerContext } from './mock-state';
 import {
   BASELINE_CASE_ID,
   SEEDED_EVENT_COUNT,
   TAMPER_TARGET_ID,
   UNSCRIPTED_NOTICE,
 } from './seed-loader';
+import type { SeededUser } from './seed-loader';
 
 /* ---------------------------------------------------------------------------------------------
  * The request values every case shares
@@ -156,6 +178,13 @@ const SUGGESTION_MEMBERS = 'id,prompt';
  * as open. Restated here so a case can count the same rows the aggregate counted.
  */
 const OPEN_STATUS: ExceptionStatus = 'open';
+
+/**
+ * The status an approval waits in, which is the one the inbox's pending population holds and the one
+ * the status filter is proved against. Restated here for the same reason as `OPEN_STATUS`: a case
+ * counts the same member the record carries rather than a label of its own.
+ */
+const PENDING_APPROVAL_STATUS: ApprovalStatus = 'pending';
 
 /* ---------------------------------------------------------------------------------------------
  * The personas the cases act as — `src/seed/users.ts`, addressed by identifier
@@ -241,17 +270,21 @@ const DOCUMENT_TERM = 'DOC-';
 /**
  * The latency band a call takes, restated here because the adapter's own ladder is private.
  *
- * The floor is asserted on both a read and a write: the delay is a ladder over the session's request
- * counter rather than a random draw, so the first two calls of a session take the floor and the floor
- * plus one step, and an adapter with no delay at all measures in single-digit milliseconds.
+ * The band is checked twice over, and the two checks answer different questions. The delay the adapter
+ * asks its timer for — recorded by the case below, which lets the timer itself through — must sit
+ * inside 150 to 400 ms: that is the band AAP 0.12.1 fixes, and it is a fact about the adapter rather
+ * than about this host, because the delay is a ladder over the session's request counter, so the first
+ * two calls of a session take the floor and the floor plus one step and no scheduling can produce a
+ * number outside the band. The measured duration must then be at least that same delay, less the
+ * tolerance below, which is what proves a call really waits rather than scheduling a timer it never
+ * awaits.
  *
- * The two bounds carry different tolerances, and each is deliberate. The floor's is tight, because a
- * measured duration can land a fraction below the delay the timer was given — the clock read and the
- * timer's own resolution differ — and 25 ms is room for that alone. The ceiling's is generous, because
+ * The two tolerances are deliberately different. The floor's is tight, because the scheduled delay and
+ * the duration a clock measures for it are two readings of one wait, and 25 ms is room for the
+ * difference between the clock read and the timer's own resolution. The ceiling's is generous, because
  * this suite runs on a host shared with other work and an event loop can be kept from a finished timer
- * for far longer than the delay itself; a tight ceiling there would report a loaded machine as a defect.
- * What the generous ceiling still catches is a band set an order of magnitude off, which the floor alone
- * cannot.
+ * for far longer than the delay itself; a tight ceiling there would report a loaded machine as a
+ * defect, and what the generous one still catches is a band set an order of magnitude off.
  */
 const LATENCY_FLOOR_MS = 150;
 const LATENCY_CEILING_MS = 400;
@@ -364,6 +397,37 @@ async function actAs(backend: MockBackend, userId: UserId): Promise<ActiveUser> 
   const switched = await backend.switchRole(userId);
 
   return switched.data;
+}
+
+/**
+ * One seeded persona, resolved the way the adapter resolves the persona it acts as.
+ *
+ * A handler receives the session's state and the persona together, and the adapter builds that pair
+ * from the session's own active identifier rather than from anything a caller passes, so a case that
+ * calls a handler directly has to build it the same way: the record's role, the plant scope the matrix
+ * states for that role, and the permissions the matrix grants it. The permissions are derived through
+ * `hasPermission` with no subject — the question is what the role holds at all, which is the reading
+ * that module documents — so the persona here cannot drift from the one a port call would act as.
+ *
+ * @param record - The seeded persona record.
+ * @returns The persona, with the plant scope and permissions its role holds.
+ */
+function personaFor(record: SeededUser): ActiveUser {
+  const probe: ActiveUser = {
+    id: record.id,
+    name: record.name,
+    role: record.role,
+    plantIds: plantScopeFor(record.role),
+    permissions: [],
+    homeRoute: record.homeRoute,
+  };
+
+  return {
+    ...probe,
+    permissions: PERMISSIONS.filter((permission) =>
+      hasPermission(record.role, permission, null, probe),
+    ),
+  };
 }
 
 /**
@@ -649,12 +713,29 @@ describe('the bootstrap', () => {
  * ------------------------------------------------------------------------------------------- */
 
 describe('the latency band', () => {
-  it('holds a read and a write inside the 150 to 400 ms band the adapter schedules', async () => {
+  // The case rests on a spy, so it removes it itself rather than leaning on the runner's
+  // `restoreMocks` setting: a later case must not inherit a recorded scheduler.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('waits the 150 to 400 ms delay it schedules, on a read and on a write', async () => {
     const backend = await readyBackend();
+
+    // The delay the adapter asks its timer for is recorded here rather than inferred from a duration.
+    // The spy calls through to the real timer, so each call waits exactly as a screen sees it, while
+    // the number the adapter chose is readable afterwards; the session's bootstrap has already run, so
+    // everything recorded below belongs to this case's own two calls.
+    const scheduled = vi.spyOn(globalThis, 'setTimeout');
+    const scheduledDelays = (): number[] =>
+      scheduled.mock.calls.flatMap((call) => (call[1] === undefined ? [] : [call[1]]));
+
+    expect(scheduledDelays()).toEqual([]);
 
     const readStartedAt = performance.now();
     const rows = (await backend.listExceptions({}, NO_SCOPE)).data;
     const readElapsed = performance.now() - readStartedAt;
+    const readDelay = lastOf(scheduledDelays(), 'delay the read scheduled');
     const target = firstOf(rows, 'exception row');
 
     const writeStartedAt = performance.now();
@@ -662,9 +743,21 @@ describe('the latency band', () => {
     await backend.noteException(target.id, NOTE_TEXT);
 
     const writeElapsed = performance.now() - writeStartedAt;
+    const writeDelay = lastOf(scheduledDelays(), 'delay the write scheduled');
 
-    expect(readElapsed).toBeGreaterThanOrEqual(LATENCY_FLOOR_MS - FLOOR_TOLERANCE_MS);
-    expect(writeElapsed).toBeGreaterThanOrEqual(LATENCY_FLOOR_MS - FLOOR_TOLERANCE_MS);
+    // The delay the adapter chose is inside the band the plan fixes, which is a fact about the adapter
+    // and not about this host: no amount of load can make it schedule a number outside the band.
+    expect(readDelay).toBeGreaterThanOrEqual(LATENCY_FLOOR_MS);
+    expect(readDelay).toBeLessThanOrEqual(LATENCY_CEILING_MS);
+    expect(writeDelay).toBeGreaterThanOrEqual(LATENCY_FLOOR_MS);
+    expect(writeDelay).toBeLessThanOrEqual(LATENCY_CEILING_MS);
+
+    // The floor is the delay just recorded, less room for the clock's own resolution, rather than the
+    // band's floor: this suite shares its host with other work, and a loaded event loop delays a timer
+    // that has already expired but can never fire one early. The ceiling stays generous for the same
+    // reason, and still catches a band set an order of magnitude out of place.
+    expect(readElapsed).toBeGreaterThanOrEqual(readDelay - FLOOR_TOLERANCE_MS);
+    expect(writeElapsed).toBeGreaterThanOrEqual(writeDelay - FLOOR_TOLERANCE_MS);
     expect(readElapsed).toBeLessThan(LATENCY_CEILING_MS + CEILING_TOLERANCE_MS);
     expect(writeElapsed).toBeLessThan(LATENCY_CEILING_MS + CEILING_TOLERANCE_MS);
   }, CASE_TIMEOUT_MS);
@@ -1986,7 +2079,7 @@ describe('the browser-built exports', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 14. The shell's selection — one resolver, applied to every read it narrows
+ * 15. The shell's selection — one resolver, applied to every read it narrows
  * ------------------------------------------------------------------------------------------- */
 
 describe("the shell's selection", () => {
@@ -2073,10 +2166,110 @@ describe("the shell's selection", () => {
     }
 
   }, CASE_TIMEOUT_MS);
+
+  it('reads one two-plant selection the same way in every member that takes a scope', async () => {
+    const backend = await readyBackend();
+
+    // The role that reaches every plant, so a selection naming two of them is a real narrowing of the
+    // scope the role would otherwise read with.
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const unrestrictedRows = (await backend.listExceptions({}, NO_SCOPE)).data;
+    const unrestrictedOverview = (await backend.getOverview(NO_SCOPE)).data;
+    const unrestrictedApprovals = (await backend.listApprovals({}, NO_SCOPE)).data;
+    // The plants are the ones the network names, read through the port rather than typed (rule P-6).
+    const plantIds = (await backend.getTopology(NO_SCOPE)).data.plants.map((node) => node.id);
+
+    expect(plantIds.length).toBeGreaterThan(2);
+
+    const pair = plantIds.slice(0, 2);
+    const scope: Scope = { plants: pair, products: [] };
+
+    const rows = (await backend.listExceptions({}, scope)).data;
+    const overview = (await backend.getOverview(scope)).data;
+    const plants = (await backend.getTopology(scope)).data.plants.map((node) => node.id);
+    const approvals = (await backend.listApprovals({}, scope)).data;
+
+    // The queue narrows, because the selection names fewer plants than the role reaches. A row recorded
+    // at another plant may stay: the domain admits an exception that reaches a selected plant through
+    // `alsoAffectsPlantIds` (src/domain/aggregation/exceptions.ts), which is the documented rule rather
+    // than a second reading of the selection.
+    expect(rows.length).toBeLessThan(unrestrictedRows.length);
+
+    // The tile counts the open rows the queue lists under the same selection, so the two members cannot
+    // describe two populations from one argument.
+    expect(overview.openExceptions).toBe(rows.filter((row) => row.status === OPEN_STATUS).length);
+    expect(overview.openExceptions).toBeLessThan(unrestrictedOverview.openExceptions);
+
+    // The canvas network's plant family is exactly the two selected plants, never the role's four.
+    expect(plants).toEqual(pair);
+
+    // The inbox holds exactly the approvals whose exception sits at one of the two plants. An approval
+    // names its exception rather than a plant, so the plant is read from the queue the same selection
+    // returned, and no approval is offered to a reader the queue would hide its exception from.
+    const plantOfException = new Map<ExceptionId, PlantId>(
+      unrestrictedRows.map((row): [ExceptionId, PlantId] => [row.id, row.plantId]),
+    );
+    const atSelectedPlant = unrestrictedApprovals.filter((approval) => {
+      const plantId = plantOfException.get(approval.exceptionId);
+
+      return plantId !== undefined && pair.includes(plantId);
+    });
+
+    expect(approvals.map((approval) => approval.id)).toEqual(
+      atSelectedPlant.map((approval) => approval.id),
+    );
+  }, CASE_TIMEOUT_MS);
+
+  // The adapter's `listApprovals` is now a pure delegation of the approval family's read, so the plant
+  // scope is applied there and this case calls that handler directly: it builds a session with the
+  // adapter's own factory and hands the handler the pair a port call hands it.
+  it('admits nothing for a plant set naming no plant, and withholds an approval it cannot place', async () => {
+    const state = await createMockState();
+    const record = firstOf(state.records.users, 'seeded persona');
+    const context: HandlerContext = { state, actor: personaFor(record) };
+    const keysOf = (rows: readonly Approval[]): string[] => rows.map((row) => row.id);
+
+    const visible = await listApprovals(context, {});
+
+    // The persona reaches more than one approval, so a record that goes missing below is observable as
+    // one that is missing rather than as an inbox that was empty all along.
+    expect(visible.length).toBeGreaterThan(1);
+
+    const placeable = firstOf(visible, 'approval the persona may read');
+    const subject = firstOf(
+      state.records.exceptions.filter((exception) => exception.id === placeable.exceptionId),
+      'exception the approval names',
+    );
+
+    // A plant set naming no plant admits nothing: a resolved selection is never read as "all plants".
+    expect(await listApprovals(context, { plantIds: [] })).toEqual([]);
+
+    // The record's own plant does admit it, which is what makes the withholding below a statement about
+    // the subject the records cannot place rather than about the persona.
+    expect(keysOf(await listApprovals(context, { plantIds: [subject.plantId] }))).toContain(
+      placeable.id,
+    );
+
+    // The records lose the exception the approval names, so the approval has no plant to be placed at.
+    state.records = {
+      ...state.records,
+      exceptions: state.records.exceptions.filter((exception) => exception.id !== subject.id),
+    };
+
+    const after = await listApprovals(context, {});
+
+    // The filter fails closed on a subject it cannot resolve instead of admitting the record to every
+    // role, and every approval it can still place comes back, so the withholding is that subject's alone.
+    expect(keysOf(after)).not.toContain(placeable.id);
+    expect(keysOf(after)).toEqual(
+      keysOf(visible.filter((approval) => approval.exceptionId !== subject.id)),
+    );
+  }, CASE_TIMEOUT_MS);
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 17. The list parameters of the collection reads — contracts §9, AAP 0.6.3 and AAP 0.12.3
+ * 18. The list parameters of the collection reads — contracts §9, AAP 0.6.3 and AAP 0.12.3
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -2243,10 +2436,123 @@ describe('the list parameters of the collection reads', () => {
       valueOf: (partPackage) => partPackage.id,
     });
   }, CASE_TIMEOUT_MS);
+
+  // The approval inbox needs its own case rather than the shared helper above: `listApprovals` takes
+  // the shell's scope beside the list parameters, and a status filter the other four reads do not
+  // carry, so neither fits the helper's shape.
+  it('pages the approvals a status filter leaves rather than a page it filters', async () => {
+    const backend = await readyBackend();
+    const keysOf = (rows: readonly Approval[]): string[] => rows.map((row) => row.id);
+    const waiting = firstOf(
+      (await backend.listApprovals({ status: PENDING_APPROVAL_STATUS }, NO_SCOPE)).data,
+      'pending approval',
+    );
+
+    // Two more records of the same plan, through the port, so the filtered population runs past one page
+    // and the cursor half below has a position to continue from. The adapter accepts a repeated request
+    // as a record of its own, which is what the audit-append case drives several of at once.
+    await backend.requestApproval({ exceptionId: waiting.exceptionId, scenarioId: waiting.scenarioId });
+    await backend.requestApproval({ exceptionId: waiting.exceptionId, scenarioId: waiting.scenarioId });
+
+    const every = (await backend.listApprovals({}, NO_SCOPE)).data;
+    const population = (await backend.listApprovals({ status: PENDING_APPROVAL_STATUS }, NO_SCOPE))
+      .data;
+
+    // The filtered population is the read's own order restricted to the status, and it is shorter than
+    // that order, so the page below has something to cut and cutting it before the filter would lose a
+    // row the population holds.
+    expect(keysOf(population)).toEqual(
+      keysOf(every.filter((approval) => approval.status === PENDING_APPROVAL_STATUS)),
+    );
+    expect(population.length).toBeGreaterThan(PAGE_SIZE);
+    expect(every.length).toBeGreaterThan(population.length);
+
+    // `limit` bounds the population rather than a page of the unfiltered order: the page is the first
+    // `PAGE_SIZE` of the filtered records. Narrowed the other way round, the first page of the
+    // unfiltered order would answer with fewer rows than asked for while the population still held them.
+    const page = (
+      await backend.listApprovals({ status: PENDING_APPROVAL_STATUS, limit: PAGE_SIZE }, NO_SCOPE)
+    ).data;
+
+    expect(keysOf(page)).toEqual(keysOf(population).slice(0, PAGE_SIZE));
+
+    // A limit at the population's own length asks for all of it and answers with all of it: a shorter
+    // answer would mean the page had been cut before the status was applied.
+    const whole = (
+      await backend.listApprovals(
+        { status: PENDING_APPROVAL_STATUS, limit: population.length },
+        NO_SCOPE,
+      )
+    ).data;
+
+    expect(keysOf(whole)).toEqual(keysOf(population));
+
+    // The cursor continues the filtered order from the position the page ended at, with no gap and no
+    // repeat, so the two pages together are the population.
+    const cursor = lastOf(page, 'approval on the page').id;
+    const rest = (
+      await backend.listApprovals(
+        { status: PENDING_APPROVAL_STATUS, limit: PAGE_SIZE, cursor },
+        NO_SCOPE,
+      )
+    ).data;
+
+    expect(keysOf(rest)).toEqual(keysOf(population).slice(PAGE_SIZE));
+    expect(keysOf([...page, ...rest])).toEqual(keysOf(population));
+  }, CASE_TIMEOUT_MS);
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 19. The policy exception request — SCR-07's grant flow, read back through the policy it names
+ * 19. The response envelope — AAP 0.6.3, AAP 0.12.3
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the response envelope', () => {
+  it('carries the freshness records, the simulation marker and a trace identifier on a read and a write', async () => {
+    const backend = await readyBackend();
+    const target = firstOf(await queueOf(backend), 'exception row');
+
+    // One read and one write, served through the same envelope: the note answers with the exception it
+    // recorded the note on, so both halves of the port are held to the one shape they share rather than
+    // to the three members of a single member's payload.
+    const served = [
+      ['read', await backend.getOverview(NO_SCOPE)],
+      ['write', await backend.noteException(target.id, NOTE_TEXT)],
+    ] as const;
+
+    for (const [half, result] of served) {
+      // The six sources' state at the moment of the call, as records rather than as a count (AAP 0.2.1):
+      // a banner cannot name a source the envelope did not carry.
+      expect(
+        result.meta.freshness.length,
+        `the ${half} carries no freshness record`,
+      ).toBeGreaterThan(0);
+
+      for (const record of result.meta.freshness) {
+        expect(SOURCE_IDS).toContain(record.source);
+      }
+
+      // The literal simulation marker the persistent badge rests on (rule P-1, AAP 0.6.3).
+      expect(result.meta.simulated, `the ${half} does not declare itself simulated`).toBe(true);
+
+      // The call's correlation identifier, asserted as a property and never as a value: it is derived
+      // from the session's counter, so a case that typed one would restate the adapter (rule P-6).
+      expect(typeof result.meta.traceId, `the ${half} carries no trace identifier`).toBe('string');
+      expect(
+        result.meta.traceId.trim().length,
+        `the ${half} carries an empty trace identifier`,
+      ).toBeGreaterThan(0);
+    }
+
+    const [, read] = served[0];
+    const [, write] = served[1];
+
+    // Two calls are two correlations, so the identifier names the call rather than the session.
+    expect(read.meta.traceId).not.toBe(write.meta.traceId);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 20. The policy exception request — SCR-07's grant flow, read back through the policy it names
  * ------------------------------------------------------------------------------------------- */
 
 /**
