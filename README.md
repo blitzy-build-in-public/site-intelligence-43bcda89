@@ -42,7 +42,7 @@ npx playwright install chromium
 
 `npm test` runs Vitest once over the unit suites, the component suites and the source checks. Component suites render in the jsdom environment; the arithmetic suites — the solver, the audit chain, the policy engine and the aggregations — declare the Node environment, because the chain hashes through the platform digest.
 
-`npm run test:e2e` runs the Playwright browser suites on Chromium. The configuration starts the preview server itself (`npx vite preview --strictPort`, on port 4173 unless `PREVIEW_PORT` says otherwise) and waits for it to answer, so `npm run build` has to run first: with no `dist/` the readiness probe never sees a document and the run fails.
+`npm run test:e2e` runs the Playwright browser suites on Chromium. The configuration starts the preview server itself (`npm run preview -- --port <port> --strictPort`; the port is 4173 unless the checkout's `CLONE_INDEX` or `PREVIEW_PORT` selects another) and waits for it to answer, so `npm run build` has to run first: with no `dist/` the readiness probe never sees a document and the run fails.
 
 `npm run typecheck` runs the type check on its own (`tsc --noEmit` over `src`, `tests`, `e2e` and both configuration files, under `strict` with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride` and `verbatimModuleSyntax`).
 
