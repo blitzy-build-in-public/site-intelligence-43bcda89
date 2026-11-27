@@ -5,7 +5,9 @@
   are all produced from that module graph, so the built page requests nothing outside its own origin.
   The theme and density attributes are deliberately absent from the html element: the theme provider
   in src/theme sets both while it is first evaluated, before the first paint, so the document is
-  not a second source of truth for them.
+  not a second source of truth for them. The body holds the mount node alone, because the shell, the
+  navigation, the skip link and the simulated-data badge are React components: static markup here
+  would duplicate them outside the shell that has to own them.
 -->
 <html lang="en">
   <head>
