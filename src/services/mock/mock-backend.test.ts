@@ -919,10 +919,40 @@ describe('message redaction', () => {
     expect(externalPins.every((pin) => widerIds.has(pin.id))).toBe(true);
 
     // The plant, origin and customer pins the wider read releases carry no vendor at all, so a read
-    // that lost the vendor narrowing would return them here and fail this line. The persona's own
-    // vendor set is resolved by the adapter from the exceptions it owns, and this record set names
-    // none for it, so the vendor-scoped read releases nothing rather than another vendor's records.
+    // that lost the vendor narrowing would return them here and fail this line.
     expect(externalPins.every((pin) => pin.vendorId !== undefined)).toBe(true);
+
+    // The positive half of the same redaction: the external engineer is released exactly its own
+    // vendor's evidence, so the read is not narrowed to nothing.
+    expect(externalPins.length).toBeGreaterThan(0);
+
+    // One vendor and one only, which is the vendor the persona's record declares — a read that widened
+    // to every vendor's evidence would carry several here.
+    const releasedVendors = new Set(
+      externalPins.flatMap((pin) => (pin.vendorId === undefined ? [] : [pin.vendorId])),
+    );
+
+    expect(releasedVendors.size).toBe(1);
+
+    const ownVendor = firstOf(
+      [...releasedVendors],
+      "vendor the external engineer's released pins carry",
+    );
+
+    // The count is the wider read's own tally of that vendor's pins — the seeded pins of the vendor,
+    // as the service releases them — so a partial release fails here as a missing one does.
+    const ownVendorPins = everyPin.filter((pin) => pin.vendorId === ownVendor);
+
+    expect(ownVendorPins.length).toBeGreaterThan(0);
+    expect(externalPins).toHaveLength(ownVendorPins.length);
+
+    // Withholding: every pin of another vendor, and every pin of no vendor at all, stays out of the
+    // external read.
+    const externalIds = new Set(externalPins.map((pin) => pin.id));
+    const withheld = everyPin.filter((pin) => pin.vendorId !== ownVendor);
+
+    expect(withheld.length).toBeGreaterThan(0);
+    expect(withheld.some((pin) => externalIds.has(pin.id))).toBe(false);
   }, CASE_TIMEOUT_MS);
 });
 

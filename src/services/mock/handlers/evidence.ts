@@ -40,15 +40,18 @@
  * package, exception, scenario, approval, audit event, evidence pin, document, customer order,
  * purchase order.
  *
- * THE SEEDED RECORD SET ATTRIBUTES NO VENDOR TO A PERSONA — reported rather than invented. Rule P-6
- * forbids typing a record and rule P-7 confines the product's parties to the seeded set, so this module
- * does not decide for itself which supplier the external supplier engineer works for. The attribution
- * it reads is the one the records can express: the suppliers of the exceptions the persona owns. The
- * seeded external engineer owns no exception, so that attribution is empty and its pin read releases
- * nothing — the fail-closed direction, because withholding another party's evidence is recoverable and
- * releasing it is not. The read is conformance-only in this run (the pin screens belong to stage S4,
- * AAP 0.12.3), so no S1-S3 screen loses anything, and a seed that attributes a vendor to the persona
- * narrows the read to that vendor with no change here.
+ * THE RECORD SET ATTRIBUTES A VENDOR TO THE EXTERNAL PERSONA — AAP 0.2.1, read rather than invented.
+ * Rule P-6 forbids typing a record and rule P-7 confines the product's parties to the seeded set, so
+ * this module does not decide for itself which supplier the external supplier engineer works for. It
+ * reads the attribution the records state, in the two places they can state it: the `vendorIds` a
+ * persona record declares for itself — `src/seed/users.ts` gives the external engineer the one seal
+ * supplier whose records it is there to inspect — and the suppliers of the exceptions a persona owns.
+ * `vendorsFor` unions the two, so the external engineer's pin read releases exactly its own vendor's
+ * pins and no other party's: the release AAP 0.2.1 requires beside the withholding it requires in the
+ * same sentence. A persona the records attribute no vendor to still releases nothing, which is the
+ * fail-closed direction, because withholding another party's evidence is recoverable and releasing it
+ * is not. The read stays conformance-only in this run (the pin screens belong to stage S4, AAP
+ * 0.12.3), so no S1-S3 screen depends on it either way.
  *
  * THE PACKAGE READS ARE CONFORMANCE-ONLY — AAP 0.12.3, AAP 0.14.2. No S1-S3 screen calls `getPackage`
  * or `reviewPackageElement`, and the package routes render the stage notice, because the package map is
@@ -1348,24 +1351,31 @@ function plantsOfNode(records: SeedRecordSet, nodeRef: string): PlantId[] {
 /**
  * The suppliers the session's records attribute to the acting persona.
  *
- * This is the whole of the vendor attribution the record set can express. A persona record carries no
- * vendor member — `ActiveUser` gives an identifier, a name, a role, a plant scope, a permission set and
- * a home route, and nothing that names a supplier — so the one relation that places a persona beside a
- * supplier is the exception it owns, whose record names both. The seeded external engineer owns no
- * exception, so the list is empty for it and no vendor pin is released; that gap is recorded in this
- * module's header rather than closed by naming a supplier here, because a supplier chosen here would be
- * a record this module invented (rules P-6 and P-7).
+ * Two relations place a persona beside a supplier, and the records state both. A persona that stands
+ * outside the company declares the suppliers it represents in its own record's `vendorIds`, which is
+ * where AAP 0.2.1's "USR-08 sees only its own-vendor pins" finds the attribution it needs: the
+ * external engineer's record names the one seal supplier whose records that persona comes to inspect.
+ * Any persona also reaches the suppliers of the exceptions it owns, whose records name both, and the
+ * seven internal personas reach their vendors that way alone.
+ *
+ * The union is the set the pin filter narrows by, with the declared vendors first and the
+ * owned-exception suppliers after them, so the order is fixed by the records and not by the read. A
+ * persona the records attribute no vendor to resolves to no supplier, and its vendor-scoped read then
+ * releases nothing: withholding another party's evidence is recoverable and releasing it is not, so the
+ * empty set fails closed.
  *
  * @param records - The session's record set.
  * @param actor - The persona the call acts as.
- * @returns The distinct suppliers its own records attribute to it, in record order.
+ * @returns The distinct suppliers the records attribute to it, declared vendors first.
  */
 function vendorsFor(records: SeedRecordSet, actor: ActiveUser): SupplierId[] {
-  return uniqueRefs(
-    records.exceptions
-      .filter((exception) => exception.ownerId === actor.id)
-      .map((exception) => exception.supplierId),
-  );
+  const persona = records.users.find((candidate) => candidate.id === actor.id);
+  const declared = persona?.vendorIds ?? [];
+  const owned = records.exceptions
+    .filter((exception) => exception.ownerId === actor.id)
+    .map((exception) => exception.supplierId);
+
+  return uniqueRefs([...declared, ...owned]);
 }
 
 /**

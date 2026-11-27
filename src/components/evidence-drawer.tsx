@@ -15,8 +15,8 @@
  * fields (AAP §0.12.2) and no single field names its freshness, so the four sections are derived
  * from those fields and from the freshness array the service returns beside them:
  *
- * 1. **Value and formula** — `Evidence.value`, rendered through the one presentation formatter, and
- *    `Evidence.formula`, the rule that produced it.
+ * 1. **Value and formula** — `Evidence.value`, rendered through the one presentation formatter with
+ *    `Evidence.label` beside it, and `Evidence.formula`, the rule that produced it.
  * 2. **Source, record and time** — the reference the figure carries, `Evidence.provenance`, and the
  *    six sources' `Freshness` records from the result's metadata: each source's state through the
  *    shared freshness mapping, with the instant it last answered.
@@ -39,12 +39,14 @@
  * FOCUS, KEYBOARD AND THE POINTER — rule B-3, WCAG 2.2 AA. The trigger is a native `<button>` whose
  * accessible name is the visible value plus a visually hidden "— open evidence", so a screen reader
  * user hears both what the figure is and what activating it does (SC 2.5.3, label in name). The
- * drawer is a `role="dialog"` region named by its own heading, `aria-modal="true"`, focus moves into
- * it when it opens, `Tab` and `Shift+Tab` cycle inside it, `Escape` closes it, and focus returns to
- * the element that opened it — the triggering figure — when it unmounts. Both controls keep the
- * 24x24 px minimum target and the 2 px focus ring the token layer fixes, and the only transition in
- * the file is a colour change carried by `motion-safe:`, so nothing here ignores
- * `prefers-reduced-motion`.
+ * drawer is a `role="dialog"` region named by its own heading, focus moves into it when it opens,
+ * `Tab` and `Shift+Tab` cycle inside it, `Escape` closes it, and focus returns to the element that
+ * opened it — the triggering figure — when it unmounts. It claims `aria-modal` in the overlay form
+ * only: from 1280 px the panel is docked beside a page that stays readable and operable, and the
+ * claim there would tell assistive technology the rest of the page is inert when it is not (AAP
+ * §0.12.4). Both controls keep the 24x24 px minimum target and the 2 px focus ring the token layer
+ * fixes, and the only transition in the file is a colour change carried by `motion-safe:`, so
+ * nothing here ignores `prefers-reduced-motion`.
  *
  * THE DRAWER IS RENDERED THROUGH A PORTAL, and that is a markup decision rather than a stylistic
  * one: a figure sits inside a table cell, beside a chart or in the middle of a sentence, and a
@@ -52,19 +54,25 @@
  * reparses. Rendering the dialog into `document.body` keeps the trigger where the sentence needs it
  * and the dialog outside any flow that could break it.
  *
- * WHAT IT DOES NOT DO. It renders no simulation label of its own (rule P-1): the figure it explains
- * already carries its exact §5.3 label where the figure is displayed, and repeating it here would
- * give one element two labels. It states no security property of the workspace — no sentence claims
+ * THE DRAWER IS A FIGURE CARRIER IN ITS OWN RIGHT, so it prints the label the record carries (rule
+ * P-1, AAP §0.10). This is the one place a reader goes to inspect a computed figure, so the value row
+ * shows `Evidence.label` — the exact §5.3 string the service attached to that record — beside the
+ * value, through the shared status primitive that pairs the icon, the label and the colour. It
+ * chooses no label of its own and holds no provenance-to-label map: the record's typed `SimLabel` is
+ * the stronger source and cannot disagree with the figure it belongs to.
+ *
+ * WHAT IT DOES NOT DO. It states no security property of the workspace — no sentence claims
  * that anything is confined, uncopyable or resistant to alteration (rule P-4); it reports a
  * provenance and a freshness and nothing more. It blends nothing (rule P-5): the provenance is shown
  * as the record states it, so a market-intelligence reading is named as one rather than presented as
  * a first-party figure. It fetches nothing and reads no configuration (rules B-1, B-2) — the icons
  * are bundled Phosphor components, and the only data access is `useService()` (rule P-2).
  *
- * A RECORDED DEVIATION FROM THE PLAN'S PROP NAME. AAP §0.5.2 spells the reference prop `ref`, which
- * cannot be used: React reserves `ref` on every component and would intercept the value instead of
- * passing it here. The prop is therefore `evidenceRef`, the spelling the same plan section already
- * uses for `MetricTile`, so the application has one spelling for one thing.
+ * THE REFERENCE PROP IS NAMED `ref`, WHICH IS THE NAME AAP §0.5.2 FIXES FOR IT. React 19 hands
+ * `ref` to a function component as an ordinary prop — it is read from `props` here exactly as
+ * `children` is — so the plan's spelling needs no deviation and no `forwardRef` wrapper.
+ * {@link EvidenceDrawer} and `MetricTile` keep their own `evidenceRef` member, the spelling that same
+ * plan section gives those two, so only this primitive's contract follows §0.5.2's `ref: string`.
  */
 import { ArrowUpRight, X } from '@phosphor-icons/react';
 import { useQuery } from '@tanstack/react-query';
@@ -219,6 +227,13 @@ const CONTAINER_CLASSES = 'pointer-events-none fixed inset-0 z-40';
  * `start-auto` overrides the `start-0` that the overlay form needs, and `xl:border-s` supplies the
  * hairline that separates a docked drawer from the page. Both are logical properties, so the drawer
  * docks and borders on the correct side in either writing direction.
+ *
+ * The `xl` variant here and {@link DOCKED_QUERY} below decide the same width, so both name it in the
+ * same unit: these variants resolve against Tailwind's `80rem` for `xl`, and that query states
+ * `80rem` for the same reason rather than a pixel width that would disagree with them whenever the
+ * browser's default font size is not 16 px. This class list shapes the panel; that query tells the
+ * dialog which shape it is in, so the modality claim follows the presentation rather than the
+ * stylesheet.
  */
 const DRAWER_CLASSES = [
   'pointer-events-auto absolute inset-y-0 start-0 flex w-full min-w-0 flex-col gap-3 overflow-y-auto',
@@ -290,10 +305,11 @@ export interface EvidenceRefProps {
    * The reference the figure carries, in the service's own form — the identifier `getEvidence`
    * resolves and the string the drawer prints as the record behind the value.
    *
-   * Named `evidenceRef` rather than the plan's `ref` because React reserves `ref` on every
-   * component and would intercept it instead of passing it here (see the module note above).
+   * Named `ref` because AAP §0.5.2 fixes this primitive's prop that way. React 19 passes `ref` to a
+   * function component as an ordinary prop, so the plan's name is the one that reaches `props` and
+   * the value is not intercepted (see the module note above).
    */
-  readonly evidenceRef: string;
+  readonly ref: string;
 
   /**
    * The figure itself, already formatted by the module that computed it — usually a `MonoValue`.
@@ -321,7 +337,7 @@ export interface EvidenceRefProps {
  * mounts goes to `document.body` through a portal (see the module note). It is also usable with no
  * provider of its own: the only context it reads is the service, and only once the drawer is open.
  */
-export function EvidenceRef({ evidenceRef, children, className }: EvidenceRefProps): ReactElement {
+export function EvidenceRef({ ref, children, className }: EvidenceRefProps): ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const drawerId = useId();
 
@@ -344,7 +360,7 @@ export function EvidenceRef({ evidenceRef, children, className }: EvidenceRefPro
       {isOpen ? (
         <EvidenceDrawer
           id={drawerId}
-          evidenceRef={evidenceRef}
+          evidenceRef={ref}
           onClose={() => {
             setIsOpen(false);
           }}
@@ -356,6 +372,74 @@ export function EvidenceRef({ evidenceRef, children, className }: EvidenceRefPro
 /* ---------------------------------------------------------------------------------------------
  * The drawer
  * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The width at which {@link DRAWER_CLASSES} stops covering the viewport and docks 420 px against the
+ * inline end — Tailwind's `xl` breakpoint, which AAP §0.12.4 states as "docked from 1280 px, an
+ * overlay below it".
+ *
+ * The query is written in `rem`, the unit the class list's `xl:` variants resolve against, and never
+ * in `px`. Tailwind 4 defines `xl` as `80rem`, which is 1280 px only while the browser's default font
+ * size is 16 px: a query stated in `px` would keep matching at that fixed pixel width after the `xl:`
+ * classes had stopped applying, so a reader whose default font size is larger would get a panel
+ * covering the viewport while the dialog had already dropped its modality claim. Stating both sides
+ * of the breakpoint in `rem` keeps them font-relative, so the styling and the claim cannot disagree
+ * at any default font size.
+ */
+const DOCKED_QUERY = '(min-width: 80rem)';
+
+/**
+ * Whether the viewport currently calls for the docked presentation, read synchronously.
+ *
+ * Read during the first render rather than after it, so the dialog's modality claim is right on the
+ * frame it appears and never flips once an effect has run. An environment with no `matchMedia` at
+ * all — the jsdom test environment, which implements no media query, and any pass without a DOM —
+ * answers `false` and therefore gets the overlay presentation: a modal claim is accurate while the
+ * panel covers the viewport, and it is the safe default for an environment that cannot report a
+ * width.
+ */
+function matchesDockedQuery(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+
+  return window.matchMedia(DOCKED_QUERY).matches;
+}
+
+/**
+ * The presentation the drawer is in, kept current while it stays open.
+ *
+ * The state starts from a synchronous read of the same query, and the effect subscribes to the
+ * query's `change` event, so a resize across the docked breakpoint moves the drawer between its docked
+ * and overlay forms without a remount and the modality claim follows it. The effect also re-reads the
+ * query once on mount, because the subscription only reports changes that happen after it exists. The
+ * listener is removed when the drawer unmounts, so nothing stays registered after it closes.
+ */
+function useDockedPresentation(): boolean {
+  const [isDocked, setIsDocked] = useState(matchesDockedQuery);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+
+    const query = window.matchMedia(DOCKED_QUERY);
+
+    setIsDocked(query.matches);
+
+    function handleChange(event: MediaQueryListEvent): void {
+      setIsDocked(event.matches);
+    }
+
+    query.addEventListener('change', handleChange);
+
+    return () => {
+      query.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  return isDocked;
+}
 
 /** Props of {@link EvidenceDrawer}. */
 export interface EvidenceDrawerProps {
@@ -385,14 +469,16 @@ export interface EvidenceDrawerProps {
 }
 
 /**
- * The evidence behind one figure, as a modal dialog.
+ * The evidence behind one figure, in whichever of its two presentations the viewport calls for.
  *
- * The dialog is portalled into `document.body` (see the module note), named by its own heading and
- * marked `aria-modal`, so assistive technology treats the page behind it as inert while it is open.
- * Below 1280 px it covers the viewport; from 1280 px it docks at 420 px against the inline end and
- * leaves the page beside it readable.
+ * The dialog is portalled into `document.body` (see the module note) and named by its own heading.
+ * Below 1280 px it covers the viewport and claims `aria-modal`, so assistive technology treats the
+ * page behind it as inert while it is open. From 1280 px it docks at 420 px against the inline end
+ * (AAP §0.12.4) and claims no modality at all — the attribute is absent rather than `"false"`, so no
+ * form of the claim reaches a reader — because the page beside it stays readable and operable.
+ * {@link useDockedPresentation} is what tells the two apart.
  *
- * FOCUS — the only effect in the module. On mount it records the element that had focus, moves focus
+ * FOCUS — the effect that moves focus. On mount it records the element that had focus, moves focus
  * to the dialog itself (not to its first control, so a screen reader announces the dialog's name and
  * role before its contents), and on unmount it returns focus to the element it recorded. `Tab`
  * cycling and `Escape` are handled by the dialog's own `onKeyDown`: no listener is registered on the
@@ -411,6 +497,7 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
   const service = useService();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const isDocked = useDockedPresentation();
 
   const { data, error, isPending, refetch } = useQuery({
     queryKey: ['getEvidence', evidenceRef],
@@ -488,7 +575,7 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
         ref={dialogRef}
         id={id}
         role="dialog"
-        aria-modal="true"
+        aria-modal={isDocked ? undefined : 'true'}
         aria-labelledby={titleId}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
@@ -587,7 +674,16 @@ function EvidenceSections({
                       it is rendered through the one presentation formatter with the kind that
                       passes a string through unchanged while applying the mono face and the tabular
                       figures the plan fixes for every figure. */}
-                  <MonoValue value={evidence.value} kind="id" />
+                  <MonoValue value={evidence.value} kind="id" />{' '}
+                  {/* The record's own `SimLabel`, printed beside the figure it belongs to: the drawer
+                      carries a figure, so it states that figure's exact §5.3 label instead of
+                      relying on the page-level badge (rule P-1, AAP §0.10). The label is held at the
+                      detail step so the value stays the row's figure. */}
+                  <StatusIndicator
+                    meaning="simulated"
+                    label={evidence.label}
+                    className={DETAIL_CLASSES}
+                  />
                 </dd>
               </div>
             ) : null}
@@ -868,8 +964,13 @@ function focusableElements(dialog: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Keeps `Tab` and `Shift+Tab` inside the dialog, so a modal region cannot be tabbed out of into the
- * page assistive technology has been told is inert.
+ * Keeps `Tab` and `Shift+Tab` inside the dialog, so an overlay cannot be tabbed out of into the page
+ * assistive technology has been told is inert, and a reader stays with the panel they opened.
+ *
+ * The docked presentation keeps the same cycle, and that is not a keyboard trap (WCAG 2.1.2):
+ * `Escape` closes the drawer and the close control is always one stop away, so focus is releasable
+ * from the keyboard in both forms. What has to follow the presentation is the modality claim, never
+ * the cycle.
  *
  * The handler is bound to the dialog element rather than to the document, so nothing outside the
  * drawer changes behaviour while it is open and no listener survives it. Focus that sits on the

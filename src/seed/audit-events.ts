@@ -322,7 +322,7 @@ const NAMED_EVENTS: readonly AuditEventDraft[] = [
   {
     timestamp: '2026-11-30T15:35:00+01:00',
     actorType: 'user',
-    actorId: 'USR-01',
+    actorId: 'USR-05',
     action: 'approval request',
     objectRef: 'APR-2026-101',
     result: 'succeeded',
@@ -344,7 +344,7 @@ const NAMED_EVENTS: readonly AuditEventDraft[] = [
   {
     timestamp: '2026-12-01T15:40:00+01:00',
     actorType: 'user',
-    actorId: 'USR-02',
+    actorId: 'USR-03',
     action: 'decision',
     objectRef: 'APR-2026-101',
     result: 'succeeded',
@@ -390,7 +390,7 @@ const NAMED_EVENTS: readonly AuditEventDraft[] = [
   {
     timestamp: '2026-12-02T11:20:00+01:00',
     actorType: 'user',
-    actorId: 'USR-02',
+    actorId: 'USR-03',
     action: 'decision',
     objectRef: 'APR-2026-102',
     result: 'succeeded',

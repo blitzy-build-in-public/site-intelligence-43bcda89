@@ -44,21 +44,25 @@
  * `src/seed/plants.ts` give: a plant manager's single plant, the final-assembly plants a material
  * planner tracks, the two plants that each run exactly one final-assembly line for the production
  * planner, the plants whose incoming material the quality engineer inspects, the full set for the
- * three cross-plant roles, and one receiving plant for the external engineer, which is what the mock
- * adapter relies on when it narrows this persona's evidence pins to its own vendor's records. The
- * rule above then extends the two sets whose owned exceptions reach past those plants, `USR-05` and
- * `USR-07`. Every scope therefore contains `PLT-BRN`, the plant the demonstrated supply exception and
- * the plan whose side effect the approval flow acknowledges are recorded against, so the disruption of
- * AAP 0.2.1 reaches every persona who can act on it.
+ * three cross-plant roles, and one receiving plant for the external engineer, whose evidence pins the
+ * mock adapter narrows by the vendor that record declares in `vendorIds` rather than by its plant.
+ * The rule above then extends the two sets whose owned exceptions reach past those plants, `USR-05`
+ * and `USR-07`. Every scope therefore contains `PLT-BRN`, the plant the demonstrated supply exception
+ * and the plan whose side effect the approval flow acknowledges are recorded against, so the
+ * disruption of AAP 0.2.1 reaches every persona who can act on it.
  *
  * DERIVATION — the seed document is not on disk. The persona records belong to
  * `platform-seed-data.md`, which is not part of this repository, so every name and job title below
  * is derived rather than transcribed. What the inputs fix is the set and what a consumer keys on:
  * AAP 0.2.3's eight personas, AAP 0.12.4's home route for each of them, and the
  * `switchRole(userId)` capability of AAP 0.12.1 that these records serve. The plant scopes are
- * derived from the shape the plant and line records give, as the paragraph above sets out. If the
- * seed document is supplied later, its table transcribes over these records and supersedes them
- * with no change to any consumer, because every consumer reads a persona through the service.
+ * derived from the shape the plant and line records give, as the paragraph above sets out. The one
+ * vendor member records the single relation AAP 0.2.1's redaction sentence needs — which supplier the
+ * external persona represents — and it is record content rather than a new contract field:
+ * `ActiveUser` keeps the shape contracts §2 fixes, and the member is absent from the seven internal
+ * personas, whose vendor reach comes from the exceptions they own. If the seed document is supplied
+ * later, its table transcribes over these records and supersedes them with no change to any
+ * consumer, because every consumer reads a persona through the service.
  *
  * Rules this module is built to satisfy:
  * - P-3: these records exist to drive a demonstration control. Nothing here states or implies that a
@@ -75,7 +79,7 @@
  *   in the demonstration signs in, and no external location is named anywhere in this module.
  */
 
-import type { PlantId, Role, UserId } from '../types';
+import type { PlantId, Role, SupplierId, UserId } from '../types';
 
 /* ---------------------------------------------------------------------------------------------
  * Record shape
@@ -90,7 +94,9 @@ import type { PlantId, Role, UserId } from '../types';
  * `ActiveUser` so the mock adapter builds one without a conversion table: `id`, `name`, `role` and
  * `homeRoute` are copied as they stand, `plantScope` becomes `plantIds` (a mutable array of the same
  * identifiers) and `permissions` is filled from the contracts §7.1 matrix by
- * `src/domain/policy/permissions.ts`, which is the single place that derives it (rule P-6).
+ * `src/domain/policy/permissions.ts`, which is the single place that derives it (rule P-6). The one
+ * member with no `ActiveUser` counterpart is `vendorIds`, which records a relation of the persona
+ * rather than of the session.
  */
 export interface SeededUser {
   /** The persona's identifier, `USR-01` through `USR-08`. */
@@ -110,6 +116,19 @@ export interface SeededUser {
 
   /** The persona's job title, as the role switcher and the shell show it. */
   jobTitle: string;
+
+  /**
+   * The suppliers an external persona represents, and the member the mock adapter reads to release
+   * that vendor's evidence pins (AAP 0.2.1).
+   *
+   * Present only on a persona that stands outside the company: `USR-08` declares the one seal supplier
+   * whose records it comes to inspect, which is the attribution AAP 0.2.1's redaction sentence —
+   * "USR-08 sees only its own-vendor pins" — cannot be satisfied without. The seven internal personas
+   * carry no member, because their vendor reach is the suppliers of the exceptions they own, which the
+   * exception records state themselves. It has no `ActiveUser` counterpart: a session is an identity
+   * with a plant scope and a permission set, and the vendor a persona represents is record content.
+   */
+  readonly vendorIds?: readonly SupplierId[];
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -198,9 +217,20 @@ export const USERS: readonly SeededUser[] = [
     id: 'USR-08',
     name: 'Jonas Weiler',
     role: 'external-supplier-engineer',
-    /** One receiving plant, tied with the plant manager for the narrowest of the eight. */
+    /**
+     * One receiving plant, tied with the plant manager for the narrowest of the eight. It narrows the
+     * records this persona reads; the vendor it represents is `vendorIds` below, which is what the mock
+     * adapter narrows its evidence pins by.
+     */
     plantScope: ['PLT-BRN'],
     homeRoute: '/evidence',
     jobTitle: 'Supplier engineer, external',
+    /**
+     * The seal supplier whose records this persona comes to inspect. `EXC-2026-1184` is that supplier's
+     * delayed consignment at the plant in this scope, and `src/seed/pins.ts` attributes that supplier's
+     * three evidence pins to it, so this is the vendor whose pins AAP 0.2.1 releases to `USR-08` and
+     * whose competitors' pins it withholds.
+     */
+    vendorIds: ['SUP-DONAU-DICHTUNG'],
   },
 ];

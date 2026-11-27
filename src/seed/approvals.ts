@@ -19,11 +19,15 @@
  * `Reset demo data` restores them.
  *
  * The two euro members are the plan's own pair and never this module's arithmetic (rule P-6). The
- * contract's `Approval` declares `addedCostEur` and `protectedRevenueEur` as required members, so
- * they are written here as the figures the plan itself carries, and the adapter recomputes both
- * from the plan at read time — from the solver's measures for the supply-delay case, from the
- * seeded scenario record for a seeded option. Nothing below is derived, summed or rounded here: a
- * measure this module computed would be a second answer to a question the solver already answers.
+ * contract's `Approval` declares `addedCostEur` and `protectedRevenueEur` as required members, so each
+ * record states them as the record set's own content, on one rule: the cost the option spends, against
+ * the delayed revenue the option avoids — the delay the disruption leaves with nothing done, less the
+ * delay the option itself still leaves. Both figures come from the option set the same exception
+ * carries (`src/seed/exception-scenarios.ts`), so a seeded approval and the adapter's own calculation
+ * for a plan requested in this session state one quantity the same way (AAP 0.8, AAP 0.12.2, AAP
+ * 0.12.4). The adapter derives that pair for a newly requested plan from the option set as it is
+ * loaded; nothing below is summed or rounded here, because a measure this module computed would be a
+ * second answer to a question the solver or the option set already answers.
  *
  * References this module states but does not own. The exceptions are the records of
  * `src/seed/exceptions.ts` and the requesters and deciders are the personas of specification §3; the
@@ -86,17 +90,17 @@ export const APPROVALS: readonly Approval[] = [
     id: 'APR-2026-101',
     exceptionId: 'EXC-2026-1185',
     scenarioId: 'SCN-1185-A',
-    requestedBy: 'USR-01',
-    eligibleApproverRoles: ['plant-manager'],
+    requestedBy: 'USR-05',
+    eligibleApproverRoles: ['head-of-supply-chain'],
     status: 'approved',
     addedCostEur: 41400,
-    protectedRevenueEur: 240000,
+    protectedRevenueEur: 310000,
     decision: {
       action: 'approve',
       comment:
         'Approved: the uplift restarts the line the working day after it stops, which holds the lateness to three days and delays a fraction of the revenue the waiting option would.',
     },
-    decidedBy: 'USR-02',
+    decidedBy: 'USR-03',
     decidedAt: '2026-12-01T15:40:00+01:00',
     writeBacks: [
       {
@@ -145,16 +149,16 @@ export const APPROVALS: readonly Approval[] = [
     exceptionId: 'EXC-2026-1187',
     scenarioId: 'SCN-1187-A',
     requestedBy: 'USR-05',
-    eligibleApproverRoles: ['plant-manager'],
+    eligibleApproverRoles: ['head-of-supply-chain'],
     status: 'approved',
     addedCostEur: 18720,
-    protectedRevenueEur: 168000,
+    protectedRevenueEur: 382000,
     decision: {
       action: 'approve',
       comment:
         'Approved: the on-site sort releases the inspected quantity the working day after the stock runs out, which holds the lateness to two days and delays far less revenue than the hold would.',
     },
-    decidedBy: 'USR-02',
+    decidedBy: 'USR-03',
     decidedAt: '2026-12-02T11:20:00+01:00',
     writeBacks: [
       {
@@ -207,7 +211,7 @@ export const APPROVALS: readonly Approval[] = [
     eligibleApproverRoles: ['head-of-supply-chain'],
     status: 'approved',
     addedCostEur: 12480,
-    protectedRevenueEur: 192000,
+    protectedRevenueEur: 408000,
     decision: {
       action: 'approve',
       comment:

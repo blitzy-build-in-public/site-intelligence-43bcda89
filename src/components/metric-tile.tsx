@@ -162,7 +162,7 @@ export function MetricTile({
     <Card title={label}>
       <div className={GROUP_CLASSES}>
         <span className={VALUE_CLASSES}>
-          <EvidenceRef evidenceRef={evidenceRef}>
+          <EvidenceRef ref={evidenceRef}>
             {kind === undefined ? value : <MonoValue value={value} kind={kind} />}
           </EvidenceRef>
         </span>

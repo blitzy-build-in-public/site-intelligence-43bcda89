@@ -35,13 +35,22 @@
  * failed-write label — the failure's own message travels on the thrown `Problem`, and the component
  * sets it beside the tag (rule P-1).
  *
- * WHAT THIS MODULE COMPUTES, AND WHAT IT DOES NOT. It computes no measure, no amount and no
- * difference. `Approval.addedCostEur` and `Approval.protectedRevenueEur` are the plan's own pair as
- * the solver (or the shipped scenario record) states them — see the gap recorded on
- * `plannedFiguresFor` — and both figures the outcome card shows are two `solveSupplyDelay` calls
- * returned untouched (rule P-6). It self-dates nothing: the instant a decision or a review is
- * recorded at is read from the audit event that append produced, because contracts §1 forbids
- * reading the system clock for business logic and this module holds no second clock of its own.
+ * WHAT THIS MODULE COMPUTES, AND WHAT IT DOES NOT. `Approval.addedCostEur` is the plan's own cost
+ * exactly as the solver (or the shipped scenario record) states it, and both figures the outcome card
+ * shows are two `solveSupplyDelay` calls returned untouched (rule P-6). The one difference it takes is
+ * `Approval.protectedRevenueEur`, which AAP 0.8 states as the delayed revenue the plan avoids: the
+ * delayed revenue the exception's do-nothing position leaves, less the delayed revenue the option
+ * itself still leaves, floored at none of it — see `plannedFiguresFor`. AAP 0.12.2 gives the `Approval`
+ * that member and AAP 0.12.4 shows it on SCR-05 against the added cost, so the pair reads as what the plan
+ * spends against the delay it buys. Carrying the option's own residual in its place would report a
+ * better option as protecting less than a worse one and the do-nothing option as protecting the whole
+ * disruption, which contradicts the figure AAP 0.8 fixes. Where the records state no option at both
+ * levers unpulled the unmitigated position is the set's greatest delayed revenue — the path the
+ * disruption takes when nothing is done — so the figure is still measured from the records rather than
+ * from the option's own residual. The module
+ * self-dates nothing: the instant a decision or a review is recorded at is read from the audit event
+ * that append produced, because contracts §1 forbids reading the system clock for business logic and
+ * this module holds no second clock of its own.
  *
  * DECISIONS THIS MODULE TAKES WHERE NO INPUT FIXES THE ANSWER, each recorded here because a reader
  * otherwise takes it for a mistake.
@@ -59,10 +68,12 @@
  *    conflict member and adding one is forbidden, so the screen state is carried by the message.
  * 3. READS REQUIRE `exception.read`. An approval is the plan for an exception, and the matrix in
  *    `src/domain/policy/permissions.ts` grants `exception.read` to every role that may request or
- *    decide one — while no role holds both `approval.request` and `approval.decide`. Gating the
- *    inbox on either approval permission would hide a plant manager's own home route from them.
- *    Each record's plant scope is then the matrix's own answer, `hasPermission` with the approval's
- *    exception as the subject, rather than a second copy of the scope rule.
+ *    decide one. Gating the inbox on either approval permission would hide a route a persona needs:
+ *    on `approval.request` it would hide the plant manager's own `/approvals` home, since no role
+ *    that requests also covers the request gate for them, and on `approval.decide` it would hide from
+ *    a requester the plan it put forward and may not decide. Each record's plant scope is then the
+ *    matrix's own answer, `hasPermission` with the approval's exception as the subject, rather than a
+ *    second copy of the scope rule.
  * 4. A REQUESTER'S OWN DECISION IS REFUSED BY POL-003 BEFORE THE PERMISSION CHECK, so the refusal
  *    carries `policyId: 'POL-003'` and the rule's own plain-words reason instead of a permission
  *    failure the reader could not act on. The deny appends a policy-actor event and the failure
@@ -79,6 +90,13 @@
  *    and the tracker's retry control calls its handler with the step's `recordRef`, so that
  *    reference is the key a retry names; an unknown or blank reference is a `'not-found'` failure
  *    listing the references the record holds.
+ * 7. THE AUDIENCE A NEW REQUEST NAMES IS THE DECIDERS THAT REACH THE PLAN. `eligibleApproverRoles` is
+ *    the matrix's decider roles less the requester's own role (POL-003) less the roles whose plant
+ *    scope does not cover the exception, because the decision path refuses a role that cannot reach
+ *    the record and a control offering one would explain nothing (rule P-8). A plan no role in reach
+ *    could then decide — the acting persona is the only role whose scope covers it and has requested
+ *    it — is refused rather than created, since an approval nobody may decide is a record that can
+ *    only sit in the inbox.
  *
  * DETERMINISTIC BY CONSTRUCTION (AAP 0.2.1, AAP 0.18.2). No clock, no random source and no
  * module-level mutable value is read. The solver is a pure function of its arguments, the seeded
@@ -125,6 +143,7 @@ import type {
   Freshness,
   Levers,
   ListQuery,
+  Money,
   OperationalException,
   Permission,
   PolicyDecision,
@@ -1113,6 +1132,41 @@ function solverCaseFor(ctx: HandlerContext, exception: OperationalException): So
 }
 
 /**
+ * One option, resolved inside the options a set states.
+ *
+ * Split out of `scenarioOrThrow` so a caller that needs the set's other options as well — the
+ * do-nothing position `plannedFiguresFor` weighs the plan against — reads the set once instead of
+ * twice, and both reads then see the same options.
+ *
+ * @param ctx - The call's context, whose records the failure names.
+ * @param exceptionId - The exception the option belongs to.
+ * @param scenarioId - The option wanted.
+ * @param scenarios - The options the set states.
+ * @returns The option.
+ * @throws Problem - A `'not-found'` failure when no option carries that identifier.
+ */
+function optionOrThrow(
+  ctx: HandlerContext,
+  exceptionId: ExceptionId,
+  scenarioId: ScenarioId,
+  scenarios: readonly Scenario[],
+): Scenario {
+  const scenario = scenarios.find((option) => option.id === scenarioId);
+
+  if (scenario === undefined) {
+    const measured = scenarios.map((option) => option.id).join(', ');
+
+    throw notFoundProblem(
+      ctx,
+      `No option measured for ${exceptionId} answers ${scenarioId}. The options this record set ` +
+        `states for it are ${measured === '' ? 'none at all' : measured}.`,
+    );
+  }
+
+  return scenario;
+}
+
+/**
  * The option an approval puts forward, within the option set measured for its exception.
  *
  * The set comes from `./scenarios.ts`, which is the one module that composes an option — measured
@@ -1132,39 +1186,69 @@ async function scenarioOrThrow(
   scenarioId: ScenarioId,
 ): Promise<Scenario> {
   const set: ScenarioSet = await getScenarioSet(ctx, exceptionId);
-  const scenario = set.scenarios.find((option) => option.id === scenarioId);
 
-  if (scenario === undefined) {
-    const measured = set.scenarios.map((option) => option.id).join(', ');
-
-    throw notFoundProblem(
-      ctx,
-      `No option measured for ${exceptionId} answers ${scenarioId}. The options this record set ` +
-        `states for it are ${measured === '' ? 'none at all' : measured}.`,
-    );
-  }
-
-  return scenario;
+  return optionOrThrow(ctx, exceptionId, scenarioId, set.scenarios);
 }
 
 /**
- * The two euro figures an approval carries, taken from the plan's own measures.
+ * The delayed revenue the set's unmitigated position leaves — the delay a plan is weighed against.
  *
- * `Approval` requires an added cost and a protected revenue, and the plan states both as measures of
- * its own option: what the option costs and what revenue it holds up. This module takes them from
- * the option unchanged and computes no difference of its own, because a protected figure derived
- * here would be a second answer to a question the solver already answers (rule P-6).
+ * The unmitigated position is the disruption with nothing done about it, and every set states it as the
+ * option no lever position improves on: an option's delayed revenue is the late units priced, and pulling
+ * a lever can only reduce them, so the set's greatest `revenueDelayedEur` is the path the disruption
+ * takes when no option is carried out. For a set measured from an exception's case it is the baseline AAP
+ * 0.8 fixes by name, which `candidateOptions` in `./scenarios.ts` always lists first at both levers
+ * unpulled; for a seeded set it is the option whose measures the records themselves describe as repeating
+ * the unmitigated path (the seeded sets carry it as their rejected, over-bound option). Every set the
+ * service serves states at least the option a caller asks for, so the reading is always available and no
+ * figure is invented in its place.
  *
- * GAP, recorded rather than patched: `SolverCase` carries no price for either lever or for the
- * orders it measures, so `solveSupplyDelay` reports both euro measures as zero for the option it
- * measures and this pair is zero with it. A supplied case carrying prices fills both without a
- * change here. The seeded plans keep the figures their own records state.
+ * @param scenarios - The options of the set the approval's option came from.
+ * @returns The delayed revenue the unmitigated position leaves.
+ */
+function unmitigatedDelayedRevenueOf(scenarios: readonly Scenario[]): Money {
+  let greatest: Money = 0;
+
+  for (const option of scenarios) {
+    if (option.revenueDelayedEur > greatest) {
+      greatest = option.revenueDelayedEur;
+    }
+  }
+
+  return greatest;
+}
+
+/**
+ * The two euro figures an approval carries: what the plan spends, and the delay it protects.
+ *
+ * `Approval` requires an added cost and a protected revenue (AAP 0.12.2), and SCR-05 shows the pair as
+ * cost against protected revenue (AAP 0.12.4). The cost is the option's own `addedCostEur`, untouched.
+ * The protected figure is the delayed revenue the plan avoids, which is the figure AAP 0.8 states the
+ * spend buys: the delayed revenue the do-nothing position leaves, less the delayed revenue the option
+ * itself still leaves. Carrying the option's own residual instead reads a better option as protecting
+ * less than a worse one, and the do-nothing option as protecting the whole disruption.
+ *
+ * The unmitigated figure is the set's greatest delayed revenue (see `unmitigatedDelayedRevenueOf`), so it
+ * is never below the option's own residual and the difference needs no floor. The option that repeats the
+ * unmitigated path itself protects nothing, which is what a plan that changes nothing buys.
+ *
+ * LIMIT, recorded rather than patched: `SolverCase` carries no price for either lever or for the orders
+ * it measures, so `solveSupplyDelay` reports both euro measures as zero for an option it measures and
+ * this pair is zero with it. A supplied case carrying prices fills both without a change here, and the
+ * seeded plans keep the figures their own records state.
  *
  * @param scenario - The option the approval puts forward.
+ * @param unmitigatedDelayedEur - The delayed revenue the set's unmitigated position leaves.
  * @returns The pair the approval record carries.
  */
-function plannedFiguresFor(scenario: Scenario): Pick<Approval, 'addedCostEur' | 'protectedRevenueEur'> {
-  return { addedCostEur: scenario.addedCostEur, protectedRevenueEur: scenario.revenueDelayedEur };
+function plannedFiguresFor(
+  scenario: Scenario,
+  unmitigatedDelayedEur: Money,
+): Pick<Approval, 'addedCostEur' | 'protectedRevenueEur'> {
+  return {
+    addedCostEur: scenario.addedCostEur,
+    protectedRevenueEur: unmitigatedDelayedEur - scenario.revenueDelayedEur,
+  };
 }
 
 /**
@@ -1347,10 +1431,10 @@ function writeBackOrThrow(ctx: HandlerContext, approval: Approval, writeBackId: 
  *
  * `Approval.eligibleApproverRoles` is the record's own audience — AAP 0.12.2 fixes it, and POL-003
  * excludes the requester from it — so a role the matrix lets decide may still not decide *this*
- * plan: the seeded plan for `EXC-2026-1195` names the head of supply chain alone, while a plant
- * manager holds the permission. The refusal reuses the decision's permission so a disabled control
- * prints one shape, and its reason names the roles this record opens to, which is what a reader has
- * to know (rule P-8).
+ * plan: the seeded plans for `EXC-2026-1185`, `EXC-2026-1187` and `EXC-2026-1195` name the head of
+ * supply chain alone, while the matrix also lets a plant manager decide a plan. The refusal reuses the
+ * decision's permission so a disabled control prints one shape, and its reason names the roles this
+ * record opens to, which is what a reader has to know (rule P-8).
  *
  * @param ctx - The call's context, whose actor the record's audience is compared with.
  * @param approval - The approval the decision is about.
@@ -1462,11 +1546,15 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * put forward, and the refusal appends its policy-actor event), and only then the record and its
  * event.
  *
- * What the record carries. The requester is the acting persona, never a caller's claim. The
- * audience is the roles the matrix lets decide, less the requester's own role, so POL-003 reads as
- * the requester's role being absent from the list. The two euro members are the option's own
- * measures. The write-backs are the option's, reset to pending, in the option's order — an approval
- * starts a run without any step of it written.
+ * What the record carries. The requester is the acting persona, never a caller's claim. The audience is
+ * the roles the matrix lets decide a plan at the exception's own plant, less the requester's own role:
+ * POL-003 reads as the requester's role being absent from the list, and every role named can reach the
+ * record, so a disabled control never offers a decider the decision path would then refuse (rule P-8).
+ * The two euro members are the plan's cost and the delay it protects — the option's own `addedCostEur`,
+ * and the delayed revenue the unmitigated position leaves less the option's own residual, which is the
+ * figure AAP 0.8 states the spend buys
+ * (see `plannedFiguresFor`). The write-backs are the option's, reset to pending, in the option's
+ * order — an approval starts a run without any step of it written.
  *
  * One event is appended, through the single append path of `./audit.ts`, naming the approval as the
  * record it is about and carrying the same payload shape the seeded trail's own requests carry.
@@ -1477,9 +1565,9 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * @returns The created approval, as a copy.
  * @throws Problem - A `'permission'` failure when the role may not request or while the forbidden
  *   trigger is on, a `'not-found'` failure for an exception or an option the records do not answer, a
- *   `'validation'` failure when the order book is stale or unavailable, or a `'policy'` failure when
- *   POL-005 refuses the option's constraint check, carrying the rule, its reason and the event it
- *   appended.
+ *   `'validation'` failure when the order book is stale or unavailable or when no role left in the
+ *   audience could decide the plan at the exception's plant, or a `'policy'` failure when POL-005
+ *   refuses the option's constraint check, carrying the rule, its reason and the event it appended.
  */
 export async function requestApproval(
   ctx: HandlerContext,
@@ -1506,17 +1594,33 @@ export async function requestApproval(
   );
   requireFreshOrderBook(ctx);
 
-  const scenario = await scenarioOrThrow(ctx, exceptionId, scenarioId);
+  // The set is read here rather than through `scenarioOrThrow`, because the protected figure is
+  // weighed against the do-nothing position the same set states: one read, so the option and its
+  // baseline come from one set.
+  const set: ScenarioSet = await getScenarioSet(ctx, exceptionId);
+  const scenario = optionOrThrow(ctx, exceptionId, scenarioId, set.scenarios);
 
   await requireRequestableByPolicy(ctx, exceptionId, scenario);
 
   const approvals = approvalsFor(ctx.state);
-  const figures = plannedFiguresFor(scenario);
-  // The audience is the roles the matrix lets decide, less the requester's own role, so POL-003 reads
-  // as the requester's role being absent from the list it would otherwise have to be named in.
+  const figures = plannedFiguresFor(scenario, unmitigatedDelayedRevenueOf(set.scenarios));
+  // The audience is the roles the matrix lets decide *this* plan, less the requester's own role: a role
+  // whose plant scope does not reach the exception could not decide it, so naming it would offer a
+  // decider the decision path refuses (rule P-8), and the requester's own role is left out because
+  // POL-003 forbids the persona who requested a plan from deciding it (AAP 0.12.2).
   const eligibleApproverRoles: Role[] = rolesWith(APPROVAL_DECIDE).filter(
-    (role) => role !== ctx.actor.role,
+    (role) => role !== ctx.actor.role && plantScopeFor(role).includes(exception.plantId),
   );
+
+  if (eligibleApproverRoles.length === 0) {
+    throw validationProblem(
+      ctx,
+      `No role that may decide a plan covers ${exception.plantId}, and the acting role requested this ` +
+        `one, so ${scenario.id} would reach no persona able to decide it. A plan nobody may decide is ` +
+        'not put forward.',
+    );
+  }
+
   const approval: Approval = {
     id: nextApprovalIdentifier(approvals),
     exceptionId,

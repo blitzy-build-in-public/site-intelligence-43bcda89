@@ -1,16 +1,19 @@
 /**
  * Component suite for `evidence-drawer.tsx`: the trigger every displayed figure reaches its evidence
- * through, and the modal drawer that evidence opens in (functional requirement F12, principle PR-6;
+ * through, and the drawer that evidence opens in (functional requirement F12, principle PR-6;
  * rule P-6 governs the figures it explains, and this suite types none of them).
  *
  * Every case asserts a contract the pair is relied on for rather than its markup. The trigger's
  * accessible name starts with the figure the reader sees and ends by saying what activating it does,
  * so a speech-input user can name the figure and a screen-reader user is told the control opens
  * something (WCAG 2.2 SC 2.5.3, rule B-3); it carries `aria-haspopup="dialog"` and is reached and
- * operated from the keyboard alone. Activation renders a `role="dialog"` element marked
- * `aria-modal`, named by its own heading and portalled out of the element that holds the trigger,
- * because a fixed-position container nested in a paragraph is markup a browser reparses. The
- * record's four sections are asserted as named regions with the record's own value, formula,
+ * operated from the keyboard alone. Activation renders a `role="dialog"` element named by its own
+ * heading and portalled out of the element that holds the trigger, because a fixed-position container
+ * nested in a paragraph is markup a browser reparses. Its modality claim follows its presentation
+ * (AAP §0.12.4): jsdom implements no media query at all, so every case here renders the overlay that
+ * covers the viewport and claims `aria-modal`, and the one case that stubs the docked media query
+ * renders the panel docked beside a page that stays readable, which claims none. The record's four
+ * sections are asserted as named regions with the record's own value, formula,
  * provenance, freshness, links, confidence, missing inputs and documents inside them, and a record
  * that carries no content for a section is asserted to render no region at all rather than an empty
  * one — the drawer substitutes nothing for a field the record does not support. The instant a source
@@ -38,8 +41,8 @@
  * `no-typed-figures` source check reads `src/components/**` for currency and identifier literals
  * (rule P-6), and the one instant is derived from the demonstration clock rather than typed, so it
  * carries the same offset every record does. The simulation label is the fixed vocabulary's own
- * member (rule P-1): the record carries it and the drawer deliberately does not print it, because
- * the figure that opened the drawer already carries its label where the figure is displayed.
+ * member (rule P-1): the record carries it and the drawer prints it beside the value, so the label a
+ * case asserts is the record's own rather than one this suite or the component chose.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default. Nothing here hashes, reads the
  * system clock or touches the network, and the only third-party module involved beyond the testing
@@ -53,8 +56,16 @@ import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DEMO_CLOCK, SOURCE_LABELS } from '../types';
-import type { Evidence, Freshness, Problem, Result, SimLabel, ThemeName } from '../types';
+import { DEMO_CLOCK, SIM_LABELS, SOURCE_LABELS } from '../types';
+import type {
+  Evidence,
+  Freshness,
+  Problem,
+  Provenance,
+  Result,
+  SimLabel,
+  ThemeName,
+} from '../types';
 import type { SiteIntelligenceService } from '../services/site-intelligence-service';
 import { EVIDENCE_DRAWER_TEXT as TEXT, EvidenceDrawer, EvidenceRef } from './evidence-drawer';
 import { STATE_BOUNDARY_TEXT } from './state-boundary';
@@ -177,6 +188,34 @@ const SPARSE_EVIDENCE: Evidence = {
 };
 
 /**
+ * One entry of the label table: the provenance a record reports, and the §5.3 label it carries.
+ *
+ * The two are separate members because the drawer must print the label the record states rather than
+ * one derived from its provenance, and a table is how an `it.each` below states both for a case.
+ */
+interface LabelledRecord {
+  /** The provenance the record reports, as `Evidence.provenance`. */
+  readonly provenance: Provenance;
+
+  /** The exact §5.3 label the record carries, as `Evidence.label`. */
+  readonly label: SimLabel;
+}
+
+/**
+ * Records whose label the drawer must take from the record rather than derive from its provenance.
+ *
+ * The first two report the same `computed` provenance and carry different labels, so a label table
+ * keyed on provenance inside the component would print one text for both and one of the two cases
+ * would fail; the third is the market-intelligence reading, which answers with its own label. Each
+ * label is one of the seven fixed §5.3 strings (rule P-1, AAP §0.10).
+ */
+const LABELLED_RECORDS: readonly LabelledRecord[] = [
+  { provenance: 'computed', label: 'Simulated calculation' },
+  { provenance: 'computed', label: 'Simulated recommendation' },
+  { provenance: 'market_intelligence', label: 'Simulated market intelligence' },
+];
+
+/**
  * The failure a read ends in when the records hold nothing for the reference: a cause the state
  * boundary does not own, so the drawer reports it through its own failure region.
  */
@@ -218,6 +257,38 @@ function failWith(problem: Problem): void {
 }
 
 /**
+ * Makes `window.matchMedia` report a viewport at or above the docked breakpoint.
+ *
+ * jsdom implements no media query at all, so `window.matchMedia` is absent and the drawer takes its
+ * overlay presentation in every other case here; this stub is what makes the docked one reachable. Its
+ * `media` member repeats the query the drawer asked it about rather than carrying a second copy of
+ * that text, so the stub cannot drift from the module's own query, and the queries it was asked are
+ * returned so a case can state that text. It carries the remaining members `matchMedia` returns —
+ * `matches`, `onchange` and both listener pairs, the deprecated pair as no-ops — and the suite's
+ * `afterEach` unstubs it, so it cannot colour a case that runs after it.
+ */
+function stubDockedViewport(): readonly string[] {
+  const queries: string[] = [];
+
+  vi.stubGlobal('matchMedia', (query: string) => {
+    queries.push(query);
+
+    return {
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: (): void => undefined,
+      removeEventListener: (): void => undefined,
+      addListener: (): void => undefined,
+      removeListener: (): void => undefined,
+      dispatchEvent: (): boolean => true,
+    };
+  });
+
+  return queries;
+}
+
+/**
  * Every case starts from a read that succeeds with the full record and from no theme attribute, so
  * a case that fails a call or sets a theme states that itself and leaves nothing behind for the
  * next one. The resolved value is set here rather than at module scope because `restoreMocks` resets
@@ -227,14 +298,18 @@ beforeEach(() => {
   getEvidence.mockResolvedValue(envelope(FULL_EVIDENCE));
 });
 
-/** Takes the theme attribute off `<html>` again, so one theme case cannot colour the next. */
+/**
+ * Takes the theme attribute off `<html>` again, so one theme case cannot colour the next, and removes
+ * any stubbed global — the docked case's `matchMedia` — so it cannot colour a case either.
+ */
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
+  vi.unstubAllGlobals();
 });
 
 describe('EvidenceRef', () => {
   it('names the trigger with the visible figure and says what activating it opens', () => {
-    render(withQueryCache(<EvidenceRef evidenceRef={REFERENCE}>{FIGURE}</EvidenceRef>));
+    render(withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>));
 
     const trigger = screen.getByRole('button');
 
@@ -251,7 +326,7 @@ describe('EvidenceRef', () => {
   it('opens a modal dialog named by its own heading from the keyboard alone', async () => {
     const user = userEvent.setup();
     const { container } = render(
-      withQueryCache(<EvidenceRef evidenceRef={REFERENCE}>{FIGURE}</EvidenceRef>),
+      withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>),
     );
     const trigger = screen.getByRole('button');
 
@@ -272,7 +347,7 @@ describe('EvidenceRef', () => {
   });
 
   it('asks the port for the reference the figure carries, once', async () => {
-    render(withQueryCache(<EvidenceRef evidenceRef={REFERENCE}>{FIGURE}</EvidenceRef>));
+    render(withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>));
 
     await userEvent.setup().click(screen.getByRole('button'));
 
@@ -283,7 +358,7 @@ describe('EvidenceRef', () => {
 
   it('closes on Escape and returns focus to the triggering figure', async () => {
     const user = userEvent.setup();
-    render(withQueryCache(<EvidenceRef evidenceRef={REFERENCE}>{FIGURE}</EvidenceRef>));
+    render(withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>));
     const trigger = screen.getByRole('button');
 
     await user.tab();
@@ -343,6 +418,33 @@ describe('EvidenceDrawer', () => {
     expect(within(judgement).getByText(TEXT.documentsLabel)).toBeVisible();
     expect(within(judgement).getByText(DOCUMENT)).toBeVisible();
   });
+
+  it("prints the record's own §5.3 label beside the value it belongs to", async () => {
+    renderDrawer();
+
+    const value = await screen.findByRole('region', { name: TEXT.valueSection });
+    const label = within(value).getByText(FULL_EVIDENCE.label);
+
+    /* The drawer carries the figure it was opened for, so it states that figure's exact label
+       (rule P-1) rather than leaving the one place a reader inspects a figure unlabelled. */
+    expect(label).toBeVisible();
+    expect(label.textContent).toBe(FULL_EVIDENCE.label);
+    expect(SIM_LABELS).toContain(FULL_EVIDENCE.label);
+    /* The raw provenance token is what the source section reports; it never stands in for the label. */
+    expect(within(value).queryByText(FULL_EVIDENCE.provenance)).toBeNull();
+  });
+
+  it.each(LABELLED_RECORDS)(
+    "shows the label a $provenance record carries rather than one derived from its provenance",
+    async ({ provenance, label }) => {
+      getEvidence.mockResolvedValue(envelope({ ...FULL_EVIDENCE, provenance, label }));
+      renderDrawer();
+
+      const value = await screen.findByRole('region', { name: TEXT.valueSection });
+
+      expect(within(value).getByText(label)).toBeVisible();
+    },
+  );
 
   it('prints the instant a source last answered character for character, offset included', async () => {
     renderDrawer();
@@ -429,7 +531,7 @@ describe('EvidenceDrawer', () => {
 
   it('closes from the close control and returns focus to the element that opened it', async () => {
     const user = userEvent.setup();
-    render(withQueryCache(<EvidenceRef evidenceRef={REFERENCE}>{FIGURE}</EvidenceRef>));
+    render(withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>));
     const trigger = screen.getByRole('button');
 
     await user.click(trigger);
@@ -480,6 +582,38 @@ describe('EvidenceDrawer', () => {
     expect(dialog).toHaveClass('xl:end-0');
     expect(dialog).toHaveClass('xl:start-auto');
     expect(dialog.className).not.toMatch(/\b(?:sm|md|lg|2xl):w-/);
+  });
+
+  it('claims no modality for the docked panel and keeps its role, name, focus and Escape', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const queries = stubDockedViewport();
+    renderDrawer(onClose);
+
+    const dialog = await screen.findByRole('dialog', { name: TEXT.title });
+
+    /* The query is stated in the unit the class list's `xl:` variants resolve against — Tailwind's
+       `80rem` — so the modality claim and the panel's shape break at the same font-relative width. A
+       pixel query would part company with those classes at any default font size but 16 px. */
+    expect(queries.length).toBeGreaterThan(0);
+    expect([...new Set(queries)]).toEqual(['(min-width: 80rem)']);
+
+    /* At the docked breakpoint the panel sits inside a host that takes no pointer events, so the
+       page beside it stays readable and operable. The attribute is absent — not `"false"`, which
+       would still make a modality distinction — so nothing tells assistive technology that the
+       rest of the page is inert (AAP §0.12.4, rule B-3). */
+    expect(dialog).not.toHaveAttribute('aria-modal');
+
+    /* The docked presentation keeps everything the keyboard contract rests on: the dialog takes focus
+       on open, Tab stays inside it, and Escape releases it through the caller. */
+    expect(dialog).toHaveFocus();
+    for (let step = 1; step <= 4; step += 1) {
+      await user.tab();
+      expect(dialog.contains(document.activeElement), `Tab ${step} left the dialog`).toBe(true);
+    }
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it.each(THEMES)('renders the same four sections under the %s theme', async (theme) => {

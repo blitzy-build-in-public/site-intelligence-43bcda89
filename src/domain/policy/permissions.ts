@@ -26,14 +26,17 @@
  *
  * OPEN ITEM: contracts §7.1 is the authority for the exact cells and is not readable in this run, so
  * every cell below is settled from the AAP fact that names it and stays open to correction. The table
- * covers 8 roles x 14 permissions = 112 cells, of which 40 are granted and 72 are denied; those 40
+ * covers 8 roles x 14 permissions = 112 cells, of which 41 are granted and 71 are denied; those 41
  * grants are a documented derivation rather than a transcription, and `platform-contracts.md` §7.1
  * supersedes every line of it, the holder sets recorded below included, the moment §7.1 is supplied.
  * Per cell:
- * - `approval.decide` to `plant-manager` alone — the persona table (AAP 0.2.3), the plant manager's
- *   home route `/approvals` (AAP 0.12.4) and the journey in which a planner requests a plan and the
- *   plant manager decides it (AAP 0.2.2, T-07, T-08). `Approval.eligibleApproverRoles` is a list, so
- *   §7.1 may admit a second approver, such as the head of supply chain as an escalation.
+ * - `approval.decide` to `plant-manager` and `head-of-supply-chain`. The persona table (AAP 0.2.3),
+ *   the plant manager's home route `/approvals` (AAP 0.12.4) and the journey in which a planner
+ *   requests a plan and the plant manager decides it (AAP 0.2.2, T-07, T-08) fix the first holder.
+ *   The second is the approver the seeded plans need: the head of supply chain spans all four plants,
+ *   so it is the approver that can reach a plan recorded at a plant whose own plant manager is scoped
+ *   elsewhere, and the seeded trail already records it deciding `APR-2026-103`. Both roles are on
+ *   `Approval.eligibleApproverRoles`, which is a list for exactly this reason.
  * - `approval.request` to the roles that send a plan for approval and not to `plant-manager`, so a
  *   request always has a distinct persona able to decide it.
  * - `audit.read` to `auditor` alone — the auditor's home route is `/audit` (AAP 0.12.4).
@@ -167,6 +170,7 @@ const ROLE_PERMISSIONS = {
     'exception.read',
     'scenario.create',
     'approval.request',
+    'approval.decide',
     'document.confidential.read',
     'evidence.read',
     'competitive.read',
