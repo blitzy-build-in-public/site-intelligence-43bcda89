@@ -73,10 +73,13 @@
  * order changes the opening persona with it rather than contradicting a rule stated in this file.
  *
  * A TRAP WORTH STATING — the test environment. This module hashes, so a suite that exercises it must
- * declare the Node environment on its own first line (`// @vitest-environment node`): under jsdom the
- * platform declines to hash jsdom's `ArrayBuffer` realm and every digest rejects. Component suites keep
- * the shared jsdom default and never reach this module, which is why the requirement stays with the
- * code that has it rather than with the shared configuration.
+ * declare the Node environment on its own first line (`// @vitest-environment node`). Not because the
+ * jsdom default would fail the call: under it `globalThis.crypto` and `window.crypto` are already the
+ * platform's Web Crypto — the object `node:crypto.webcrypto` exports, over the realm's own
+ * `Uint8Array` — so jsdom contributes no `SubtleCrypto` and the digest resolves. Hashing is a platform
+ * call rather than a DOM one, so the declaration states the environment the suite means to use.
+ * Component suites keep the shared jsdom default and never reach this module, which is why the
+ * requirement stays with the code that has it rather than with the shared configuration.
  *
  * Rules this module is built to satisfy:
  * - P-2: it imports the sibling `seed-loader.ts` and the domain chain module, both of which are the

@@ -23,9 +23,11 @@
  * OPEN ITEM: `WriteBack` (contracts §3) declares `sequence`, `system`, `recordRef`, `description`
  * and `state` — and no failure-message member and no timestamp member. On a failed step the record's
  * own `description` is therefore the only text it carries, so that description is what is shown and
- * {@link WRITE_BACK_TAG} sits immediately under it, exactly as AAP 0.2.2 requires of a failed
- * write-back; no failure message and no instant is printed that the record does not hold. A member
- * added to `WriteBack` is rendered here on the day it exists; nothing needs inventing meanwhile.
+ * {@link WRITE_BACK_TAG} sits in the same step, below the rows that name the target system, the
+ * state and the record it writes — the same step as the failure's own message, which is what AAP
+ * 0.2.2 requires of a failed write-back; no failure message and no instant is printed that the
+ * record does not hold. A member added to `WriteBack` is rendered here on the day it exists; nothing
+ * needs inventing meanwhile.
  * OPEN ITEM: the record carries no identifier beyond `recordRef`, so that reference is the value the
  * caller's retry handler receives as its `writeBackId`, and the step's own `sequence` — its declared
  * position in the write-back — is the reconciliation key rather than the array index, so a step that
@@ -40,6 +42,7 @@ import { Panel } from '../../components/panel';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
+import { SOURCE_LABELS } from '../../types';
 import type { WriteBack, WriteBackState } from '../../types';
 
 /**
@@ -258,7 +261,9 @@ function WriteBackStep({ writeBack, onRetry, isRetrying }: WriteBackStepProps): 
 
       <p className={DETAIL_CLASSES}>
         <span>{SYSTEM_LABEL}</span>
-        <MonoValue value={writeBack.system} kind="id" />
+        {/* The source is printed by its display name from `SOURCE_LABELS`, so the tracker and the
+            comparison screen's write-back preview read one record value one way. */}
+        {SOURCE_LABELS[writeBack.system]}
       </p>
 
       <p className={DETAIL_CLASSES}>
@@ -270,8 +275,9 @@ function WriteBackStep({ writeBack, onRetry, isRetrying }: WriteBackStepProps): 
         <MonoValue value={writeBack.recordRef} kind="id" />
       </p>
 
-      {/* Every step carries the fixed tag, and on a failed step it follows the record's own
-          description directly, which is where AAP 0.2.2 places it. */}
+      {/* Every step carries the fixed tag. On a failed step it sits in the same step as the record's
+          own description, below the rows that name the target system, the state and the record it
+          writes — the same step as the failure's own message, which is where AAP 0.2.2 places it. */}
       <p className={CAPTION_CLASSES}>{WRITE_BACK_TAG}</p>
 
       {isFailed && onRetry !== undefined ? (

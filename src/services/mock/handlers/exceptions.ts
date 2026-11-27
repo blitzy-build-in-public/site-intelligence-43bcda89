@@ -98,9 +98,12 @@
  * WHY THE AGGREGATE BUNDLE IS BUILT HERE RATHER THAN SHARED. `handlers/topology.ts` builds the same
  * bundle for the canvas ribbon, and the two builders are two copies of one fifteen-line function. They
  * stay two: AAP 0.12.1 fixes this folder at nine files, of which one per read/write family plus the
- * audit append path, so there is no shared helper module to hold it, and a handler importing another
- * family's handler would make the folder's dependencies run sideways. Each copy reads its own family's
- * inputs from the session and neither computes anything.
+ * audit append path, so there is no shared helper module to hold the copy and adding one would make a
+ * tenth. What the handlers do import from each other is another family's data —
+ * `handlers/approvals.ts` reads the scenario set `handlers/scenarios.ts` builds — and the append path
+ * `handlers/audit.ts` owns, which the writing families call instead of repeating it; neither is a
+ * builder lifted out of another family. Each copy reads its own family's inputs from the session and
+ * neither computes anything.
  *
  * Rules this module is built to satisfy:
  * - P-6: every number is an aggregate's or the solver's output, or a record value copied across. No

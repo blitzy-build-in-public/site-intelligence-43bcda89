@@ -73,15 +73,26 @@ export type AuditResult = 'allowed' | 'blocked' | 'succeeded' | 'failed';
 /**
  * The action an event records, spelled as the appending module spells it.
  *
- * contracts §6 fixes 16 action names. The 12 the inputs available in this run enumerate are the
- * canonical spellings for the seed and for the adapter: `assign`, `note`, `dismiss`, `custom solve`,
- * `approval request`, `decision`, `outcome review`, `assistant question`, `policy block`,
- * `extraction review`, `export` and `role switch` (the data flow AAP 0.6.2 sets out). The two
- * demonstrations of the chain itself append `chain verify` and the edit to a recorded result of a
- * seeded event, which is the break a verification then reports.
+ * contracts §6 fixes 16 action names (AAP 0.12.1). The 12 the inputs available in this run enumerate
+ * are the canonical spellings for every act a screen or a policy decision appends: `assign`, `note`,
+ * `dismiss`, `custom solve`, `approval request`, `decision`, `outcome review`, `assistant question`,
+ * `policy block`, `extraction review`, `export` and `role switch` (the data flow AAP 0.6.2 sets
+ * out). The adapter derives two further spellings for write paths that enumeration does not name, so
+ * 14 distinct values are appended: `simulated write-back` for a write-back step's transition,
+ * spelled in `src/services/mock/handlers/approvals.ts`, and `policy exception request` for a
+ * time-boxed policy exception, spelled in `src/services/mock/handlers/governance.ts`. A supplied
+ * contracts document supersedes either constant without a consumer change.
  *
- * OPEN ITEM: the remaining four of the 16 are not recoverable from the inputs, so this stays an open
- * alias over `string` rather than a closed union with an invented member.
+ * The two demonstrations of the chain itself append nothing. A verification is a read — AAP 0.12.3
+ * lists `GET /audit-events/verify` — so it reports the chain as it stands and leaves every record as
+ * it found it. The tamper control edits a recorded result of a seeded event without recomputing its
+ * hash, and the break it leaves is the one a verification then reports (AAP 0.10): an appended event
+ * would extend the chain rather than exhibit that disagreement, and a recomputed hash would be the
+ * repair the control must not perform.
+ *
+ * OPEN ITEM: the remaining two of the 16 are named by no input available in this run, so this stays
+ * an open alias over `string` rather than a closed union with an invented member — AAP 0.14.2 adds
+ * no capability the inputs do not name.
  */
 export type AuditAction = string;
 

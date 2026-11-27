@@ -15,11 +15,12 @@
  * comes from the service that answers it, never from a value this file supplies (rule B-2).
  *
  * The envelope is validated rather than assumed (rule P-1). A success is returned only when the body
- * holds `data` and a `meta` whose `simulated` member is the literal `true`, whose `freshness` is an
- * array and whose `traceId` is a string; a body that fails those checks is refused as a
- * `'validation'` failure instead of reaching a screen looking like a live result. The marker is read
- * and passed on unchanged, and this file holds no simulation label of its own: the seven fixed
- * strings live in `src/types/primitives.ts` and belong to the components that render them.
+ * holds a `data` that is a record or a list and a `meta` whose `simulated` member is the literal
+ * `true`, whose `freshness` is an array and whose `traceId` is a string; a body that fails those
+ * checks is refused as a `'validation'` failure instead of reaching a screen looking like a live
+ * result. The marker is read and passed on unchanged, and this file holds no simulation label of its
+ * own: the seven fixed strings live in `src/types/primitives.ts` and belong to the components that
+ * render them.
  *
  * The correlation identifier is received, never produced. `traceId` comes from the response body,
  * else from the response header, else it is the empty string; nothing here reads the clock or a
@@ -29,9 +30,9 @@
  * states stay observable (AAP 0.12.1), and redaction belongs to the service that holds the records:
  * this module sends a call and reports what came back, without sleeping, repeating or filtering.
  *
- * Shapes only (rule P-6): the only numerals in this file are the response status codes its failure
- * mapping reads. They are protocol constants that classify a transport outcome and are never shown
- * as a value, so none of them is a figure of the domain.
+ * Shapes only (rule P-6): the only numerals in this file are protocol constants — the response
+ * status codes its failure mapping reads and the one deadline it arms. They classify a transport
+ * outcome and are never shown as a value, so none of them is a figure of the domain.
  *
  * Nothing here is claimed as established (rule P-4). The file reports what a response said; it makes
  * no statement about the store behind it, about who may read a record, or about what an edit to a
@@ -73,9 +74,10 @@ import type {
  * The `message` is a sentence for a reader. For a failure the service described it is the service's
  * own reason, carried through unchanged, because that sentence is what a disabled control and a
  * stale-source banner show (rule P-8). For a failure this module detected itself — a body that is
- * not the envelope, a call that never arrived, a target that is not a relative path — it is this
- * module's sentence naming the status code and the path, and it never quotes the body it could not
- * use.
+ * not the envelope, a call that never reached the service, a call that outlasted its deadline, a
+ * target that is not a relative path — it is this module's sentence naming the status code and the
+ * path, with the service named as the side that failed where the status is the service's own, or
+ * naming the deadline and the path, and it never quotes the body it could not use.
  *
  * The instance describes one call and states nothing about the records behind it (rule P-4).
  */
@@ -139,8 +141,11 @@ export class ProblemError extends Error implements Problem {
  * What a caller may ask the transport to send, apart from the target itself.
  *
  * Only the two methods contracts §9 uses are offered, so a call cannot acquire a verb the paths do
- * not describe. There is no member for a header, a mode, an identity or a deadline: a call is sent
- * as it is described here and nothing else is attached to it (rules B-1, B-2).
+ * not describe. There is no member for a header, a mode or an identity: a call is sent as it is
+ * described here and nothing else is attached to it (rules B-1, B-2). A deadline is not a member
+ * either, because it is not the caller's to choose: `request` arms the one fixed deadline below for
+ * every call, so a service that never answers cannot hold a call open and no caller can extend it,
+ * shorten it or remove it (rule P-6).
  *
  * @typeParam Q - The query shape of the call, an interface such as `ExceptionQuery` or the default
  * empty record when the call carries no parameters.
@@ -151,13 +156,58 @@ export interface RequestOptions<Q extends object> {
 
   /**
    * The parameters to append, serialised by `request` from the members that hold a representable
-   * value. `sort` travels exactly as the caller writes it, because contracts §9 fixes it as
-   * `field:dir`; no member is read as a field path, a range or a structured filter.
+   * value. A member the caller leaves out is omitted, and an empty string is a value rather than an
+   * absence: a caller that passes one asks the service to match it, so it travels as a parameter
+   * with an empty value instead of being dropped. `sort` travels exactly as the caller writes it,
+   * because contracts §9 fixes it as `field:dir`; no member is read as a field path, a range or a
+   * structured filter.
    */
   readonly query?: Q;
 
   /** The payload to send as JSON; absent means the call has no body. */
   readonly body?: unknown;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The deadline — rules P-6 and B-2
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * How long one call may wait for the service's answer before it is abandoned: ten seconds.
+ *
+ * No input fixes this value, so it is a protocol constant of the transport rather than a figure of
+ * the domain: it is the same for every call, it is never shown as a value, and nothing renders it
+ * (rule P-6). It is not read from configuration or from the environment either, because the build
+ * declares no variable to read (rule B-2); a deployment that needs another bound changes this bound
+ * here, beside the code it governs.
+ */
+const REQUEST_DEADLINE_MS = 10_000;
+
+/**
+ * The failure a call becomes when its deadline passes: a `'validation'` cause, because no status the
+ * service sends names it and the nearest of the five fixed causes is the one the set leaves for a
+ * call that produced no answer (AAP 0.2.2, AAP 0.12.3).
+ *
+ * The message names the path and the deadline, so a reader knows which call was abandoned and after
+ * how long, and it names no origin, host or port (rule B-1). The rejection that carried the call is
+ * kept when there is one, so a stack still shows where the wait ended.
+ *
+ * @param path - The target the abandoned call named.
+ * @param traceId - The correlation identifier the answer carried, or the empty string when none did.
+ * @param cause - What the abandoned call rejected with, when there was such a value.
+ * @returns The typed failure to throw.
+ */
+function deadlineFailure(path: string, traceId: string, cause?: unknown): ProblemError {
+  return new ProblemError(
+    {
+      type: 'validation',
+      message:
+        `The request to ${path} received no answer within its ` +
+        `${REQUEST_DEADLINE_MS} ms deadline and was abandoned.`,
+      traceId,
+    },
+    cause,
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -172,33 +222,51 @@ export interface RequestOptions<Q extends object> {
  * 1. Refuse a target that is not rooted at the application origin (rule B-1). Only a path beginning
  *    with a single slash is sent, so a caller cannot make this transport address another host by
  *    handing it an address where a path belongs.
- * 2. Serialise the query: every own enumerable member whose value is a non-empty string, a finite
- *    number or a boolean, with the name and the value both encoded, joined with `&` and prefixed
- *    with `?` when at least one survives. A member holding `null`, `undefined`, an empty string, a
- *    non-finite number, an array, a nested object or a function is left out rather than rendered,
- *    because contracts §9 fixes no list or range syntax for a query parameter and a shape it does
- *    not describe is omitted instead of being flattened into something the service never asked for.
+ * 2. Serialise the query: every own enumerable member whose value is a string — the empty string
+ *    included, which is a value a caller may ask the service to match and which therefore travels
+ *    as a parameter with an empty value — a finite number or a boolean, with the name and the value
+ *    both encoded, joined with `&` and prefixed with `?` when at least one survives. A member
+ *    holding `null`, `undefined`, a non-finite number, an array, a nested object or a function is
+ *    left out rather than rendered, because contracts §9 fixes no list or range syntax for a query
+ *    parameter and a shape it does not describe is omitted instead of being flattened into
+ *    something the service never asked for. An absent member is the one that sends no parameter, so
+ *    a caller that omits a parameter asks for the whole selection and a caller that passes an empty
+ *    value asks for what matches it.
  * 3. Send it: `GET` unless a method was given, a JSON content type only beside a body, a JSON accept
- *    header always, and no member that would identify a client or repeat a failed call.
- * 4. Read the answer as JSON. A 2xx body that is not the `{ data, meta }` envelope — `data` absent,
- *    `meta` not an object, `meta.simulated` not the literal `true`, `meta.freshness` not an array,
- *    `meta.traceId` not a string — is refused as a `'validation'` failure, which is the guard behind
- *    the disclosure rule: a response that does not say it is simulated never reaches a screen as if
- *    it were live (rule P-1). Every other 2xx answer is returned as it arrived, with no member
- *    added, dropped or recomputed.
+ *    header always, the deadline's signal beside them, and no member that would identify a client
+ *    or repeat a failed call.
+ * 4. Read the answer as JSON. A 2xx body that is not the `{ data, meta }` envelope — `data` absent
+ *    or a scalar or `null`, `meta` not an object, `meta.simulated` not the literal `true`,
+ *    `meta.freshness` not an array, `meta.traceId` not a string — is refused as a `'validation'`
+ *    failure, which is the guard behind the disclosure rule: a response that does not say it is
+ *    simulated never reaches a screen as if it were live (rule P-1). The kind of the payload is the
+ *    other thing this layer decides: no member of the port answers a scalar or `null`, so one is
+ *    refused here rather than reaching a screen to be read as a record. Every other 2xx answer is
+ *    returned as it arrived, with no member added, dropped or recomputed.
  * 5. Map a failure to a `Problem` carrying the reason a reader needs (rule P-8). A body the service
- *    wrote in the failure shape is preferred, and every cause it carries is preserved; when there
- *    is none, the status code decides: `401` and `403` name a missing permission, `404` a record
- *    that does not exist, and `400`, `422` and every other status a validation of the call. The five
- *    causes contracts §2 fixes are the whole vocabulary, so no sixth is invented for a status the
- *    set does not describe.
+ *    wrote in the failure shape is preferred, and every cause it carries is preserved — the
+ *    permission a role lacked, the roles that hold it, and the rule, permitted alternative and
+ *    event of a policy block. When the body names none, the status code decides: `401` a missing
+ *    permission, `403` a policy block, `404` a record that does not exist, and `400`, `422` and
+ *    every other status — `5xx` included — a validation of the call. That last one is the nearest
+ *    of the five causes for a status the set does not name, and a call that produced no status at
+ *    all takes it as well; the diagnostic names the one class that needs it in words — a `5xx` is
+ *    the service failing to answer the call — so a server fault never reads as a fault in the call
+ *    the reader made. The five causes contracts §2 fixes are the whole vocabulary, so no sixth is
+ *    invented for a status the set does not describe.
  * 6. Report the correlation identifier it received: the response body's, else the response
  *    header's, else the empty string. Nothing here mints one, so a failure names a call the service
  *    can find rather than a value invented at this end.
  *
- * A rejected call — no network, no answer, an aborted request — becomes a `'validation'` failure
- * naming the path and carrying the rejection as its `cause`. The call is not repeated, no second
- * target is tried, and no origin or host appears in the message.
+ * A call that outlasts its deadline is abandoned: the timer aborts the signal the call was sent
+ * with, and the call becomes a `'validation'` failure — again the nearest of the five causes, since
+ * no status names it — whose message names the path and the deadline. The deadline covers the whole
+ * wait for the answer, its body included, because the signal stays armed while the body is read: a
+ * service that accepts the connection and never answers, and one that answers with headers and then
+ * stalls, are both abandoned rather than holding the caller open for the life of the page. Any other
+ * rejection — no network, no answer — becomes a `'validation'` failure naming the path and carrying
+ * the rejection as its `cause`. Neither is repeated: the call is not sent again, no second target is
+ * tried, and no origin or host appears in the message.
  *
  * @typeParam T - The payload the envelope carries.
  * @typeParam Q - The query shape of the call, `Record<string, never>` when it takes no parameters.
@@ -224,18 +292,31 @@ export async function request<T, Q extends object = Record<string, never>>(
   const target = query === undefined ? path : `${path}${serialiseQuery(query)}`;
   const payload = options?.body;
 
+  const controller = new AbortController();
+  let deadlineReached = false;
+  const deadline = setTimeout(() => {
+    deadlineReached = true;
+    controller.abort();
+  }, REQUEST_DEADLINE_MS);
+
   const init: RequestInit = {
     method: options?.method ?? 'GET',
     headers: requestHeaders(payload !== undefined),
+    signal: controller.signal,
   };
   if (payload !== undefined) {
     init.body = JSON.stringify(payload);
   }
 
   let response: Response;
+  let body: BodyRead;
   try {
     response = await fetch(target, init);
+    body = await readBody(response);
   } catch (cause) {
+    if (deadlineReached) {
+      throw deadlineFailure(path, '', cause);
+    }
     throw new ProblemError(
       {
         type: 'validation',
@@ -244,10 +325,15 @@ export async function request<T, Q extends object = Record<string, never>>(
       },
       cause,
     );
+  } finally {
+    clearTimeout(deadline);
   }
 
   const headerTraceId = response.headers.get(TRACE_ID_HEADER) ?? '';
-  const body = await readBody(response);
+
+  if (deadlineReached && !body.readable) {
+    throw deadlineFailure(path, headerTraceId);
+  }
 
   if (!response.ok) {
     throw failure(path, response.status, body, headerTraceId);
@@ -268,8 +354,9 @@ export async function request<T, Q extends object = Record<string, never>>(
     throw new ProblemError({
       type: 'validation',
       message:
-        `The service answered ${response.status} for ${path} ` +
-        'without the data and meta envelope a result carries.',
+        `The service answered ${response.status} for ${path} without the data ` +
+        'and meta envelope a result carries, or with a payload that is neither ' +
+        'a record nor a list.',
       traceId: headerTraceId,
     });
   }
@@ -311,9 +398,11 @@ function isRelativePath(path: string): boolean {
 /**
  * Renders a query shape as the parameter string a call appends, `''` when nothing survives.
  *
- * The ordering parameter contracts §9 writes as `field:dir` travels exactly as the caller wrote it:
- * it is encoded with the rest of the value rather than parsed, split or reordered, and no member is
- * interpreted as a field path.
+ * A member reaches the service only because the caller supplied it: an explicitly supplied empty
+ * value is sent as a parameter with an empty value (`?ref=`), and a member the caller left out is
+ * the one that produces no parameter at all. The ordering parameter contracts §9 writes as
+ * `field:dir` travels exactly as the caller wrote it: it is encoded with the rest of the value
+ * rather than parsed, split or reordered, and no member is interpreted as a field path.
  */
 function serialiseQuery(query: object): string {
   const parts: string[] = [];
@@ -329,13 +418,20 @@ function serialiseQuery(query: object): string {
 
 /**
  * Renders one query member, or `undefined` when the member carries no value the path vocabulary can
- * express. A shape contracts §9 does not describe — an array, a nested object, a function — is
- * omitted rather than flattened, so a parameter never changes meaning on its way to the service.
+ * express.
+ *
+ * An empty string is a value rather than an absence: a caller that passes one asks the service to
+ * match it, so it is rendered as a parameter with an empty value instead of being dropped, which
+ * would widen the read to the whole collection. The member that carries nothing is the absent one
+ * — `null` or `undefined` — and a shape contracts §9 does not describe — an array, a nested
+ * object, a function — is omitted rather than flattened, so a parameter never changes meaning on
+ * its way to the service. A number and a boolean keep their own rendering, so a deliberate `0` or
+ * `false` travels as the value it is.
  */
 function queryValue(value: unknown): string | undefined {
   switch (typeof value) {
     case 'string':
-      return value === '' ? undefined : value;
+      return value;
     case 'number':
       return Number.isFinite(value) ? String(value) : undefined;
     case 'boolean':
@@ -386,6 +482,20 @@ async function readBody(response: Response): Promise<BodyRead> {
 /**
  * Reads a parsed body as the envelope every result carries, or `undefined` when it is not one.
  *
+ * Two things are decided here: the envelope — a `meta` of the shape every result carries and a `data`
+ * member that is present — and the kind of the payload, which is a record of members or a list of
+ * them. A JSON scalar or `null` is no payload any member of the port returns, so a response carrying
+ * one is refused through the same `undefined` this function answers for a broken envelope, and
+ * becomes the same typed validation failure instead of reaching a screen as a record whose fields
+ * then read as nothing.
+ *
+ * The fields inside the payload are the port's typed contract, not this layer's. `Result<T>` is what
+ * both adapters declare they answer, `T` is one of the port's record types or a list of them, and the
+ * compiler checks that where the mock adapter and this client each satisfy the port, so a field the
+ * service names differently is a compile error rather than a value a screen reads as absent. This
+ * transport keeps no second copy of the port's record shapes to compare a payload against, because a
+ * copy would drift from the contract it duplicated and would be the wrong authority the moment it did.
+ *
  * The payload is returned as it arrived. Nothing is added, dropped or recomputed, and the freshness
  * entries are carried through untouched so the screen that raises a stale banner reads the same
  * records the service reported (AAP 0.2.1).
@@ -397,7 +507,7 @@ function readResult<T>(body: unknown): Result<T> | undefined {
   if (!isMeta(body['meta'])) {
     return undefined;
   }
-  if (!Object.hasOwn(body, 'data')) {
+  if (!isPayload(body['data'])) {
     return undefined;
   }
   return body as unknown as Result<T>;
@@ -417,6 +527,16 @@ function isMeta(value: unknown): value is Meta {
     Array.isArray(value['freshness']) &&
     typeof value['traceId'] === 'string'
   );
+}
+
+/**
+ * Whether a value is of the kind of payload the port returns: a record of members or a list of
+ * them. A scalar — a string, a number, a boolean — and `null` are neither, and an absent member
+ * holds no payload at all, so each of them is refused here rather than returned as a record or a
+ * list the caller's type says it received.
+ */
+function isPayload(value: unknown): value is object {
+  return typeof value === 'object' && value !== null;
 }
 
 /** Whether a value is an object of members, which is the shape a response body has to have. */
@@ -440,11 +560,17 @@ const PROBLEM_TYPES: readonly ProblemType[] = [
 /** The status code of a call whose caller is not recognised. */
 const STATUS_UNRECOGNISED = 401;
 
-/** The status code of a call the caller is not permitted to make. */
+/**
+ * The status code of a call the service refuses, which reads as a policy block when no body names
+ * the cause.
+ */
 const STATUS_REFUSED = 403;
 
 /** The status code of a call naming no record that exists. */
 const STATUS_MISSING = 404;
+
+/** The first status code of the class the service answers with when it cannot answer the call. */
+const STATUS_SERVER_FAULT_FLOOR = 500;
 
 /** Whether a reported value is one of the five causes a failure may name. */
 function isProblemType(value: unknown): value is ProblemType {
@@ -546,13 +672,23 @@ function problemFromBody(
 /**
  * The cause a status code reports when the body named none.
  *
- * `401` and `403` are a missing permission and `404` is a record that does not exist; `400`, `422`
- * and every other status are reported as a validation of the call. The five causes are closed, so a
- * status outside those ranges is described by the nearest cause rather than by a new one.
+ * `401` is a missing permission and `404` is a record that does not exist. `403` is a policy block:
+ * a refusal that arrives without the envelope is still the refusal of a rule, so it reaches the
+ * policy card with that cause rather than the permission card, which would report a permission the
+ * reader never lacked (rule P-8). `400`, `422` and every other status the map does not name —
+ * `5xx` included — take the nearest of the five causes, a validation of the call, and a connection
+ * that never opened takes the same one. That cause says which of the five the failure belongs to,
+ * never which side of the exchange failed, so `diagnostic` adds the second part in words for the one
+ * class that needs it: a `5xx` answer names the service as the side that failed to answer the call.
+ * The five causes are closed (AAP 0.2.2, AAP 0.12.3), so no sixth is invented for a status they do
+ * not name.
  */
 function typeForStatus(status: number): ProblemType {
-  if (status === STATUS_UNRECOGNISED || status === STATUS_REFUSED) {
+  if (status === STATUS_UNRECOGNISED) {
     return 'permission';
+  }
+  if (status === STATUS_REFUSED) {
+    return 'policy';
   }
   if (status === STATUS_MISSING) {
     return 'not-found';
@@ -560,8 +696,25 @@ function typeForStatus(status: number): ProblemType {
   return 'validation';
 }
 
-/** This module's sentence for a failure: the status code and the path, and never the body. */
+/**
+ * This module's sentence for a failure: the status code, the path, and the one addition a `5xx`
+ * needs, and never the body.
+ *
+ * The sentence is the whole of what this module can say about a failure the service did not
+ * explain, so it stays truthful for every status. A `5xx` names the service as the side that failed,
+ * because that status is the one class whose cause — the nearest of the five, `'validation'` — would
+ * otherwise be read as a fault in the call the reader made. Every other status keeps the neutral
+ * sentence, whose cause already names what it can: an unauthenticated caller is not helped by being
+ * told the call itself was at fault. It quotes no member of the body, and it names no host, port or
+ * address, because the target is a path of this origin (rule B-1).
+ */
 function diagnostic(path: string, status: number): string {
+  if (status >= STATUS_SERVER_FAULT_FLOOR) {
+    return (
+      `The service answered ${status} for ${path}, ` +
+      'which is the service failing to answer the call.'
+    );
+  }
   return `The service answered ${status} for ${path}.`;
 }
 

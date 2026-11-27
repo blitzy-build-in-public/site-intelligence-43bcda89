@@ -6,12 +6,13 @@
  * five write-backs appear in the seed's order"); the fixed `WRITE_BACK_TAG` inside every step,
  * because rule P-1 labels an individual write-back and a page-level badge does not; a status that
  * always shows an icon and a visible label together, so no step carries its meaning by colour alone
- * (rule B-3); every system and reference rendered character for character through the one formatter
- * (rule P-6); the failed step's own text with the tag inside the same step, and a retry control that
- * exists only where the caller can handle one (rule P-8); the retry's keyboard contract, which is
- * what the three T-16 assertions name; an approval with no steps stated in words rather than as an
- * empty list; and a re-render that duplicates nothing, so a step that succeeds on retry keeps the one
- * row it had.
+ * (rule B-3); the record reference rendered character for character through the one formatter and the
+ * target system printed by the display name `SOURCE_LABELS` fixes for its key, which is the name the
+ * comparison screen's write-back preview prints for the same record value (rule P-6); the failed
+ * step's own text with the tag inside the same step, and a retry control that exists only where the
+ * caller can handle one (rule P-8); the retry's keyboard contract, which is what the three T-16
+ * assertions name; an approval with no steps stated in words rather than as an empty list; and a
+ * re-render that duplicates nothing, so a step that succeeds on retry keeps the one row it had.
  *
  * The fixtures are built here from `WriteBack` and `WriteBackState` alone, and every reference in
  * them is an opaque placeholder. That is the constraint rule P-6 puts on this folder: the
@@ -23,9 +24,10 @@
  * imported from the component, so a reworded tag fails here instead of being silently accepted.
  *
  * `WriteBack` declares `sequence`, `system`, `recordRef`, `description` and `state`, and no timestamp
- * member, so there is no instant for this suite to read through the formatter. The two values that do
- * pass through it — the system class and the record reference — are what the formatter case asserts,
- * and a timestamp added to the record is asserted on the day it exists.
+ * member, so there is no instant for this suite to read through the formatter. The one value that
+ * does pass through it — the record reference — is what the formatter case asserts, and a timestamp
+ * added to the record is asserted on the day it exists. `system` is a source key rather than an
+ * identifier, so a step prints it by its display name and no source key reaches the formatter.
  *
  * The tracker is props-only and reaches no service, so nothing here mocks `service-provider.tsx`,
  * imports the seed or reads a fixture: the steps arrive as props exactly as the approval detail
@@ -38,6 +40,7 @@ import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { SOURCE_LABELS } from '../../types';
 import type { SourceId, WriteBack, WriteBackState } from '../../types';
 import { WRITE_BACK_TAG, WriteBackTracker } from './write-back-tracker';
 import type { WriteBackTrackerProps } from './write-back-tracker';
@@ -45,9 +48,10 @@ import type { WriteBackTrackerProps } from './write-back-tracker';
 /**
  * The mono face `MonoValue` owns.
  *
- * Named here because the face is part of what this suite verifies — an identifier that reached the
- * screen as ordinary body text would have skipped the one formatter — and because the component
- * module is not imported by a test that must read its output rather than its class constants.
+ * Named here because the face is part of what this suite verifies — the record's own reference, which
+ * has to reach the screen through the one formatter rather than as ordinary body text — and because
+ * the component module is not imported by a test that must read its output rather than its class
+ * constants.
  */
 const MONO_FACE_CLASS = 'font-mono';
 
@@ -125,7 +129,7 @@ const FAILED_STEP_INDEX = 2;
  *
  * `WriteBack` declares no failure-message member, so the record's `description` is the message the
  * reader is given and the only text the component can print for a failure (AAP 0.2.2 places the
- * fixed tag beside exactly that message).
+ * fixed tag in the same step as exactly that message).
  */
 const FAILURE_DESCRIPTION =
   'The receiving system refused the transfer instruction and held the release';
@@ -362,25 +366,28 @@ function expectStatusOnEveryStep(container: HTMLElement, writeBacks: readonly Wr
 }
 
 /**
- * Assertion 4: both values the record carries, rendered character for character through the
- * formatter, with the tabular numerals that go with its face.
+ * Assertion 4: the record reference rendered character for character through the formatter, with the
+ * tabular numerals that go with its face, and the source printed by its display name rather than by
+ * the raw key the record carries.
  */
-function expectMonoValuesOfEveryStep(
-  container: HTMLElement,
-  writeBacks: readonly WriteBack[],
-): void {
+function expectValuesOfEveryStep(container: HTMLElement, writeBacks: readonly WriteBack[]): void {
   const steps = stepsOf(container);
   expect(steps).toHaveLength(writeBacks.length);
 
   for (const [index, step] of steps.entries()) {
     const writeBack = writeBackAt(writeBacks, index);
-    const ownValues: readonly string[] = [writeBack.system, writeBack.recordRef];
+    const sourceName = SOURCE_LABELS[writeBack.system];
 
-    expect(monoTextsOf(step)).toEqual(expect.arrayContaining([...ownValues]));
+    /* The step's two values read differently on purpose: the source in plain text under its own
+       caption, the record's reference through the one formatter. The display name is asserted to
+       differ from the key, so a step that printed the key could not satisfy this case. */
+    expect(sourceName).not.toBe(writeBack.system);
+    expect(within(step).getByText(sourceName)).toBeVisible();
+    expect(monoTextsOf(step)).toEqual([writeBack.recordRef]);
 
     for (const element of monoElementsOf(step)) {
       expect(element).toHaveClass(TABULAR_FIGURES_CLASS);
-      expect(ownValues).toContain(textOf(element));
+      expect(textOf(element)).toBe(writeBack.recordRef);
     }
   }
 }
@@ -393,7 +400,7 @@ function expectTrackerStructure(
   expectStepsInRecordOrder(container, writeBacks);
   expectTagOnEveryStep(container, writeBacks);
   expectStatusOnEveryStep(container, writeBacks);
-  expectMonoValuesOfEveryStep(container, writeBacks);
+  expectValuesOfEveryStep(container, writeBacks);
 }
 
 afterEach(() => {
@@ -427,16 +434,16 @@ describe('WriteBackTracker', () => {
       expectStatusOnEveryStep(container, writeBacks);
     });
 
-    it('renders every system and reference through the mono face, character for character', () => {
+    it('renders the reference through the mono face and the source as its display name', () => {
       const writeBacks = makeWriteBacks();
       const container = renderTracker({ writeBacks }).container;
 
-      expectMonoValuesOfEveryStep(container, writeBacks);
+      expectValuesOfEveryStep(container, writeBacks);
 
-      /* Exactly the record's two values per step: no third value the record does not carry, and no
-         reformatted or truncated duplicate of either. */
+      /* Exactly the record's one reference per step: no value the record does not carry, no source
+         key in the formatter, and no reformatted or truncated duplicate of the reference. */
       for (const step of stepsOf(container)) {
-        expect(monoElementsOf(step)).toHaveLength(2);
+        expect(monoElementsOf(step)).toHaveLength(1);
       }
     });
   });

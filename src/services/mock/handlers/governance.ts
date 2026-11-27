@@ -162,9 +162,11 @@ const ADMIN_READ: Permission = 'admin.read';
  *
  * contracts §6 fixes sixteen action names and the inputs available in this run enumerate twelve,
  * which is why `AuditAction` is an open alias: it has no member for this write, and none may be
- * invented for it in `src/types`. The spelling follows the "approval request" form the enumerated
- * names use, so the trail reads consistently, and the record's own subject is the policy the
- * exception is requested against.
+ * invented for it in `src/types`. This spelling and `simulated write-back` in `./approvals.ts` are
+ * the two the adapter derives, so fourteen distinct values are appended and the last two of the
+ * sixteen are named by no available input. The spelling follows the "approval request" form the
+ * enumerated names use, so the trail reads consistently, and the record's own subject is the policy
+ * the exception is requested against.
  */
 const POLICY_EXCEPTION_REQUESTED: AuditAction = 'policy exception request';
 

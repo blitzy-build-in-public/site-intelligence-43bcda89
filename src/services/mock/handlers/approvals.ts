@@ -68,10 +68,13 @@
  *    failure the reader could not act on. The deny appends a policy-actor event and the failure
  *    names it, as every policy block of this adapter does (AAP 0.8).
  * 5. THE WRITE-BACK STEP'S AUDIT SPELLING IS DERIVED. contracts §6 fixes sixteen action names and
- *    the inputs available in this run enumerate twelve; a step's transition is spelled
- *    `simulated write-back` after the specification §5.3 label it carries, in the lower-case form
- *    the seeded spellings use. `./governance.ts` sets the same precedent for `policy exception
- *    request`. A supplied contracts document supersedes the constant without a consumer change.
+ *    the inputs available in this run enumerate twelve; two more are derived in this tree — this one
+ *    and `policy exception request` in `./governance.ts` — so the adapter appends fourteen distinct
+ *    values, and the last two of the sixteen are named by no available input. A step's transition is
+ *    spelled `simulated write-back` after the specification §5.3 label it carries, in the lower-case
+ *    form the seeded spellings use, and `./governance.ts` sets the same precedent for `policy
+ *    exception request`. A supplied contracts document supersedes the constant without a consumer
+ *    change.
  * 6. THE RETRY IS ADDRESSED BY THE STEP'S OWN REFERENCE. `WriteBack` declares no identifier member,
  *    and the tracker's retry control calls its handler with the step's `recordRef`, so that
  *    reference is the key a retry names; an unknown or blank reference is a `'not-found'` failure

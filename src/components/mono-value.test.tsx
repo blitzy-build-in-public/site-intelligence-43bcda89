@@ -1,5 +1,5 @@
 /**
- * Component suite for `mono-value.tsx`, the single presentation formatter of the workspace.
+ * Component suite for `mono-value.tsx`, the presentation formatter of the interface's own figures.
  *
  * The module's whole contract is one string per value, so every case asserts the exact text a
  * reader sees rather than the presence of an element: thousands grouping and the currency code for

@@ -16,6 +16,23 @@
  * entry — and never through a branch on the flag itself, which is what keeps one read producing the
  * same state whichever screen asks for it (AAP 0.12.1).
  *
+ * THE TWO TRIGGERS THAT ACT ON THE CALL RATHER THAN ON ONE FAMILY'S RECORDS. Seven of the nine change
+ * the shape of what a handler was about to return, and each handler asks `isSimulationOn` about the one
+ * it handles: `forbidden` refuses the call, `empty-queue` empties the exception queue, `stale` and
+ * `offline` report the sources that way, `partial` withholds a write-back step, `conflict` refuses an
+ * update made against a record that changed, and `tampered-audit` edits one seeded event's recorded
+ * result. The other two change what every read returns rather than one family's records, so the
+ * adapter's dispatcher applies them once for every call it serves, from the two predicates below:
+ *
+ * - `loading` — `holdsReads` reports it, and a served call then never settles, so the screen that asked
+ *   renders the pending state it renders for any call still in flight (AAP 0.2.1 F10, AAP 0.2.2). The
+ *   demonstration controls are served anyway: a control that could not answer while the trigger is in
+ *   effect could not lift it, which is the one thing rule P-8 will not have.
+ * - `empty` — `emptiesLists` reports it, and every read whose payload is a collection answers with
+ *   nothing to show, so a screen renders the generic empty state (AAP 0.12.1). It is distinct from
+ *   `empty-queue`, which empties the exception queue alone and is a handler's own trigger: a filter
+ *   that happens to match nothing must not be confusable with a control that emptied every list.
+ *
  * WHY THE STALE TRIGGER NAMES ERP. ERP is the source whose state gates approval: `requestApproval` and
  * `decideApproval` refuse with a `Problem` naming the source and its as-of time when ERP is stale or
  * unavailable, and every screen offering those controls renders the banner and disables them with that
@@ -102,6 +119,46 @@ const TAMPERED_RESULT: AuditResult = 'allowed';
  */
 export function isSimulationOn(state: MockState, flag: SimulationFlag): boolean {
   return state.flags.has(flag);
+}
+
+/**
+ * Whether every call the adapter serves is being held, which is the `loading` trigger in effect.
+ *
+ * The demonstration's way of showing a pending screen: while the trigger is in effect a served call
+ * never settles, so a screen asking for a read renders the loading state it renders for any call still
+ * in flight rather than an answer (AAP 0.2.1 F10, AAP 0.2.2). The state reaches the screen through the
+ * result it was handed and never through a branch on the flag, which is why this is a property of a
+ * read rather than a rendering decision.
+ *
+ * The demonstration controls are deliberately outside what is held: the popover has to be able to lift
+ * the trigger it set, and a control that could not answer would leave the session pending with no way
+ * out of it (rule P-8). The adapter's dispatcher decides which calls those are.
+ *
+ * @param state - The session whose triggers are read. The state is not modified.
+ * @returns `true` while every served call is held, `false` otherwise.
+ */
+export function holdsReads(state: MockState): boolean {
+  return isSimulationOn(state, 'loading');
+}
+
+/**
+ * Whether every read whose payload is a collection answers with nothing, which is the `empty` trigger.
+ *
+ * The trigger empties every list the adapter serves — the exception queue, the approvals, the audit
+ * trail, the ledger, the policies, the pins, the packages, the affected lines and the identifier hits —
+ * so a screen renders the record set's generic empty state (AAP 0.12.1). It is not the `empty-queue`
+ * trigger: that one empties the exception queue alone, from the exception family's own read, and
+ * leaves every other collection as it stands.
+ *
+ * The read is otherwise served as usual, with its permission and policy checks run and a refused call
+ * still refused, so an emptied list is an answer the caller was entitled to receive rather than a way
+ * past the permission matrix. Which reads carry a collection is the adapter dispatcher's decision.
+ *
+ * @param state - The session whose triggers are read. The state is not modified.
+ * @returns `true` while every collection read answers with nothing, `false` otherwise.
+ */
+export function emptiesLists(state: MockState): boolean {
+  return isSimulationOn(state, 'empty');
 }
 
 /**

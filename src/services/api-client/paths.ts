@@ -139,9 +139,9 @@ export function exceptionAffectedLinesPath(exceptionId: ExceptionId): string {
 }
 
 /**
- * §9 path 5 — `PATCH` `/exceptions/{id}/assignee`, derived: the assignee is the exception's
- * sub-resource that the write replaces. Serves `assignException(exceptionId, ownerId)`, which
- * carries the new owner in the body rather than in the path. Gated by `exception.work`.
+ * §9 path 5 — `POST` `/exceptions/{id}/assignee`, derived: the assignee is the exception's
+ * sub-resource that the write sets, and the new owner travels in the body rather than in the path.
+ * Serves `assignException(exceptionId, ownerId)`. Gated by `exception.work`.
  */
 export function exceptionAssigneePath(exceptionId: ExceptionId): string {
   return `${API_BASE_PATH}/exceptions/${encodeSegment(exceptionId)}/assignee`;

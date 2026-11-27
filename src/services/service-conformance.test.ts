@@ -44,9 +44,11 @@
  *
  * The Node environment is declared on line 1 rather than inherited from the shared jsdom default,
  * because the mock backend hashes its seeded trail through `globalThis.crypto.subtle` during its
- * bootstrap, and jsdom 31 hands the platform its own `ArrayBuffer` realm, which the digest declines
- * (AAP 0.3.1). Nothing here needs a DOM, and no Node built-in is imported: the module reads no file
- * and inspects no process, so `@types/node` stays out of the project.
+ * bootstrap and that is a platform call rather than a DOM one: jsdom 31 supplies no `SubtleCrypto`
+ * of its own, so the digest resolves through the platform's Web Crypto under either environment, and
+ * the declaration states what this case needs instead of relying on the shared default (AAP 0.3.1).
+ * Nothing here needs a DOM, and no Node built-in is imported: the module reads no file and inspects
+ * no process, so `@types/node` stays out of the project.
  *
  * Rules this suite is built to satisfy:
  * - P-2: it exists to prove the one service interface is implemented twice, and it imports both

@@ -37,8 +37,12 @@
  *   comments are the synthetic `AUD-nnnnnn` and `POL-nnn` patterns of contracts §1.
  *
  * `crypto.subtle.digest` exists in a secure browser context and in Node from version 22, so one
- * code path serves both realms. The test module declares the Node environment because jsdom hands
- * `digest` an `ArrayBuffer` from its own realm, which the platform declines to hash.
+ * code path serves both realms. The test module declares the Node environment because hashing is a
+ * platform call rather than a DOM one: under Vitest's jsdom default `globalThis.crypto` and
+ * `window.crypto` are already the platform's own Web Crypto — the object `node:crypto.webcrypto`
+ * exports — so jsdom contributes no `SubtleCrypto` of its own and the digest resolves through the
+ * platform. Stated on the module, the requirement travels with the arithmetic that has it rather
+ * than resting on the shared configuration.
  */
 
 import type { AuditEvent, AuditPayload } from '../../types';

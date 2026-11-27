@@ -68,17 +68,19 @@
  * instead of handing back an empty file that a reader would take for an export, or inventing a path
  * that §9 does not fix. A deployment that serves exports supplies them from its own service, and
  * this is the member that would change.
- * OPEN ITEM: `assignException` targets the assignee sub-resource, which `paths.ts` documents as a
- * `PATCH`. The shared transport of `http.ts` offers the two methods contracts §9 uses, `GET` and
- * `POST`, and no third verb, so the write is sent as `POST` to that same path with the new owner in
- * the body. A `PATCH` cannot be expressed through the transport without widening its verb set, which
- * is a change to another file's contract rather than this adapter's decision.
+ * THE TWO VERBS CONTRACTS §9 USES ARE THE TWO THE TRANSPORT OFFERS. Every read here is a `GET` and
+ * every write a `POST`, so `RequestOptions` needs no third method and no call acquires one. The
+ * assignee sub-resource is the one place a third verb could be imagined, and `paths.ts` documents
+ * it as a `POST`: `assignException` sends that method to that path with the new owner in the body.
  * OPEN ITEM: a `Scope` carries two identifier lists, and contracts §9 fixes no repeated-parameter
  * syntax for a list. The transport deliberately omits an array-valued parameter rather than
  * flattening it, so a selection handed to it as an array would reach the service as no selection at
  * all and a scoped read would quietly widen to every plant. The selection therefore travels as two
- * comma-separated identifier lists, an empty list omitted — which is the other way `Scope` itself
- * says "All plants" or "All products". Reconciling that encoding with §9 is an open item.
+ * comma-separated identifier lists, and `selectionQuery` leaves an empty list out of the parameters
+ * altogether: an absent parameter is the other way `Scope` itself says "All plants" or "All
+ * products", and the transport sends an empty value when it is given one, so that meaning is
+ * carried by the selection helper rather than by a value the serialiser discarded. Reconciling that
+ * encoding with §9 is an open item.
  * OPEN ITEM: `setSimulation` and `resetDemo` are demonstration controls with no server counterpart
  * (AAP 0.6.2). They resolve as no-ops below rather than as requests, and each carries the sentence
  * saying why a deployment has no such control.
@@ -187,22 +189,32 @@ function localMeta(): Meta {
 }
 
 /**
- * The two parameters a scoped read sends for the shell's selection.
+ * The parameters a scoped read sends for the shell's selection: each is present only when the shell
+ * has picked at least one identifier, so an absent member is what "All plants" or "All products"
+ * means to a service.
  */
-type SelectionParameters = { plants: string; products: string };
+type SelectionParameters = { plants?: string; products?: string };
 
 /**
- * The shell's selection as the two parameters a scoped read sends.
+ * The shell's selection as the parameters a scoped read sends.
  *
- * Both members are always present and are the empty string when the selection is empty; the
- * transport omits an empty parameter, and an absent parameter is what "All plants" and "All
- * products" mean to a service (see the fourth OPEN ITEM in this module's header).
+ * A list travels as a comma-separated run of identifiers, and an empty list is left out of the
+ * result altogether rather than sent as an empty parameter: an absent parameter is what "All plants"
+ * and "All products" mean to a service, which is the other way `Scope` itself says the same thing
+ * (see the third OPEN ITEM in this module's header).
  *
  * @param scope - The plant and product selection the shell's filters hold.
- * @returns The selection as two comma-separated identifier lists.
+ * @returns The selection as up to two comma-separated identifier lists, an empty list omitted.
  */
 function selectionQuery(scope: Scope): SelectionParameters {
-  return { plants: scope.plants.join(','), products: scope.products.join(',') };
+  const selection: SelectionParameters = {};
+  if (scope.plants.length > 0) {
+    selection.plants = scope.plants.join(',');
+  }
+  if (scope.products.length > 0) {
+    selection.products = scope.products.join(',');
+  }
+  return selection;
 }
 
 /**
@@ -275,7 +287,7 @@ export class ApiClient implements SiteIntelligenceService {
   /**
    * Reads the overview through `GET /overview`, the contracts §9 path `paths.overviewPath` holds.
    *
-   * The shell's selection travels as the two list parameters of `selectionQuery`, and the
+   * The shell's selection travels as the list parameters `selectionQuery` builds, and the
    * `exception.read` permission of the contracts §7.1 matrix is evaluated by the service over the
    * records the call reaches. Every tile, row and series in the payload was computed upstream: this
    * member transports it unchanged (rule P-6).
@@ -350,9 +362,9 @@ export class ApiClient implements SiteIntelligenceService {
    *
    * `ownerId` is the persona being made accountable, not the caller: the acting persona is the
    * service's, and `exception.work` is the permission it evaluates over the exception's plant
-   * (rule P-3). The `PATCH` that `paths.ts` documents for this sub-resource is sent as `POST` because
-   * the shared transport offers the two methods contracts §9 uses and no third verb (see the third
-   * OPEN ITEM in this module's header).
+   * (rule P-3). `POST` is the method `paths.ts` documents for this sub-resource, and the transport
+   * offers the two methods contracts §9 uses, so the call and the path entry name the same verb
+   * (see the paragraph on the transport's two verbs in this module's header).
    *
    * @param exceptionId - The exception to assign.
    * @param ownerId - The persona being made accountable for it.

@@ -194,7 +194,14 @@ import * as topology from './handlers/topology';
 import { createMockState, restoreSeed } from './mock-state';
 import type { HandlerContext, MockState } from './mock-state';
 import type { SeedRecordSet } from './seed-loader';
-import { clearSimulationFlags, freshnessFor, setSimulationFlag, tamperAuditEvent } from './simulation';
+import {
+  clearSimulationFlags,
+  emptiesLists,
+  freshnessFor,
+  holdsReads,
+  setSimulationFlag,
+  tamperAuditEvent,
+} from './simulation';
 
 /* ---------------------------------------------------------------------------------------------
  * Timing the calls of a session — AAP 0.12.1, AAP 0.12.3
@@ -767,8 +774,12 @@ function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandid
  *
  * Every port member is a dispatcher and nothing more: it awaits the bootstrap, waits the call's
  * latency, takes the persona from the session, delegates to the family that owns the record and wraps
- * the answer in the envelope. The one private method, `dispatch`, is the whole of that mechanism, so
- * the timing, the trace and the persona are decided in one place rather than in every member.
+ * the answer in the envelope. The private `serve` method is the whole of that mechanism, so the timing,
+ * the trace and the persona are decided in one place rather than in every member, and the three methods
+ * built on it decide which of the simulation's two call-wide triggers a member meets: `dispatch` serves
+ * a call the `loading` trigger holds, `dispatchControl` serves the demonstration controls that must
+ * answer anyway so the popover can lift that trigger (rule P-8), and `dispatchCollection` serves a read
+ * whose payload is a collection, which the `empty` trigger empties (AAP 0.12.1).
  *
  * The public surface is deliberately the port's own set plus the two names its callers need: the
  * readiness promise and the role switch. Nothing else is public, so a screen cannot reach the
@@ -809,20 +820,41 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * families stamp on the events and refusals they produce. The persona is resolved from the session
    * after any change the previous step made, and only then does the family run.
    *
+   * The simulation's `loading` trigger is decided here, once for every call the adapter serves, because
+   * it changes what the call does rather than what one family's records look like (AAP 0.12.1): once
+   * the counter has advanced, a holdable call the trigger covers never settles, so the screen that
+   * asked renders the pending state it renders for any call still in flight (AAP 0.2.1 F10, AAP 0.2.2).
+   * `holdable` is what keeps the demonstration controls out of the hold, because the popover has to be
+   * able to lift the trigger it set and a control that could not answer would leave the session pending
+   * with no way back (rule P-8). The wait happens before the hold, so a held call still occupies the
+   * latency band every other call does rather than answering differently.
+   *
    * A refusal propagates as it was thrown, with one addition: a family composes its refusals from the
    * records rather than from a request counter, so a refusal that names no correlation identifier is
    * given this call's before it leaves. Either way a caller meets one identifier, and it is the value
    * the same call's `meta` would have carried.
    *
    * @param work - The family call to serve, given the session and the acting persona.
-   * @returns The payload the family produced, inside the envelope every port member returns.
+   * @param holdable - Whether the `loading` trigger holds this call; `false` only for the demonstration
+   *   controls.
+   * @returns The payload the family produced inside the envelope every port member returns, or a
+   *   promise that never settles while the `loading` trigger holds a holdable call.
    * @throws Problem - Whatever the family refused the call with, carrying this call's identifier.
    */
-  private async dispatch<T>(work: (ctx: HandlerContext) => T | Promise<T>): Promise<Result<T>> {
+  private async serve<T>(
+    work: (ctx: HandlerContext) => T | Promise<T>,
+    holdable: boolean,
+  ): Promise<Result<T>> {
     const state = await this.bootstrap;
 
     await wait(latencyFor(state));
     state.requestCount += 1;
+
+    if (holdable && holdsReads(state)) {
+      // The `loading` trigger's whole behaviour: the call is served by never answering it, which is the
+      // pending state a screen renders while a call is in flight.
+      return new Promise<Result<T>>(() => undefined);
+    }
 
     const ctx: HandlerContext = { state, actor: actorOf(state) };
 
@@ -833,6 +865,61 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
     } catch (error) {
       throw withCallTrace(error, state);
     }
+  }
+
+  /**
+   * Serves one call the simulation may hold: the reading every member takes unless it is a
+   * demonstration control or a read whose payload is a collection.
+   *
+   * @param work - The family call to serve, given the session and the acting persona.
+   * @returns The payload the family produced, inside the envelope every port member returns, or a
+   *   promise that never settles while the `loading` trigger is in effect.
+   * @throws Problem - Whatever the family refused the call with, carrying this call's identifier.
+   */
+  private async dispatch<T>(work: (ctx: HandlerContext) => T | Promise<T>): Promise<Result<T>> {
+    return this.serve(work, true);
+  }
+
+  /**
+   * Serves one demonstration control, which answers while the `loading` trigger is in effect.
+   *
+   * `setSimulation` and `resetDemo` are how the popover lifts a trigger, and `switchRole` is how the
+   * session changes hands, so none of the three can be held: a control that never answered would leave
+   * the session pending with no way back, and rule P-8 will not have a control that cannot act.
+   *
+   * @param work - The control's own work, given the session and the acting persona.
+   * @returns The payload the control produced, inside the envelope every port member returns.
+   * @throws Problem - Whatever the control refused the call with, carrying this call's identifier.
+   */
+  private async dispatchControl<T>(
+    work: (ctx: HandlerContext) => T | Promise<T>,
+  ): Promise<Result<T>> {
+    return this.serve(work, false);
+  }
+
+  /**
+   * Serves one read whose payload is a collection, which the simulation's `empty` trigger empties.
+   *
+   * The read is served in full — its permission and policy checks run, and a refused call is still
+   * refused — and only the records it answers with are withheld while the trigger is in effect, so an
+   * emptied list is an answer the caller was entitled to receive rather than a way round the matrix
+   * (AAP 0.12.1). The `loading` trigger holds the call exactly as it holds any other.
+   *
+   * @param work - The family read to serve, given the session and the acting persona.
+   * @returns The records the family read, or no records while the `empty` trigger is in effect.
+   * @throws Problem - Whatever the family refused the call with, carrying this call's identifier.
+   */
+  private async dispatchCollection<T>(
+    work: (ctx: HandlerContext) => T[] | Promise<T[]>,
+  ): Promise<Result<T[]>> {
+    return this.serve(
+      async (ctx) => {
+        const records = await work(ctx);
+
+        return emptiesLists(ctx.state) ? [] : records;
+      },
+      true,
+    );
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -868,7 +955,8 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * @param query - SCR-02's own filters, order and page.
    * @param scope - The shell's plant and product selection.
-   * @returns The page's rows, ordered as the query asked.
+   * @returns The page's rows, ordered as the query asked; none while the simulation's `empty` trigger
+   *   empties the session's collections.
    * @throws Problem - A `'permission'` failure when the role may not read the family, or a
    *   `'validation'` failure when a row's figure cannot be resolved.
    */
@@ -878,7 +966,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   ): Promise<Result<ExceptionRow[]>> {
     const selection = selectionOf(scope);
 
-    return this.dispatch((ctx) =>
+    return this.dispatchCollection((ctx) =>
       exceptions.listExceptions(
         ctx,
         query,
@@ -909,11 +997,12 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * to one measurement (the third OPEN ITEM in this module's header).
    *
    * @param exceptionId - The exception whose lines are read.
-   * @returns The affected lines, each with a usable unit count.
+   * @returns The affected lines, each with a usable unit count; none while the simulation's `empty`
+   *   trigger empties the session's collections.
    * @throws Problem - The `Problem` the detail read refuses the call with.
    */
   async getAffectedLines(exceptionId: ExceptionId): Promise<Result<AffectedLine[]>> {
-    return this.dispatch(async (ctx) => {
+    return this.dispatchCollection(async (ctx) => {
       const detail = await exceptions.getException(ctx, exceptionId);
 
       return detail.exception.affectedLines.map((line) => ({ ...line }));
@@ -1023,14 +1112,15 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * @param query - The paging, order and optional status filter.
    * @param scope - The shell's plant and product selection.
-   * @returns The approvals in the requested order, narrowed to the status and the plants in scope.
+   * @returns The approvals in the requested order, narrowed to the status and the plants in scope;
+   *   none while the simulation's `empty` trigger empties the session's collections.
    * @throws Problem - A `'permission'` failure when the role may not read the exception family.
    */
   async listApprovals(
     query: ListQuery & { status?: ApprovalStatus },
     scope: Scope,
   ): Promise<Result<Approval[]>> {
-    return this.dispatch(async (ctx) => {
+    return this.dispatchCollection(async (ctx) => {
       const records = await approvals.listApprovals(ctx, query);
       const plants = scopedPlants(scope, ctx.actor.role);
       const inScope = records.filter((approval) => {
@@ -1122,11 +1212,12 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Reads the audit trail, in chain order, with the before and after values the drawer shows.
    *
    * @param query - The filters, order and page the trail read asked for.
-   * @returns The events the filter admits.
+   * @returns The events the filter admits; none while the simulation's `empty` trigger empties the
+   *   session's collections.
    * @throws Problem - A `'permission'` failure when the role does not hold `audit.read`.
    */
   async listAuditEvents(query: AuditQuery): Promise<Result<AuditEvent[]>> {
-    return this.dispatch((ctx) => audit.listAuditEvents(ctx, query));
+    return this.dispatchCollection((ctx) => audit.listAuditEvents(ctx, query));
   }
 
   /**
@@ -1216,21 +1307,23 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Reads the outbound ledger on its own: one row per endpoint, with its purpose, its declared state,
    * its last attempt and its allowed and blocked counts over the window.
    *
-   * @returns The ledger rows.
+   * @returns The ledger rows; none while the simulation's `empty` trigger empties the session's
+   *   collections.
    * @throws Problem - A `'permission'` failure when the role does not hold `sovereignty.read`.
    */
   async getOutboundLedger(): Promise<Result<LedgerRow[]>> {
-    return this.dispatch((ctx) => governance.getOutboundLedger(ctx));
+    return this.dispatchCollection((ctx) => governance.getOutboundLedger(ctx));
   }
 
   /**
    * Reads the policy list: every policy the engine evaluates and the one the deployment only declares.
    *
-   * @returns The policies, each stating whether the engine evaluates it and the decisions it recorded.
+   * @returns The policies, each stating whether the engine evaluates it and the decisions it
+   *   recorded; none while the simulation's `empty` trigger empties the session's collections.
    * @throws Problem - A `'permission'` failure when the role does not hold `policy.read`.
    */
   async listPolicies(): Promise<Result<PolicyDetail[]>> {
-    return this.dispatch((ctx) => governance.listPolicies(ctx));
+    return this.dispatchCollection((ctx) => governance.listPolicies(ctx));
   }
 
   /**
@@ -1311,11 +1404,12 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Reads the evidence pins the calling persona may see: the external supplier engineer receives its
    * own vendor's pins and no other vendor's (AAP 0.6.2, AAP 0.12.3).
    *
-   * @returns The visible pins, each with its node and review state.
+   * @returns The visible pins, each with its node and review state; none while the simulation's
+   *   `empty` trigger empties the session's collections.
    * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
    */
   async listPins(): Promise<Result<EvidencePin[]>> {
-    return this.dispatch((ctx) => evidence.listVisiblePins(ctx));
+    return this.dispatchCollection((ctx) => evidence.listVisiblePins(ctx));
   }
 
   /**
@@ -1378,11 +1472,12 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * list and the detail rather than two (AAP 0.12.3). Readiness travels on the record: it is the
    * package's own whole-percent figure and no percentage is computed here (rule P-6).
    *
-   * @returns The packages, in the record set's order.
+   * @returns The packages, in the record set's order; none while the simulation's `empty` trigger
+   *   empties the session's collections.
    * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
    */
   async listPackages(): Promise<Result<PpapPackage[]>> {
-    return this.dispatch(async (ctx) => {
+    return this.dispatchCollection(async (ctx) => {
       const packages: PpapPackage[] = [];
 
       for (const record of ctx.state.records.ppapPackages) {
@@ -1437,10 +1532,11 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * @param term - What the reader typed.
    * @param scope - The shell's plant and product selection.
-   * @returns The hits, grouped by family in the order the families are indexed.
+   * @returns The hits, grouped by family in the order the families are indexed; none while the
+   *   simulation's `empty` trigger empties the session's collections.
    */
   async searchIdentifiers(term: string, scope: Scope): Promise<Result<SearchHit[]>> {
-    return this.dispatch((ctx) => {
+    return this.dispatchCollection((ctx) => {
       const needle = term.trim().toLowerCase();
 
       if (needle === '') {
@@ -1682,13 +1778,17 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * module; turning it off clears the flag and leaves the edit in place, because a repair would hide
    * the disagreement a verification is meant to report (rule P-4).
    *
+   * The member answers while the `loading` trigger it sets is in effect, because it is the control that
+   * lifts that trigger: a demonstration control the trigger held could not lift it, and rule P-8 will
+   * not have a control that cannot act.
+   *
    * @param flag - The trigger to set: one of the seven screen states, the edited audit event or the
    *   emptied exception queue.
    * @param on - `true` to put the trigger in effect, `false` to lift it.
    * @returns The literal `true`, in the envelope every call returns.
    */
   async setSimulation(flag: SimulationFlag, on: boolean): Promise<Result<true>> {
-    return this.dispatch<true>((ctx) => {
+    return this.dispatchControl<true>((ctx) => {
       setSimulationFlag(ctx.state, flag, on);
 
       if (on && flag === TAMPER_FLAG) {
@@ -1704,12 +1804,13 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * The records and the chain are re-installed together, so a reader never meets a fresh record set
    * beside the chain of the session being replaced, and the triggers, the pending policy exceptions
-   * and the request counter return to what a fresh session holds (contracts §1).
+   * and the request counter return to what a fresh session holds (contracts §1). It answers while the
+   * `loading` trigger is in effect, so a reader can always put the session back (rule P-8).
    *
    * @returns The literal `true`, in the envelope every call returns.
    */
   async resetDemo(): Promise<Result<true>> {
-    return this.dispatch<true>(async (ctx): Promise<true> => {
+    return this.dispatchControl<true>(async (ctx): Promise<true> => {
       await restoreSeed(ctx.state);
       clearSimulationFlags(ctx.state);
 
@@ -1743,7 +1844,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'not-found'` failure for an identifier that matches no seeded persona.
    */
   async switchRole(userId: UserId): Promise<Result<ActiveUser>> {
-    return this.dispatch(async (ctx) => {
+    return this.dispatchControl(async (ctx) => {
       const record = ctx.state.records.users.find((candidate) => candidate.id === userId);
 
       if (record === undefined) {

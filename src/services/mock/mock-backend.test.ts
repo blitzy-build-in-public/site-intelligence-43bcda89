@@ -20,12 +20,18 @@
  * 9. the tamper control, whose edit a verification reports and repairs nothing of;
  * 10. the assistant's cited answer and its fixed notice;
  * 11. determinism: the same call twice returns the same business figures;
- * 12. the shell's selection: the plant and product the top bar names, resolved once and applied to every
+ * 12. the loading trigger, which leaves every served call pending while the controls that lift it still
+ *     answer;
+ * 13. the empty trigger, which empties every collection a read returns rather than the queue alone.
+ * 14. the shell's selection: the plant and product the top bar names, resolved once and applied to every
  *     read it narrows.
  *
  * WHY THE NODE ENVIRONMENT, MANDATORY ON THE FIRST LINE ABOVE. The bootstrap hashes the 200 seeded
- * events through `crypto.subtle.digest`, and under Vitest's jsdom default that call rejects jsdom's
- * `ArrayBuffer` realm, so every case here runs in Node and no DOM matcher appears below.
+ * events through `crypto.subtle.digest`, which is a platform call rather than a DOM one: under
+ * Vitest's jsdom default `globalThis.crypto` and `window.crypto` are already the platform's Web
+ * Crypto — the object `node:crypto.webcrypto` exports — so jsdom contributes no `SubtleCrypto` and
+ * the call resolves either way, while the declaration states the environment this suite means to
+ * use. No DOM matcher appears below, because nothing here renders.
  *
  * WHAT THE SUITE DELIBERATELY DOES NOT DO.
  * - It imports no expected-results fixture (`tests/fixtures/`). Those belong to the solver and
@@ -213,6 +219,15 @@ const BODY_EXCERPT_LENGTH = 40;
  */
 const CASE_TIMEOUT_MS = 30_000;
 
+/**
+ * How long a call held by the loading trigger is given before a case concludes that it never settles.
+ *
+ * The probe has to outlast the top of the latency band by a wide margin, because the adapter waits that
+ * band before it holds a call: a probe at the band's ceiling would report a loaded host as a held call.
+ * 900 ms leaves room for a busy machine and still fails an adapter that answers instead of holding.
+ */
+const HOLD_PROBE_MS = 900;
+
 /* ---------------------------------------------------------------------------------------------
  * Helpers — one fresh session per case, and the readings each case needs
  * ------------------------------------------------------------------------------------------- */
@@ -318,6 +333,35 @@ async function queueOf(backend: MockBackend): Promise<ExceptionRow[]> {
   }
 
   return rows;
+}
+
+/**
+ * Whether a call settles inside the given budget.
+ *
+ * Awaiting a call the loading trigger holds would hang the case, so a case races it against a real
+ * timer instead and asserts which of the two came first. The call's own outcome is swallowed on
+ * purpose: a resolution and a refusal both count as settled, and a case that cares which one it was
+ * reads the result or expects the refusal itself.
+ *
+ * @param run - The call to race.
+ * @param milliseconds - How long the call is given.
+ * @returns `true` when the call settled first, `false` when the timer did.
+ */
+async function settlesWithin(run: Promise<unknown>, milliseconds: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => {
+      resolve(false);
+    }, milliseconds);
+  });
+
+  try {
+    return await Promise.race([run.then(() => true, () => true), expired]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /**
@@ -1233,7 +1277,129 @@ describe('determinism', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 12. The shell's selection — one resolver, applied to every read it narrows
+ * 12. The loading trigger — every served call pending, the controls that lift it still answering
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the loading trigger', () => {
+  it('holds a read past the latency band while the controls that lift it still answer', async () => {
+    const backend = await readyBackend();
+
+    await backend.setSimulation('loading', true);
+
+    // The call is served up to the point of the hold, so the latency band has already passed when the
+    // probe gives up: an adapter that answered late rather than not at all would settle inside it.
+    expect(await settlesWithin(backend.getOverview(NO_SCOPE), HOLD_PROBE_MS)).toBe(false);
+
+    // The controls the popover needs in order to leave the trigger answer while it is in effect. A
+    // control the trigger held would have no way of lifting it (rule P-8).
+    const switched = await backend.switchRole(AUDITOR);
+
+    expect(switched.data.id).toBe(AUDITOR);
+
+    const reset = await backend.resetDemo();
+
+    expect(reset.data).toBe(true);
+
+    // The reset lifted every trigger, so the loading trigger is set once more and lifted by hand, which
+    // is the path the popover's own switch takes.
+    await backend.setSimulation('loading', true);
+
+    const lifted = await backend.setSimulation('loading', false);
+
+    expect(lifted.data).toBe(true);
+
+    // A fresh read answers normally again, so the hold was a condition of the trigger rather than of
+    // the session.
+    const overview = (await backend.getOverview(NO_SCOPE)).data;
+
+    expect(overview.openExceptions).toBeGreaterThan(0);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 13. The empty trigger — every collection read answers with nothing, then with its records
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The nine port reads whose payload is a collection, each named as the port names it.
+ *
+ * The table is the whole set: the `empty` trigger empties every collection the adapter serves rather
+ * than the exception queue alone, so a read missing from this table would be one that answered records
+ * while the screen beside it showed none. The exception identifier each read is handed is captured
+ * before the trigger is set, and the reads that address no record ignore it.
+ */
+const COLLECTION_READS: readonly {
+  readonly name: string;
+  readonly read: (backend: MockBackend, subject: ExceptionId) => Promise<readonly unknown[]>;
+}[] = [
+  {
+    name: 'listExceptions',
+    read: async (backend) => (await backend.listExceptions({}, NO_SCOPE)).data,
+  },
+  {
+    name: 'getAffectedLines',
+    read: async (backend, subject) => (await backend.getAffectedLines(subject)).data,
+  },
+  {
+    name: 'listApprovals',
+    read: async (backend) => (await backend.listApprovals({}, NO_SCOPE)).data,
+  },
+  {
+    name: 'listAuditEvents',
+    read: async (backend) => (await backend.listAuditEvents({})).data,
+  },
+  {
+    name: 'getOutboundLedger',
+    read: async (backend) => (await backend.getOutboundLedger()).data,
+  },
+  {
+    name: 'listPolicies',
+    read: async (backend) => (await backend.listPolicies()).data,
+  },
+  {
+    name: 'listPins',
+    read: async (backend) => (await backend.listPins()).data,
+  },
+  {
+    name: 'listPackages',
+    read: async (backend) => (await backend.listPackages()).data,
+  },
+  {
+    name: 'searchIdentifiers',
+    read: async (backend) => (await backend.searchIdentifiers(DOCUMENT_TERM, NO_SCOPE)).data,
+  },
+];
+
+describe('the empty trigger', () => {
+  it.each(COLLECTION_READS)(
+    'empties $name while the trigger is on and returns its records once it is lifted',
+    async ({ read }) => {
+      const backend = await readyBackend();
+
+      // `AUDITOR` holds `exception.read`, `audit.read`, `sovereignty.read`, `policy.read` and
+      // `evidence.read`, so every read below is one the caller is entitled to receive: each answers an
+      // emptied list rather than a refusal.
+      await actAs(backend, AUDITOR);
+
+      const subject = firstOf(await queueOf(backend), 'exception row').id;
+
+      expect((await read(backend, subject)).length).toBeGreaterThan(0);
+
+      await backend.setSimulation('empty', true);
+
+      expect((await read(backend, subject)).length).toBe(0);
+
+      await backend.setSimulation('empty', false);
+
+      // The records come back as they stood, so the trigger emptied the answer rather than the session.
+      expect((await read(backend, subject)).length).toBeGreaterThan(0);
+    },
+    CASE_TIMEOUT_MS,
+  );
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 14. The shell's selection — one resolver, applied to every read it narrows
  * ------------------------------------------------------------------------------------------- */
 
 describe("the shell's selection", () => {

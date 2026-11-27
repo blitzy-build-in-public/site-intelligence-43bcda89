@@ -1,13 +1,21 @@
 /**
- * The single presentation formatter of the Site Intelligence workspace: one amount, identifier,
- * timestamp or hash, rendered the way the contract that produced it defines.
+ * The presentation formatter of the interface's own figures: one amount carrying its currency code,
+ * and one identifier, timestamp and hash style in the tabular mono face.
  *
  * `platform-contracts.md` §1 fixes the conventions rendered here — a EUR amount carrying at most two
  * decimals with a thousands separator, an instant as ISO 8601 with an offset in Europe/Berlin, the
  * record identifier patterns, and the lowercase hex digest of the audit chain — and AAP §0.8 gives
  * the presentation half of those conventions exactly one owner: this module. Nothing else formats
- * an amount, an identifier, a timestamp or a hash for display, because a second formatter would let
- * two screens show one record at two different values.
+ * the interface's own figures, because a second presentation formatter would let two screens show one
+ * record at two different values.
+ *
+ * Two sibling sites format an amount for a purpose that is not the interface's, and each belongs to
+ * its own module: `src/services/mock/exports/scenario-csv.ts` renders a machine-readable CSV cell for
+ * a spreadsheet — dot decimal, no grouping, exactly two decimals — and never reaches a screen, while
+ * `src/services/mock/assistant-script.ts` renders the amount a prose answer states — grouped, at most
+ * two decimals, no currency code — before any component renders it. Neither competes with this module
+ * for a screen: each answers to its own consumer, and where its convention differs from this module's,
+ * the MONEY_FORMAT note below records that both renderings are deliberate.
  *
  * Formatting never changes a value (AAP §0.8, rule P-6). The money rule groups and labels what it is
  * handed and never re-rounds, re-scales or appends a unit of its own; the other three rules render
@@ -68,8 +76,8 @@ export const MONO_VALUE_CLASSES = {
 } as const;
 
 /**
- * The one money formatter in the application, created once at module load and reused for every
- * amount, because compiling a locale's number pattern is the expensive part of formatting.
+ * The interface's one money formatter, created once at module load and reused for every amount it
+ * renders, because compiling a locale's number pattern is the expensive part of formatting.
  *
  * The options are AAP §0.8's: the `de-DE` locale supplies the thousands separator and the decimal
  * comma that Europe/Berlin business figures are read with, `currencyDisplay: 'code'` prints the
