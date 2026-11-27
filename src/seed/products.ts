@@ -1,9 +1,11 @@
 /**
  * The three products of the demonstration: `PRD-R75`, `PRD-A200` and `PRD-V40`.
  *
- * Fixing inputs: `platform-seed-data.md` §1 as AAP 0.12.2 records it — "`Plant`, `Line`, `Product`,
- * `Customer` (seed §1) … A product is built at one or two lines" — plus the three identifiers the
- * portfolio is fixed at (`src/types/primitives.ts`, AAP 0.2.3, 0.6.3).
+ * Fixing inputs: AAP 0.12.2's entity row for the §1 records this module belongs to — "`Plant`,
+ * `Line`, `Product`, `Customer` (seed §1) … A product is built at one or two lines" — plus the
+ * three identifiers the portfolio is fixed at (`src/types/primitives.ts`, AAP 0.2.3, 0.6.3). The
+ * section itself is not part of this repository, so the values it would transcribe are authored
+ * here.
  *
  * Two consumers fix the members. `priceEur` is the unit price the exception aggregation multiplies
  * by units at risk (AAP 0.8), so it is a record value of at most two decimals and never a revenue,
@@ -18,6 +20,16 @@
  * adapter's handlers, never by each other, so a product carries identifiers rather than line
  * records. The scheme is `LN-<plant key>-<line number>`, the `LineId` shape
  * `src/types/primitives.ts` fixes.
+ *
+ * DERIVATION — seed §1 is not on disk. `platform-seed-data.md` §1, which holds the product
+ * records, is not part of this repository, so no value below is transcribed from it. What the
+ * inputs fix is the scale and the keys: AAP 0.2.3's three products, the three identifiers
+ * `src/types/primitives.ts` carries, and AAP 0.12.2's rule that a product is built at one or two
+ * lines. Each name, description, unit price and product class is authored, because no input fixes
+ * any of them; the price is the record value the exception aggregation multiplies, never a
+ * revenue, and the classes exist so the atlas selector of AAP 0.12.4 SCR-13 has three to separate.
+ * If §1 is supplied later, its table transcribes over these records and supersedes them with no
+ * change to any consumer, because every consumer reads a product through the service.
  *
  * Rules served:
  * - P-6: every member is a record value or an identifier; no computed figure, no aggregate and no

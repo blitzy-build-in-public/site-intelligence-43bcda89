@@ -16,6 +16,16 @@
  * city's own, so the map lens projects the plants onto the bundled boundaries with no placement data
  * of its own.
  *
+ * DERIVATION — seed §1 is not on disk. `platform-seed-data.md` §1, which holds these plant and
+ * line records, is not part of this repository, so none of the values below is transcribed from
+ * it. What the inputs fix is named above and no more: AAP 0.2.3's scale of four plants, the four
+ * plant identifiers AAP 0.12.2 and specification §5.1 give, and AAP 0.8's statement that the 900
+ * service kits are built on a line of `PLT-BRN`. The city, country and coordinate of the other
+ * three plants, and each line's identifier and nominal per-day rate beyond the ones a named input
+ * fixes, are derived. If §1 is supplied later, its table transcribes over these records and
+ * supersedes them with no change to any consumer, because every consumer reads a plant or a line
+ * through the service.
+ *
  * Every value here is record content — a city, a coordinate, a nominal per-day rate. No solver
  * result, aggregate or fixture value appears in this module (rule P-6), no URL or external asset is
  * named (rule B-1), and the module lives in the one folder only `src/services/mock/seed-loader.ts`

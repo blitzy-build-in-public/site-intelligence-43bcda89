@@ -24,6 +24,15 @@
  * Imported only by `src/services/mock/seed-loader.ts`, which hands the records to the mock adapter;
  * nothing outside `src/services/mock/` reads them (rule P-2).
  *
+ * DERIVATION — the seed document is not on disk. The policy records belong to
+ * `platform-seed-data.md`, which is not part of this repository, so the particulars below are
+ * derived rather than transcribed. What the inputs fix is the set and its treatment: contracts §7.2
+ * fixes the five identifiers and the display text each rule carries, AAP 0.8 and 0.10 fix that
+ * POL-001, POL-003, POL-005 and POL-007 are evaluated and POL-009 only declared, and AAP 0.6.3
+ * fixes the empty allowed list behind POL-001 and the block POL-007 places on the external model.
+ * If the seed document is supplied later, its table transcribes over these records and supersedes
+ * them with no change to any consumer, because every consumer reads a policy through the service.
+ *
  * OPEN ITEM: `SeededPolicy` is declared here because `src/types` owns no rule-set shape.
  * `PolicyDetail` in `src/types/screen-dto.ts` is the screen's view of one policy — the display
  * statement beside the decisions the engine recorded — and it is not the record this module

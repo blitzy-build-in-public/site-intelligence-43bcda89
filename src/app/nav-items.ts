@@ -71,8 +71,12 @@ export interface NavItem {
    *
    * A disabled entry carries the route its stage will declare, kept as a pattern
    * where the route is parameterised (`/plants/:plantId/plan`). The shell renders
-   * a disabled entry through an action control and never as a link, so a pattern
-   * is never navigated and no argument has to be supplied for it.
+   * a disabled entry through an action control and never as a link, so a person
+   * never follows a pattern from here; the route itself is still declared, since
+   * `STAGE_NOTICE_ROUTES` takes every disabled entry's own `to` and
+   * `FURTHER_ROUTES` publishes it. A person who reaches that path by address is
+   * therefore told which stage its workspace arrives in rather than landing on a
+   * page that does not exist.
    */
   readonly to: string;
 
@@ -295,18 +299,74 @@ export const NAV_ITEMS: readonly NavItem[] = NAV_GROUPS.flatMap(
 );
 
 /**
+ * The two stage-notice routes the navigation never lists.
+ *
+ * A supplier profile and a material profile are opened from a row or a card that
+ * shows the record, so neither has a `NavItem` whose `to` could carry its path and
+ * both are stated here instead. They belong to S4 and render the stage-notice page
+ * for the same reason the disabled entries do: a person who reaches one by address
+ * is told which stage the workspace arrives in rather than landing on a page that
+ * does not exist (rule P-8).
+ */
+const STAGE_NOTICE_DETAIL_ROUTES: readonly FurtherRoute[] = [
+  {
+    path: '/suppliers/:supplierId',
+    screenId: null,
+    stage: 4,
+    kind: 'stage-notice',
+  },
+  {
+    path: '/materials/:materialId',
+    screenId: null,
+    stage: 4,
+    kind: 'stage-notice',
+  },
+];
+
+/**
+ * Every route that renders the stage-notice page: one list, one source per path.
+ *
+ * The entries of the navigation whose stage has not been built contribute their own
+ * `to`, screen identifier and stage, so a disabled entry cannot lose its route and a
+ * route cannot name a path the navigation states differently; the two profile paths
+ * the navigation never lists are appended from `STAGE_NOTICE_DETAIL_ROUTES`. Deriving
+ * them here rather than retyping them is what makes the router's half of the contract
+ * checkable: `src/app/router.tsx` mounts the stage-notice page at every path in this
+ * list, with the stage the entry carries, so the external supplier engineer's
+ * `/evidence` home explains itself instead of falling to the not-found page (AAP 0.7,
+ * AAP 0.12.4, rule P-8).
+ */
+export const STAGE_NOTICE_ROUTES: readonly FurtherRoute[] = [
+  ...NAV_ITEMS.filter((item) => item.disabledReason !== null).map(
+    (item): FurtherRoute => ({
+      path: item.to,
+      screenId: item.screenId,
+      stage: item.stage,
+      kind: 'stage-notice',
+    }),
+  ),
+  ...STAGE_NOTICE_DETAIL_ROUTES,
+];
+
+/**
  * The routes the application answers without listing them in the navigation.
  *
- * Each is reached from a visible control rather than from the navigation: a row
- * or a card opens the detail screen for the record it shows, the approvals inbox
- * opens one approval, the policy list opens one policy, and the root path
- * resolves to the active persona's entry route. The two stage-notice paths belong
- * to S4, so a person who reaches one by address is told which stage the workspace
- * arrives in instead of landing on a page that does not exist.
+ * This list holds every path the router declares besides the enabled `to` of each
+ * navigation entry, so the router's table is those enabled entries plus this list and
+ * nothing else. Each path is reached from a visible control rather than from the
+ * navigation: a row or a card opens the detail screen for the record it shows, the
+ * approvals inbox opens one approval, the policy list opens one policy, a stage-notice
+ * path states which stage its workspace arrives in, and the root path resolves to the
+ * active persona's entry route.
  *
- * `src/app/router.tsx` declares a route for every path here and for every enabled
- * `to` in `NAV_GROUPS`; nothing in this module points at a route the router does
- * not answer.
+ * All seven stage-notice paths are in this list. Two are the profile routes the
+ * navigation never lists, and the other five arrive from `STAGE_NOTICE_ROUTES` as the
+ * `to` of the entries whose stage has not been built rather than being retyped here,
+ * so an entry's route and its disabled state are declared together in `NAV_GROUPS` and
+ * no path depends on a reader drawing the right conclusion from a comment.
+ *
+ * Nothing in this module points at a route the router does not answer, and no path
+ * appears twice (AAP 0.13.2).
  */
 export const FURTHER_ROUTES: readonly FurtherRoute[] = [
   {
@@ -333,18 +393,7 @@ export const FURTHER_ROUTES: readonly FurtherRoute[] = [
     stage: 1,
     kind: 'screen',
   },
-  {
-    path: '/suppliers/:supplierId',
-    screenId: null,
-    stage: 4,
-    kind: 'stage-notice',
-  },
-  {
-    path: '/materials/:materialId',
-    screenId: null,
-    stage: 4,
-    kind: 'stage-notice',
-  },
+  ...STAGE_NOTICE_ROUTES,
   {
     path: '/',
     screenId: null,

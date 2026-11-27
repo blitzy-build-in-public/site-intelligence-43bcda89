@@ -25,6 +25,15 @@
  * hold. An outline describes the shape of an answer and is not an answer, so it carries no figure
  * either.
  *
+ * DERIVATION — the seed document is not on disk. The six questions, their outlines, their templates
+ * and the records they cite belong to `platform-seed-data.md`, which is not part of this repository,
+ * so that wording is authored here rather than transcribed. What the inputs fix is the set and the
+ * arithmetic behind it: AAP 0.12.4's SCR-06 line and AAP 0.2.3's scale fix six questions and one
+ * unscripted notice, and AAP 0.8 fixes what each placeholder resolves to — Q1's 580 and 640 units
+ * late, Q3's 78 for `PPAP-0219`, Q4's 900 kits and EUR 108,000. If the seed document is supplied
+ * later, its table transcribes over these records and supersedes them with no change to any
+ * consumer, because every consumer reads a question through the service.
+ *
  * Rules this module is built to satisfy:
  * - P-1: nothing here states or implies that a model composed an answer. `UNSCRIPTED_NOTICE` says
  *   the opposite for anything outside the six, and Q6's own sentence says it for the six. The label

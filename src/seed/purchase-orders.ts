@@ -28,6 +28,17 @@
  * the cancellation status and the filler's own spread across suppliers and materials come from the
  * deterministic generator, which is the only place they may be produced.
  *
+ * DERIVATION — seed §3, the section the customer and purchase order records belong to, is not
+ * part of this repository, so the five named orders below are authored rather than transcribed.
+ * What the inputs fix is the scale the record set serves — AAP 0.2.3's 60 purchase orders of which
+ * 5 are named — and the three references each order carries, which AAP 0.12.2 states: one
+ * supplier, one material and one plant. AAP 0.12.1 also fixes that an option is measured against
+ * the case's delayed purchase order rather than against a stored total. Each quantity, cost,
+ * promise date and current date below is derived inside the money and calendar conventions of
+ * contracts §1. If §3 is supplied later, its table transcribes over these records and supersedes
+ * them with no change to any consumer, because every consumer reads a purchase order through the
+ * service.
+ *
  * Rules served:
  * - P-6: `unitCostEur` is record content, never a computed figure. No line value, added cost, idle
  *   day or delayed revenue appears here — those are the solver's measures and its fixtures'

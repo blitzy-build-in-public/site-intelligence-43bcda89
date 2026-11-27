@@ -25,16 +25,17 @@
  * holds is the input side of contracts §4: an opening position, a build rate, two lever bounds, the
  * orders at stake and the window the projection covers.
  *
- * Where the record's figures come from. `platform-seed-data.md`, which fixes each named seed record,
- * is not available in this run, so the inventory figures and the two orders' quantities below are
- * derived from the facts an input does fix and stated as record content: the case is the delayed
- * service-kit supply at PLT-BRN, whose kit line's nominal output the plant records put at 300 units
- * a working day; the opening position covers the first order only in part and the second not at all,
- * which is the shortfall the disruption consists of; and the transfer bound is the 900 kits AAP 0.8
- * names. That is the one place this module departs from rule P-7, which admits only the figures of
- * that seed document and no additions: the case the AAP requires cannot be written from a document
- * this run does not hold, so the record states the values an input does fix and derives the rest,
- * and a supplied seed document supersedes them without changing a member of the shape below.
+ * DERIVATION — where the record's figures come from. `platform-seed-data.md`, which fixes each
+ * named seed record, is not available in this run, so the inventory figures and the two orders'
+ * quantities below are derived from the facts an input does fix and stated as record content: the
+ * case is the delayed service-kit supply at PLT-BRN, whose kit line's nominal output the plant
+ * records put at 300 units a working day; the opening position covers the first order only in
+ * part and the second not at all, which is the shortfall the disruption consists of; and the
+ * transfer bound is the 900 kits AAP 0.8 names. That is the one place this module departs from
+ * rule P-7, which admits only the figures of that seed document and no additions: the case the AAP
+ * requires cannot be written from a document this run does not hold, so the record states the
+ * values an input does fix and derives the rest, and a supplied seed document supersedes them
+ * without changing a member of the shape below.
  *
  * The bounds as the type states them. `LeverConstraint` carries a maximum and a step and no minimum,
  * because the solver rejects a lever set below zero by rule (AAP 0.12.2), so zero is the floor both

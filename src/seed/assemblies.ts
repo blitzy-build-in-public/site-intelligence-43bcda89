@@ -47,6 +47,16 @@
  * figure it does not also cite. Part order follows the bill-of-materials order of
  * `src/seed/materials.ts`.
  *
+ * DERIVATION — the seed document is not on disk. The assembly records belong to
+ * `platform-seed-data.md`, which is not part of this repository, so the parts, part numbers and
+ * quantities below are derived from the records that do fix them rather than transcribed. AAP 0.12.2
+ * fixes the PPAP relation this module mirrors — a package names the supplier and the material it
+ * covers — and the eighteen elements its readiness rule divides by; AAP 0.2.3 fixes the scale at
+ * three packages, and every part below is a material that names the product, carrying that
+ * material's own per-unit quantity. If the seed document is supplied later, its table transcribes
+ * over these records and supersedes them with no change to any consumer, because every consumer
+ * reads an assembly through the service.
+ *
  * Rules served:
  * - P-6: every number here is record content — a count of pieces against a part or the per-unit
  *   usage the material record already states. No cost, mass, tolerance stack-up or readiness figure

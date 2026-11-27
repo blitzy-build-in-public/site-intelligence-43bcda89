@@ -19,6 +19,16 @@
  * `src/services/mock/seed-loader.ts` is the only module that imports this one (rule P-2); it hands
  * the catalogue to the adapter, which serves it to the selector.
  *
+ * DERIVATION — the seed document is not on disk. The model catalogue belongs to
+ * `platform-seed-data.md`, which is not part of this repository, so the entries below are authored
+ * rather than transcribed from it. What the inputs fix is the set and the part each entry plays:
+ * AAP 0.6.3 names the four designations, and AAP 0.12.4's SCR-06 makes `boundary` the member
+ * POL-007 reads before an answer, with the in-boundary entry as the alternative a block offers.
+ * Each boundary value, version suffix and the default selection are derived inside those
+ * constraints. If the seed document is supplied later, its table transcribes over these records and
+ * supersedes them with no change to any consumer, because every consumer reads the catalogue
+ * through the service.
+ *
  * Rules served:
  * - P-1: every record is a placeholder. No entry states that a model is connected, and `boundary`
  *   says where an answer would be composed rather than that one was.

@@ -3,13 +3,23 @@
  * orders belong to, and the `customer` node family the FileMap canvas places on its map lens.
  *
  * Fixing inputs:
- * - `platform-seed-data.md` §1 defines the customer record the dataset is built from, and AAP 0.2.3
- *   fixes the volume it has to cover: 40 customer orders, 15 of them named.
+ * - `platform-seed-data.md` §1 is the section the customer record belongs to, and AAP 0.2.3 fixes
+ *   the volume it has to cover: 40 customer orders, 15 of them named. That document is absent from
+ *   this repository, so the customer values themselves are derived rather than transcribed — see the
+ *   DERIVATION paragraph below.
  * - AAP 0.12.2 states the relationship these records carry — "a customer order names one customer,
  *   one product and one plant" — so this module supplies identity alone: an order carries the
  *   `CustomerId` defined here, and no order, quantity, price or total lives in this module.
  * - `src/types/topology.ts` puts a customer in the canvas's `customer` node family, whose mark the
  *   map lens projects from `latitude` and `longitude` and whose label is the `name` below.
+ *
+ * DERIVATION — seed §1 is not on disk, so nothing below transcribes it. What the inputs fix is the
+ * relation these records serve — AAP 0.12.2's "a customer order names one customer, one product and
+ * one plant" — and the order book that names them, AAP 0.2.3's 40 customer orders of which 15 are
+ * named. No input fixes a customer's identity: every name, segment, country and coordinate is
+ * authored for this synthetic world, and the identifier is the contracts §1 `CUS-` key. If §1 is
+ * supplied later, its table transcribes over these records and supersedes them with no change to any
+ * consumer, because every consumer reads a customer through the service.
  *
  * Rules this module is built to satisfy:
  * - P-7: every name, segment and place is invented for this synthetic world. No real vendor,

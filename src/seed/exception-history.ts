@@ -25,6 +25,16 @@
  * no identifier pattern for a history record and inventing a prefix would add a contract vocabulary
  * the inputs do not define.
  *
+ * DERIVATION — the seed document is not on disk. `platform-seed-data.md` holds the nine activity
+ * records this module carries, and it is not part of this repository, so each record's exception,
+ * status, instant and actor is authored rather than transcribed. What the inputs fix is the count
+ * and what the aggregates read from it: AAP 0.2.3's nine history records, AAP 0.8 and 0.12.2's
+ * rule that the overview's median-hours tile is computed from the `approved` records, and
+ * contracts §1's requirement that every instant precede the constant demonstration clock. If the
+ * seed document is supplied later, its table transcribes over these records and supersedes them
+ * with no change to any consumer, because every consumer reads a history record through the
+ * service.
+ *
  * Rules this module is built to satisfy: P-2 (it imports `src/types` and nothing else, and only
  * `src/services/mock/seed-loader.ts` may import it), P-6 (no computed duration, median or count),
  * B-1 (no external URL or host anywhere in it), B-2 (no credential and no environment read).

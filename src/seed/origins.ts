@@ -39,6 +39,14 @@
  * this graph instead of restated. The pack's other two crossings reach no position here and stand in
  * the pack alone, and the chokepoint records themselves are not here.
  *
+ * DERIVATION — seed §2 is not on disk, so the seven origin records below are authored rather than
+ * transcribed. What the inputs fix is the scale and the relation: AAP 0.2.3's 7 tier-2 origins, and
+ * AAP 0.12.2's "each origin feeds one or more suppliers". No input fixes a facility name, a country
+ * or a coordinate, so each is invented inside the record set's own vocabulary, with the country
+ * chosen so that its coordinate sits inside it the way the map lens expects. If §2 is supplied
+ * later, its table transcribes over these records and supersedes them with no change to any
+ * consumer, because every consumer reads an origin through the service.
+ *
  * Rules this module is built to satisfy:
  * - P-2: only `src/services/mock/seed-loader.ts` imports this folder, and this module imports the
  *   identifier aliases of `src/types` and nothing else, so an origin reaches a screen only through

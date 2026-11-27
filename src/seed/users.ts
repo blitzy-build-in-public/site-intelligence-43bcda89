@@ -51,6 +51,15 @@
  * the plan whose side effect the approval flow acknowledges are recorded against, so the disruption of
  * AAP 0.2.1 reaches every persona who can act on it.
  *
+ * DERIVATION — the seed document is not on disk. The persona records belong to
+ * `platform-seed-data.md`, which is not part of this repository, so every name and job title below
+ * is derived rather than transcribed. What the inputs fix is the set and what a consumer keys on:
+ * AAP 0.2.3's eight personas, AAP 0.12.4's home route for each of them, and the
+ * `switchRole(userId)` capability of AAP 0.12.1 that these records serve. The plant scopes are
+ * derived from the shape the plant and line records give, as the paragraph above sets out. If the
+ * seed document is supplied later, its table transcribes over these records and supersedes them
+ * with no change to any consumer, because every consumer reads a persona through the service.
+ *
  * Rules this module is built to satisfy:
  * - P-3: these records exist to drive a demonstration control. Nothing here states or implies that a
  *   browser-side permission check is production-grade enforcement — that statement belongs on the

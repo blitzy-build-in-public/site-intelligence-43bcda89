@@ -37,6 +37,15 @@
  * agreement the customer's requirements come from. The same element kind names the same document in
  * all three packages, so the three element sets stay parallel.
  *
+ * DERIVATION — the seed document is not on disk. The package and element records belong to
+ * `platform-seed-data.md`, which is not part of this repository, so no element name, rule wording,
+ * threshold, reading or extraction confidence below is transcribed from it. What the inputs fix is
+ * the shape and the two readings the demonstration quotes: AAP 0.2.3's three packages, the eighteen
+ * elements AAP 0.12.2's readiness rule divides by, and AAP 0.8's 78 for `PPAP-0219`, which is that
+ * rule applied to its fourteen passing elements. If the seed document is supplied later, its table
+ * transcribes over these records and supersedes them with no change to any consumer, because every
+ * consumer reads a package through the service.
+ *
  * Element names, rule wording, thresholds and readings are synthetic record content (rule P-7), and
  * no stage S1-S3 screen shows them: the package map belongs to stage S4, which this run does not
  * build (AAP 0.14.2). `src/services/mock/seed-loader.ts` is the only module that imports this folder

@@ -4,9 +4,9 @@
  * computed, and only `src/services/mock/seed-loader.ts` may import this folder (rule P-2).
  *
  * Fixing inputs:
- * - AAP 0.12.2 §3 entity table: a production order names one plant, one line, one product and a
- *   planned quantity over a date range. Those eight members, and no others, are what the table
- *   states, so the interface below declares them and nothing more.
+ * - AAP 0.12.2 fixes the members a production order carries: one plant, one line, one product and a
+ *   planned quantity over a date range. Those eight members, and no others, are what the record
+ *   states and what the interface below declares.
  * - AAP 0.2.3 scale table fixes "90 production orders". The table holds exactly ninety: six lines
  *   over fifteen weeks, so the count is a property of the records rather than of a loop.
  * - `platform-contracts.md` §1 fixes identifier patterns for exceptions, customer orders, purchase
@@ -27,6 +27,16 @@
  * PLT-BRN runs LN-BRN-1 (PRD-R75) and LN-BRN-2 (PRD-V40); PLT-QRO runs LN-QRO-1 (PRD-A200); PLT-RAK
  * runs LN-RAK-1 (PRD-V40). Each of the three products is therefore built at two lines, which is the
  * "one or two lines" of AAP 0.12.2, and every line builds exactly one product.
+ *
+ * DERIVATION — the production orders belong to the order records of `platform-seed-data.md`, which
+ * is not part of this repository, so the ninety orders below are shaped to what the inputs fix
+ * rather than transcribed from it. What they fix is that shape and the count: AAP 0.2.3's 90
+ * production orders, the members AAP 0.12.2 states — one plant, one line, one product and a planned
+ * quantity over a date range — and the contracts §1 clock and the Monday-to-Friday calendar that
+ * give each status its meaning. Each planned quantity is record content, stated once per line and
+ * week. If the seed document is supplied later, its table transcribes over these records and
+ * supersedes them with no change to any consumer, because every consumer reads a production order
+ * through the service.
  *
  * Rules served: P-6 (every `plannedUnits` figure is record content, and no total, aggregate or
  * expected result is written here), P-7 (synthetic identifiers and figures only), B-1 (no address of

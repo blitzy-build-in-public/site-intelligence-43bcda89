@@ -3,11 +3,12 @@
  * supplier of.
  *
  * Fixing inputs:
- * - `platform-seed-data.md` §2 fixes the supplier, tier-2 origin and material records, and AAP
- *   0.12.2 states the relations they carry: each material has one primary supplier and may have an
- *   alternate, each origin feeds one or more suppliers, and supplier-to-product reach is derived
- *   from materials and drives the graph lens. AAP 0.2.3 fixes the scale at 7 suppliers, 7 tier-2
- *   origins and 24 materials.
+ * - `platform-seed-data.md` §2 is the section the supplier, tier-2 origin and material records
+ *   belong to, and AAP 0.12.2 states the relations they carry: each material has one primary
+ *   supplier and may have an alternate, each origin feeds one or more suppliers, and
+ *   supplier-to-product reach is derived from materials and drives the graph lens. AAP 0.2.3 fixes
+ *   the scale at 7 suppliers, 7 tier-2 origins and 24 materials. That section is absent from this
+ *   repository, so the record content below is derived rather than transcribed.
  * - `./materials.ts` states each material's `primarySupplierId`, its optional
  *   `alternateSupplierId` and the origin behind it, so material identity and the supplier pairing
  *   are that module's to declare and this one's to mirror: every `materialIds` entry below is
@@ -41,6 +42,15 @@
  * Identifier scheme: `SUP-` and `MAT-` followed by a short uppercase mnemonic — the spelling
  * `src/types/primitives.ts` fixes, in the same `<PREFIX>-<KEY>` shape as the `PLT-` plant ids, and
  * the keys are the ones the material records name.
+ *
+ * DERIVATION — seed §2 is not on disk, so the seven suppliers below are authored rather than
+ * transcribed. What the inputs fix is the scale and the relations: AAP 0.2.3's 7 suppliers, 7 tier-2
+ * origins and 24 materials, and AAP 0.12.2's one-primary-supplier rule with an optional alternate.
+ * No input fixes a company name, a country, a coordinate, a contracted lead time or a monthly on-time
+ * reading, so each is invented inside the record set's own vocabulary; the `materialIds` sets are
+ * not this module's to state either, because they mirror `./materials.ts` one for one. If §2 is
+ * supplied later, its table transcribes over these records and supersedes them with no change to any
+ * consumer, because every consumer reads a supplier through the service.
  *
  * Rules this module is built to satisfy:
  * - P-7: every company name is invented for this demonstration. No real vendor, customer, carmaker

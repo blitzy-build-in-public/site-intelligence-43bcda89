@@ -25,6 +25,15 @@
  * mapping in `src/components/status-indicator.tsx` (pass to pass, fail to fail, stale to warning,
  * pending to warning with the clock, review to review, empty to empty) exist for exactly that spread.
  *
+ * DERIVATION — the seed document is not on disk. The evidence pins belong to
+ * `platform-seed-data.md`, which is not part of this repository, so every pin below is authored
+ * rather than transcribed: no input fixes which node carries evidence, or which of the six states
+ * a pin reports. What the inputs fix is the covering shape — AAP 0.2.1's per-node counts, because
+ * the canvas badges them before the pin screens exist, and that section's rule that USR-08 sees
+ * only its own vendor's pins, which is why a pin on a supplier node names that supplier. If the
+ * seed document is supplied later, its table transcribes over these records and supersedes them
+ * with no change to any consumer, because every consumer reads a pin through the service.
+ *
  * Rules this module is built to satisfy:
  * - P-2: it imports `../types` and nothing else, and only `src/services/mock/seed-loader.ts` imports
  *   this folder, so a pin reaches a screen through the typed service interface alone.

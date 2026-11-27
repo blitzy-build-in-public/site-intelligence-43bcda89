@@ -1,6 +1,7 @@
 /**
- * The eight seeded documents and the bodies a permitted caller reads from them (AAP 0.12.2's
- * `DocumentBody` row, `platform-seed-data.md` §7).
+ * The eight seeded documents and the bodies a permitted caller reads from them — AAP 0.12.2's
+ * `DocumentBody` row, which places the record in `platform-seed-data.md` §7, a section that is not
+ * part of this repository.
  *
  * Each record carries the fixed content a screen or the evidence assistant quotes: the title, the
  * classification that decides who may read the body, the residency the document carries, the
@@ -23,6 +24,15 @@
  * (rule B-2). Body text is plain prose: it holds no markup, so the drawer and the assistant that
  * render a body keep control of the semantics, the reading order and the contrast the theme sets
  * (rule B-3).
+ *
+ * DERIVATION — seed §7 is not on disk. The section holds the eight documents' titles,
+ * classifications, residency, attachments and body text, and it is not part of this repository, so
+ * none of that content is transcribed: every title, attachment description and body below is
+ * authored for this demonstration. What the inputs fix is the shape AAP 0.12.2 states and the two
+ * figures AAP 0.8 quotes from `DOC-0031` — the EUR 2,500 per-day service charge and the 48-hour
+ * notice — which are record text here and no computation. If §7 is supplied later, its table
+ * transcribes over these bodies and supersedes them with no change to any consumer, because every
+ * consumer reads a document through the service.
  *
  * The module holds data only: no logic, no class, no module-level mutable state. Only
  * `src/services/mock/seed-loader.ts` imports this folder (rule P-2), which clones the records so a

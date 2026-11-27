@@ -46,6 +46,17 @@
  * exactly as its purchase order states them. The inputs do not enumerate them for this module, and
  * no consumer may restate one, because a screen reads its references from the service.
  *
+ * DERIVATION - content. `platform-seed-data.md`, which holds the exception records themselves, is
+ * not part of this repository, so everything below beyond what a named input fixes is authored.
+ * AAP 0.2.3 fixes the count at twelve current exceptions; AAP 0.8 fixes that `EXC-2026-1184` is
+ * the supply delay at `PLT-BRN` that `CASE-1184` measures, and that `EXC-2026-1190`'s
+ * `whatChanged` states the 380 housings on hold; AAP 0.10 fixes that `EXC-2026-1185`,
+ * `EXC-2026-1187` and `EXC-2026-1195` carry seeded options. The remaining records, and each
+ * title, severity, owner, days-to-impact and stated measure inside them, are derived inside the
+ * contracts §3 vocabulary. If the seed document is supplied later, its table transcribes over
+ * these records and supersedes them with no change to any consumer, because every consumer reads
+ * an exception through the service.
+ *
  * Rules served:
  * - P-6: record content only. `whatChanged` describes what changed in words, and the one figure it
  *   states - the housings on hold - is the record's own content rather than a computation.

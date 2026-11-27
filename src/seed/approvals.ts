@@ -34,6 +34,15 @@
  * rule that a requester never decides reads as the requester's own role being absent from that list,
  * and each `decidedBy` below names a persona holding a role that is on it.
  *
+ * DERIVATION — the seed document is not on disk. `platform-seed-data.md` holds the seeded approvals
+ * this module carries, and it is not part of this repository, so the requesters, deciders, comments
+ * and instants below are authored rather than transcribed. What the inputs fix is the plan the
+ * records point at: AAP 0.8 names `SCN-1184-C` as the recommended option of `CASE-1184`, whose added
+ * cost and deferred revenue its trade-off sentence states, and AAP 0.2.2 fixes that the pending
+ * supply-delay plan is the one the planner journey approves. If the seed document is supplied later,
+ * its table transcribes over these records and supersedes them with no change to any consumer,
+ * because every consumer reads an approval through the service.
+ *
  * Rules this module is built to satisfy: P-1 (every write-back is simulated, and the label its
  * rendering carries is read from `SIM_LABELS` instead of being retyped on each step), P-2 (it
  * imports `src/types` and nothing else), P-4 (nothing here claims the flow establishes sovereignty,

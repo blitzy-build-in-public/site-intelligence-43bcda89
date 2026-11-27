@@ -12,8 +12,11 @@
  * - `platform-contracts.md` §1 fixes the identifier patterns — `CMP-nn` for a competitor and
  *   `CHK-nn` for a chokepoint — and AAP 0.2.3 fixes the scale at three competitors and four
  *   chokepoints.
- * - The market-intelligence pack records of `platform-seed-data.md` fix the values below as record
- *   content, the way every other seed module of `src/seed` carries its records.
+ * - The market-intelligence pack belongs to the seed document, which is not part of this
+ *   repository. Its values are therefore invented for this demonstration rather than transcribed
+ *   from it: the three competitor networks and their lanes, the four crossings, the buffer days,
+ *   the radar axes and every radar score below are this module's own authored records, as the
+ *   DERIVATION paragraph states.
  *
  * This is the only module in the application that holds a market-intelligence value (rule P-5).
  * Provenance is therefore structural rather than conventional: every competitor network, every
@@ -51,6 +54,14 @@
  * - A radar score is an integer from `0` to `100` on a fixed pack scale where `100` is the
  *   strongest reading the pack records, one score per axis in `radarAxes` order. The mapping from
  *   that range to the radar's axes belongs to the chart component, which owns the axis scale.
+ *
+ * DERIVATION — the pack is authored in full. `platform-seed-data.md` is not part of this repository,
+ * so no competitor name, site, lane, crossing, buffer day or radar score below is transcribed from
+ * it, and the whole pack is invented for this demonstration. What the inputs fix is the pack's shape
+ * and scale: AAP 0.2.3's three competitors and four chokepoints, contracts §1's `CMP-nn` and `CHK-nn`
+ * patterns, and AAP 0.12.4's SCR-13 statement of what the atlas renders from it. If the seed
+ * document is supplied later, its pack transcribes over these records and supersedes them with no
+ * change to any consumer, because every consumer reads the pack through the service.
  *
  * Rules this module is built to satisfy:
  * - P-5: `provenance` on every network, chokepoint and series; the client's series and the
