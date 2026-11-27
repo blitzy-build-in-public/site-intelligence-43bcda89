@@ -1,9 +1,10 @@
 /**
  * Shared primitive vocabulary of Site Intelligence: the identifier shapes and the money, time and
  * calendar conventions of `platform-contracts.md` §1, the constant demonstration clock, the seven
- * exact simulation labels of `platform-specification.md` §5.3 with their three companion strings,
- * the theme and density values of §4.3, the six data sources of `platform-seed-data.md` §7 and the
- * permission names of the contracts §7.1 matrix.
+ * exact simulation labels of `platform-specification.md` §5.3 with their three companion strings
+ * and the wording a refused computation carries (AAP §0.2.2, §0.8), the theme and density values of
+ * §4.3, the six data sources of `platform-seed-data.md` §7 and the permission names of the
+ * contracts §7.1 matrix.
  *
  * This is the leaf module of `src/types`: it imports nothing, so every other module in the folder
  * can depend on it without creating a cycle.
@@ -148,6 +149,20 @@ export const CLIENT_SELF_ASSESSMENT_LABEL = 'Simulated data: client self-assessm
  */
 export const ATLAS_PACK_BANNER =
   'Simulated market intelligence pack v2026.11. No first-party record is used in any competitor figure.';
+
+/**
+ * What a measure shows when its option's computation could not complete: `Cannot compute`.
+ *
+ * The wording is AAP §0.2.2's and §0.8's own — "the interface shows 'Cannot compute' with that
+ * reason" — so it is stated here once, character for character, and a paraphrase is a wording
+ * change to a string the plan fixes rather than a choice of words. Two surfaces state it and this
+ * is their single copy: the comparison matrix's measure cells, and the comparison CSV's measure
+ * cells in a column whose constraint check failed. The CSV builder has to reach it and is a service
+ * module, which may not import a feature module (AAP §0.18.1 boundary discipline), so the string
+ * lives in this leaf module beside the seven labels and the companion tags — the place both surfaces
+ * already read their fixed vocabulary from.
+ */
+export const CANNOT_COMPUTE_LABEL = 'Cannot compute';
 
 /* ---------------------------------------------------------------------------------------------
  * Theme and density — specification §4.3

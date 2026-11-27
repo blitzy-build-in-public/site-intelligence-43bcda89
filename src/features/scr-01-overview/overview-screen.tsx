@@ -25,10 +25,16 @@
  *
  * GAPS THIS FILE HAS TO REPORT, each recorded where it bites:
  * 1. `Overview` carries no evidence reference for the four tiles, for the by-plant rows or for the
- *    series points, and `getEvidence` resolves record identifiers only. `aggregateRef` below therefore
- *    composes a deterministic reference that names the aggregate a figure reports; the drawer reports
- *    that no record answers it until the adapter's evidence read resolves an aggregate family. The
- *    alternative — omitting the reference — cannot compile, because `MetricTile`,
+ *    series points, so `aggregateRef` below composes a deterministic reference of its own: the root and
+ *    the aggregate's key for a tile (`overview:revenue-at-risk`), the plant's identifier in the
+ *    by-plant form and the date and series member in the day form. The service's evidence read answers
+ *    all three shapes from the same aggregation modules this screen reads, so each reference opens the
+ *    drawer on the figure's own value, formula, inputs and provenance. Each reference also states the
+ *    scope the figure was read with, as the `?plants=…&products=…` suffix {@link selectionSuffix}
+ *    composes from this screen's `scope` prop: the port's `getEvidence(ref)` carries no scope, so the
+ *    reference is the only way the drawer can be computed over the same population the tile was, and a
+ *    plant or product chosen in the top bar therefore narrows the evidence exactly as it narrows the
+ *    figure (AAP §0.2.1 F12, PR-6). A reference cannot be omitted instead, because `MetricTile`,
  *    `HorizontalBarDatum` and `LinePoint` all require one.
  * 2. `LineChart` exposes no activation callback for a date, so the opened/resolved series cannot
  *    narrow the queue by date. No interactive affordance is rendered for a date, per rule P-8, and
@@ -203,9 +209,10 @@ const EXCEPTIONS_ROUTE = '/exceptions';
 /**
  * The root of this screen's aggregate references, prefixed to every figure's `evidenceRef`.
  *
- * See gap 1 in the module note: the payload carries no reference for an aggregate figure, and
- * `getEvidence` resolves record identifiers only. The reference still names the aggregate precisely
- * and is stable across renders, so a figure keeps one reference for one reading.
+ * See gap 1 in the module note: the payload carries no reference for an aggregate figure, so the screen
+ * composes one. The shape is the service's too — the root and the aggregate's own key, the plant's
+ * identifier in the by-plant form and the date and series member in the day form — so a figure keeps one
+ * reference for one reading and the evidence read answers exactly the string composed here.
  */
 const AGGREGATE_REF_ROOT = 'overview';
 
@@ -213,28 +220,49 @@ const AGGREGATE_REF_ROOT = 'overview';
  * The reference one aggregate figure carries: the root, a colon, then the aggregate's own key.
  *
  * @param key - The aggregate the figure reports, such as `revenue-at-risk`.
+ * @param scope - The selection the figure was read with, which the reference states.
  * @returns The reference the figure's `EvidenceRef` and the bar chart's mark carry.
  */
-function aggregateRef(key: string): string {
-  return `${AGGREGATE_REF_ROOT}:${key}`;
+function aggregateRef(key: string, scope: Scope): string {
+  return `${AGGREGATE_REF_ROOT}:${key}${selectionSuffix(scope)}`;
 }
 
-/** The four tiles' references, one per computed figure. */
-const TILE_REFS = {
-  openExceptions: aggregateRef('open-exceptions'),
-  revenueAtRisk: aggregateRef('revenue-at-risk'),
-  customerOrdersAtRisk: aggregateRef('customer-orders-at-risk'),
-  medianHoursToApprovedPlan: aggregateRef('median-hours-to-approved-plan'),
-} as const;
+/**
+ * The selection a figure's reference states, as the query the evidence read resolves its scope from.
+ *
+ * The port's `getEvidence(ref)` carries the reference and no scope, so the scope the figure was computed
+ * over travels in the reference or not at all — and a drawer that could not see it would compute the
+ * figure over the acting persona's whole scope and disagree with the tile it was opened from (AAP
+ * §0.2.1 F12, PR-6). The members are the render's own `scope` prop, in the order it states them, spelled
+ * with the parameter names `Scope` gives them (`plants`, `products`): nothing is typed here, no filter is
+ * re-derived and no selection is widened. A scope naming neither member — the "all plants and all
+ * products" selection the shell holds until a filter is chosen — states no selection, which is the bare
+ * reference the read has always answered.
+ *
+ * @param scope - The selection the aggregate read was made with.
+ * @returns The `?plants=…&products=…` suffix, or an empty string when the scope names no selection.
+ */
+function selectionSuffix(scope: Scope): string {
+  const parameters = [
+    ...(scope.plants.length === 0 ? [] : [`plants=${scope.plants.join(',')}`]),
+    ...(scope.products.length === 0 ? [] : [`products=${scope.products.join(',')}`]),
+  ];
+
+  return parameters.length === 0 ? '' : `?${parameters.join('&')}`;
+}
 
 /**
  * The reference one plant's revenue reading carries.
  *
+ * It states the same selection a tile's reference does, so a by-plant row read under a filter opens the
+ * drawer on that row's own figure rather than on the unfiltered aggregate's grouping.
+ *
  * @param plantId - The plant the row reports on.
+ * @param scope - The selection the figure was read with, which the reference states.
  * @returns The reference the row's amount and its bar carry.
  */
-function plantRef(plantId: PlantId): string {
-  return aggregateRef(`plant/${plantId}/revenue-at-risk`);
+function plantRef(plantId: PlantId, scope: Scope): string {
+  return aggregateRef(`plant/${plantId}/revenue-at-risk`, scope);
 }
 
 /**
@@ -242,10 +270,11 @@ function plantRef(plantId: PlantId): string {
  *
  * @param kind - Which of the day's two readings the figure is.
  * @param date - The calendar date the count was taken over.
+ * @param scope - The selection the figure was read with, which the reference states.
  * @returns The reference the point's mark and the table view's cell carry.
  */
-function dayRef(kind: 'open' | 'resolved', date: IsoDate): string {
-  return aggregateRef(`day/${date}/${kind}`);
+function dayRef(kind: 'open' | 'resolved', date: IsoDate, scope: Scope): string {
+  return aggregateRef(`day/${date}/${kind}`, scope);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -408,68 +437,87 @@ function orderPlantRows(
  *
  * The plant identifier and the amount go through `MonoValue`, so they are set in the tabular mono face
  * AAP 0.5.3 fixes, and each figure is wrapped in `EvidenceRef`, because a figure on this workspace
- * opens the record and formula behind it (rule P-6, principle PR-6). Every column is sortable: the
- * table's `onSort` and the chart's table view share one handler, so ordering either one orders both.
+ * opens the record and formula behind it (rule P-6, principle PR-6). The scope is the one the table's
+ * rows were read with, so each row's reference states the population its figure was computed over. Every
+ * column is sortable: the table's `onSort` and the chart's table view share one handler, so ordering
+ * either one orders both.
+ *
+ * @param scope - The selection the by-plant rows were read with.
+ * @returns The table's columns, each figure's reference carrying that selection.
  */
-const PLANT_COLUMNS: readonly TableColumn<PlantRiskRow>[] = [
-  {
-    id: 'plantId',
-    header: SCREEN_TEXT.columnPlant,
-    sortable: true,
-    render: (row) => <MonoValue value={row.plantId} kind="id" />,
-  },
-  {
-    id: 'plantName',
-    header: SCREEN_TEXT.columnPlantName,
-    sortable: true,
-    render: (row) => row.plantName,
-  },
-  {
-    id: 'openExceptions',
-    header: SCREEN_TEXT.columnOpenExceptions,
-    sortable: true,
-    align: 'end',
-    render: (row) => <EvidenceRef ref={plantRef(row.plantId)}>{row.openExceptions}</EvidenceRef>,
-  },
-  {
-    id: 'revenueAtRiskEur',
-    header: SCREEN_TEXT.columnRevenueAtRisk,
-    sortable: true,
-    align: 'end',
-    render: (row) => (
-      <EvidenceRef ref={plantRef(row.plantId)}>
-        <MonoValue value={row.revenueAtRiskEur} kind="money" />
-      </EvidenceRef>
-    ),
-  },
-];
+function plantColumns(scope: Scope): readonly TableColumn<PlantRiskRow>[] {
+  return [
+    {
+      id: 'plantId',
+      header: SCREEN_TEXT.columnPlant,
+      sortable: true,
+      render: (row) => <MonoValue value={row.plantId} kind="id" />,
+    },
+    {
+      id: 'plantName',
+      header: SCREEN_TEXT.columnPlantName,
+      sortable: true,
+      render: (row) => row.plantName,
+    },
+    {
+      id: 'openExceptions',
+      header: SCREEN_TEXT.columnOpenExceptions,
+      sortable: true,
+      align: 'end',
+      render: (row) => (
+        <EvidenceRef ref={plantRef(row.plantId, scope)}>{row.openExceptions}</EvidenceRef>
+      ),
+    },
+    {
+      id: 'revenueAtRiskEur',
+      header: SCREEN_TEXT.columnRevenueAtRisk,
+      sortable: true,
+      align: 'end',
+      render: (row) => (
+        <EvidenceRef ref={plantRef(row.plantId, scope)}>
+          <MonoValue value={row.revenueAtRiskEur} kind="money" />
+        </EvidenceRef>
+      ),
+    },
+  ];
+}
 
 /**
  * The columns of the opened/resolved series' table view, drawn from the same points its marks draw.
  *
  * This list is the chart's table representation only: the screen itself renders the series as a chart,
  * and the frame's "View as table" swaps one for the other. Each count is wrapped in `EvidenceRef`, so a
- * reader takes the same figure from the table as from the mark.
+ * reader takes the same figure from the table as from the mark, and each reference states the selection
+ * the series was read with.
+ *
+ * @param scope - The selection the series was read with.
+ * @returns The table view's columns, each count's reference carrying that selection.
  */
-const SERIES_COLUMNS: readonly TableColumn<DailyCountPoint>[] = [
-  {
-    id: 'date',
-    header: SCREEN_TEXT.columnDate,
-    render: (point) => <MonoValue value={point.date} kind="timestamp" />,
-  },
-  {
-    id: 'open',
-    header: SCREEN_TEXT.columnOpened,
-    align: 'end',
-    render: (point) => <EvidenceRef ref={dayRef('open', point.date)}>{point.open}</EvidenceRef>,
-  },
-  {
-    id: 'resolved',
-    header: SCREEN_TEXT.columnResolved,
-    align: 'end',
-    render: (point) => <EvidenceRef ref={dayRef('resolved', point.date)}>{point.resolved}</EvidenceRef>,
-  },
-];
+function seriesColumns(scope: Scope): readonly TableColumn<DailyCountPoint>[] {
+  return [
+    {
+      id: 'date',
+      header: SCREEN_TEXT.columnDate,
+      render: (point) => <MonoValue value={point.date} kind="timestamp" />,
+    },
+    {
+      id: 'open',
+      header: SCREEN_TEXT.columnOpened,
+      align: 'end',
+      render: (point) => (
+        <EvidenceRef ref={dayRef('open', point.date, scope)}>{point.open}</EvidenceRef>
+      ),
+    },
+    {
+      id: 'resolved',
+      header: SCREEN_TEXT.columnResolved,
+      align: 'end',
+      render: (point) => (
+        <EvidenceRef ref={dayRef('resolved', point.date, scope)}>{point.resolved}</EvidenceRef>
+      ),
+    },
+  ];
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The screen's state, derived in one place from the query outcome and the payload
@@ -705,7 +753,8 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
    * The bars, one per by-plant row, in the payload's own order: `value` is the amount's magnitude for
    * geometry alone and `valueLabel` is the text a reader sees, formatted by the interface's one money
    * formatter rather than by a rule of this file's, so the bar and the table cell beneath it read the
-   * same amount the same way.
+   * same amount the same way. Each bar's reference states the selection the rows were read with, so the
+   * drawer opens on the row's own figure.
    */
   const bars = useMemo<readonly HorizontalBarDatum[]>(
     () =>
@@ -714,10 +763,10 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
         label: row.plantName,
         value: row.revenueAtRiskEur,
         valueLabel: formatMoney(row.revenueAtRiskEur),
-        evidenceRef: plantRef(row.plantId),
+        evidenceRef: plantRef(row.plantId, scope),
         simLabel: CALCULATION_LABEL,
       })),
-    [byPlant],
+    [byPlant, scope],
   );
 
   /*
@@ -736,9 +785,9 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
         x: point.date,
         y: point.open,
         yLabel: String(point.open),
-        evidenceRef: dayRef('open', point.date),
+        evidenceRef: dayRef('open', point.date, scope),
       })),
-    [series],
+    [series, scope],
   );
 
   const resolvedPoints = useMemo<readonly LinePoint[]>(
@@ -747,9 +796,9 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
         x: point.date,
         y: point.resolved,
         yLabel: String(point.resolved),
-        evidenceRef: dayRef('resolved', point.date),
+        evidenceRef: dayRef('resolved', point.date, scope),
       })),
-    [series],
+    [series, scope],
   );
 
   /*
@@ -777,9 +826,17 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
     },
   ];
 
+  /*
+   * The two column lists, built once from the scope the reads were made with so that the risk-by-plant
+   * table, the revenue bars' table view and the series' table view each carry references stating the same
+   * selection their rows were computed over.
+   */
+  const plantTableColumns = plantColumns(scope);
+  const seriesTableColumns = seriesColumns(scope);
+
   const revenueTable: ChartTableSpec<PlantRiskRow> = {
     caption: SCREEN_TEXT.revenueChartCaption,
-    columns: PLANT_COLUMNS,
+    columns: plantTableColumns,
     rows: orderedByPlant,
     getRowKey: (row) => row.plantId,
     sort,
@@ -790,9 +847,21 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
 
   const seriesTable: ChartTableSpec<DailyCountPoint> = {
     caption: SCREEN_TEXT.seriesChartCaption,
-    columns: SERIES_COLUMNS,
+    columns: seriesTableColumns,
     rows: series,
     getRowKey: (point) => point.date,
+  };
+
+  /*
+   * The four tiles' references, one per computed figure, each stating the selection the overview was
+   * read with: the tile's figure and the drawer's figure are computed over one population, so a plant
+   * or product chosen in the top bar narrows both (AAP §0.2.1 F12, PR-6).
+   */
+  const tileReferences = {
+    openExceptions: aggregateRef('open-exceptions', scope),
+    revenueAtRisk: aggregateRef('revenue-at-risk', scope),
+    customerOrdersAtRisk: aggregateRef('customer-orders-at-risk', scope),
+    medianHoursToApprovedPlan: aggregateRef('median-hours-to-approved-plan', scope),
   };
 
   /** Turns a column's sort control into the next ordering the table and the chart's table share. */
@@ -851,26 +920,27 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
               <MetricTile
                 label={SCREEN_TEXT.tileOpenExceptions}
                 value={overview.openExceptions}
-                evidenceRef={TILE_REFS.openExceptions}
+                evidenceRef={tileReferences.openExceptions}
                 simLabel={CALCULATION_LABEL}
               />
               <MetricTile
                 label={SCREEN_TEXT.tileRevenueAtRisk}
                 value={overview.revenueAtRiskEur}
                 kind="money"
-                evidenceRef={TILE_REFS.revenueAtRisk}
+                evidenceRef={tileReferences.revenueAtRisk}
                 simLabel={CALCULATION_LABEL}
               />
               <MetricTile
                 label={SCREEN_TEXT.tileCustomerOrdersAtRisk}
                 value={overview.customerOrdersAtRisk}
-                evidenceRef={TILE_REFS.customerOrdersAtRisk}
+                evidenceRef={tileReferences.customerOrdersAtRisk}
                 simLabel={CALCULATION_LABEL}
               />
               <MetricTile
                 label={SCREEN_TEXT.tileMedianHours}
                 value={overview.medianHoursToApprovedPlan}
-                evidenceRef={TILE_REFS.medianHoursToApprovedPlan}
+                kind="hours"
+                evidenceRef={tileReferences.medianHoursToApprovedPlan}
                 simLabel={CALCULATION_LABEL}
               />
             </div>
@@ -894,7 +964,7 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
 
             <Card title={SCREEN_TEXT.byPlantTitle}>
               <DataTable<PlantRiskRow>
-                columns={PLANT_COLUMNS}
+                columns={plantTableColumns}
                 rows={orderedByPlant}
                 getRowKey={(row) => row.plantId}
                 caption={SCREEN_TEXT.byPlantCaption}

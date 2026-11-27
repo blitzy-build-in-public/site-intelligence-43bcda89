@@ -739,9 +739,10 @@ export interface PolicyExceptionDraft {
  *
  * Every part of it is declared configuration or a count of recorded events, and no part reports a
  * state the deployment was checked for (rule P-4): the summary and the rows are the seeded record's
- * own values, and the ledger's two columns are `computeLedger`'s. The screen renders the summary and
- * each row under `Declared, not verified` and the ledger under `Simulated calculation`, both read from
- * `SIM_LABELS` by the components that print them (rule P-1).
+ * own values, and the ledger's two count columns are `computeLedger`'s. The screen renders the
+ * summary, each row and the ledger's declared columns under `Declared, not verified`, and the two
+ * counts those columns sit beside under `Simulated calculation`, both read from `SIM_LABELS` by the
+ * components that print them (rule P-1).
  *
  * @param ctx - The call's context: the persona the permission is evaluated for, the record set and the chain.
  * @returns The summary, the ten rows in the record's order, and the counted ledger.

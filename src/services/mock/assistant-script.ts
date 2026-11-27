@@ -167,18 +167,13 @@ const SOURCE_BY_RECORD_KIND: Readonly<Record<AssistantQuestionRecordKind, Source
 };
 
 /**
- * The prose formatter for one amount an answer states.
- *
- * An answer is a sentence, so the amount is rendered with thousands grouping and at most the two
- * decimals `Money` carries, in the convention the plan's own sentences and the seed records' bodies
- * write amounts in: a comma between thousands and a full stop before the decimals, which is the second
- * of the two renderings `src/components/mono-value.tsx` records as legitimately coexisting in this
- * build. This formatter renders a value and never rounds one: the domain's `halfUp2` has already fixed
- * the scale, and rounding belongs to `src/domain/solver/rounding.ts` alone (AAP 0.8).
- *
- * The currency marker is deliberately not part of the rendered text — see the OPEN ITEM on the marker
- * in the module header. `src/components/mono-value.tsx` owns the one money formatter that prints a
- * code, and a sentence composed before rendering carries the grouped figure alone.
+ * The prose formatter for one amount an answer states: thousands grouping and at most the two decimals
+ * `Money` carries, in the comma-grouped shape the sentence's own `EUR ` marker qualifies. This is
+ * rendering 2 of the four the single money-format record in `src/components/mono-value.tsx` states,
+ * and that record holds why an answer's amounts are written this way. The formatter renders a value
+ * and never rounds one — `halfUp2` fixed the scale, and rounding belongs to
+ * `src/domain/solver/rounding.ts` alone (AAP 0.8) — and the marker is not part of the text (see the
+ * OPEN ITEM on the marker in the module header).
  */
 const AMOUNT_PROSE = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,

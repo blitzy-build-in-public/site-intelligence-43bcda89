@@ -230,9 +230,10 @@ const NO_PREVIEW_HANDLER = (): void => {};
  *
  * `undefined` is the drawing's honest answer for a node no record stands behind: activating the node
  * still reports the selection and opens no dialog, so a reader is never shown a refusal where a record
- * belongs. A node's evidence today is a pin or a record the screen attributes to it, and a bare
- * topology identifier resolves to no record family, so this module cannot derive a reference of its
- * own (rule P-6) and must not invent one.
+ * belongs. A node's evidence is the record the screen attributes to it — for the FileMap canvas the
+ * node's own identifier, which the service's evidence read resolves for all four node families — and
+ * this module cannot know which record a composition drew, so it derives no reference of its own
+ * (rule P-6) and must not invent one.
  */
 const NO_NODE_EVIDENCE = (): undefined => undefined;
 
@@ -622,10 +623,11 @@ export interface GraphLensProps {
    *
    * FORWARDED, NOT DERIVED (rule P-6). The topology payload carries a node's pin *counts*, so a
    * reference the service's evidence read would resolve cannot be built here without inventing an
-   * identifier, and the screen is what knows which record it drew for a node. When no mapper is
-   * supplied the drawing is given the honest answer for every node — no record stands behind it — so
-   * activating a node still reports the selection and opens no dialog, and a reader is never shown a
-   * refusal where a record belongs.
+   * identifier, and the screen is what knows which record it drew for a node. The screen of the FileMap
+   * canvas answers each node's own identifier, which the evidence read resolves for the plant, supplier,
+   * origin and customer families. When no mapper is supplied the drawing is given the honest answer for
+   * every node — no record stands behind it — so activating a node still reports the selection and opens
+   * no dialog, and a reader is never shown a refusal where a record belongs.
    */
   readonly evidenceRefForNode?: ((node: TopologyNode) => string | undefined) | undefined;
 }

@@ -13,9 +13,11 @@
  *
  * HOW THE SERVICE IS SIMULATED. `globalThis.fetch` is replaced by a stub that answers a valid
  * `{ data, meta }` envelope per path — the transport refuses anything else (rule P-1) — and records the
- * URLs it was asked for. Every payload is a minimal, well-formed record of its family: the suite asserts
- * what crosses the boundary and which reads were made, never a figure, so no expected value of the
- * domain is restated here (rule P-6).
+ * URLs it was asked for. Every payload carries the members its type declares, which is the other half
+ * of what the transport checks (AAP 0.12.3): the suite asserts what crosses the boundary and which
+ * reads were made, never a figure, so every member holds the neutral value of its type and no expected
+ * value of the domain is restated here (rule P-6). A case that needs a different answer — a payload
+ * that does not carry those members — puts its own stub in place for the length of that case.
  *
  * WHY THE NODE ENVIRONMENT, ON THE FIRST LINE ABOVE. Nothing here renders, and the suite measures a
  * timer: the Node environment gives it the platform's own `setTimeout` and `Response` without a DOM to
@@ -23,14 +25,16 @@
  *
  * WHAT IT DELIBERATELY DOES NOT DO. It asserts nothing about the demonstration adapter, the seed, the
  * domain or a component. It reads no file and no environment value (rules B-2), it names no origin —
- * every path the stub sees is relative to the application's own (rule B-1) — and it calls no real
- * network: the stub is the only `fetch` this module ever reaches.
+ * every path the stub sees is relative to the application's own (rule B-1), and the host-shaped
+ * targets the transport's guard refuses are handed to it and never reach the stub — and it calls no
+ * real network: the stub is the only `fetch` this module ever reaches.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClient } from './api-client';
-import type { Problem } from '../../types';
+import { PAYLOADS, request } from './http';
+import type { Problem, Scope } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
  * The stub service
@@ -71,10 +75,16 @@ const STUB_SCENARIO = {
   ordersTotal: 0,
   addedCostEur: 0,
   lineIdleDays: 0,
-  confidence: { level: 'high', reason: 'the stub states none' },
+  revenueDelayedEur: 0,
+  runOut: { day: 0, fractionOfDay: 0 },
+  dailyClosingStock: [],
+  orders: [],
   constraintCheck: 'pass',
   constraintMessages: [],
   sideEffects: [],
+  writeBacks: [],
+  levers: { airSets: 0, transferSets: 0 },
+  confidence: { level: 'high', reason: 'the stub states none' },
 };
 
 /** The arguments the platform's request function takes, taken from it so they cannot drift. */
@@ -96,12 +106,15 @@ function urlOf(input: FetchArguments[0]): string {
 }
 
 /**
- * The payload the stubbed service answers for one path: the minimal, well-formed record of the family
+ * The payload the stubbed service answers for one path: a minimal, well-formed record of the family
  * that path serves.
  *
  * Each member is what the member that reads it needs and no more: the sovereignty payload carries a
- * summary and rows, the chain verification a count and a list of breaks, the scenario set one scenario,
- * and the atlas the pack's release label with its competitors and crossings.
+ * summary and rows, the chain verification a count, a list of breaks and its duration, the scenario set
+ * one scenario and the rejected options beside it, and the atlas the pack's release label with its
+ * competitors and crossings. Every member the family's type declares is present, because the transport
+ * validates them (AAP 0.12.3) and answers a payload missing one as the validation failure it is; each
+ * holds the neutral value of its type, so no figure of the domain is restated here (rule P-6).
  */
 function payloadFor(url: string): unknown {
   // The path alone: a list read appends its parameters, and the payload a path serves does not depend
@@ -121,7 +134,7 @@ function payloadFor(url: string): unknown {
   }
 
   if (path.endsWith('/audit-events/verify')) {
-    return { eventsChecked: 0, breaks: [] };
+    return { eventsChecked: 0, breaks: [], durationMs: 0 };
   }
 
   if (path.includes('/audit-events')) {
@@ -135,6 +148,7 @@ function payloadFor(url: string): unknown {
       recommendedId: STUB_SCENARIO.id,
       recommendationRule: 'the stub recommends its only option',
       tradeOff: 'the stub states none',
+      rejected: [],
     };
   }
 
@@ -158,16 +172,18 @@ function payloadFor(url: string): unknown {
  * Replaces the platform's request function with a stub that records the path it was given and answers
  * that path's envelope.
  *
+ * @param payload - The payload every answer carries, for a case whose answer the path's own payload
+ * cannot give; absent means the payload `payloadFor` composes for the path.
  * @returns The spy, so a case can assert how a member was called.
  */
-function stubService(): ReturnType<typeof vi.fn> {
+function stubService(payload?: unknown): ReturnType<typeof vi.fn> {
   const stub = vi.fn((input: FetchArguments[0]) => {
     const url = urlOf(input);
 
     requestedUrls.push(url);
 
     return Promise.resolve(
-      new Response(JSON.stringify({ data: payloadFor(url), meta: metaEnvelope() }), {
+      new Response(JSON.stringify({ data: payload ?? payloadFor(url), meta: metaEnvelope() }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
@@ -409,5 +425,136 @@ describe('the correlation identifier of a failed call', () => {
     expect(unreached.traceId).not.toBe('');
     expect(refused.traceId).not.toBe('');
     expect(unreached.traceId).not.toBe(refused.traceId);
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The members a payload has to carry — AAP 0.12.3, rule P-1
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The selection the overview read is asked for: no filter on either axis, which is the shell's
+ * unfiltered selection rather than a record of the domain (rule P-6).
+ */
+const UNFILTERED_SELECTION: Scope = { plants: [], products: [] };
+
+/**
+ * The overview the stub answers when a case needs a well-formed one: every member the type declares,
+ * each holding the neutral value of its type (rule P-6).
+ */
+const STUB_OVERVIEW = {
+  openExceptions: 0,
+  revenueAtRiskEur: 0,
+  customerOrdersAtRisk: 0,
+  medianHoursToApprovedPlan: 0,
+  alternateSourceReadinessPercent: 0,
+  changedSinceLastVisit: [],
+  byPlant: [],
+  openResolvedSeries: [],
+};
+
+/**
+ * Two answers the overview's type does not accept: an empty record, which carries none of the members
+ * `Overview` declares, and one carrying a single member of the eight.
+ *
+ * Neither states a figure of the domain: the case asserts the failure the transport raises, never a
+ * value it refused (rule P-6).
+ */
+const MALFORMED_OVERVIEWS: [string, unknown][] = [
+  ['an empty record', {}],
+  ['a record carrying one member of the type', { changedSinceLastVisit: [] }],
+];
+
+describe('the members a payload has to carry', () => {
+  it.each(MALFORMED_OVERVIEWS)(
+    'refuses %s as a typed validation failure',
+    async (_label: string, payload: unknown) => {
+      const stub = stubService(payload);
+
+      const client = new ApiClient();
+      const refusal = await failureOf(client.getOverview(UNFILTERED_SELECTION));
+
+      // AAP 0.12.3 and rule P-1: a body that is the envelope but not the record its type declares is
+      // the same typed `'validation'` failure a body without an envelope produces, so no typed consumer
+      // downstream ever reads a member the service did not send.
+      expect(refusal.type).toBe('validation');
+      expect(refusal.traceId).not.toBe('');
+      expect(stub).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('resolves a payload that carries every member its type declares', async () => {
+    stubService(STUB_OVERVIEW);
+
+    const client = new ApiClient();
+    const overview = await client.getOverview(UNFILTERED_SELECTION);
+
+    expect(overview.data).toEqual(STUB_OVERVIEW);
+  });
+
+  it('refuses a record where the type declares a list', async () => {
+    stubService({});
+
+    const client = new ApiClient();
+    const refusal = await failureOf(client.listPolicies({}));
+
+    // A list type is answered with an array and never with a record, so the kind of the payload is
+    // refused here for the same reason its members are: a screen that maps over the answer would
+    // otherwise walk a record's members as if they were the records it asked for.
+    expect(refusal.type).toBe('validation');
+  });
+
+  it('refuses a list whose element does not carry the members its type declares', async () => {
+    stubService([{}]);
+
+    const client = new ApiClient();
+    const refusal = await failureOf(client.listPolicies({}));
+
+    // Every element is the list's record type, so one element missing that type's members is refused
+    // as the whole answer: a screen renders the list it was given, and one unchecked element reaches
+    // it as a row whose cells read nothing.
+    expect(refusal.type).toBe('validation');
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The same-origin guard of the transport — rule B-1
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Targets the URL parser that sends a call would resolve to another origin, none of which is a path of
+ * this application's own.
+ *
+ * The parser reads a backslash as a slash for the special schemes a page is served over, and removes an
+ * ASCII tab, carriage return or line feed from its input altogether, so each of these three spells a
+ * protocol-relative address while the raw text begins with a single slash.
+ */
+const OTHER_ORIGIN_TARGETS: string[] = [
+  '/\\evil.example/x',
+  '//evil.example/x',
+  '/\t/evil.example/x',
+];
+
+describe('the same-origin guard of the transport', () => {
+  it.each(OTHER_ORIGIN_TARGETS)('refuses %s before it sends anything', async (target: string) => {
+    const stub = stubService();
+
+    const refusal = await failureOf(request(target, { payload: PAYLOADS.overview }));
+
+    // Rule B-1: the containment is a check on the target rather than a convention about what callers
+    // pass, so a target the parser would read as another origin's address never leaves this module.
+    expect(refusal.type).toBe('validation');
+    expect(stub).not.toHaveBeenCalled();
+  });
+
+  it('sends a path whose backslash is past the first character', async () => {
+    const stub = stubService(STUB_OVERVIEW);
+
+    await request('/api/v1/over\\view', { payload: PAYLOADS.overview });
+
+    // The parser reads that backslash as a slash of this origin's own path, so the target is a path
+    // here and is sent as the caller wrote it.
+    expect(stub).toHaveBeenCalledTimes(1);
+    expect(requestedUrls).toEqual(['/api/v1/over\\view']);
   });
 });

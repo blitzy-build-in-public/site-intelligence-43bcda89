@@ -641,8 +641,9 @@ function seriesDescriptionOf(scenarios: readonly Scenario[]): string {
  * The document arrives composed: this function writes nothing into it and rewrites no field, so the
  * `"simulated": true` marker its builder set survives untouched (rule P-1), and the name and media type
  * are the payload's own, which is why the saved file is the one the builder declared rather than a name
- * typed here (rule P-6). The blob is served from an object URL that is revoked as soon as the anchor has
- * been activated, so the file leaves the application as a local file and no request is made (rule B-1).
+ * typed here (rule P-6). The blob is served from an object URL that is released on the next task rather
+ * than in the task that activated the anchor, so an engine that takes the file after the click still
+ * finds it; it leaves the application as a local file and no request is made (rule B-1).
  *
  * The feature check is deliberate: a browser — or a test environment — that exposes no object-URL factory
  * leaves nothing to offer, and letting the missing member throw would report a failure of the export
@@ -669,7 +670,12 @@ function offerExportFile(payload: ExportPayload): boolean {
   anchor.click();
   anchor.remove();
 
-  URL.revokeObjectURL(url);
+  /* The click above has handed the blob to the browser's download machinery, which may still be reading
+     it when this task ends: the URL is released on the next task so an engine that reads it
+     asynchronously still finds it. */
+  globalThis.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 0);
 
   return true;
 }

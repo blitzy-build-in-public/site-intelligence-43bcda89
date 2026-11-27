@@ -18,18 +18,31 @@
  *
  * The text is RFC 4180. Fields are comma-separated; a field carrying a comma, a double quote or a line
  * break is wrapped in double quotes with every embedded quote doubled; `\n` is the only line separator,
- * so the output does not vary by platform.
+ * so the output does not vary by platform. Every record carries the same field count — the row label
+ * plus one cell per option column — so the file has one width from its first record to its last and a
+ * strict reader never meets a record it cannot align with the header.
  *
- * Labelling (rule P-1). The payload opens with a marker record, `simulated,true`, declaring the whole
- * comparison simulated — the flag the two sibling exports carry as `simulated: true` at their top
- * level — so the file states what it is before a reader meets the first figure and no download can
- * present a synthetic comparison as a real one. Separate from that marker, and inside the table, a
- * scenario column states whether its figures were computed in this session or shipped with the
- * dataset, and the recommended option's column carries the recommendation label. Those two label rows
+ * A column whose option could not be measured states so rather than showing a figure. When a
+ * scenario's constraint check fails the solver has measured nothing, so its measure members carry
+ * the neutral zeros a `SolverResult` is built with; the file writes `Cannot compute` in every measure
+ * cell of that column and keeps the reason in the constraint-check cell, exactly as the comparison
+ * matrix does, so no zero, no `0 of 0` and no blank stands where the measurement was refused
+ * (AAP §0.8, rule P-6).
+ *
+ * Labelling (rule P-1). The payload opens with a marker record declaring the whole comparison
+ * simulated — the flag the two sibling exports carry as `simulated: true` at their top level — so the
+ * file states what it is before a reader meets the first figure and no download can present a
+ * synthetic comparison as a real one. The marker is a record of the table's own shape: the key
+ * `simulated` in the row-label cell, then the flag `true` in every option column's cell, so the first
+ * record is as wide as the rest and the declaration says which columns it covers. A set with no
+ * options has no column to carry a flag, so its single cell reads `simulated=true` and the statement
+ * survives in a file of one column. Separate from that marker, and inside the table, a scenario
+ * column states whether its figures were computed in this session or shipped with the dataset, and
+ * the recommended option's column carries the recommendation label. Those two label rows
  * are the fixed strings of `platform-specification.md` §5.3, read from `SIM_LABELS` rather than
  * retyped, so none of them can drift from the vocabulary the screens render.
  */
-import { SIM_LABELS } from '../../types';
+import { CANNOT_COMPUTE_LABEL, SIM_LABELS } from '../../types';
 import type { ExportPayload, Scenario, ScenarioSet, SideEffect, SimLabel } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
@@ -44,13 +57,16 @@ const FILE_NAME_STEM = 'scenario-comparison';
 
 /**
  * The marker record's key: `simulated`, the member the two sibling exports set at their top level, so
- * the three downloads name the flag the same way.
+ * the three downloads name the flag the same way. It sits in the row-label cell every other record
+ * keeps its row label in, which is what makes the marker a record of the table's own shape.
  */
 const SIMULATED_MARKER_KEY = 'simulated';
 
 /**
- * The marker record's value: the flag itself, `true`. It is set on every comparison this module
- * builds, so a reader opening the file meets the declaration before the first figure.
+ * The marker record's value: the flag itself, `true`, in every option column's cell of that record.
+ * It is set on every comparison this module builds, so a reader opening the file meets the
+ * declaration before the first figure, and it is stated once per column so the marker is as wide as
+ * the table below it.
  */
 const SIMULATED_MARKER_VALUE = 'true';
 
@@ -79,10 +95,12 @@ const RECOMMENDED_LABEL: SimLabel = SIM_LABELS[2];
 /**
  * The two-decimal renderer for the money measures and for line idle days.
  *
- * A CSV is read by a spreadsheet, so the field is machine-readable: dot decimal, no grouping separator,
- * exactly two decimals, and an explicit locale so an engine's default cannot change the separators. It
- * renders a value and never rounds one — the domain's `halfUp2` already fixed the scale, and rounding
- * belongs to `src/domain/solver/rounding.ts` alone (AAP §0.8).
+ * A CSV is read by a spreadsheet, so the field stays machine-readable even when the cell is money: dot
+ * decimal, no grouping separator, exactly two decimals, and an explicit locale so an engine's default
+ * cannot change the separators. This is rendering 3 of the four the single money-format record in
+ * `src/components/mono-value.tsx` states, and that record holds why a file format differs from a
+ * screen. It renders a value and never rounds one — the domain's `halfUp2` already fixed the scale,
+ * and rounding belongs to `src/domain/solver/rounding.ts` alone (AAP §0.8).
  */
 const TWO_DECIMALS = new Intl.NumberFormat('en-US', {
   useGrouping: false,
@@ -174,14 +192,36 @@ function sourceLabelOf(scenario: Scenario): SimLabel {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * The marker record: the simulated flag, stated in a record as wide as the table below it.
+ *
+ * RFC 4180 gives a file one width, so this record carries the row label plus one cell per option
+ * column, like every other. The key sits where the measure names sit and the flag fills each option
+ * column's cell, which keeps that width and says what the declaration covers: every column of the
+ * comparison below it. A set with no options has no column to carry a flag, so the file's one cell
+ * carries the key together with its value, `simulated=true`; the flag never leaves the file (rule
+ * P-1) and the record still has the width of every other record in that file.
+ *
+ * @param scenarios - The options the comparison holds, one column each.
+ * @returns The marker record, ready to lead the file.
+ */
+function renderMarkerRecord(scenarios: readonly Scenario[]): string {
+  return scenarios.length === 0
+    ? csvRow([`${SIMULATED_MARKER_KEY}=${SIMULATED_MARKER_VALUE}`])
+    : csvRow([SIMULATED_MARKER_KEY, ...scenarios.map(() => SIMULATED_MARKER_VALUE)]);
+}
+
+/**
  * Builds the comparison of one exception's options as CSV text.
  *
- * The payload opens with the marker record, `simulated,true`, declaring the whole comparison
- * simulated before the measures begin — the same flag the two sibling exports carry at their top
- * level. One column per scenario follows, in the order the set holds them — the order is never sorted,
- * since a re-sort would rename the columns between two exports of the same set — and one row per
- * measure, in the order the comparison matrix reads: units late, maximum days late, orders on time,
- * added cost, line idle days, confidence, constraint check and side effects. Two label rows then
+ * The payload opens with the marker record — the flag in the row-label cell and in every option
+ * column's cell, declaring the whole comparison simulated before the measures begin, the same flag
+ * the two sibling exports carry at their top level. One column per scenario follows, in the order the
+ * set holds them — the order is never sorted, since a re-sort would rename the columns between two
+ * exports of the same set — and one row per measure, in the order the comparison matrix reads: units
+ * late, maximum days late, orders on time, added cost, line idle days, confidence, constraint check
+ * and side effects. A column whose option could not be measured states `Cannot compute` in each of its
+ * measure cells without exception, the constraint-check row alone carrying the record's own reason, so
+ * the file never reports a refused measurement as a zero (AAP §0.8, rule P-6). Two label rows then
  * follow the measures, stating each column's source label and marking the recommended option, which
  * is the column whose identifier the set names.
  *
@@ -195,34 +235,49 @@ export function buildScenarioComparisonCsv(set: ScenarioSet): ExportPayload {
   const recommendedCell = (scenario: Scenario): string =>
     scenario.id === set.recommendedId ? RECOMMENDED_LABEL : '';
 
+  /**
+   * The measure cells of one row: each option's own rendered value, or `Cannot compute` where the
+   * solver refused to measure it.
+   *
+   * The gate is the comparison matrix's own rule, applied to the seven measure rows: a scenario
+   * whose `constraintCheck` is `'fail'` carries no measurement, so the neutral zeros its members
+   * hold are replaced by the fixed words instead of being reported as measured values (AAP §0.8,
+   * rule P-6). The constraint-check row is rendered from the record directly, because that row is
+   * where the reason for the refusal is stated.
+   */
+  const measureCells = (render: (scenario: Scenario) => string): string[] =>
+    scenarios.map((scenario) =>
+      scenario.constraintCheck === 'fail' ? CANNOT_COMPUTE_LABEL : render(scenario),
+    );
+
   const lines: string[] = [
-    csvRow([SIMULATED_MARKER_KEY, SIMULATED_MARKER_VALUE]),
+    renderMarkerRecord(scenarios),
     csvRow(['Measure', ...scenarios.map((scenario) => scenario.name)]),
-    csvRow(['Units late', ...scenarios.map((scenario) => renderCount(scenario.unitsLate))]),
+    csvRow(['Units late', ...measureCells((scenario) => renderCount(scenario.unitsLate))]),
     csvRow([
       'Maximum days late',
-      ...scenarios.map((scenario) => renderCount(scenario.maxDaysLate)),
+      ...measureCells((scenario) => renderCount(scenario.maxDaysLate)),
     ]),
     csvRow([
       'Orders on time',
-      ...scenarios.map(
+      ...measureCells(
         (scenario) =>
           `${renderCount(scenario.ordersOnTime)} of ${renderCount(scenario.ordersTotal)}`,
       ),
     ]),
     csvRow([
       'Added cost',
-      ...scenarios.map((scenario) => TWO_DECIMALS.format(scenario.addedCostEur)),
+      ...measureCells((scenario) => TWO_DECIMALS.format(scenario.addedCostEur)),
     ]),
     csvRow([
       'Line idle days',
-      ...scenarios.map((scenario) => TWO_DECIMALS.format(scenario.lineIdleDays)),
+      ...measureCells((scenario) => TWO_DECIMALS.format(scenario.lineIdleDays)),
     ]),
-    csvRow(['Confidence', ...scenarios.map(renderConfidence)]),
+    csvRow(['Confidence', ...measureCells(renderConfidence)]),
     csvRow(['Constraint check', ...scenarios.map(renderConstraintCheck)]),
     csvRow([
       'Side effects',
-      ...scenarios.map((scenario) => renderSideEffects(scenario.sideEffects)),
+      ...measureCells((scenario) => renderSideEffects(scenario.sideEffects)),
     ]),
     csvRow(['Source label', ...scenarios.map(sourceLabelOf)]),
     csvRow([

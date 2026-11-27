@@ -809,8 +809,9 @@ function decisionRowKeyOf(row: DecisionRow): string {
  * rewrites no field, so the `"simulated": true` flag the service set at the payload's top level
  * survives untouched (rule P-1). The name and the media type are the payload's own, which is why the
  * file a reader saves is the one the builder declared rather than a name typed here (rule P-6). The
- * blob is served from an object URL that is revoked as soon as the anchor has been activated, so the
- * file leaves the application's own origin as a local file and no request is made (rule B-1).
+ * blob is served from an object URL that is released on the next task rather than in the task that
+ * activated the anchor, so an engine that takes the file after the click still finds it; it leaves the
+ * application's own origin as a local file and no request is made (rule B-1).
  *
  * The feature check is deliberate. A test environment that implements no object-URL factory leaves
  * nothing to revoke and no file to offer, and the alternative — letting the missing member throw —
@@ -835,7 +836,11 @@ function offerExportFile(payload: ExportPayload): void {
   anchor.click();
   anchor.remove();
 
-  URL.revokeObjectURL(url);
+  /* The click above has handed the blob to the browser's download machinery; the URL is released on the
+     next task so an engine that reads it asynchronously still finds it. */
+  globalThis.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 0);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1214,13 +1219,15 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
 
             {/*
               The outbound ledger. Its two count columns are the only computed figures on this page,
-              so the region carries `Simulated calculation`; the declared columns beside them state
-              the record's own endpoint, purpose and state, and the declared rows above the ledger
-              carry the label for the configuration half (rules P-1 and P-4).
+              so those columns carry `Simulated calculation`; the four declared columns beside them
+              state the record's own endpoint, purpose, state and last attempt, so they carry the
+              declared-configuration label the summary and the declared rows above carry (rules P-1
+              and P-4). Neither label is spelled here: both are read from `SIM_LABELS`.
             */}
             <OutboundLedger
               rows={status.ledger}
               simLabel={CALCULATION_LABEL}
+              declaredLabel={DECLARED_LABEL}
               caption={SOVEREIGNTY_SCREEN_TEXT.ledgerCaption}
               emptyMessage={SOVEREIGNTY_SCREEN_TEXT.ledgerEmpty}
             />

@@ -9,9 +9,11 @@
  * rather than a number written into the screen, proved by rendering a second payload of a different
  * length; that each row's status reaches the page as an icon, the record's own word and the status
  * role colour together (rule B-3); that the outbound ledger prints its six columns and each row's own
- * endpoint, purpose, state, instant and two counts, with the fixed label a computed figure carries
- * (rule P-1); that the export action calls the port once and hands the payload the service returned to
- * the browser's download path unchanged, `simulated: true` included; that the grant action opens the
+ * endpoint, purpose, state, instant and two counts under the two fixed labels it separates — the
+ * declared label on the four columns that state declared configuration, and the label a computed
+ * figure carries on the two counts, with every cell naming its own label by id (rules P-1 and P-4);
+ * that the export action calls the port once and hands the payload the service returned to the
+ * browser's download path unchanged, `simulated: true` included; that the grant action opens the
  * dialog named by its own heading and closes without sending a request; that one row per recorded
  * decision renders the event's own values, most recent first; that a policy row opens that policy's
  * route; that the seven states specification §8 fixes each render from the read's own outcome; that a
@@ -972,8 +974,18 @@ describe('SovereigntyScreen', () => {
     ]);
 
     // The two count columns are the only figures on this page, and they carry the fixed label for a
-    // computed figure inside their own region (rule P-1).
+    // computed figure inside their own region (rule P-1); the four declared columns beside them carry
+    // the declared label, and every cell names the one that applies to it (rule P-4).
     expect(within(ledger).getAllByText(CALCULATION_LABEL)).toHaveLength(1);
+
+    const declaredLabel = within(ledger).getByText(DECLARED_LABEL);
+    const calculationLabel = within(ledger).getByText(CALCULATION_LABEL);
+    const declaredLabelId = declaredLabel.closest('[id]')?.id ?? '';
+    const calculationLabelId = calculationLabel.closest('[id]')?.id ?? '';
+
+    expect(declaredLabel).toBeVisible();
+    expect(declaredLabelId).not.toBe('');
+    expect(calculationLabelId).not.toBe('');
 
     const rows = dataRowsOf(table);
 
@@ -986,22 +998,49 @@ describe('SovereigntyScreen', () => {
       expect(collapsedTextOf(at(cells, 0, 'endpoint cell'))).toBe(row.endpoint);
       expect(collapsedTextOf(at(cells, 1, 'purpose cell'))).toBe(row.purpose);
 
-      // The declared state is the record's own word beside its meaning's icon and colour (rule B-3).
+      // The declared state is the record's own word beside its meaning's icon and colour (rule B-3),
+      // and that colour is the neutral meaning this vocabulary gives declared configuration rather
+      // than the pass mark a verified state would earn (rule P-4).
       const state = at(cells, 2, 'state cell');
+      const stateIcon = state.querySelector('[aria-hidden="true"]');
+      const stateMeaning = row.state === 'blocked' ? 'simulated' : 'warning';
 
       expect(within(state).getByText(row.state)).toBeVisible();
-      expect(state.querySelector('[aria-hidden="true"]')).not.toBeNull();
+      expect(stateIcon).not.toBeNull();
+      expect(stateIcon?.className.split(' ')).toContain(MEANING_COLOUR_CLASSES[stateMeaning]);
+      expect(stateIcon?.className.split(' ')).not.toContain(MEANING_COLOUR_CLASSES.pass);
 
       // The instant the trail recorded, verbatim, or the dash that states there is none (rule P-6).
       expect(collapsedTextOf(at(cells, 3, 'last attempt cell'))).toBe(
         row.lastAttempt === null ? NO_LAST_ATTEMPT_MARKER : row.lastAttempt,
       );
 
-      // Both counts are printed as the aggregate supplied them, each tied to the label above them.
+      // Each declared cell names the label row that says the column states declared configuration and
+      // that nothing verified it (rule P-4).
+      for (const [position, what] of [
+        [0, 'endpoint cell'],
+        [1, 'purpose cell'],
+        [2, 'state cell'],
+        [3, 'last attempt cell'],
+      ] as const) {
+        expect(at(cells, position, what).querySelector('[aria-describedby]')).toHaveAttribute(
+          'aria-describedby',
+          declaredLabelId,
+        );
+      }
+
+      // Both counts are printed as the aggregate supplied them, each tied to the label above them —
+      // the calculation label, never the declared one.
       expect(collapsedTextOf(at(cells, 4, 'allowed cell'))).toBe(String(row.allowed));
       expect(collapsedTextOf(at(cells, 5, 'blocked cell'))).toBe(String(row.blocked));
-      expect(at(cells, 4, 'allowed cell').querySelector('[aria-describedby]')).not.toBeNull();
-      expect(at(cells, 5, 'blocked cell').querySelector('[aria-describedby]')).not.toBeNull();
+      expect(at(cells, 4, 'allowed cell').querySelector('[aria-describedby]')).toHaveAttribute(
+        'aria-describedby',
+        calculationLabelId,
+      );
+      expect(at(cells, 5, 'blocked cell').querySelector('[aria-describedby]')).toHaveAttribute(
+        'aria-describedby',
+        calculationLabelId,
+      );
     });
   });
 
@@ -1050,10 +1089,16 @@ describe('SovereigntyScreen', () => {
     expect(handed).toMatchObject({ simulated: true });
 
     // The file a reader saves is the one the builder named, and the object URL is released once it has
-    // been offered rather than left alive (rule B-1: nothing is requested to offer it).
+    // been offered rather than left alive (rule B-1: nothing is requested to offer it). The release
+    // happens on the task after the anchor is activated, so that an engine still reading the blob when
+    // the click's task ends finds it, which is why it is read for rather than assumed to have happened.
     expect(at(offered, 0, 'offered file').download).toBe(EXPORT_PAYLOAD.filename);
     expect(offered).toHaveLength(1);
-    expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    });
+
     expect(revokeObjectUrl).toHaveBeenCalledWith(OBJECT_URL);
   });
 

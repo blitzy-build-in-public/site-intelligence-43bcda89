@@ -19,8 +19,9 @@
  * one-click switch re-asks on the in-boundary model; a permission refusal renders the forbidden card;
  * any other rejection renders the offline notice with a retry that repeats the read; a question
  * outside the script renders whatever text the service returned; a disabled control carries a reason
- * a keyboard user can read; all seven screen states render; the route mounts one level-one heading
- * and the screen's single primary action; and both themes render the same content from role tokens.
+ * a keyboard user can read; all seven screen states render; the route mounts the product eyebrow, one
+ * level-one heading and the screen's single primary action; and both themes render the same content
+ * from role tokens.
  * The browser halves of `T-10` and `T-11` are `e2e/s1-assistant.spec.ts`, and axe is `T-16` in
  * `e2e/s1-keyboard-and-axe.spec.ts`: `@axe-core/playwright` is browser-only and the project declares
  * no jest-axe dependency, so no accessibility scan can run here. This suite proves instead the
@@ -45,12 +46,13 @@
  * the module that owns it — `ASSISTANT_PANEL_TEXT`, `ASSISTANT_ANSWER_TEXT`, `EVIDENCE_DRAWER_TEXT` —
  * so a case cannot pass by agreeing with a sentence typed here.
  *
- * THE COMPONENTS OF THE STATE BOUNDARY ARE NOT IMPORTED, because `src/components/state-boundary.tsx`
- * is not one of this file's dependencies: the seven-state cases below therefore assert what each
- * state renders — the busy region, the caller's own message, the source label with the record's own
- * as-of instant, the children the warning keeps, the control that repeats the read, the denial
- * handed to `ForbiddenCard` — rather than restating that module's private wording, whose one owner
- * stays the module itself.
+ * THE STATE BOUNDARY'S RENDERINGS ARE NOT IMPORTED, because `src/components/state-boundary.tsx` is
+ * not one of this file's dependencies: the seven-state cases below therefore assert what each state
+ * renders — the busy region, the caller's own message, the source label with the record's own as-of
+ * instant, the children the warning keeps, the control that repeats the read, the denial handed to
+ * `ForbiddenCard` — rather than restating that module's wording, whose one owner stays the module
+ * itself. Its exported `STATE_BOUNDARY_TEXT` is read where a case asserts that wording is absent, so
+ * no sentence of that module is retyped here.
  *
  * TWO RECORDED DIVERGENCES. (1) The plan names one test module for five source files, so this file
  * carries all five contracts; a later stage that splits them makes that split its own decision.
@@ -60,12 +62,13 @@
  * The state is therefore proven through `AssistantPanelBody`, which renders it when handed it, and
  * this suite fabricates no service signal to reach it through the connected panel.
  *
- * ONE FINDING ON THE PANEL, RECORDED RATHER THAN CHANGED. `AssistantPanelBodyProps` declares an
- * optional `partialMessage`, and `AssistantPanelBody` never reads it: its partial notice prints the
- * missing inputs the answer itself carries, which is the behaviour that module documents (the panel
- * composes no sentence of its own, rule P-6), and no caller supplies the prop. The case below asserts
- * that documented behaviour and the sibling module is left as it stands, because removing a public
- * member of another file would change a contract this work never scoped for no functional gain.
+ * THE PARTIAL NOTICE'S SENTENCE COMES FROM THE RECORD. `AssistantPanelBody` derives the detail its
+ * partial notice prints from the missing inputs the answer carries and hands it to `StateBoundary`,
+ * which owns the headline; the body declares no message member of its own, so no caller supplies one
+ * and the panel composes no sentence of its own (rule P-6). The partial case below asserts the
+ * record's own value for that reason, and the connected half reaches that state the way the panel
+ * derives it — a source reporting that it answered incompletely — rather than through an answer's own
+ * gap, which belongs to the answer's disclosure and not to the screen.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default, with the jest-dom matchers
  * `tests/setup.ts` registers. Nothing here hashes, reads the system clock or touches the network.
@@ -77,6 +80,7 @@ import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
+import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
 import { DEMO_CLOCK, SIM_LABELS, SOURCE_IDS, SOURCE_LABELS } from '../../types';
 import type {
@@ -148,6 +152,15 @@ const ANSWER_TEXT = 'stub-answer-text';
 /** The text the service returns for a question outside its script, held here as a sentinel only. */
 const UNSCRIPTED_TEXT = 'stub-unscripted-answer';
 
+/**
+ * The one input the unscripted answer reports it lacks, standing in for the adapter's own diagnostic.
+ *
+ * It is that answer's member and nothing else's: the demonstration holds no question covering the one
+ * asked, which is why the adapter marks the answer partial, and the panel renders the answer rather
+ * than turning the gap into a state of the screen (rule P-6).
+ */
+const UNSCRIPTED_MISSING = 'stub-unscripted-missing-input';
+
 /** The two query lines the answer reports having run. */
 const QUERY_ONE = 'stub-query-a';
 const QUERY_TWO = 'stub-query-b';
@@ -213,6 +226,16 @@ const CALC_LABEL: SimLabel = SIM_LABELS[1];
  */
 const SCREEN_TITLE = 'Evidence assistant';
 
+/**
+ * The product eyebrow above the title, the string every sibling route renders in the same slot.
+ *
+ * Typed rather than imported for the same reason as `SCREEN_TITLE`: `./assistant-screen` exports the
+ * component and its props and keeps its text object private, and this work does not widen that
+ * surface. Rule P-7 fixes the product's name, so the string is the specification's own vocabulary and
+ * no record value, figure, amount or contracts §1 identifier is stated by typing it.
+ */
+const SCREEN_EYEBROW = 'Site Intelligence';
+
 /** Both themes of specification §4.1, as the `data-theme` values the token layer keys on. */
 const THEMES: readonly ThemeName[] = ['command', 'paper'];
 
@@ -223,6 +246,17 @@ function freshFor(source: SourceId): Freshness {
 
 /** The six sources' report, every one of them current. */
 const FRESHNESS: readonly Freshness[] = SOURCE_IDS.map((source) => freshFor(source));
+
+/**
+ * The same report with one source saying it answered incompletely: the reads' own account of a gap.
+ *
+ * This is what puts the screen in the partial state — a source's report, not an answer's account of
+ * what it could not fill — so the case that uses it proves the state is still reachable once the
+ * answer's own gap stops being promoted to it.
+ */
+const PARTIAL_FRESHNESS: readonly Freshness[] = SOURCE_IDS.map((source) =>
+  source === CITATION_SOURCE ? { source, asOf: AS_OF, state: 'partial' } : freshFor(source),
+);
 
 /** The metadata qualifying every result, including the literal `simulated: true` marker. */
 const META: Meta = { freshness: [...FRESHNESS], simulated: true, traceId: TRACE_ID };
@@ -265,14 +299,20 @@ function citedAnswer(): Answer {
   };
 }
 
-/** The answer a question outside the script returns: its text, and none of the detail. */
+/**
+ * The answer a question outside the script returns, in the shape the adapter actually produces: the
+ * notice as its text, no citation and no query because it rested on no record, and `partial` true with
+ * the one input the demonstration would need. `partial` is true exactly when `missing` is not empty
+ * (`src/types/screen-dto.ts`), so a fixture that filled one and not the other would hide a panel that
+ * promoted the answer's own gap to a state of the screen.
+ */
 const UNSCRIPTED_ANSWER: Answer = {
   text: UNSCRIPTED_TEXT,
   citations: [],
   queriesRun: [],
   modelId: IN_BOUNDARY_ID,
-  partial: false,
-  missing: [],
+  partial: true,
+  missing: [UNSCRIPTED_MISSING],
 };
 
 /**
@@ -544,7 +584,7 @@ describe('AssistantPanel — a suggested question and its cited answer', () => {
     expect(screen.queryByText(QUERY_ONE)).toBeNull();
   });
 
-  it('renders the text the service returned for a question outside its script, without composing one', async () => {
+  it('renders the text the service returned for a question outside its script, and announces nothing beside it', async () => {
     const user = userEvent.setup();
     service.askAssistant.mockResolvedValue(envelope(UNSCRIPTED_ANSWER));
     renderWithProviders(<AssistantPanel />);
@@ -554,6 +594,31 @@ describe('AssistantPanel — a suggested question and its cited answer', () => {
     /* The assertion is against the stub's own value, so it proves the panel prints whatever the
        service said rather than a sentence the interface owns (rule P-6). */
     expect(await screen.findByText(UNSCRIPTED_TEXT)).toBeVisible();
+
+    /* The notice is the whole of what a question outside the script renders. The answer reports
+       itself partial, and that account is the answer's rather than the screen's: no second region is
+       announced beside the notice, and no control invites a retry that cannot put a question into the
+       script (AAP §0.12.4, rule P-8). */
+    expect(screen.queryAllByRole('status')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel })).toBeNull();
+
+    /* The gap itself is not dropped: it stays the answer's own detail, behind the disclosure that
+       carries the record's label for it. */
+    await user.click(screen.getByRole('button', { name: ASSISTANT_ANSWER_TEXT.detailShow }));
+    expect(screen.getByText(UNSCRIPTED_MISSING)).toBeVisible();
+  });
+
+  it('reports the partial state when a read says a source answered incompletely', async () => {
+    service.listSuggestedQuestions.mockResolvedValue(
+      envelopeReporting([QUESTION], PARTIAL_FRESHNESS),
+    );
+    renderWithProviders(<AssistantPanel />);
+
+    /* The sources' own report is what the screen's partial state comes from, and it survives an
+       answer's gap no longer being promoted to it: the notice is announced, and the content the read
+       did fill keeps rendering beneath it. */
+    expect(await screen.findByText(ASSISTANT_PANEL_TEXT.questionsCaption)).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(STATE_BOUNDARY_TEXT.partialHeadline);
   });
 });
 
@@ -918,11 +983,19 @@ describe('AssistantScreen', () => {
     expect(await screen.findByRole('heading', { level: 1, name: SCREEN_TITLE })).toBeVisible();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
 
-    const header = screen.getByRole('heading', { level: 1 }).closest('header');
+    const heading = screen.getByRole('heading', { level: 1 });
+    const header = heading.closest('header');
 
     if (header === null) {
       throw new Error('The page heading is not inside the screen header');
     }
+
+    /* The header carries the product eyebrow as every sibling route's header does (rule P-7), and it
+       comes before the title so the slot reads in that same order. */
+    const eyebrow = within(header).getByText(SCREEN_EYEBROW);
+
+    expect(eyebrow).toBeVisible();
+    expect(eyebrow.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
     /* The screen's one action is the composer's submit, which belongs to the panel because it acts on
        the question in the field. A header action would be a second focus stop whose effect is not

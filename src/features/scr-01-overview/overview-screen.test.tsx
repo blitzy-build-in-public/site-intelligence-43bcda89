@@ -27,7 +27,8 @@
  * written to stay clear of the figures scan that covers `src/features/**`: identifiers are opaque
  * placeholders (`plant-alpha`, `record-beta`) rather than domain-identifier shapes, the series'
  * dates are derived from the imported demonstration clock instead of written out, and every amount
- * is asserted through the imported `formatMoney` rather than as a typed currency string. The
+ * is asserted through the imported `formatMoney` rather than as a typed currency string while the
+ * median tile's duration is asserted through the imported `formatHours`. The
  * wording is a different matter: `SCREEN_TEXT` is module-private in the screen, so the captions this
  * suite drives by name are restated once in {@link UI} below — the device `audit-screen.test.tsx`
  * uses for the same reason — while every string an input or a sibling component owns (the §5.3
@@ -45,7 +46,10 @@
  * 3. `Overview` carries no evidence reference for its tiles, rows or points, so the screen composes
  *    `overview:<key>` references of its own. A case therefore asserts that a reference reaches the
  *    drawer, not that a record answers one: resolving an aggregate reference is the adapter's work
- *    and the mock here answers every reference with the same evidence.
+ *    and the mock here answers every reference with the same evidence. What a case does assert is the
+ *    half of that contract this screen owns — that each reference states the selection the overview was
+ *    read with, so a filtered figure's drawer is computed over the filtered population (AAP §0.2.1
+ *    F12, PR-6); the adapter's side of it is covered by `src/services/mock/mock-backend.test.ts`.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or reaches outside the service boundary.
@@ -58,7 +62,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
-import { MONO_VALUE_CLASSES, formatMoney } from '../../components/mono-value';
+import { MONO_VALUE_CLASSES, formatHours, formatMoney } from '../../components/mono-value';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { CONTROL_STRUCTURE_CLASSES } from '../../components/tooltip';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
@@ -269,6 +273,13 @@ const UNCHANGED_OVERVIEW: Overview = { ...OVERVIEW, changedSinceLastVisit: [] };
 /** The scope the shell hands the screen: the unfiltered "all plants, all products" selection. */
 const SCOPE: Scope = { plants: [], products: [] };
 
+/**
+ * The product a narrowing case selects, so a composed reference can be shown to state both members of
+ * the scope it was read with. An opaque placeholder like every other identifier here, so the figures
+ * scan that covers `src/features/**` reads this file without a collision.
+ */
+const NARROWED_PRODUCT = 'product-alpha';
+
 /** The six sources all answering and current, as `Meta.freshness` reports them. */
 const FRESH_SOURCES: Freshness[] = SOURCE_IDS.map(
   (source): Freshness => ({ source, asOf: AS_OF, state: 'fresh' }),
@@ -341,15 +352,15 @@ function evidenceEnvelope(): Result<Evidence> {
 /**
  * The four tiles, each with the caption the reader sees and the figure the payload carries for it.
  *
- * The amount goes through the imported formatter because that is the text the tile prints: a typed
- * currency string here would be this suite's own formatting rule rather than the interface's
- * (rule P-6).
+ * The amount and the duration go through the imported formatters because those are the text the tiles
+ * print: a typed currency string or a typed hour count here would be this suite's own formatting rule
+ * rather than the interface's (rule P-6).
  */
 const TILE_CASES = [
   { caption: UI.tileOpenExceptions, figure: String(OVERVIEW.openExceptions) },
   { caption: UI.tileRevenueAtRisk, figure: formatMoney(OVERVIEW.revenueAtRiskEur) },
   { caption: UI.tileCustomerOrdersAtRisk, figure: String(OVERVIEW.customerOrdersAtRisk) },
-  { caption: UI.tileMedianHours, figure: String(OVERVIEW.medianHoursToApprovedPlan) },
+  { caption: UI.tileMedianHours, figure: formatHours(OVERVIEW.medianHoursToApprovedPlan) },
 ] as const;
 
 /** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
@@ -419,6 +430,9 @@ function calledMembers(): readonly string[] {
 interface ScreenOptions {
   /** What the shell does when a figure narrows the queue. Absent, the screen takes no handler. */
   readonly onNarrowQueue?: (narrowing: OverviewNarrowing) => void;
+
+  /** The selection the shell hands the screen. Absent, the "all plants and all products" one. */
+  readonly scope?: Scope;
 }
 
 /**
@@ -437,7 +451,7 @@ function renderScreen(options: ScreenOptions = {}): void {
 
   const screenElement = (
     <OverviewScreen
-      scope={SCOPE}
+      scope={options.scope ?? SCOPE}
       {...(options.onNarrowQueue === undefined
         ? {}
         : { onNarrowQueue: options.onNarrowQueue })}
@@ -634,6 +648,53 @@ describe('OverviewScreen', () => {
     const reference = mockService.getEvidence.mock.calls[0]?.[0];
     expect(typeof reference).toBe('string');
     expect(dialog).toHaveTextContent(String(reference));
+  });
+
+  it('states in each figure’s reference the selection the overview was read with', async () => {
+    const user = userEvent.setup();
+    const plant = at(PLANTS, 1, 'plant');
+    const scope: Scope = { plants: [plant.id], products: [NARROWED_PRODUCT] };
+
+    renderScreen({ scope });
+
+    /*
+     * The port's `getEvidence` carries the reference and no scope, so a figure's reference states the
+     * selection its read was made with: the tile, the bar and the series mark below each open the drawer
+     * with it, which is what keeps a filtered figure's evidence computed over the filtered population
+     * rather than over the persona's whole scope (AAP §0.2.1 F12, PR-6).
+     */
+    const tile = await settledTile(UI.tileRevenueAtRisk);
+    await user.click(within(tile).getByRole('button'));
+
+    const tileReference = String(mockService.getEvidence.mock.calls[0]?.[0]);
+
+    expect(tileReference.startsWith('overview:revenue-at-risk')).toBe(true);
+    expect(tileReference).toContain(`plants=${plant.id}`);
+    expect(tileReference).toContain(`products=${NARROWED_PRODUCT}`);
+
+    // The bar names the row it draws as well as the selection, so a filtered row's drawer is that row's
+    // figure rather than the aggregate's grouping of plants the row was filtered out of.
+    const bar = barMark(plant);
+    bar.focus();
+    await user.keyboard('{Enter}');
+
+    const barReference = String(mockService.getEvidence.mock.calls[1]?.[0]);
+
+    expect(barReference.startsWith(`overview:plant/${plant.id}/revenue-at-risk`)).toBe(true);
+    expect(barReference).toContain(`plants=${plant.id}`);
+
+    // A series point carries the same selection, so the count a mark draws and the count its drawer states
+    // are one reading of one filtered series.
+    const point = at(SERIES, 0, 'series point');
+    const mark = at(seriesMarks(UI.seriesOpened), 0, 'opened mark');
+
+    mark.focus();
+    await user.keyboard('{Enter}');
+
+    const pointReference = String(mockService.getEvidence.mock.calls[2]?.[0]);
+
+    expect(pointReference.startsWith(`overview:day/${point.date}/open`)).toBe(true);
+    expect(pointReference).toContain(`products=${NARROWED_PRODUCT}`);
   });
 
   it('reports the plant a revenue bar draws, once, when the bar is activated from the keyboard', async () => {

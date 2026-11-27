@@ -985,7 +985,13 @@ describe('ScenarioComparisonScreen', () => {
 
       expect(handed).toBeInstanceOf(Blob);
       expect(handed?.type).toBe(EXPORT_PAYLOAD.mediaType);
-      expect(revokeObjectURL).toHaveBeenCalledWith(OBJECT_URL);
+
+      /* The object URL is released on the next task, so an engine that reads the blob asynchronously
+         still finds it: this reads for the release once it has happened rather than in the task that
+         activated the anchor (rule B-1). */
+      await waitFor(() => {
+        expect(revokeObjectURL).toHaveBeenCalledWith(OBJECT_URL);
+      });
     } finally {
       clickSpy.mockRestore();
       restoreProperty(URL, 'createObjectURL', createDescriptor);

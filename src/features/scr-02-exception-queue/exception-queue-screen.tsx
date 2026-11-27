@@ -116,7 +116,7 @@ import { DataTable } from '../../components/data-table';
 import type { TableColumn, TableSort } from '../../components/data-table';
 import { EvidenceRef } from '../../components/evidence-drawer';
 import { freshnessMeaning } from '../../components/freshness-pill';
-import { MonoValue } from '../../components/mono-value';
+import { MonoValue, formatHours } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
 import { Panel } from '../../components/panel';
 import { StateBoundary } from '../../components/state-boundary';
@@ -125,7 +125,7 @@ import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
 import { useActiveUser, useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SOURCE_LABELS } from '../../types';
+import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type {
   ExceptionId,
   ExceptionQuery,
@@ -381,10 +381,11 @@ export const EXCEPTION_QUEUE_TEXT = {
 /**
  * The exact specification §5.3 label the computed revenue column carries (rule P-1, AAP 0.10).
  *
- * Typed as `SimLabel` so a paraphrase — a shortened or reworded label — fails to compile rather than
- * reaching a reader as a near miss.
+ * Selected from the tuple that owns the seven strings rather than spelled again here, so a reworded
+ * label reaches this column from its one owner; typed as `SimLabel` so anything that is not one of
+ * the fixed strings fails to compile rather than reaching a reader as a near miss.
  */
-const CALCULATED_LABEL: SimLabel = 'Simulated calculation';
+const CALCULATED_LABEL: SimLabel = SIM_LABELS[1];
 
 /* ---------------------------------------------------------------------------------------------
  * Role styles, and nothing else
@@ -488,23 +489,6 @@ function sentenceOf(value: string): string {
   const first = sentence.charAt(0);
 
   return `${first.toUpperCase()}${sentence.slice(1)}`;
-}
-
-/**
- * A duration in hours, as the age column reads it: the nearest whole hour.
- *
- * The figure arrives unrounded on purpose. `src/domain/aggregation/exceptions.ts` states that
- * `ExceptionRow.ageHours` "is a duration the component formats" and hands over the exact difference in
- * hours, because AAP 0.8 fixes the rounding of money and counts and no input fixes one for a duration.
- * The formatting therefore belongs where the value is read, and a raw difference such as
- * `145.08333333333334` is not a reading a planner can scan: this presents the whole hours elapsed.
- *
- * Only a finite number is rounded; anything else is shown as it arrived rather than as `NaN`, the same
- * discipline `src/components/mono-value.tsx` applies to an amount it cannot format (rule P-6). No record
- * is changed and nothing else in this file rounds anything.
- */
-function hoursLabel(hours: number): string {
-  return Number.isFinite(hours) ? String(Math.round(hours)) : String(hours);
 }
 
 /**
@@ -1607,8 +1591,13 @@ interface RowActionHandlers {
  * read orders by; the products, freshness and actions columns are not sortable and carry no id the port
  * would accept. Money, identifiers and timestamps go through `MonoValue` — the one presentation formatter
  * (AAP 0.8) — and a count is printed exactly as the record holds it, with no arithmetic (rule P-6). The
- * age column is the one exception: its duration reaches this screen unrounded precisely so that the
- * component formats it, which {@link hoursLabel} does.
+ * age column is the one exception: `ExceptionRow.ageHours` "is a duration the component formats", and
+ * `src/domain/aggregation/exceptions.ts` hands the exact difference in hours over unrounded because
+ * AAP §0.8 fixes the rounding of money and counts and no input fixes one for a duration. The formatting
+ * therefore belongs where the value is read, so the cell presents the nearest whole hour through
+ * `formatHours` from `src/components/mono-value.tsx`: a raw difference such as `145.08333333333334` is
+ * not a reading a planner can scan, no record is changed by presenting it, and the canvas's urgency
+ * card presents the same member through the same function.
  *
  * The actions cell is the thirteenth column and is captioned "Actions": AAP 0.12.4 fixes the three row
  * actions, and rule P-8 requires each unavailable one to state its own reason, which a row has no other
@@ -1701,7 +1690,7 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       header: EXCEPTION_QUEUE_TEXT.columnAge,
       sortable: true,
       align: 'end',
-      render: (row) => hoursLabel(row.ageHours),
+      render: (row) => formatHours(row.ageHours),
     },
     {
       id: 'freshness',

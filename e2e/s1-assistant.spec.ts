@@ -99,6 +99,15 @@ const TEXT = {
   /** The announcement a question in flight makes, which is how this file waits for a settled outcome. */
   pendingAnswer: 'Waiting for an answer',
 
+  /**
+   * The accessible name of the control a screen state offers to repeat a read.
+   *
+   * `src/components/state-boundary.tsx` owns the wording, and the assertion that uses it reads that the
+   * control is absent beside the unscripted notice: the notice is the whole of what a question outside
+   * the script renders, so no screen state and no retry belongs beside it.
+   */
+  retryLabel: 'Try again',
+
   /** `Simulated calculation` — the label every computed figure carries (AAP 0.10, rule P-1). */
   calculationLabel: 'Simulated calculation',
 
@@ -439,6 +448,18 @@ test('T-10 a suggested question returns a cited answer and an unscripted questio
 
   await expect(panel.getByText(TEXT.unscriptedNotice, { exact: true })).toBeVisible();
   await expect(citationChips(panel), 'an answer that read no record cites none').toHaveCount(0);
+
+  /* The notice is the whole of what a question outside the script renders: the panel reports no screen
+     state beside it and offers no control, so the reader is given one account of the answer rather than
+     two, and nothing invites a retry that cannot put a question into the script (AAP §0.12.4, rule P-8). */
+  await expect(
+    panel.getByRole('status'),
+    'a screen state was announced beside the notice, so an answer outside the script is explained twice',
+  ).toHaveCount(0);
+  await expect(
+    panel.getByRole('button', { name: TEXT.retryLabel, exact: true }),
+    'a retry was offered for a condition the reads cannot change',
+  ).toHaveCount(0);
 
   /* ---------------------------------------------------------- the figures, against the solver */
 

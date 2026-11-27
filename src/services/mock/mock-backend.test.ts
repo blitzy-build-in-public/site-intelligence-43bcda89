@@ -1687,6 +1687,336 @@ describe("the port's remaining reads", () => {
     expect(tileValueOf(tiles, 'plants-in-scope')).toBe(overview.byPlant.length);
   }, CASE_TIMEOUT_MS);
 
+  it.each([
+    { family: 'plant', lane: 'plants' },
+    { family: 'supplier', lane: 'suppliers' },
+    { family: 'origin', lane: 'origins' },
+    { family: 'customer', lane: 'customers' },
+  ] as const)(
+    'resolves the evidence behind a $family node of the FileMap canvas',
+    async ({ lane }) => {
+      const backend = await readyBackend();
+
+      await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+      const topology = (await backend.getTopology(NO_SCOPE)).data;
+      const node = firstOf(topology[lane], `${lane} node`);
+
+      // The identifier a canvas node carries is the record's own — the topology handler copies the
+      // record into the node — so the drawer's read answers the node rather than refusing it, which is
+      // the half of AAP 0.2.1 F12 every topology node was missing.
+      const evidence = (await backend.getEvidence(node.id)).data;
+
+      // Every member is the record's own: the value opens with the name the node is labelled with, and
+      // a seeded record is `Simulated data` rather than a computed figure (rules P-1, P-6).
+      expect(evidence.value.startsWith(node.label)).toBe(true);
+      expect(evidence.provenance).toBe('first_party');
+      expect(evidence.label).toBe(SIM_LABELS[0]);
+      expect(evidence.formula).not.toBe('');
+      expect(evidence.inputs.length).toBeGreaterThan(0);
+      expect(evidence.confidence.level).toBe('high');
+      expect(evidence.missingInputs).toEqual([]);
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it('refuses the evidence behind a plant node outside the acting persona’s plant scope', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const topology = (await backend.getTopology(NO_SCOPE)).data;
+    const persona = await actAs(backend, PLANT_MANAGER);
+    const outside = topology.plants.find((node) => !persona.plantIds.includes(node.id));
+
+    if (outside === undefined) {
+      throw new Error(
+        'Every plant node lies inside the plant manager’s scope, so the case cannot observe a refusal.',
+      );
+    }
+
+    // A node reaches plants rather than belonging to one, so the scope is decided over every plant the
+    // records place it in; a plant node reaches its own and no other, and the refusal names both the
+    // node and that plant (contracts §7.1, AAP 0.2.1).
+    const problem = await refusalOf(() => backend.getEvidence(outside.id));
+
+    expect(problem.type).toBe('permission');
+    expect(problem.message).toContain(outside.id);
+    expect(problem.requiredPermission).toBe('evidence.read');
+  }, CASE_TIMEOUT_MS);
+
+  it('answers every reference the overview screen composes with the aggregate’s own figure', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const overview = (await backend.getOverview(NO_SCOPE)).data;
+    const tiles = [
+      { ref: 'overview:open-exceptions', figure: overview.openExceptions },
+      { ref: 'overview:revenue-at-risk', figure: overview.revenueAtRiskEur },
+      { ref: 'overview:customer-orders-at-risk', figure: overview.customerOrdersAtRisk },
+      { ref: 'overview:median-hours-to-approved-plan', figure: overview.medianHoursToApprovedPlan },
+    ] as const;
+
+    for (const tile of tiles) {
+      const evidence = (await backend.getEvidence(tile.ref)).data;
+
+      // The value opens with the aggregate's own number, so the drawer and the tile report one figure
+      // computed by one function rather than two that could drift apart (rule P-6). A computed figure
+      // carries the computed label and the rule that produced it (rule P-1).
+      expect(evidence.value.startsWith(`${tile.figure} `)).toBe(true);
+      expect(evidence.provenance).toBe('computed');
+      expect(evidence.label).toBe(SIM_LABELS[1]);
+      expect(evidence.formula).not.toBe('');
+      expect(evidence.inputs.length).toBeGreaterThan(0);
+      expect(evidence.upstream.length).toBeGreaterThan(0);
+      expect(evidence.confidence.reason).not.toBe('');
+      expect(Array.isArray(evidence.downstream)).toBe(true);
+      expect(Array.isArray(evidence.missingInputs)).toBe(true);
+      expect(Array.isArray(evidence.documents)).toBe(true);
+    }
+
+    // The by-plant row and the series point are the two composed references the screen puts on a bar
+    // and on a chart mark, and each answers with the row's or the day's own figures.
+    const row = firstOf(overview.byPlant, 'by-plant row');
+    const plantEvidence = (await backend.getEvidence(`overview:plant/${row.plantId}/revenue-at-risk`))
+      .data;
+
+    expect(plantEvidence.value.startsWith(`${row.revenueAtRiskEur} `)).toBe(true);
+    expect(plantEvidence.value).toContain(row.plantName);
+    expect(plantEvidence.provenance).toBe('computed');
+
+    const point = firstOf(overview.openResolvedSeries, 'series point');
+    const opened = (await backend.getEvidence(`overview:day/${point.date}/open`)).data;
+    const resolved = (await backend.getEvidence(`overview:day/${point.date}/resolved`)).data;
+
+    expect(opened.value.startsWith(`${point.open} `)).toBe(true);
+    expect(resolved.value.startsWith(`${point.resolved} `)).toBe(true);
+    expect(opened.value).toContain(point.date);
+    expect(resolved.value).toContain(point.date);
+  }, CASE_TIMEOUT_MS);
+
+  it('answers every ribbon reference the canvas screen composes with the tile’s own figure', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const tiles = (await backend.getCanvasRibbon(NO_SCOPE)).data;
+
+    for (const tile of tiles) {
+      const evidence = (await backend.getEvidence(`canvas:${tile.id}`)).data;
+
+      expect(evidence.value.startsWith(`${tile.value} `)).toBe(true);
+      expect(evidence.provenance).toBe('computed');
+      expect(evidence.label).toBe(SIM_LABELS[1]);
+      expect(evidence.formula).not.toBe('');
+      expect(evidence.inputs).toContain(`provenance = ${tile.provenance}`);
+    }
+
+    // The emptied-queue trigger empties the population the ribbon counts, so the aggregate's evidence
+    // reports the same zero the tile does rather than a figure from the records the queue no longer
+    // lists (AAP §0.12.4, T-17).
+    await backend.setSimulation('empty-queue', true);
+
+    const emptied = (await backend.getEvidence('canvas:open-exceptions')).data;
+
+    expect(emptied.value.startsWith('0 ')).toBe(true);
+  }, CASE_TIMEOUT_MS);
+
+  it('answers a filtered aggregate reference over the population its selection states, not the whole scope', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const unrestricted = (await backend.getOverview(NO_SCOPE)).data;
+    const row = firstOf(unrestricted.byPlant, 'by-plant row');
+    const plantSelection = `?plants=${row.plantId}`;
+    const plantScope: Scope = { plants: [row.plantId], products: [] };
+    const filtered = (await backend.getOverview(plantScope)).data;
+    const filteredRow = firstOf(filtered.byPlant, 'by-plant row');
+    const point = firstOf(filtered.openResolvedSeries, 'series point');
+
+    /* The narrowing has to be a narrowing, or the case would observe a drawer that agrees with the tile
+       only because both cover the persona's whole scope. */
+    expect(unrestricted.byPlant.length).toBeGreaterThan(filtered.byPlant.length);
+    expect(filtered.openExceptions).toBeLessThan(unrestricted.openExceptions);
+
+    /* The reference a tile composes states the selection it was read with, so the drawer's aggregate is
+       computed over the same plants the tile counted rather than over every plant the acting role
+       reaches (AAP §0.2.1 F12, PR-6, AAP §0.12.1 "Scope resolution"). The value compared is the filtered
+       read's own figure, so the tile and its evidence are one figure from one function. */
+    const tiles = [
+      { key: 'open-exceptions', figure: filtered.openExceptions },
+      { key: 'revenue-at-risk', figure: filtered.revenueAtRiskEur },
+      { key: 'customer-orders-at-risk', figure: filtered.customerOrdersAtRisk },
+      { key: 'median-hours-to-approved-plan', figure: filtered.medianHoursToApprovedPlan },
+    ] as const;
+
+    for (const tile of tiles) {
+      const evidence = (await backend.getEvidence(`overview:${tile.key}${plantSelection}`)).data;
+
+      expect(evidence.value.startsWith(`${tile.figure} `)).toBe(true);
+
+      // The payload names the population it was computed over, and that population is the filtered
+      // scope: the plant list is the one plant the reference named, not the persona's whole scope.
+      expect(evidence.inputs).toContain(`plants in scope = ${row.plantId}`);
+    }
+
+    /* The by-plant row and the series point carry the same selection, so a filtered figure's drawer
+       agrees with the row or the mark it was opened from. */
+    const rowEvidence = (
+      await backend.getEvidence(
+        `overview:plant/${filteredRow.plantId}/revenue-at-risk${plantSelection}`,
+      )
+    ).data;
+    const pointEvidence = (
+      await backend.getEvidence(`overview:day/${point.date}/open${plantSelection}`)
+    ).data;
+
+    expect(rowEvidence.value.startsWith(`${filteredRow.revenueAtRiskEur} `)).toBe(true);
+    expect(rowEvidence.value).toContain(filteredRow.plantName);
+    expect(pointEvidence.value.startsWith(`${point.open} `)).toBe(true);
+    expect(pointEvidence.inputs).toContain(`plants in scope = ${row.plantId}`);
+
+    // The product selection travels the same way, and the payload names the product it counted.
+    const productId = firstOf(productsOf(await queueOf(backend)), 'product of the queue');
+    const productScope: Scope = { plants: [], products: [productId] };
+    const productOverview = (await backend.getOverview(productScope)).data;
+    const productEvidence = (
+      await backend.getEvidence(`overview:revenue-at-risk?products=${productId}`)
+    ).data;
+
+    expect(productEvidence.value.startsWith(`${productOverview.revenueAtRiskEur} `)).toBe(true);
+    expect(productEvidence.inputs).toContain(`products in scope = ${productId}`);
+
+    // The canvas ribbon composes the same grammar, so every one of its six tiles opens the figure the
+    // filtered ribbon returned rather than the persona-wide one.
+    const ribbon = (await backend.getCanvasRibbon(plantScope)).data;
+
+    expect(tileValueOf(ribbon, 'open-exceptions')).toBe(filtered.openExceptions);
+
+    for (const tile of ribbon) {
+      const evidence = (await backend.getEvidence(`canvas:${tile.id}${plantSelection}`)).data;
+
+      expect(evidence.value.startsWith(`${tile.value} `)).toBe(true);
+    }
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses an aggregate selection it cannot read instead of computing the whole scope', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const overview = (await backend.getOverview(NO_SCOPE)).data;
+    const row = firstOf(overview.byPlant, 'by-plant row');
+    const productId = firstOf(productsOf(await queueOf(backend)), 'product of the queue');
+    const outside = overview.byPlant.find((candidate) => candidate.plantId !== row.plantId);
+
+    if (outside === undefined) {
+      throw new Error(
+        'Every by-plant row names the same plant, so the case cannot observe a reference outside the ' +
+          'selection it states.',
+      );
+    }
+
+    /* Each reference below states a selection the drawer cannot read: an empty value, an empty segment, a
+       parameter the grammar does not name, a parameter stated twice, a plant the record set does not
+       hold, a product it does not hold, and a plant identifier offered where a product belongs. Each is
+       refused as `'not-found'` naming the reference rather than having its selection dropped, because
+       dropping it would compute the figure over the acting persona's whole scope and hand the drawer a
+       number the tile never showed (AAP §0.2.1 F12, PR-6). */
+    const refusals = [
+      'overview:revenue-at-risk?plants=',
+      `overview:revenue-at-risk?plants=${row.plantId},`,
+      `overview:revenue-at-risk?plant=${row.plantId}`,
+      `overview:revenue-at-risk?plants=${row.plantId}&plants=${row.plantId}`,
+      `overview:revenue-at-risk?plants=${row.plantId}-unknown`,
+      `canvas:open-exceptions?products=${productId}-unknown`,
+      `overview:revenue-at-risk?plants=${row.plantId}&products=${row.plantId}`,
+    ] as const;
+
+    for (const ref of refusals) {
+      const problem = await refusalOf(() => backend.getEvidence(ref));
+
+      expect(problem.type).toBe('not-found');
+      expect(problem.message).toContain(ref);
+    }
+
+    // A row the reference's own selection excludes is refused as well, so the drawer never opens on a
+    // neighbouring plant's figure.
+    const problem = await refusalOf(() =>
+      backend.getEvidence(
+        `overview:plant/${outside.plantId}/revenue-at-risk?plants=${row.plantId}`,
+      ),
+    );
+
+    expect(problem.type).toBe('not-found');
+    expect(problem.message).toContain(outside.plantId);
+  }, CASE_TIMEOUT_MS);
+
+  it('answers the material and the production line the impact chain draws, from their own records', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const row = firstOf(await queueOf(backend), 'exception row');
+    const detail = (await backend.getExceptionDetail(row.id)).data;
+    const material = detail.impactChain.find((node) => node.kind === 'material');
+    const line = detail.impactChain.find((node) => node.kind === 'line');
+
+    if (material === undefined || line === undefined) {
+      throw new Error(
+        `The impact chain of ${row.id} holds no material and no production-line node, so the case ` +
+          'cannot observe the two families the chain draws.',
+      );
+    }
+
+    for (const node of [material, line]) {
+      const evidence = (await backend.getEvidence(node.ref)).data;
+
+      // Both nodes name the record behind them, so the drawer answers with that record's own fields and
+      // a seeded record is `Simulated data` rather than a computed figure (rules P-1, P-6).
+      expect(evidence.value.startsWith(node.label)).toBe(true);
+      expect(evidence.provenance).toBe('first_party');
+      expect(evidence.label).toBe(SIM_LABELS[0]);
+      expect(evidence.formula).not.toBe('');
+      expect(evidence.inputs.length).toBeGreaterThan(0);
+      expect(evidence.confidence.level).toBe('high');
+      expect(evidence.missingInputs).toEqual([]);
+    }
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses an aggregate or a record reference nothing answers, naming the reference it sent', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const overview = (await backend.getOverview(NO_SCOPE)).data;
+    const row = firstOf(overview.byPlant, 'by-plant row');
+    const point = firstOf(overview.openResolvedSeries, 'series point');
+    const unknownRecord = `${firstOf(await queueOf(backend), 'exception row').id}-unknown`;
+
+    /* Each reference below names something no aggregate and no record holds: a key no aggregate module
+       produces, a plant no by-plant row carries, a series member the overview does not count, and a
+       record identifier the record set does not hold. Each is refused as `'not-found'` and quotes the
+       reference it was sent, so the drawer reports what it could not resolve instead of opening on a
+       neighbour's figure (AAP §0.2.1 F12). */
+    const refusals = [
+      'overview:not-an-aggregate',
+      'canvas:not-a-tile',
+      `overview:plant/${row.plantId}-unknown/revenue-at-risk`,
+      `overview:day/${point.date}/not-a-member`,
+      unknownRecord,
+    ] as const;
+
+    for (const ref of refusals) {
+      const problem = await refusalOf(() => backend.getEvidence(ref));
+
+      expect(problem.type).toBe('not-found');
+      expect(problem.message).toContain(ref);
+    }
+  }, CASE_TIMEOUT_MS);
+
   it('reads one seeded audit event and refuses an identifier the chain does not hold', async () => {
     const backend = await readyBackend();
 

@@ -71,14 +71,14 @@
  *
  * REPORTED GAPS, each recorded where it bites rather than worked around:
  * 1. The port's `getAtlas()` takes no argument, so the product-class selector cannot parameterise
- *    the read: the mock handler accepts an optional class and validates it, but the interface — and
- *    the adapter behind it — expose none, so the read this screen makes carries no class. No
- *    market-intelligence record carries a product-class member either (the atlas handler's own
- *    OPEN ITEM records it: `CompetitorNetwork`, `AtlasSite`, `AtlasLane`, `Chokepoint` and
- *    `AtlasSeries` have none). The class control therefore states the class in view, in words, and
- *    narrows the entity list to the series the payload holds for it — which today is every series,
- *    so nothing is hidden and nothing is claimed. Selecting a competitor by a first-party product
- *    attribute is exactly the blend rule P-5 forbids, which is why the narrowing stops there.
+ *    the read: neither the interface nor the handler behind it declares a class argument, so the
+ *    read this screen makes carries no class. No market-intelligence record carries a product-class
+ *    member either (the atlas handler's own header records it: `CompetitorNetwork`, `AtlasSite`,
+ *    `AtlasLane`, `Chokepoint` and `AtlasSeries` have none). The class control therefore states the
+ *    class in view, in words, and narrows the entity list to the series the payload holds for it —
+ *    which today is every series, so nothing is hidden and nothing is claimed. Selecting a
+ *    competitor by a first-party product attribute is exactly the blend rule P-5 forbids, which is
+ *    why the narrowing stops there.
  * 2. `RadarChart` and `Legend` expose no selected-series prop, so the entity in view cannot be
  *    highlighted inside either. It is stated in visible words beside the selector group and carried
  *    by the active control's variant — the device `filemap-canvas-screen.tsx` uses for its lens
@@ -1170,8 +1170,10 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                     </ActionButton>
                   ))}
                   {/* The class in view, in words: the controls differ by label and the state is
-                      stated here rather than by colour alone (rule B-3). */}
-                  <span className={SELECTION_CAPTION_CLASSES}>
+                      stated here rather than by colour alone (rule B-3). The caption changes without a
+                      page load, so this status region announces the class the reader chose
+                      (WCAG 2.2 SC 4.1.3). */}
+                  <span role="status" className={SELECTION_CAPTION_CLASSES}>
                     {classCaption}
                   </span>
                 </div>
@@ -1197,7 +1199,9 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                       </span>
                     </ActionButton>
                   ))}
-                  <span className={SELECTION_CAPTION_CLASSES}>
+                  {/* The entity in view, in words rather than colour, and announced when the reader
+                      changes it without a page load (rule B-3, WCAG 2.2 SC 4.1.3). */}
+                  <span role="status" className={SELECTION_CAPTION_CLASSES}>
                     {`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${entityInViewLabel}`}
                   </span>
                 </div>

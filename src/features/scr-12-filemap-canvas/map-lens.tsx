@@ -45,7 +45,9 @@
  * lens, holds those records (rule P-2: no data access here), so the mapper arrives as an optional prop
  * and is forwarded when the screen supplies one. Without it the lens forwards a resolver that answers
  * `undefined` for every node, which the drawing documents as an honest answer — no record stands behind
- * this node — and which opens no dialog rather than a drawer for a record it was never given.
+ * this node — and which opens no dialog rather than a drawer for a record it was never given. What the
+ * canvas screen supplies is the node's own identifier, because a topology node is its record and the
+ * service's evidence read resolves all four node families (AAP 0.2.1 F12).
  *
  * RECORDED GAP — a node's plant. `TopologyNode` of `src/types/topology.ts` carries an identifier, a
  * family, a label, a latitude, a longitude and its product reach, and no plant or lane member, so the
@@ -413,7 +415,9 @@ export interface MapLensProps {
    * Optional here and forwarded when supplied. See the module header's recorded gap: the drawing requires
    * a mapper and the records it resolves live with the screen, so a screen that can name each node's
    * record passes one and the drawer opens from the map; a screen that cannot leaves the default in place
-   * and the drawing opens nothing rather than a drawer for a record it was never given.
+   * and the drawing opens nothing rather than a drawer for a record it was never given. A node of the
+   * FileMap canvas is named by its own identifier, which the service's evidence read resolves for the
+   * plant, supplier, origin and customer families.
    */
   readonly evidenceRefForNode?: ((node: TopologyNode) => string | undefined) | undefined;
 }

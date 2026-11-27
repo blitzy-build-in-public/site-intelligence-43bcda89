@@ -3,13 +3,13 @@
  *
  * The module's whole contract is one string per value, so every case asserts the exact text a
  * reader sees rather than the presence of an element: thousands grouping and the currency code for
- * an amount, at most two decimals, a whole amount printed without decimals, an identifier, an ISO
- * 8601 timestamp and a sixty-four character digest each rendered character for character and never
- * truncated, and the raw input kept on screen when an amount has no formatted form (rule P-6 —
- * never a formatted number that is not the number, and never a substituted zero). A grouped amount is
- * also read back as a number and compared with the prop it came from, so a formatter that re-scaled or
- * dropped digits in the text it printed would fail even where the digits it printed still looked
- * plausible. Further cases cover the shape the component promises its callers: one inline `<span>`
+ * an amount, at most two decimals, a whole amount printed without decimals, the nearest whole hour
+ * for a duration, an identifier, an ISO 8601 timestamp and a sixty-four character digest each
+ * rendered character for character and never truncated, and the raw input kept on screen when a
+ * figure has no formatted form (rule P-6 — never a formatted number that is not the number, and
+ * never a substituted zero). A grouped amount is also read back as a number and compared with the
+ * prop it came from, so a formatter that re-scaled or dropped digits in the text it printed would
+ * fail even where the digits it printed still looked plausible. Further cases cover the shape the component promises its callers: one inline `<span>`
  * carrying the mono face and tabular numerals, with a digest's full length wrapping instead of
  * overflowing, and no focus stop, no `aria-label` and no `title` standing between the reader and the
  * value. Both themes are rendered as well (AAP §0.18.1): the component sets no colour of its own, so
@@ -28,7 +28,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 
 import { DEMO_CLOCK } from '../types';
-import { MONO_VALUE_CLASSES, MonoValue } from './mono-value';
+import { MONO_VALUE_CLASSES, MonoValue, formatHours } from './mono-value';
 import type { MonoValueKind } from './mono-value';
 
 /** The currency code the one money formatter prints, named once so no case retypes it. */
@@ -204,6 +204,47 @@ describe('MonoValue', () => {
 
     it('does not re-parse a numeric string, so a formatted or unformatted amount is never inferred', () => {
       expect(readText(renderMonoValue('21300', 'money'))).toBe('21300');
+    });
+  });
+
+  /*
+   * A duration arrives unrounded and is presented as the nearest whole hour, because no reader scans
+   * `145.08333333333334` off a card. The cases differing only in their digits are one parameterised
+   * case (house rule CQ3), and each expectation is written out rather than produced by the formatter
+   * under test — an expectation built from the same `Intl` options would agree with whatever the
+   * function did and prove nothing. No expectation carries a unit either: the caption the calling
+   * screen owns names the hours, so the text this function returns never repeats it.
+   */
+  describe('hours', () => {
+    it.each([
+      { value: 145.08333333333334, hours: '145', reading: 'a fractional duration' },
+      { value: 26.666666666666668, hours: '27', reading: 'a duration with a repeating fraction' },
+      { value: 11.25, hours: '11', reading: 'a duration just past the quarter hour' },
+      { value: 18.5, hours: '19', reading: 'a duration of exactly half an hour' },
+      { value: 11, hours: '11', reading: 'a whole-hour duration' },
+      { value: 0, hours: '0', reading: 'a duration of no hours at all' },
+      { value: 1234, hours: '1.234', reading: 'a duration in the thousands of hours' },
+    ])('presents $reading as the nearest whole hour', ({ value, hours }) => {
+      expect(formatHours(value)).toBe(hours);
+    });
+
+    it.each([
+      { value: Number.NaN, expected: 'NaN', reading: 'not a number' },
+      { value: Number.POSITIVE_INFINITY, expected: 'Infinity', reading: 'infinite' },
+      { value: Number.NEGATIVE_INFINITY, expected: '-Infinity', reading: 'negatively infinite' },
+    ])(
+      'returns the raw input when the duration is $reading, never a formatted value',
+      ({ value, expected }) => {
+        expect(formatHours(value)).toBe(expected);
+      },
+    );
+
+    it('returns a non-numeric string untouched rather than a formatted zero', () => {
+      expect(formatHours('not a duration')).toBe('not a duration');
+    });
+
+    it('does not re-parse a numeric string, so an unformatted duration is never inferred', () => {
+      expect(formatHours('26.5')).toBe('26.5');
     });
   });
 

@@ -349,26 +349,19 @@ function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
 }
 
 /**
- * Whether an answer reported itself incomplete.
- *
- * `Answer.partial` is true exactly when `missing` is non-empty, which is the invariant
- * `src/types/screen-dto.ts` documents; both members are read so a record that filled one and not the
- * other is still reported as the partial answer it is.
- *
- * @param answer - The answer on screen, or `undefined`.
- * @returns Whether the answer is partial.
- */
-function isPartialAnswer(answer: Answer | undefined): boolean {
-  return answer !== undefined && (answer.partial || answer.missing.length > 0);
-}
-
-/**
  * The state the panel's records are in, or `undefined` when no exceptional state holds.
  *
  * THE PRECEDENCE, in the order the checks run: a refusal first, then a failure, then the pending reads,
- * then the sources' own reports, then the answer's own gaps, and the empty payload last. That is the
- * order the sibling screens derive their states in, so two screens cannot describe the same session
- * differently.
+ * then the sources' own reports, and the empty payload last. That is the order the sibling screens
+ * derive their states in, so two screens cannot describe the same session differently.
+ *
+ * THE ANSWER'S OWN GAP IS NOT A STATE OF THE SCREEN. `Answer.partial` and `Answer.missing` describe one
+ * answer, and `AssistantAnswer` states the inputs it could not fill behind that answer's own
+ * disclosure, which is where they belong: beside the sentence they qualify. Promoting them here would
+ * put a second account of one answer on screen — a warning whose retry cannot put a question into the
+ * script, printed above the notice a question outside the script already returns as the whole of its
+ * output. The screen's partial state comes from the reads instead, so a source reporting that it
+ * answered incompletely still produces it.
  *
  * `'conflict'` is deliberately unreachable: the assistant family's only `'validation'` refusal is a
  * request that carried no question, which is a malformed request rather than a record that moved under
@@ -407,10 +400,6 @@ function deriveScreenState({
   }
 
   if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  if (isPartialAnswer(answer)) {
     return 'partial';
   }
 

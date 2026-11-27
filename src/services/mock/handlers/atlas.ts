@@ -24,9 +24,9 @@
  * from `state.records.plants`, and the product classes the selector offers, from
  * `state.records.products`. Every measure it publishes — a radar score, a buffer day, an overlap — is
  * the value the pack's record carries; nothing here scores, ranks, averages, rounds or converts, and
- * no field of the payload mixes the two families. It also builds the chokepoint brief's payload, so
- * the download `src/services/mock/exports/chokepoint-brief.ts` assembles reads the crossings from one
- * place rather than recomputing them.
+ * no field of the payload mixes the two families. It also holds the gate behind SCR-13's chokepoint
+ * brief download, so the export is refused exactly where the picture is refused; the file itself is
+ * composed once, by the shared builder the assembler in `src/services/mock/exports/` calls.
  *
  * WHERE PROVENANCE IS KEPT, AND WHY THAT IS THE WHOLE POINT (rule P-5). `AtlasSeries.provenance` is a
  * required member of the shared shape, so a series without one does not compile, and the two families
@@ -39,11 +39,12 @@
  * rendering components, because the atlas shapes carry no tag member and `src/types/atlas.ts` states
  * that the tag is applied where a name is printed; this module types no name and no tag text.
  *
- * WHAT IT REFUSES, AND HOW IT SAYS SO. Both exports require `competitive.read`, which the contracts
- * §7.1 matrix grants to the plant manager, the head of supply chain and the platform administrator and
- * to none of the other five roles, so the external supplier engineer is refused — that refusal is
- * AAP 0.12.3's, and the `Problem` carries the permission the role lacks and the roles that hold it,
- * which is what the forbidden card and a disabled control render instead of a bare denial (rule P-8).
+ * WHAT IT REFUSES, AND HOW IT SAYS SO. The atlas read and the brief's export both require
+ * `competitive.read`, which the contracts §7.1 matrix grants to the plant manager, the head of supply
+ * chain and the platform administrator and to none of the other five roles, so the external supplier
+ * engineer is refused — that refusal is AAP 0.12.3's, and the `Problem` carries the permission the
+ * role lacks and the roles that hold it, which is what the forbidden card and a disabled control
+ * render instead of a bare denial (rule P-8).
  * The simulation's forbidden trigger produces the identical refusal, so the S1 forbidden screen is
  * reachable without a handler branching on the trigger. Both are thrown as `Problem` object literals;
  * a `Problem` carries a correlation identifier the adapter mints, so the literal records the empty
@@ -65,8 +66,10 @@
  * and writes no console line. Every collection it returns is a fresh array of fresh objects, so a
  * screen that edited a payload would edit its own copy and not the session's records.
  *
- * Both exports are declared asynchronous to match the port's promise-returning reads, so the adapter
- * awaits one shape for every call; the bodies themselves await nothing and perform no I/O.
+ * `getAtlas` is declared asynchronous to match the port's promise-returning read, so the adapter
+ * awaits one shape for every call; its body awaits nothing and performs no I/O. The brief's gate is
+ * synchronous, because evaluating the matrix and the pack's provenance reads nothing but the state it
+ * is handed.
  *
  * Rules this module is built to satisfy:
  * - P-5: the families are separate members, `provenance` is required, the client series and the
@@ -87,18 +90,17 @@
  * - B-1, B-2: no request is made (the pack is seeded, never fetched) and no credential shape or
  *   environment read appears.
  *
- * OPEN ITEM — the product-class argument narrows nothing inside the payload. `getAtlas` accepts one
- * so a caller can name the class it is asking about, and it refuses an unknown class with a
- * `'not-found'` `Problem` naming it. It does not filter the returned collections, because no
- * market-intelligence record carries a product-class member: `CompetitorNetwork`, `AtlasSite`,
- * `AtlasLane`, `Chokepoint` and `AtlasSeries` have none, and a class is an attribute of the client's
- * own `Product` records. Selecting a competitor by a first-party product attribute would be the
- * blend rule P-5 forbids, and narrowing the client's plants by it would need a product-to-line-to-
- * plant join that no input asks the handler for. The whole pack therefore arrives in one payload —
- * which is what the port's own `getAtlas` documentation states it is for, "so the screen's selector
- * switches between the client and a competitor without a second call" — and the selector narrows
- * what the screen draws. If the seed document is supplied with a class on each competitor network,
- * this argument filters on that field and nothing else changes.
+ * THE SELECTOR'S PRODUCT CLASS NARROWS NOTHING INSIDE THE PAYLOAD, AND THE READ TAKES NO ARGUMENT.
+ * `getAtlas` takes the session and serves the pack whole, because no market-intelligence record
+ * carries a product-class member: `CompetitorNetwork`, `AtlasSite`, `AtlasLane`, `Chokepoint` and
+ * `AtlasSeries` have none, and a class is an attribute of the client's own `Product` records.
+ * Selecting a competitor by a first-party product attribute would be the blend rule P-5 forbids, and
+ * narrowing the client's plants by it would need a product-to-line-to-plant join that no input asks
+ * the handler for. The whole pack therefore arrives in one payload — which is what the port's own
+ * `getAtlas` documentation states it is for, "so the screen's selector switches between the client
+ * and a competitor without a second call" — and the selector narrows what the screen draws. If the
+ * seed document is supplied with a class on each competitor network, the read gains an argument that
+ * filters on that field, and nothing else changes.
  */
 
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
@@ -107,11 +109,9 @@ import type {
   Atlas,
   AtlasSeries,
   AtlasSite,
-  Chokepoint,
   CompetitorNetwork,
   Permission,
   Problem,
-  ProductId,
   Provenance,
   RadarAxis,
   Role,
@@ -127,8 +127,8 @@ import { isSimulationOn } from '../simulation';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The permission both exports require: the atlas read of contracts §7.1, which AAP 0.12.3 assigns to
- * `GET /market-intelligence/atlas`.
+ * The permission `getAtlas` and the chokepoint brief's export require: the atlas read of contracts
+ * §7.1, which AAP 0.12.3 assigns to `GET /market-intelligence/atlas`.
  *
  * Named once so the check, the `Problem` field and the sentence describing the refusal all quote one
  * value, and so a change to the contracts §7.1 row needs one edit here rather than three.
@@ -156,7 +156,7 @@ const MARKET_INTELLIGENCE_LABEL: SimLabel = SIM_LABELS[5];
 const MARKET_INTELLIGENCE: Provenance = 'market_intelligence';
 
 /* ---------------------------------------------------------------------------------------------
- * The refusal both exports share — AAP 0.12.3, contracts §7.1, rule P-8
+ * The refusal the atlas read and the brief's export share — AAP 0.12.3, contracts §7.1, rule P-8
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -207,31 +207,6 @@ function assertCompetitiveRead(ctx: HandlerContext): void {
   if (refusedByControl || refusedByMatrix) {
     throw competitiveReadRefusal(ctx);
   }
-}
-
-/**
- * The failure an unknown product class is refused with.
- *
- * The argument names a class the selector offers, so an identifier the records do not hold is a
- * request for something the pack cannot answer: `'not-found'` is that cause in the contracts §2
- * vocabulary, and the message names the class it was given and the ones the atlas does offer, both
- * interpolated from the records so neither list is typed here (rule P-6).
- *
- * @param offered - The product classes the seeded records publish.
- * @param requested - The class the caller asked for.
- * @returns The failure to throw.
- */
-function unknownProductClassProblem(
-  offered: readonly ProductId[],
-  requested: ProductId,
-): Problem {
-  return {
-    type: 'not-found',
-    message:
-      `The competitive atlas has no product class ${requested}. The classes it offers are ` +
-      `${offered.join(', ')}.`,
-    traceId: '',
-  };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -365,29 +340,6 @@ function atlasCrossingOf(crossing: ChokepointRecord): ChokepointRecord {
 }
 
 /**
- * One crossing, reduced to the members the chokepoint brief publishes.
- *
- * The brief reports on the market pack alone, so the pack's map position and its client-network
- * references stay in the session: the first belongs to the canvas and the second names positions of
- * the client's own network, which a document about the competitors does not carry (rule P-5). The
- * parameter is typed as the shared `Chokepoint` shape on purpose, which keeps those two members out of
- * reach here rather than trusting a copy to remember them.
- *
- * @param crossing - One crossing of the pack.
- * @returns The crossing as the brief publishes it.
- */
-function briefCrossingOf(crossing: Chokepoint): Chokepoint {
-  return {
-    id: crossing.id,
-    label: crossing.label,
-    overlap: crossing.overlap,
-    competitorBufferDays: { ...crossing.competitorBufferDays },
-    contentionNote: crossing.contentionNote,
-    provenance: crossing.provenance,
-  };
-}
-
-/**
  * One radar axis, copied.
  *
  * The axes' order is the order every series' `values` array aligns to, so the list is copied in the
@@ -439,27 +391,23 @@ function radarSeriesOf(series: AtlasSeries): AtlasSeries {
  * record were mis-seeded without it; the release label travels with the atlas so the chokepoint brief
  * can be composed over this read alone, by both adapters (AAP 0.12.1 "Exports" row).
  *
- * `productClass` is validated before the payload is built: an unknown class is refused as
- * `'not-found'`, naming it and the classes the atlas offers. A known class leaves the pack whole, for
- * the reason the module's OPEN ITEM records — no market-intelligence record carries a product-class
- * member, so narrowing a competitor by a first-party product attribute would be the blend rule P-5
- * forbids.
+ * The read takes the session and nothing else, and serves the pack whole for the reason the module
+ * header records: no market-intelligence record carries a product-class member, so narrowing a
+ * competitor by a first-party product attribute would be the blend rule P-5 forbids. The SCR-13
+ * selector narrows what the screen draws — the entity list and the statements beside it — and never
+ * what this read returns.
  *
  * Two calls over one session return equal payloads: the records are read in the order the pack holds
  * them and nothing is accumulated, ordered by a derived key or read from a clock.
  *
  * @param ctx - The session's state and the persona the call acts as.
- * @param productClass - The product class the caller is asking about, when it names one.
  * @returns The atlas payload SCR-13 renders.
  * @throws Problem - `type: 'permission'` when the persona may not read the pack or the simulation's
- *   forbidden trigger is set; `type: 'not-found'` when `productClass` is not a class the records hold.
+ *   forbidden trigger is set.
  * @throws Error - The seeded pack would put a mislabelled element on screen (see
  *   `assertPackProvenance`).
  */
-export async function getAtlas(
-  ctx: HandlerContext,
-  productClass?: ProductId,
-): Promise<Atlas> {
+export async function getAtlas(ctx: HandlerContext): Promise<Atlas> {
   assertCompetitiveRead(ctx);
 
   const records = ctx.state.records;
@@ -468,10 +416,6 @@ export async function getAtlas(
   assertPackProvenance(pack);
 
   const productClasses = records.products.map((product) => product.id);
-
-  if (productClass !== undefined && !productClasses.includes(productClass)) {
-    throw unknownProductClassProblem(productClasses, productClass);
-  }
 
   return {
     packLabel: ATLAS_PACK_BANNER,
@@ -486,63 +430,33 @@ export async function getAtlas(
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The chokepoint brief — AAP 0.12.4 SCR-13, contracts §11, rule P-5
+ * The chokepoint brief's gate — AAP 0.12.4 SCR-13, AAP 0.12.3, rule P-5
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * What the chokepoint brief is built from: the pack's release label, the simulation marker and the
- * crossings.
+ * The gate behind SCR-13's "Export the chokepoint brief as JSON".
  *
- * Declared here rather than in `src/types` because `src/types` declares no shape for it and the brief
- * is one export's own payload — the same arrangement as `AssistantQueryInput` in `./assistant.ts`. It
- * is what
- * `src/services/mock/exports/chokepoint-brief.ts` reads, so the document never recomputes a figure the
- * pack already states.
+ * The export is the atlas family's own, so its gate is the atlas read's: the persona must hold
+ * `competitive.read` — or the simulation's forbidden trigger must be in effect, which produces the
+ * identical refusal — and the pack must be market-intelligence only, in every network, every crossing
+ * and every series. Those are the two checks `getAtlas` performs before it serves the picture, so the
+ * export is refused exactly where the picture is refused and the external supplier engineer, whom
+ * AAP 0.12.3 forbids the read, reaches neither.
  *
- * The members are write-once in spirit rather than marked `readonly`, so a builder that spreads the
- * payload into a larger document is not obliged to copy the array first. `simulated` is the literal
- * `true`, so the one field that marks the whole payload as demonstration output cannot be set to false
- * by a caller and cannot widen as the type travels (rule P-1).
- */
-export interface ChokepointBriefPayload {
-  /** The market pack's release label, as `MARKET_PACK_VERSION` publishes it. */
-  packVersion: string;
-
-  /** Marks the payload as simulated output: the literal `true`, never a boolean. */
-  simulated: true;
-
-  /** The four shared crossings, in the order the pack records them. */
-  chokepoints: Chokepoint[];
-}
-
-/**
- * Builds the payload behind SCR-13's "Export the chokepoint brief as JSON".
- *
- * The crossings are the pack's records, reduced to the members the brief publishes: the release label
- * comes from `MARKET_PACK_VERSION` rather than from the banner string, `simulated` is the literal
- * `true`, and nothing else is added — no first-party figure, no sentence and no computed overlap. The
- * crossings keep the pack's own order, so two exports of an untouched session are byte-identical once
- * the document is serialised.
+ * Composing the document is not this module's work. The assembler
+ * `src/services/mock/exports/chokepoint-brief.ts` calls the builder both adapters share, over the same
+ * session pack this guard inspects, so the file cannot disagree with the atlas on screen (AAP 0.12.1
+ * "Exports" row). The adapter calls this once per export and then composes once, which is why the
+ * guard returns nothing: the value the file is built from is the pack the assembler reads, not a
+ * payload composed a second time here.
  *
  * @param ctx - The session's state and the persona the call acts as.
- * @returns The payload the brief is assembled from.
  * @throws Problem - `type: 'permission'` when the persona may not read the pack or the simulation's
- *   forbidden trigger is set.
- * @throws Error - The seeded pack would put a mislabelled element on screen (see
+ *   forbidden trigger is set, carrying the permission the role lacks and the roles that hold it.
+ * @throws Error - The seeded pack would put a mislabelled element in the file (see
  *   `assertPackProvenance`).
  */
-export async function buildChokepointBriefPayload(
-  ctx: HandlerContext,
-): Promise<ChokepointBriefPayload> {
+export function assertChokepointBriefReadable(ctx: HandlerContext): void {
   assertCompetitiveRead(ctx);
-
-  const pack = ctx.state.records.marketIntelligence;
-
-  assertPackProvenance(pack);
-
-  return {
-    packVersion: MARKET_PACK_VERSION,
-    simulated: true,
-    chokepoints: pack.chokepoints.map(briefCrossingOf),
-  };
+  assertPackProvenance(ctx.state.records.marketIntelligence);
 }

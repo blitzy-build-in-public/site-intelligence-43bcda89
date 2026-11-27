@@ -49,16 +49,13 @@
  * supplied (rule P-7). It fetches no asset and reads no configuration value (rules B-1, B-2), and it
  * keeps no state and runs no effect, so a re-render of the screen re-renders the same chain.
  *
- * OPEN ITEM, REPORTED RATHER THAN WORKED AROUND. The evidence read behind `EvidenceRef` resolves a
- * reference to a package, exception, scenario, approval, audit event, evidence pin, document, customer
- * order or purchase order — the families `resolveRef` in `src/services/mock/handlers/evidence.ts`
- * names — and it answers the other two node kinds' references with a `'not found'` problem. A material
- * node and a production-line node therefore open the drawer's own failure region until that read
- * learns those two families of record. The fix belongs to the evidence handler's module, not to
- * this one: this component may not know record families, and testing a prefix here would put the
- * service's routing table inside a presentational component. Every node is rendered as the record it
- * names, and the gap is reported instead of being hidden by a second rule about which nodes are
- * clickable.
+ * HOW EVERY NODE FINDS ITS RECORD — AAP 0.2.1 F12. `EvidenceRef` resolves a reference through the
+ * service's evidence read, which answers all four kinds the chain draws: the purchase order and the
+ * customer order by their own identifiers, and the material and the production line from the records
+ * behind them. This component therefore renders every node as the record it names and knows nothing
+ * about record families — testing a prefix here would put the service's routing table inside a
+ * presentational component — and activating any node of the chain opens the drawer on that record's
+ * own value, formula, inputs and provenance.
  */
 import { ArrowDown } from '@phosphor-icons/react';
 import type { ReactElement } from 'react';

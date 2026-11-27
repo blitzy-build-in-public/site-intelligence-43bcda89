@@ -164,6 +164,15 @@ const CAPTION_SEVERITY = 'Severity';
 const CAPTION_DAYS_TO_IMPACT = 'Days to impact';
 const CAPTION_REVENUE = 'Revenue at risk';
 
+/**
+ * The caption a product health card's figure carries, in the composed form the canvas states it.
+ *
+ * A card shows one urgent exception row's own revenue at risk: the port declares no per-product
+ * aggregate and the screen sums nothing (rule P-6), so the caption names the exception whose amount
+ * is displayed instead of reading as the product's total.
+ */
+const CAPTION_PRODUCT_REVENUE = /^Revenue at risk on exception \S+$/u;
+
 /** The stack's two named groups and the dock's own captions. */
 const URGENT_GROUP = 'Most urgent exceptions';
 const HEALTH_GROUP = 'Product health';
@@ -609,7 +618,7 @@ test('the ribbon, the right stack and the dock report one selection', async ({ p
 
   for (let index = 0; index < headings.length; index += 1) {
     const card = productCards.nth(index);
-    await expect(card.getByText(CAPTION_REVENUE, { exact: true })).toBeVisible();
+    await expect(card.getByText(CAPTION_PRODUCT_REVENUE)).toBeVisible();
     await expect(card.getByText(SIMULATED_CALCULATION)).toBeVisible();
   }
 

@@ -35,8 +35,10 @@
  * 8. All seven states of specification §8 render for the outcome the screen derives them from —
  *    driven only by what the stubbed read and its `Result.meta` report, never by a flag name — and
  *    the retry the offline and conflict states offer reads the atlas again.
- * 9. The export and both selector groups are reached and operated from the keyboard alone, and a
- *    control that cannot act states why in words a screen reader reads (rule B-3, rule P-8).
+ * 9. The export and both selector groups are reached and operated from the keyboard alone, a control
+ *    that cannot act states why in words a screen reader reads (rule B-3, rule P-8), and each caption
+ *    naming the class or the entity in view is a status region that announces the change when the
+ *    reader makes one (WCAG 2.2 SC 4.1.3).
  * 10. Both themes draw the same surface, read through accessible names, roles and text rather than
  *     through a colour value (rule B-3).
  *
@@ -1121,7 +1123,18 @@ describe('CompetitiveAtlasScreen', () => {
         `${SOURCE_LABELS[MARKET_PACK_SOURCE]}${STATE_BOUNDARY_TEXT.staleSuffix}`,
       ),
     ).toBeInTheDocument();
-    expect(within(screen.getByRole('status')).getByText(AS_OF)).toBeInTheDocument();
+    /* The instant is read inside the notice, which is reached from its own headline rather than by role
+       alone: the atlas states two status regions beside it, the captions naming the class and the entity
+       in view (rule B-3). */
+    const staleNotice = screen
+      .getByText(`${SOURCE_LABELS[MARKET_PACK_SOURCE]}${STATE_BOUNDARY_TEXT.staleSuffix}`)
+      .closest<HTMLElement>('[role="status"]');
+
+    expect(staleNotice).not.toBeNull();
+
+    if (staleNotice !== null) {
+      expect(within(staleNotice).getByText(AS_OF)).toBeInTheDocument();
+    }
 
     /* A warning about the data does not withhold the data. */
     expect(await radarCard()).toBeInTheDocument();
@@ -1194,6 +1207,43 @@ describe('CompetitiveAtlasScreen', () => {
     expect(
       screen.getByRole('table', { name: COMPETITIVE_ATLAS_TEXT.radarTableCaption }),
     ).toBeInTheDocument();
+  });
+
+  it('states both selection captions in status regions that announce each change', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await radarCard();
+
+    const classGroup = screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel });
+    const entityGroup = screen.getByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    /* Each caption changes when its selector is operated and no page loads, so each is its group's one
+       status region and the words it holds are what a screen reader announces (rule B-3, WCAG 2.2 SC
+       4.1.3). */
+    expect(within(classGroup).getAllByRole('status')).toHaveLength(1);
+    expect(within(entityGroup).getAllByRole('status')).toHaveLength(1);
+
+    const classStatus = within(classGroup).getByRole('status');
+    const entityStatus = within(entityGroup).getByRole('status');
+
+    expect(collapsedTextOf(classStatus)).toContain(COMPETITIVE_ATLAS_TEXT.classCaptionPrefix);
+    expect(collapsedTextOf(classStatus)).toContain(COMPETITIVE_ATLAS_TEXT.classCaptionDetail);
+    expect(collapsedTextOf(entityStatus)).toContain(COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix);
+
+    /* The entity caption names the series the payload put in view, and the class caption follows the
+       reader to the class chosen, in the same region rather than a second one beside it. */
+    expect(SERIES.some((entry) => collapsedTextOf(entityStatus).includes(entry.label))).toBe(true);
+
+    const secondClass = at(ATLAS.productClasses, 1, 'product class');
+
+    await tabTo(user, (element) => (element.textContent ?? '').trim() === secondClass, TAB_WALK_LIMIT);
+    await user.keyboard('{Enter}');
+
+    expect(within(classGroup).getByRole('status')).toBe(classStatus);
+    expect(collapsedTextOf(classStatus)).toContain(secondClass);
   });
 
   it.each(THEMES)('holds under the %s theme', async (theme) => {

@@ -94,11 +94,12 @@
  * and its state token, `MonoValue` for the instant) instead of a second indicator or a second mapping.
  *
  * OPEN ITEM — refreshing after a decision. This screen's query re-reads on mount and relies on the
- * invalidation the detail screen performs after a decision (`invalidateAfterWrite`, AAP 0.6.2), which
- * matches every cached `listApprovals` entry by key prefix. Window-focus refetching is off for the
- * whole application by `src/app/providers.tsx`'s deliberate choice — the demonstration is
- * deterministic, so a background refetch could replace a figure a reader is midway through comparing —
- * and this screen does not overturn that default or mutate a record locally to fake the new status.
+ * invalidation the detail screen performs after a decision (AAP 0.6.2): the detail screen invalidates
+ * the reads its decision moved, which matches every cached `listApprovals` entry by key prefix.
+ * Window-focus refetching is off for the whole application by `src/app/providers.tsx`'s deliberate
+ * choice — the demonstration is deterministic, so a background refetch could replace a figure a reader
+ * is midway through comparing — and this screen does not overturn that default or mutate a record
+ * locally to fake the new status.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';

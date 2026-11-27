@@ -49,9 +49,10 @@
  * FRESHNESS GOES THROUGH THE SHARED VOCABULARY — rule B-3, AAP §0.5.2. A row's freshness is a
  * `Freshness` record, so its source is printed from `SOURCE_LABELS` — the shared vocabulary of the six
  * sources, never a spelling of this file's — and its state reaches the status primitive through
- * {@link FRESHNESS_MEANINGS}, the mapping documented below. The record's as-of instant is shown beside
- * them in the mono face, so a stale reading states when its source last answered rather than leaving
- * the reader to open the drawer for it.
+ * {@link freshnessMeaning}, the one mapping `src/components/freshness-pill.tsx` exports, so the pill
+ * keeps that reading as its single owner and no second copy of it exists here. The record's as-of
+ * instant is shown beside them in the mono face, so a stale reading states when its source last
+ * answered rather than leaving the reader to open the drawer for it.
  *
  * WHAT IT DOES NOT CLAIM AND DOES NOT REACH — rules B-1, B-2, P-4, P-5, P-7. No sentence states a
  * property of a deployment, a store or a copy: the stack reports records and nothing more. No
@@ -79,14 +80,14 @@ import type {
   ExceptionId,
   ExceptionRow,
   ExceptionStatus,
-  FreshnessState,
   ProductId,
   Severity,
   SimLabel,
 } from '../../types';
 import { Card } from '../../components/card';
 import { EvidenceRef } from '../../components/evidence-drawer';
-import { MonoValue } from '../../components/mono-value';
+import { freshnessMeaning } from '../../components/freshness-pill';
+import { MonoValue, formatHours } from '../../components/mono-value';
 import type { MonoValueKind } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { StatusIndicator } from '../../components/status-indicator';
@@ -215,25 +216,15 @@ const EXCEPTION_STATUS_MEANINGS = {
   dismissed: 'empty',
 } as const satisfies Record<ExceptionStatus, StatusMeaning>;
 
-/**
- * How one source's freshness state reads in the shared status vocabulary.
- *
- * The same reading `src/components/freshness-pill.tsx` applies in the top bar — `fresh` as a pass,
- * `stale` and `partial` as warnings, `unavailable` as a failure — held here as a copy rather than
- * imported, because the freshness primitive is outside the set of modules this file may import: a
- * feature folder reads the shared type barrel and the primitives it composes, and the pill is not one
- * of them. The two readings are therefore kept identical by inspection, and the map is exhaustive by
- * type, so a fifth state added to `FreshnessState` fails to compile here rather than rendering as
- * whichever arm happened to be last. If the pill's mapping is ever exported from a module this file
- * may reach, delete this map and read that one, so a source cannot read as `stale` in one place and
- * `fresh` in another.
+/*
+ * Freshness is the one reading this file does not hold. `freshnessMeaning`, imported above from
+ * `src/components/freshness-pill.tsx`, is the single mapping from a source's state onto the shared
+ * status vocabulary — `fresh` as a pass, `stale` and `partial` as warnings, `unavailable` as a
+ * failure — so this stack consumes the pill's own function rather than a copy of it. The pill keeps
+ * that reading as its single owner (AAP §0.5.2: one indicator, no second union), a change to it
+ * therefore reaches this stack instead of leaving the old meaning behind, and the `switch` behind it
+ * is exhaustive over `FreshnessState`, so a fifth state is decided there before it can appear here.
  */
-const FRESHNESS_MEANINGS = {
-  fresh: 'pass',
-  stale: 'warning',
-  partial: 'warning',
-  unavailable: 'fail',
-} as const satisfies Record<FreshnessState, StatusMeaning>;
 
 /* ---------------------------------------------------------------------------------------------
  * The class lists, built from role tokens only
@@ -281,9 +272,10 @@ const EMPTY_CLASSES = 'text-13 text-text-caption';
 /**
  * A product's name inside its card's heading, and the identifier beside it in the secondary text role.
  *
- * The name is the prominent half — it is what the plant calls the product — and the identifier follows
- * it in the mono face so it aligns with every other identifier on the canvas. Both come from the
- * record, so neither is written here.
+ * The name is the prominent half where the record states one — it is what the plant calls the product —
+ * and the identifier follows it in the mono face so it aligns with every other identifier on the canvas.
+ * Both come from the record, so neither is written here, and the name is rendered only where it says
+ * something the identifier does not (see {@link ProductHealthCard}).
  */
 const TITLE_NAME_CLASSES = 'break-words';
 const TITLE_ID_CLASSES = 'text-text-secondary';
@@ -347,7 +339,13 @@ export interface ProductHealthRow {
   /** The product's identifier from the record, rendered in the mono face. */
   readonly productId: ProductId;
 
-  /** The product's name from the record, the prominent half of the card's heading. */
+  /**
+   * The product's name from the record, where the record states one of its own.
+   *
+   * The port declares no product-name read, so a caller building a row from the exception rows hands
+   * the record's identifier in this member as well as in `productId`, and the heading prints that one
+   * spelling once (see {@link ProductHealthCard}).
+   */
   readonly productName: string;
 
   /**
@@ -446,8 +444,9 @@ interface UrgentExceptionCardProps {
  * heading is the record's own title, so the stack's rows are announced by what happened rather than by
  * an identifier. Every value beneath it is a field of the row or a record value formatted by its owner:
  * the identifier in the mono face, the revenue at risk behind the trigger that opens the exception's
- * own evidence, the two readings the record states, and the three statuses the shared vocabulary
- * renders with an icon, a label and a colour together (rule B-3).
+ * own evidence, the days to impact as the record states them, the age presented as whole hours by
+ * `src/components/mono-value.tsx` rather than as the exact fraction the aggregate measured, and the
+ * three statuses the shared vocabulary renders with an icon, a label and a colour together (rule B-3).
  *
  * The row's control sits in the card's actions slot and always acts — it selects the exception when the
  * screen keeps a selection and opens the exception's own page otherwise — so no control here is
@@ -485,7 +484,9 @@ function UrgentExceptionCard({ exception, onActivate }: UrgentExceptionCardProps
             <Field caption={CANVAS_RIGHT_STACK_TEXT.daysToImpactCaption}>
               {exception.daysToImpact}
             </Field>
-            <Field caption={CANVAS_RIGHT_STACK_TEXT.ageCaption}>{exception.ageHours}</Field>
+            <Field caption={CANVAS_RIGHT_STACK_TEXT.ageCaption}>
+              {formatHours(exception.ageHours)}
+            </Field>
             <Field caption={CANVAS_RIGHT_STACK_TEXT.severityCaption}>
               <StatusIndicator
                 meaning={SEVERITY_MEANINGS[exception.severity]}
@@ -500,7 +501,7 @@ function UrgentExceptionCard({ exception, onActivate }: UrgentExceptionCardProps
             </Field>
             <Field caption={CANVAS_RIGHT_STACK_TEXT.freshnessCaption}>
               <StatusIndicator
-                meaning={FRESHNESS_MEANINGS[exception.freshness.state]}
+                meaning={freshnessMeaning(exception.freshness.state)}
                 label={SOURCE_LABELS[exception.freshness.source]}
               />
               <span className={CAPTION_CLASSES}>{exception.freshness.state}</span>
@@ -531,24 +532,35 @@ interface ProductHealthCardProps {
 }
 
 /**
- * How one product stands: its own name and identifier as the heading, its state when the payload states
- * one, and each figure behind the trigger that opens its evidence.
+ * How one product stands: the identifier it is known by, its name where the record states one, its
+ * state when the payload states one, and each figure behind the trigger that opens its evidence.
  *
- * The heading carries both halves the record owns — the name in the primary text role and the
- * identifier in the mono face beside it — so a reader sees what the plant calls the product and which
- * product it is in one line. Each figure renders its caption above its value, because a caption and a
- * value on one line would push the value out of the stack's narrow column; the value is exactly what
- * arrived, and the payload's own `SimLabel` is painted beneath it, so a figure labels itself rather
- * than relying on the badge elsewhere on the route (rule P-1). The state row is rendered only when the
- * caller states one, and a card with no figure says so instead of showing an empty list.
+ * The heading prints the identifier in the mono face and, beside it, the name in the primary text role —
+ * but only where the name is a second fact about the product. The port declares no product-name read, so
+ * the screen that builds these rows hands the record's identifier in both members (see the row's own
+ * note), and a heading that printed both would show one identifier twice and read as two values. Nothing
+ * is shortened, re-cased or invented here: the record's own spelling stands once. Each figure renders
+ * its caption above its value, because a caption and a value on one line would push the value out of the
+ * stack's narrow column; the value is exactly what arrived, and the payload's own `SimLabel` is painted
+ * beneath it, so a figure labels itself rather than relying on the badge elsewhere on the route (rule
+ * P-1). The state row is rendered only when the caller states one, and a card with no figure says so
+ * instead of showing an empty list.
  */
 function ProductHealthCard({ product }: ProductHealthCardProps): ReactElement {
+  /** Whether the name adds a fact the identifier does not already state. */
+  const statesItsOwnName =
+    product.productName.trim() !== '' && product.productName !== product.productId;
+
   return (
     <Card
       as="article"
       title={
         <>
-          <span className={TITLE_NAME_CLASSES}>{product.productName}</span>{' '}
+          {statesItsOwnName ? (
+            <>
+              <span className={TITLE_NAME_CLASSES}>{product.productName}</span>{' '}
+            </>
+          ) : null}
           <MonoValue value={product.productId} kind="id" className={TITLE_ID_CLASSES} />
         </>
       }

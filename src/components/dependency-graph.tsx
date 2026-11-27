@@ -768,12 +768,13 @@ export interface DependencyGraphProps {
    *
    * WHAT A RETURNED REFERENCE MUST BE. One the service's `getEvidence` read resolves, which selects a
    * family by identifier prefix and looks the record up by its exact identifier: `PPAP-`, `EXC-`,
-   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`. The topology payload carries a node's
-   * pin counts rather than its pins, so this component cannot derive a resolvable reference of its own
-   * (rule P-6). A node's evidence today is a pin attached to that node — `EvidencePin.nodeRef` names
-   * the node whose evidence the pin is — or the record the screen attributes to the node; a bare
-   * topology node identifier matches no family, so returning one would open a drawer reporting the
-   * not-found refusal instead of a record.
+   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-`, `PO-`, `PLT-`, `SUP-`, `ORG-` and `CUS-`. The
+   * topology payload carries a node's pin counts rather than its pins, so this component cannot derive
+   * a resolvable reference of its own (rule P-6). A node's evidence is the record it stands for: a pin
+   * hanging on it, whose `EvidencePin.nodeRef` names the node, or the record the screen attributes to
+   * it — and a topology node is itself a record, because the topology payload copies the plant,
+   * supplier, origin or customer into its node, so the node's own identifier resolves. A reference that
+   * matches no family opens a drawer reporting the not-found refusal instead of a record.
    *
    * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind this node. Activating
    * the node still reports the selection to the screen and opens no dialog, so a reader is never shown

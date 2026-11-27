@@ -13,10 +13,17 @@
  * series labelled a computed figure; each of the seven states specification §8 fixes renders for the
  * outcome the screen derives it from, driven only by what the stubbed reads and their `Result.meta`
  * report and never by a flag name (AAP §0.8, §0.12.1); the primary action exists only while the
- * selection reaches an exception, and it navigates to that exception's own route; both themes draw
- * the same surface; the whole control set is reachable and operable from the keyboard alone (rule
- * B-3); the one control on the canvas that cannot act says why (rule P-8); and no case asks any origin
- * for anything or finds a test hook in the output (rule B-1).
+ * selection reaches an exception, and it navigates to that exception's own route; a product card's
+ * figure is captioned with the exception whose amount it shows, a scope that draws a network with no
+ * open exception renders the surface rather than the empty state, and each caption that changes
+ * without a page load is a status region (rules P-6, B-3); a node the reader activates opens the
+ * evidence of the record it stands for, a ribbon tile's reference states the selection the canvas reads
+ * were made with so its drawer is computed over the tile's own population, and the graph lens's preview
+ * switch arms from the selected exception's own option set and keeps the drawing's disabled reason when
+ * that set offers none (AAP §0.2.1 F12, §0.12.4); both themes draw the same surface; the whole control
+ * set is reachable and operable from the keyboard alone (rule B-3); the one control on the canvas that
+ * cannot act says why (rule P-8); and no case asks any origin for anything or finds a test hook in the
+ * output (rule B-1).
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a
  * screen may read through (rule P-2), so no seed module, no adapter, no HTTP client and nothing from
@@ -38,9 +45,11 @@
  *
  * NO SHELL IS SUPPLIED, ON PURPOSE. The screen documents that a shell hands it the scope, the
  * selection and the wall-mode request, and that it may read none of the shell's stores
- * (AAP §0.18.1). This suite therefore mounts it with no shell provider, no navigation and no store:
- * what it proves is the screen's own behaviour — including the full-bleed layout it applies to what it
- * owns — which is also the indirect evidence that the screen reaches nothing in `src/app`.
+ * (AAP §0.18.1). This suite therefore mounts it with no shell provider, no navigation and no store,
+ * handing it a `scope` prop only where a case observes the selection its reads were made with, exactly
+ * as the shell would: what it proves is the screen's own behaviour — including the full-bleed layout it
+ * applies to what it owns — which is also the indirect evidence that the screen reaches nothing in
+ * `src/app`.
  *
  * Rules this suite is written to hold to:
  * - B-1: the request spies prove the surface fetches nothing while it is drawn and operated, and the
@@ -68,7 +77,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 import { DEPENDENCY_GRAPH_TEXT } from '../../components/dependency-graph';
-import { formatMoney } from '../../components/mono-value';
+import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
+import { formatHours, formatMoney } from '../../components/mono-value';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { TIMELINE_DOCK_TEXT } from '../../components/timeline-dock';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
@@ -88,6 +98,7 @@ import type {
   DailyClosingStockPoint,
   ExceptionDetail,
   ExceptionRow,
+  Evidence,
   Freshness,
   FreshnessState,
   IsoDate,
@@ -101,6 +112,9 @@ import type {
   Result,
   RibbonTile,
   Role,
+  Scenario,
+  ScenarioId,
+  ScenarioSet,
   Scope,
   Severity,
   Timestamp,
@@ -119,7 +133,7 @@ import type { FilemapCanvasScreenProps } from './filemap-canvas-screen';
  * Typed as a `Pick` of the port rather than as a shape of this file's own, so the stub cannot drift
  * from the interface: a member the screen starts to call that the stub does not carry fails the type
  * check here instead of arriving at run time as a call on `undefined`. The screen is the only reader
- * of these six, and no other member of `SiteIntelligenceService` answers a surface this suite mounts.
+ * of these eight, and no other member of `SiteIntelligenceService` answers a surface this suite mounts.
  */
 type CanvasPort = Pick<
   SiteIntelligenceService,
@@ -129,6 +143,8 @@ type CanvasPort = Pick<
   | 'listAuditEvents'
   | 'getAtlas'
   | 'getExceptionDetail'
+  | 'getScenarioSet'
+  | 'getEvidence'
 >;
 
 /**
@@ -144,6 +160,8 @@ const port: { readonly [K in keyof CanvasPort]: Mock<CanvasPort[K]> } = vi.hoist
   listAuditEvents: vi.fn<SiteIntelligenceService['listAuditEvents']>(),
   getAtlas: vi.fn<SiteIntelligenceService['getAtlas']>(),
   getExceptionDetail: vi.fn<SiteIntelligenceService['getExceptionDetail']>(),
+  getScenarioSet: vi.fn<SiteIntelligenceService['getScenarioSet']>(),
+  getEvidence: vi.fn<SiteIntelligenceService['getEvidence']>(),
 }));
 
 /**
@@ -501,11 +519,30 @@ const TILE_CAPTIONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * The aggregate keys the screen formats as an amount, as its own presentation map states. Every other
- * tile prints its figure exactly as the aggregate returned it, so a case reads a tile's text back
- * through this set rather than guessing at a format.
+ * The aggregate keys the screen formats, as its own presentation map states: an amount through the
+ * one money formatter, and a duration through the one duration formatter. Every other tile prints its
+ * figure exactly as the aggregate returned it, so a case reads a tile's text back through these sets
+ * rather than guessing at a format.
  */
 const MONEY_TILE_IDS = new Set<string>(['revenue-at-risk']);
+const HOURS_TILE_IDS = new Set<string>(['median-hours-to-approved-plan']);
+
+/**
+ * The text one ribbon tile prints, under the rule the screen's presentation map states for that tile.
+ *
+ * Nothing here recomputes a figure (rule P-6): an amount and a duration go through the interface's own
+ * formatters, and a count is printed exactly as the aggregate returned it.
+ *
+ * @param tile - The tile the canvas read returned.
+ * @returns The text a reader sees in that tile.
+ */
+function figureShown(tile: RibbonTile): string {
+  if (MONEY_TILE_IDS.has(tile.id)) {
+    return formatMoney(tile.value);
+  }
+
+  return HOURS_TILE_IDS.has(tile.id) ? formatHours(tile.value) : String(tile.value);
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The selected exception's own record
@@ -554,6 +591,96 @@ const EXCEPTION_DETAIL: ExceptionDetail = {
   missingInputs: [],
   confidence: CONFIDENCE,
   activity: [],
+};
+
+/* ---------------------------------------------------------------------------------------------
+ * The response options the graph lens's preview switch offers, and one record's own evidence
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One response option, at the smallest shape the type accepts.
+ *
+ * The screen reads an option's identifier and its name — it offers the option its set recommends and the
+ * caption beside the switch names it — so every measure is zero and every collection empty. A figure
+ * here would be one this suite invented, which rule P-6 bars from a test hook.
+ *
+ * @param id - The option's identifier, as the payload spells it.
+ * @param name - The name the comparison matrix would label the option's column with.
+ * @returns The option.
+ */
+function previewOption(id: ScenarioId, name: string): Scenario {
+  return {
+    id,
+    exceptionId: PRIMARY_EXCEPTION_ID,
+    name,
+    origin: 'seeded',
+    unitsLate: 0,
+    maxDaysLate: 0,
+    ordersOnTime: 0,
+    ordersTotal: 0,
+    addedCostEur: 0,
+    lineIdleDays: 0,
+    revenueDelayedEur: 0,
+    runOut: { day: 1, fractionOfDay: 0 },
+    dailyClosingStock: [],
+    orders: [],
+    constraintCheck: 'pass',
+    constraintMessages: [],
+    sideEffects: [],
+    writeBacks: [],
+    levers: { airSets: 0, transferSets: 0 },
+    confidence: CONFIDENCE,
+  };
+}
+
+/** The one option the set recommends, and therefore the one the preview switch offers. */
+const RECOMMENDED_OPTION: Scenario = previewOption('option-alpha', 'By air, then transfer');
+
+/**
+ * A set holding one recommended option: what a selection that can arm the preview switch answers with.
+ *
+ * `recommendedId` names the option the set's rule picked, which is the id the screen offers the switch
+ * without deciding a recommendation of its own (rule P-6).
+ */
+const OPTION_SET: ScenarioSet = {
+  exceptionId: PRIMARY_EXCEPTION_ID,
+  scenarios: [RECOMMENDED_OPTION],
+  recommendedId: RECOMMENDED_OPTION.id,
+  recommendationRule: 'A rule the record states',
+  tradeOff: 'A trade-off the record states',
+  rejected: [],
+};
+
+/**
+ * A set holding no option: what an exception with nothing to preview answers with, and the case the
+ * switch stays visibly disabled for, carrying the drawing's own reason.
+ */
+const EMPTY_OPTION_SET: ScenarioSet = {
+  exceptionId: PRIMARY_EXCEPTION_ID,
+  scenarios: [],
+  recommendationRule: 'A rule the record states',
+  tradeOff: 'A trade-off the record states',
+  rejected: [],
+};
+
+/**
+ * The evidence one activated node's record resolves to, as the drawer's read returns it.
+ *
+ * Every member is a sentence rather than a figure, because the case asserts that the drawer opens on the
+ * record the service supplied instead of on a failure region: the value and the formula are printed
+ * character for character, so the fixture is what a reader would see (rule P-6).
+ */
+const EVIDENCE: Evidence = {
+  value: 'A value the record states',
+  provenance: 'first_party',
+  label: SIM_LABELS[0],
+  formula: 'A rule the record states',
+  inputs: ['an input the record states'],
+  upstream: ['an upstream record'],
+  downstream: ['a downstream record'],
+  confidence: CONFIDENCE,
+  missingInputs: [],
+  documents: [],
 };
 
 /* ---------------------------------------------------------------------------------------------
@@ -911,6 +1038,9 @@ beforeEach(() => {
   port.listAuditEvents.mockResolvedValue(envelope([...AUDIT_EVENTS]));
   port.getAtlas.mockResolvedValue(envelope(ATLAS));
   port.getExceptionDetail.mockResolvedValue(envelope(EXCEPTION_DETAIL));
+  /* An empty set by default, so the preview switch stays disabled in every case that arms none. */
+  port.getScenarioSet.mockResolvedValue(envelope(EMPTY_OPTION_SET));
+  port.getEvidence.mockResolvedValue(envelope(EVIDENCE));
 });
 
 /** Leaves `<html>` on the theme of whichever suite runs next, and no case's attribute behind. */
@@ -987,13 +1117,94 @@ describe('FilemapCanvasScreen', () => {
       expect(within(region).getAllByText(SIM_LABELS[1])).toHaveLength(1);
 
       /* The figure is the value the read returned, formatted only by the rule the screen stated for
-         that tile: an amount through the interface's one money formatter, a count as it arrived
-         (rule P-6). Neither expectation recomputes anything. */
-      const shown = MONEY_TILE_IDS.has(tile.id) ? formatMoney(tile.value) : String(tile.value);
+         that tile: an amount through the interface's one money formatter, a duration through its one
+         duration formatter, a count as it arrived (rule P-6). Neither expectation recomputes
+         anything. */
+      const shown = figureShown(tile);
 
       expect(
         within(region).getByText((content) => statesSameText(content, shown)),
       ).toBeInTheDocument();
+    }
+  });
+
+  it('states in a ribbon tile’s reference the selection the canvas reads were made with', async () => {
+    const user = userEvent.setup();
+    const selectedPlant = 'plant-selected';
+
+    renderScreen({ scope: { plants: [selectedPlant], products: [] } });
+
+    const ribbon = await screen.findByRole('group', { name: UI.ribbon });
+    const tile = within(ribbon).getByRole('region', {
+      name: FILEMAP_CANVAS_TEXT.tileOpenExceptions,
+    });
+
+    await user.click(within(tile).getByRole('button'));
+
+    /* The port's `getEvidence` carries the reference and no scope, so the tile's reference states the
+       selection the ribbon was read with: the drawer's aggregate is computed over the plants the tile
+       counted rather than over every plant the persona reaches (AAP §0.2.1 F12, PR-6). */
+    const reference = String(port.getEvidence.mock.calls[0]?.[0]);
+
+    expect(reference.startsWith('canvas:open-exceptions')).toBe(true);
+    expect(reference).toContain(`plants=${selectedPlant}`);
+  });
+
+  it('captions a product card’s amount with the exception whose revenue it shows', async () => {
+    renderScreen();
+
+    const stack = await screen.findByRole('complementary', {
+      name: FILEMAP_CANVAS_TEXT.stackRegionLabel,
+    });
+
+    /* `product-one` is reached by two urgent rows — the first and the third — while a card shows one
+       row's own amount, so the caption has to name the row the amount comes from rather than read as
+       a total for the product (rule P-6: this screen sums nothing). */
+    const firstRow = URGENT_ROWS[0];
+    const alsoReaching = URGENT_ROWS[2];
+
+    expect(firstRow).toBeDefined();
+    expect(alsoReaching).toBeDefined();
+
+    if (firstRow === undefined || alsoReaching === undefined) {
+      return;
+    }
+
+    const caption = within(stack).getByText(
+      FILEMAP_CANVAS_TEXT.productRevenueAtRiskOn(firstRow.id),
+    );
+    const card = caption.closest('article');
+
+    expect(card).not.toBeNull();
+
+    if (card === null) {
+      return;
+    }
+
+    /* The amount beside that caption is that same row's, and the other row that reaches this product
+       contributes neither the caption nor a second figure. */
+    expect(
+      within(card).getByText((content) =>
+        statesSameText(content, formatMoney(firstRow.revenueAtRiskEur)),
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(card).queryByText(FILEMAP_CANVAS_TEXT.productRevenueAtRiskOn(alsoReaching.id)),
+    ).not.toBeInTheDocument();
+    expect(
+      within(card).queryByText((content) =>
+        statesSameText(content, formatMoney(alsoReaching.revenueAtRiskEur)),
+      ),
+    ).not.toBeInTheDocument();
+
+    /* The heading names the card by the identifier the record carries, printed once: the port supplies
+       no product name, so a second print of the same identifier would read as two different values. */
+    const productId = firstRow.productIds[0];
+
+    expect(productId).toBeDefined();
+
+    if (productId !== undefined) {
+      expect(within(card).getByRole('heading').textContent?.trim()).toBe(productId);
     }
   });
 
@@ -1030,6 +1241,110 @@ describe('FilemapCanvasScreen', () => {
 
     expect(strip).not.toBeNull();
     expect(strip).toHaveTextContent('Halvard Components');
+  });
+
+  it('opens the evidence of the record behind the canvas node a reader activates', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    const plant = nodeControl('Northgate plant');
+
+    plant.focus();
+    await user.keyboard('{Enter}');
+
+    /* The node identifier is the record identifier the evidence read resolves, because the topology
+       payload copies the record into its node — the screen composes no reference of its own (rule P-6,
+       cr-w007-F02). */
+    expect(port.getEvidence).toHaveBeenCalledWith(OPENING_PLANT_ID);
+
+    const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    /* The drawer opens on the record's own content — its value, the rule behind it and the section that
+       carries them — and not on the region that reports a reference nothing answers (cr-w007-F19). */
+    expect(within(drawer).getByText(EVIDENCE.value)).toBeInTheDocument();
+    expect(within(drawer).getByText(EVIDENCE.formula)).toBeInTheDocument();
+    expect(within(drawer).getByText(EVIDENCE_DRAWER_TEXT.valueSection)).toBeInTheDocument();
+    expect(screen.queryByText(EVIDENCE_DRAWER_TEXT.failureHeadline)).not.toBeInTheDocument();
+  });
+
+  it('arms the graph lens’s scenario preview from the selected exception’s own option set', async () => {
+    const user = userEvent.setup();
+
+    port.getScenarioSet.mockResolvedValue(envelope(OPTION_SET));
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The set belongs to the exception the selection reaches, which is the record the read is keyed by. */
+    expect(port.getScenarioSet).toHaveBeenCalledWith(PRIMARY_EXCEPTION_ID);
+
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    /* The switch's own label carries the identifier of the option the set recommends, which is how the
+       case knows the screen offered the record's option rather than inventing one (rule P-6). */
+    const scenarioSwitch = await screen.findByRole('switch', {
+      name: `${DEPENDENCY_GRAPH_TEXT.previewLabel} ${RECOMMENDED_OPTION.id}`,
+    });
+
+    /* Armable rather than visibly disabled, and unarmed until the reader asks for it (rule P-8). */
+    expect(scenarioSwitch).not.toHaveAttribute('aria-disabled');
+    expect(scenarioSwitch).toHaveAttribute('aria-checked', 'false');
+
+    scenarioSwitch.focus();
+    await user.keyboard('{Enter}');
+
+    expect(scenarioSwitch).toHaveAttribute('aria-checked', 'true');
+
+    /* The caption names the option from the record's own name, and it changes without a page load, so it
+       is a status region that announces the option now in preview (rule B-3, cr-w007-F07). */
+    expect(
+      await screen.findByText(
+        `${FILEMAP_CANVAS_TEXT.previewCaptionPrefix} ${RECOMMENDED_OPTION.name}`,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves the preview switch visibly disabled with the drawing’s own reason when no option is offered', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    /* The set this suite arms by default holds no option, so nothing is offered to preview and the switch
+       says why in the drawing's own words instead of acting on nothing (rule P-8). */
+    const scenarioSwitch = screen.getByRole('switch', {
+      name: DEPENDENCY_GRAPH_TEXT.previewLabel,
+    });
+
+    expect(scenarioSwitch).toHaveAttribute('aria-disabled', 'true');
+    expect(scenarioSwitch).toHaveAccessibleDescription(
+      DEPENDENCY_GRAPH_TEXT.previewUnavailable,
+    );
+  });
+
+  it('states the lens in view in a status region that follows the reader’s choice', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The caption changes when a lens is switched and no page loads, so it is a status region and the
+       text it then states is what a screen reader announces (rule B-3, WCAG 2.2 SC 4.1.3). */
+    const lensGroup = screen.getByRole('group', { name: FILEMAP_CANVAS_TEXT.lensGroupLabel });
+    const caption = within(lensGroup).getByRole('status');
+
+    expect(caption.textContent).toBe(lensCaption(FILEMAP_CANVAS_TEXT.mapLens));
+
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    /* The same region, now naming the lens the reader chose, rather than a second status region
+       appearing beside the first. */
+    expect(within(lensGroup).getByRole('status')).toBe(caption);
+    expect(caption.textContent).toBe(lensCaption(FILEMAP_CANVAS_TEXT.graphLens));
   });
 
   it('reports each wall-mode request to the shell that owns the navigation', async () => {
@@ -1169,6 +1484,25 @@ describe('FilemapCanvasScreen', () => {
     expect(screen.queryByRole('group', { name: UI.ribbon })).not.toBeInTheDocument();
   });
 
+  it('draws the network and its ribbon when the selection holds no open exception', async () => {
+    port.listExceptions.mockResolvedValue(envelope([]));
+
+    renderScreen();
+
+    const canvas = await screen.findByRole('region', {
+      name: FILEMAP_CANVAS_TEXT.canvasRegionLabel,
+    });
+
+    /* A scope that draws a node has something to draw, so the surface renders and the sentence saying
+       nothing falls in the selection is withheld — here it would be false. The both-empty scope still
+       renders that sentence, which the case above asserts (cr-w007-F15). */
+    expect(
+      within(canvas).getByRole('button', { name: /^Northgate plant,/u }),
+    ).toBeInTheDocument();
+    expect(ribbonGroup()).toBeInTheDocument();
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.empty)).not.toBeInTheDocument();
+  });
+
   it('names the stale source and its as-of time above the figures that are still drawn', async () => {
     port.getTopology.mockResolvedValue(envelope(TOPOLOGY, 'stale'));
 
@@ -1180,8 +1514,18 @@ describe('FilemapCanvasScreen', () => {
       await screen.findByText(`${SOURCE_LABELS[APPROVAL_GATE_SOURCE]}${STATE_BOUNDARY_TEXT.staleSuffix}`),
     ).toBeInTheDocument();
     /* The instant is read inside the banner, because the same record value is stamped on the rows and
-       the trail beside it; what the state asserts is that the warning states it. */
-    expect(within(screen.getByRole('status')).getByText(AS_OF)).toBeInTheDocument();
+       the trail beside it; what the state asserts is that the warning states it. The banner is reached
+       from its own headline rather than by role alone, because the canvas states other status regions
+       beside it — the caption naming the lens in view is one (rule B-3). */
+    const staleBanner = screen
+      .getByText(`${SOURCE_LABELS[APPROVAL_GATE_SOURCE]}${STATE_BOUNDARY_TEXT.staleSuffix}`)
+      .closest<HTMLElement>('[role="status"]');
+
+    expect(staleBanner).not.toBeNull();
+
+    if (staleBanner !== null) {
+      expect(within(staleBanner).getByText(AS_OF)).toBeInTheDocument();
+    }
 
     /* A warning about the data does not withhold the data. */
     expect(ribbonGroup()).toBeInTheDocument();

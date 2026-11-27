@@ -17,12 +17,14 @@
  *   the shell skeleton until the records are loaded rather than letting a screen read a half-built
  *   session.
  *
- * THE ONE-PROVIDER CHANGE. Swapping the in-browser adapter for a real service is the single assignment
- * inside `createService`: `new ApiClient()` in place of `new MockBackend()` binds the unconnected HTTP
- * adapter of `src/services/api-client/`, and no screen, component, feature or shell module changes with
- * it (AAP 0.6.2, success criterion 8). Nothing branches on a flag, a query parameter or a
- * configuration value to decide which adapter is bound, so the application cannot start half-bound:
- * exactly one adapter is constructed, and it is the one written on that line.
+ * THE ONE-PROVIDER CHANGE. Swapping the in-browser adapter for a real service is one file and two
+ * lines, both in this module: the import at the top of it, retargeted from `./mock/mock-backend` to
+ * `./api-client/api-client`, and the assignment inside `createService`, where `new ApiClient()` in
+ * place of `new MockBackend()` binds the unconnected HTTP adapter of `src/services/api-client/`. No
+ * screen, component, feature or shell module changes with either line (AAP 0.6.2, success criterion 8).
+ * Nothing branches on a flag, a query parameter or a configuration value to decide which adapter is
+ * bound, so the application cannot start half-bound: exactly one adapter is constructed, and it is
+ * the one written on that line.
  *
  * WHY TWO OF THE THREE EXPORTS ARE NOT PORT MEMBERS. `SiteIntelligenceService` is the contracts §2
  * interface method for method, and it declares neither a readiness promise nor a role-setting member.
@@ -71,16 +73,19 @@ let boundService: SiteIntelligenceService | null = null;
 /**
  * Returns the bound service adapter, constructing it on the first call.
  *
- * The assignment inside is the whole of the one-provider change (AAP 0.6.2, success criterion 8):
- * binding the other adapter is a one-line edit here, and nothing else in the application moves.
+ * This module is the whole of the one-provider change (AAP 0.6.2, success criterion 8): binding the
+ * other adapter takes two lines here — the import at the top of the file, retargeted to that adapter,
+ * and the assignment below — and nothing else in the application moves.
  *
  * @returns The session's `SiteIntelligenceService`, the same instance on every call.
  */
 export function createService(): SiteIntelligenceService {
   if (boundService === null) {
-    // The single binding point of rule P-2. `new ApiClient()` in place of `new MockBackend()` points
-    // the application at the unconnected HTTP adapter of `src/services/api-client/`, and no screen,
-    // component, feature or shell module changes with it (AAP 0.6.2, AAP 0.12.1 "Adapter selection").
+    // The single binding point of rule P-2, and one of the two lines the swap takes: the import at the
+    // top of this file is retargeted from `MockBackend` to `ApiClient`, and `new ApiClient()` in place
+    // of `new MockBackend()` on this line points the application at the unconnected HTTP adapter of
+    // `src/services/api-client/`. No screen, component, feature or shell module changes with either of
+    // the two lines (AAP 0.6.2, AAP 0.12.1 "Adapter selection").
     const service: SiteIntelligenceService = new MockBackend();
 
     boundService = service;

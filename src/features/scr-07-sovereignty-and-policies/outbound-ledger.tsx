@@ -16,8 +16,12 @@
  *
  * WHAT IT CLAIMS, AND WHAT IT DOES NOT (rule P-4). The ledger reports declared configuration and what
  * the trail recorded. It never states that traffic is prevented, that a posture was established or
- * that a control was verified, and the region carries the caller's fixed §5.3 label — `Declared, not
- * verified` on SCR-07 — so a reader sees a declaration rather than a certification of one.
+ * that a control was verified. The region carries the caller's two fixed §5.3 labels, each above the
+ * columns it applies to: the declared label — `Declared, not verified` on SCR-07 — over the four
+ * columns that print the record's own endpoint, purpose, state and last attempt, and the calculation
+ * label over the two columns that print the counts the audit trail supports. A reader therefore sees
+ * a declaration where configuration is stated and a computed figure where a count is printed, and
+ * neither half is presented as the other.
  *
  * TRANSPORT, NOT COMPUTATION (rule P-6). Every cell value comes from the row it is handed. The column
  * headers and the fallback sentence are the only text this module authors, and none of them carries a
@@ -49,10 +53,12 @@
  *   `src/components/data-table.tsx`; a state shows its icon, its label and its colour together through
  *   `StatusIndicator`, so a meaning never rests on colour alone; every value is a role token of the
  *   theme files; nothing here animates, so a reduced-motion session has nothing to switch off.
- * - P-1: the caller passes the exact §5.3 label as a required `SimLabel` and this module renders it
- *   character for character, once for the region, beside the counts it covers. P-2: the rows arrive as
- *   props — no seed record, adapter, service module, app module, domain module or other feature is
- *   imported, so the component cannot become a second data boundary.
+ * - P-1: the caller passes both exact §5.3 labels as required `SimLabel` props — the declared label
+ *   for the four columns that state declared configuration and the calculation label for the two that
+ *   print a count — and this module renders each character for character above the columns it covers,
+ *   spelling neither. P-2: the rows arrive as props — no seed record, adapter, service module, app
+ *   module, domain module or other feature is imported, so the component cannot become a second data
+ *   boundary.
  * - P-6: no figure, instant, endpoint or identifier is typed here. P-7: no name is invented — every
  *   endpoint and purpose is record content. P-8: the ledger is read-only, so it ships no control and
  *   leaves no dead one behind.
@@ -81,13 +87,25 @@ export interface OutboundLedgerProps {
   readonly rows: readonly LedgerRow[];
 
   /**
-   * The exact specification §5.3 label the counts carry, typed as `SimLabel`.
+   * The exact specification §5.3 label the two count columns carry, typed as `SimLabel`.
    *
    * Required and never defaulted (rule P-1): the screen decides which of the seven fixed strings
-   * applies — SCR-07 declares this region `Declared, not verified` — and this module paints whatever
-   * arrives, character for character, rather than spelling or abbreviating a label of its own.
+   * applies — SCR-07's two counts are the aggregate's figures rather than the record's declaration,
+   * so they carry `Simulated calculation` — and this module paints whatever arrives, character for
+   * character, rather than spelling or abbreviating a label of its own.
    */
   readonly simLabel: SimLabel;
+
+  /**
+   * The exact specification §5.3 label the four declared columns carry, typed as `SimLabel`.
+   *
+   * Required and never defaulted (rule P-1): the endpoint, purpose, state and last attempt are the
+   * record's own declaration, so the screen passes the declared-configuration label — `Declared, not
+   * verified` on SCR-07 — and this module paints it, character for character, above those columns.
+   * It is a second label rather than a second region, because the two count columns beside them print
+   * computed figures and so carry the caller's other label, `simLabel`, instead (rule P-4).
+   */
+  readonly declaredLabel: SimLabel;
 
   /**
    * The region's name, rendered as the card's heading and as the table's own caption.
@@ -121,10 +139,11 @@ export interface OutboundLedgerProps {
  * is the reminder that a new state needs a decided meaning, icon and colour before it can be shown.
  *
  * The mapping, member by member:
- * - `blocked` → `pass`: the declared configuration refuses the endpoint, which is the state the
- *   posture declares for its allow list. `pass` is this vocabulary's reading of an expected state, not
- *   a verification of it — the region carries the caller's `Declared, not verified` label beside these
- *   cells, so no reader is left with the impression that the block was tested (rule P-4).
+ * - `blocked` → `simulated`: the declared configuration refuses the endpoint, which is the state the
+ *   posture declares for its allow list. A declared state was never checked, so it takes the meaning
+ *   this vocabulary gives declared-but-unverified configuration — the one the SD rows' status cell and
+ *   the policy set's un-evaluated row carry — and never `pass`, which would read as a verification
+ *   the demonstration cannot support (rule P-4).
  * - `allowed` → `warning`: traffic to the endpoint would be permitted, which is the reading a reader
  *   has to notice in a region whose declared allow list is empty. A warning rather than a failure,
  *   because an allowed endpoint is not an error: it is the exception to read.
@@ -132,7 +151,7 @@ export interface OutboundLedgerProps {
 export function ledgerStateMeaning(state: LedgerRow['state']): StatusMeaning {
   switch (state) {
     case 'blocked':
-      return 'pass';
+      return 'simulated';
     case 'allowed':
       return 'warning';
   }
@@ -160,9 +179,10 @@ const DEFAULT_EMPTY_MESSAGE = 'The ledger records no outbound endpoint for this 
 const NO_LAST_ATTEMPT_MARKER = '—';
 
 /**
- * The row holding the region's label, set at the 13 px step of the type scale so it reads as a note on
- * the region rather than as a second heading. It is the element each count points at through
- * `aria-describedby`, which is why it carries an id rather than sitting inside `Card`'s title row.
+ * A row holding one of the region's two labels, set at the 13 px step of the type scale so it reads as
+ * a note on the region rather than as a second heading. Each row is the element the columns it covers
+ * point at through `aria-describedby`, which is why each carries an id of its own rather than sitting
+ * inside `Card`'s title row.
  */
 const LABEL_ROW_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2 text-13';
 
@@ -193,12 +213,12 @@ const MARKER_CLASSES = 'text-text-secondary';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One count cell: the aggregate's own number, tied to the region's visible label.
+ * One count cell: the aggregate's own number, tied to the region's visible calculation label.
  *
  * `aria-describedby` is the programmatic half of the association the label row makes visually, so a
  * reader who arrives at a figure without having read the row above the table still learns that the
- * number is declared rather than verified (rule P-1). The count is printed as it arrived: it is
- * already a whole number counted by the aggregate, and nothing is formatted onto it here.
+ * number is a computed figure rather than a declared one (rule P-1). The count is printed as it
+ * arrived: it is already a whole number counted by the aggregate, and nothing is formatted onto it.
  */
 function countCell(count: number, simLabelId: string): ReactElement {
   return (
@@ -209,30 +229,46 @@ function countCell(count: number, simLabelId: string): ReactElement {
 }
 
 /**
- * The instant of an endpoint's last recorded attempt, or the dash that states there is none.
+ * The instant of an endpoint's last recorded attempt, or the dash that states there is none, tied to
+ * the label that says this column states declared configuration.
  *
  * `MonoValue` renders the instant, so the column carries the mono face and the tabular numerals the
  * timestamp rule applies. No instant is derived, defaulted or substituted for a row the trail records
  * no attempt against: an absent attempt is a reading of its own, and an invented date would be a
- * figure no record holds (rule P-6).
+ * figure no record holds (rule P-6). `aria-describedby` names the declared label row, so the cell
+ * reads as what the record declares rather than as a contact this page made (rule P-4).
  */
-function lastAttemptCell(lastAttempt: LedgerRow['lastAttempt']): ReactElement {
-  if (lastAttempt === null) {
-    return <span className={MARKER_CLASSES}>{NO_LAST_ATTEMPT_MARKER}</span>;
-  }
-
-  return <MonoValue value={lastAttempt} kind="timestamp" />;
+function lastAttemptCell(
+  lastAttempt: LedgerRow['lastAttempt'],
+  declaredLabelId: string,
+): ReactElement {
+  return (
+    <span aria-describedby={declaredLabelId}>
+      {lastAttempt === null ? (
+        <span className={MARKER_CLASSES}>{NO_LAST_ATTEMPT_MARKER}</span>
+      ) : (
+        <MonoValue value={lastAttempt} kind="timestamp" />
+      )}
+    </span>
+  );
 }
 
 /**
- * A row's declared state, shown as its meaning's icon and colour beside the state's own word.
+ * A row's declared state, shown as its meaning's icon and colour beside the state's own word, tied to
+ * the label that says this column states declared configuration.
  *
  * The word is the record's own union member, rendered as it arrives, so the cell states nothing this
  * module invented: the icon and the colour come from `ledgerStateMeaning` and the label travels with
- * both, which is what keeps a state from resting on colour alone (rule B-3).
+ * both, which is what keeps a state from resting on colour alone (rule B-3). `aria-describedby` names
+ * the declared label row, so a reader who meets the state alone learns that it was declared rather
+ * than verified (rule P-4).
  */
-function stateCell(state: LedgerRow['state']): ReactElement {
-  return <StatusIndicator meaning={ledgerStateMeaning(state)} label={state} />;
+function stateCell(state: LedgerRow['state'], declaredLabelId: string): ReactElement {
+  return (
+    <span aria-describedby={declaredLabelId}>
+      <StatusIndicator meaning={ledgerStateMeaning(state)} label={state} />
+    </span>
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -267,20 +303,23 @@ const KEEP_SUPPLIED_ROW_ORDER = (): void => {
  * nothing. A re-render of the governance screen therefore draws the same table from the same payload.
  *
  * The card's heading and the table's caption are one string — the caller's `caption` — so the region
- * and its table are named once and cannot drift apart. The caller's `SimLabel` is painted as visible
- * text directly above the columns it covers, and the two numeric columns point at it, so a computed
- * count never appears in this region without the label that says what it is (rule P-1).
+ * and its table are named once and cannot drift apart. Each of the caller's two `SimLabel`s is
+ * painted as visible text directly above the columns it covers, and every column names the label that
+ * applies to it, so a declared value and a computed count each appear in this region under the label
+ * that says what it is (rules P-1 and P-4).
  *
- * The columns are built per instance rather than held at module scope for one reason: each count cell
- * refers to this instance's label element by id, and that id is per render. The list is six entries, so
- * nothing is measured or memoised for it.
+ * The columns are built per instance rather than held at module scope for one reason: every cell
+ * refers to this instance's label elements by id, and those ids are per render. The list is six
+ * entries, so nothing is measured or memoised for it.
  */
 export function OutboundLedger({
   rows,
   simLabel,
+  declaredLabel,
   caption,
   emptyMessage,
 }: OutboundLedgerProps): ReactElement {
+  const declaredLabelId = useId();
   const simLabelId = useId();
 
   const columns: readonly TableColumn<LedgerRow>[] = [
@@ -288,23 +327,29 @@ export function OutboundLedger({
       id: 'endpoint',
       header: 'Endpoint',
       render: (row) => (
-        <MonoValue value={row.endpoint} kind="id" className={ENDPOINT_CLASSES} />
+        <span aria-describedby={declaredLabelId}>
+          <MonoValue value={row.endpoint} kind="id" className={ENDPOINT_CLASSES} />
+        </span>
       ),
     },
     {
       id: 'purpose',
       header: 'Purpose',
-      render: (row) => <span className={PURPOSE_CLASSES}>{row.purpose}</span>,
+      render: (row) => (
+        <span className={PURPOSE_CLASSES} aria-describedby={declaredLabelId}>
+          {row.purpose}
+        </span>
+      ),
     },
     {
       id: 'state',
       header: 'State',
-      render: (row) => stateCell(row.state),
+      render: (row) => stateCell(row.state, declaredLabelId),
     },
     {
       id: 'last-attempt',
       header: 'Last attempt',
-      render: (row) => lastAttemptCell(row.lastAttempt),
+      render: (row) => lastAttemptCell(row.lastAttempt, declaredLabelId),
     },
     {
       id: 'allowed',
@@ -322,6 +367,9 @@ export function OutboundLedger({
 
   return (
     <Card title={caption}>
+      <p id={declaredLabelId} className={LABEL_ROW_CLASSES}>
+        <StatusIndicator meaning="simulated" label={declaredLabel} />
+      </p>
       <p id={simLabelId} className={LABEL_ROW_CLASSES}>
         <StatusIndicator meaning="simulated" label={simLabel} />
       </p>

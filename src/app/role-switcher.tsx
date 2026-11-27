@@ -54,12 +54,14 @@
  * WHAT IT DOES NOT DO. It fetches nothing of its own (rule B-1): the persona records arrive through
  * the bound adapter, which holds them in memory. It reads no configuration and carries no credential
  * (rule B-2). It writes no figure, amount, date or identifier (rule P-6) — every string it renders is
- * either the fixed wording above or a value the service returned. It invents no simulation label; the
- * persistent `Simulated data` badge belongs to the shell, and the demonstration control its wording
- * describes is tagged by the popover that offers it (rule P-1). It claims nothing about the
- * deployment: it says the session acts as a persona for the length of a demonstration and no more
- * (rule P-4). It uses role tokens only, with no raw palette value and no shadow, so both themes keep
- * the contrast the specification measured.
+ * either the fixed wording above or a value the service returned. It invents no simulation label
+ * (rule P-1): the persistent `Simulated data` badge belongs to the shell, and the one label this group
+ * states is the §5.3 string `Simulated control`, read from `SIM_LABELS` — the tuple that owns the
+ * seven labels — because AAP 0.10 names the browser-side permission checks behind this switcher among
+ * that label's carriers, and the note beside it still states what rule P-3 requires. It claims nothing
+ * about the deployment: it says the session acts as a persona for the length of a demonstration and no
+ * more (rule P-4). It uses role tokens only, with no raw palette value and no shadow, so both themes
+ * keep the contrast the specification measured.
  *
  * No test hook. Nothing here reads a query parameter, a global or a flag: this switcher is a product
  * feature, and a browser test drives it exactly as a reader does.
@@ -69,10 +71,12 @@ import { useId, useState } from 'react';
 import type { ChangeEvent, ReactElement } from 'react';
 import { useNavigate } from 'react-router';
 
+import { StatusIndicator } from '../components/status-indicator';
 import { ActionButton } from '../components/tooltip';
 import type { DemonstrationControls } from '../services/demonstration-controls';
 import { useActiveUser, useDemonstration } from '../services/service-provider';
 import type { ActiveUser } from '../types/entities';
+import { SIM_LABELS } from '../types/primitives';
 import { entryRouteFor } from './nav-items';
 import { useActiveRole, useShellStore } from './providers';
 
@@ -100,6 +104,19 @@ export const ROLE_SWITCHER_LABEL = 'Demo role switcher (simulation only)';
  */
 export const ROLE_SWITCHER_NOTE =
   'Browser-side permission checks are not production authorisation.';
+
+/**
+ * The `Simulated control` tag the control group carries, selected from the tuple that owns the seven
+ * §5.3 strings rather than spelled again in this file: `SimLabel` has exactly one owner in
+ * `src/types/primitives.ts` (rule P-1), and a second copy of the text here could drift from it.
+ *
+ * AAP 0.10 names the browser-side permission checks behind this switcher among that label's
+ * carriers, so the control states the label on itself rather than leaving it to the popover that
+ * offers the demonstration. The member is taken by its position in the tuple, whose order is the
+ * specification's own, so no string literal of the label appears in this file. A reordering of
+ * `SIM_LABELS` therefore has to be mirrored here — the tuple's fifth member is the control label.
+ */
+const SIMULATED_CONTROL_LABEL = SIM_LABELS[4];
 
 /**
  * Every other sentence this component states, held here so the wording has one owner: the control
@@ -193,10 +210,11 @@ const ALERT_CLASSES = 'min-w-0 max-w-full text-12 break-words text-text-primary'
 /**
  * The cache key of the persona roster.
  *
- * Keyed the way `src/app/query-cache.ts` keys every read — the member's own name first — so the
- * convention holds even though this member sits on the demonstration capability rather than on the
- * port. The roster is static for a session, and a switch invalidates the cache whole (see
- * {@link RoleSwitcher}), so the list is re-read exactly when something could have changed it.
+ * Keyed the way every read and every write's invalidation are keyed — the member's own name first, in
+ * the `[method, ...args]` convention of AAP 0.6.2 — so the convention holds even though this member
+ * sits on the demonstration capability rather than on the port. The roster is static for a session, and
+ * a switch invalidates the cache whole (see {@link RoleSwitcher}), so the list is re-read exactly when
+ * something could have changed it.
  */
 const ROSTER_QUERY_KEY = ['listPersonas'] as const;
 
@@ -354,6 +372,10 @@ export function RoleSwitcher(): ReactElement {
           {ROLE_SWITCHER_TEXT.unavailableAction}
         </ActionButton>
         <p className={HINT_CLASSES}>{ROLE_SWITCHER_NOTE}</p>
+        {/* The absence of the capability does not change what the control stands in for, so the
+            permission checks a demonstration would rely on keep their §5.3 label here too
+            (AAP 0.10, rule P-1). */}
+        <StatusIndicator meaning="simulated" label={SIMULATED_CONTROL_LABEL} />
       </div>
     );
   }
@@ -418,6 +440,11 @@ export function RoleSwitcher(): ReactElement {
       <p id={noteId} className={HINT_CLASSES}>
         {ROLE_SWITCHER_NOTE}
       </p>
+      {/* AAP 0.10 names the browser-side permission checks behind this switcher a `Simulated control`
+          carrier, so the group carries that §5.3 label beside rule P-3's note (rule P-1). It is a
+          label rather than a control: `StatusIndicator` adds no focus stop, and the select's own
+          accessible name and description stay the ones bound above. */}
+      <StatusIndicator meaning="simulated" label={SIMULATED_CONTROL_LABEL} />
     </div>
   );
 }

@@ -6,7 +6,7 @@
  * WHY IT EXISTS. Rule P-2 requires that an unconnected client implement the same interface as the
  * in-browser mock backend, so "a deployment points the application at its own service" is a
  * compile-time fact rather than a promise: this class and `MockBackend` satisfy one interface, and
- * `src/services/create-service.ts` is the single line that chooses between them (AAP 0.6.2). No
+ * `src/services/create-service.ts` is the single module that chooses between them (AAP 0.6.2). No
  * screen, component, feature or shell module imports this file (AAP 0.12.1, success criterion 8);
  * its importers are that binding point and, where the run has one, the conformance suite beside it.
  *
@@ -97,7 +97,7 @@
  * saying why a deployment has no such control.
  */
 
-import { request } from './http';
+import { PAYLOADS, request } from './http';
 import {
   approvalDecisionPath,
   approvalOutcomePath,
@@ -275,8 +275,8 @@ type PolicyExceptionDraft = Parameters<SiteIntelligenceService['requestPolicyExc
  * `src/services/api-client/paths.ts`, through the transport of `src/services/api-client/http.ts`.
  *
  * It is unconnected: nothing binds it in this run, a deployment supplies the real service behind the
- * paths it calls, and `src/services/create-service.ts` is the one line that would bind it instead of
- * the in-browser adapter (AAP 0.6.2, AAP 0.12.1). It holds no state and takes no constructor
+ * paths it calls, and `src/services/create-service.ts` is the one module that would bind it in place
+ * of the in-browser adapter (AAP 0.6.2, AAP 0.12.1). It holds no state and takes no constructor
  * argument, so a caller's authority, its plant scope and its view of the records are the service's
  * to decide, never a value this class carries or claims (rule P-3).
  *
@@ -293,7 +293,7 @@ export class ApiClient implements SiteIntelligenceService {
    * ----------------------------------------------------------------------------------------- */
 
   /**
-   * Reads the overview through `GET /overview`, the contracts §9 path `paths.overviewPath` holds.
+   * Reads the overview through `GET /overview`, the path `paths.overviewPath` holds.
    *
    * The shell's selection travels as the list parameters `selectionQuery` builds, and the
    * `exception.read` permission of the contracts §7.1 matrix is evaluated by the service over the
@@ -305,7 +305,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getOverview(scope: Scope): Promise<Result<Overview>> {
-    return request<Overview, SelectionParameters>(overviewPath, { query: selectionQuery(scope) });
+    return request<Overview, SelectionParameters>(overviewPath, {
+      query: selectionQuery(scope),
+      payload: PAYLOADS.overview,
+    });
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -330,6 +333,7 @@ export class ApiClient implements SiteIntelligenceService {
   ): Promise<Result<ExceptionRow[]>> {
     return request<ExceptionRow[], ExceptionQuery & SelectionParameters>(exceptionsPath, {
       query: { ...query, ...selectionQuery(scope) },
+      payload: PAYLOADS.exceptionRows,
     });
   }
 
@@ -346,7 +350,9 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getExceptionDetail(exceptionId: ExceptionId): Promise<Result<ExceptionDetail>> {
-    return request<ExceptionDetail>(exceptionPath(exceptionId));
+    return request<ExceptionDetail>(exceptionPath(exceptionId), {
+      payload: PAYLOADS.exceptionDetail,
+    });
   }
 
   /**
@@ -361,7 +367,9 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getAffectedLines(exceptionId: ExceptionId): Promise<Result<AffectedLine[]>> {
-    return request<AffectedLine[]>(exceptionAffectedLinesPath(exceptionId));
+    return request<AffectedLine[]>(exceptionAffectedLinesPath(exceptionId), {
+      payload: PAYLOADS.affectedLines,
+    });
   }
 
   /**
@@ -386,6 +394,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<OperationalException>(exceptionAssigneePath(exceptionId), {
       method: 'POST',
       body: { ownerId },
+      payload: PAYLOADS.operationalException,
     });
   }
 
@@ -405,6 +414,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<OperationalException>(exceptionNotesPath(exceptionId), {
       method: 'POST',
       body: { note },
+      payload: PAYLOADS.operationalException,
     });
   }
 
@@ -428,6 +438,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<OperationalException>(exceptionDismissalPath(exceptionId), {
       method: 'POST',
       body: { reason },
+      payload: PAYLOADS.operationalException,
     });
   }
 
@@ -449,7 +460,9 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getScenarioSet(exceptionId: ExceptionId): Promise<Result<ScenarioSet>> {
-    return request<ScenarioSet>(exceptionScenariosPath(exceptionId));
+    return request<ScenarioSet>(exceptionScenariosPath(exceptionId), {
+      payload: PAYLOADS.scenarioSet,
+    });
   }
 
   /**
@@ -470,6 +483,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<Scenario>(exceptionScenarioSolvePath(exceptionId), {
       method: 'POST',
       body: levers,
+      payload: PAYLOADS.scenario,
     });
   }
 
@@ -494,6 +508,7 @@ export class ApiClient implements SiteIntelligenceService {
   async listApprovals(query: ApprovalInboxQuery, scope: Scope): Promise<Result<Approval[]>> {
     return request<Approval[], ApprovalInboxQuery & SelectionParameters>(approvalsPath, {
       query: { ...query, ...selectionQuery(scope) },
+      payload: PAYLOADS.approvals,
     });
   }
 
@@ -509,7 +524,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getApproval(approvalId: ApprovalId): Promise<Result<Approval>> {
-    return request<Approval>(approvalPath(approvalId));
+    return request<Approval>(approvalPath(approvalId), { payload: PAYLOADS.approval });
   }
 
   /**
@@ -526,7 +541,9 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getApprovalOutcome(approvalId: ApprovalId): Promise<Result<ApprovalOutcome>> {
-    return request<ApprovalOutcome>(approvalOutcomePath(approvalId));
+    return request<ApprovalOutcome>(approvalOutcomePath(approvalId), {
+      payload: PAYLOADS.approvalOutcome,
+    });
   }
 
   /**
@@ -548,6 +565,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<Approval>(approvalsPath, {
       method: 'POST',
       body: { exceptionId: draft.exceptionId, scenarioId: draft.scenarioId },
+      payload: PAYLOADS.approval,
     });
   }
 
@@ -571,6 +589,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<Approval>(approvalDecisionPath(approvalId), {
       method: 'POST',
       body: { action: decision.action, comment: decision.comment },
+      payload: PAYLOADS.approval,
     });
   }
 
@@ -586,7 +605,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async reviewApprovalOutcome(approvalId: ApprovalId): Promise<Result<Approval>> {
-    return request<Approval>(approvalOutcomeReviewPath(approvalId), { method: 'POST' });
+    return request<Approval>(approvalOutcomeReviewPath(approvalId), {
+      method: 'POST',
+      payload: PAYLOADS.approval,
+    });
   }
 
   /**
@@ -608,6 +630,7 @@ export class ApiClient implements SiteIntelligenceService {
   async retryWriteBack(approvalId: ApprovalId, writeBackId: string): Promise<Result<WriteBack>> {
     return request<WriteBack>(approvalWriteBackRetryPath(approvalId, writeBackId), {
       method: 'POST',
+      payload: PAYLOADS.writeBack,
     });
   }
 
@@ -629,7 +652,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async listAuditEvents(query: AuditQuery): Promise<Result<AuditEvent[]>> {
-    return request<AuditEvent[], AuditQuery>(auditEventsPath, { query });
+    return request<AuditEvent[], AuditQuery>(auditEventsPath, {
+      query,
+      payload: PAYLOADS.auditEvents,
+    });
   }
 
   /**
@@ -645,7 +671,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getAuditEvent(auditEventId: AuditEventId): Promise<Result<AuditEvent>> {
-    return request<AuditEvent>(auditEventPath(auditEventId));
+    return request<AuditEvent>(auditEventPath(auditEventId), { payload: PAYLOADS.auditEvent });
   }
 
   /**
@@ -660,7 +686,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async verifyAuditChain(): Promise<Result<ChainReport>> {
-    return request<ChainReport>(auditEventsVerifyPath);
+    return request<ChainReport>(auditEventsVerifyPath, { payload: PAYLOADS.chainReport });
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -679,7 +705,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getModelCatalogue(): Promise<Result<ModelCatalogue>> {
-    return request<ModelCatalogue>(modelsPath);
+    return request<ModelCatalogue>(modelsPath, { payload: PAYLOADS.modelCatalogue });
   }
 
   /**
@@ -695,7 +721,9 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async listSuggestedQuestions(): Promise<Result<SuggestedQuestion[]>> {
-    return request<SuggestedQuestion[]>(assistantQuestionsPath);
+    return request<SuggestedQuestion[]>(assistantQuestionsPath, {
+      payload: PAYLOADS.suggestedQuestions,
+    });
   }
 
   /**
@@ -722,6 +750,7 @@ export class ApiClient implements SiteIntelligenceService {
         modelId: draft.modelId,
         contextRefs: draft.contextRefs,
       },
+      payload: PAYLOADS.answer,
     });
   }
 
@@ -742,7 +771,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getSovereigntyStatus(): Promise<Result<SovereigntyStatus>> {
-    return request<SovereigntyStatus>(sovereigntyPath);
+    return request<SovereigntyStatus>(sovereigntyPath, { payload: PAYLOADS.sovereigntyStatus });
   }
 
   /**
@@ -759,7 +788,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getOutboundLedger(query: ListQuery): Promise<Result<LedgerRow[]>> {
-    return request<LedgerRow[], ListQuery>(sovereigntyOutboundLedgerPath, { query });
+    return request<LedgerRow[], ListQuery>(sovereigntyOutboundLedgerPath, {
+      query,
+      payload: PAYLOADS.ledgerRows,
+    });
   }
 
   /**
@@ -776,7 +808,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async listPolicies(query: ListQuery): Promise<Result<PolicyDetail[]>> {
-    return request<PolicyDetail[], ListQuery>(policiesPath, { query });
+    return request<PolicyDetail[], ListQuery>(policiesPath, {
+      query,
+      payload: PAYLOADS.policyDetails,
+    });
   }
 
   /**
@@ -791,7 +826,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getPolicy(policyId: PolicyId): Promise<Result<PolicyDetail>> {
-    return request<PolicyDetail>(policyPath(policyId));
+    return request<PolicyDetail>(policyPath(policyId), { payload: PAYLOADS.policyDetail });
   }
 
   /**
@@ -815,6 +850,7 @@ export class ApiClient implements SiteIntelligenceService {
         expiresAt: draft.expiresAt,
         secondApproverId: draft.secondApproverId,
       },
+      payload: PAYLOADS.policyException,
     });
   }
 
@@ -836,7 +872,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getEvidence(ref: string): Promise<Result<Evidence>> {
-    return request<Evidence, { ref: string }>(evidencePath, { query: { ref } });
+    return request<Evidence, { ref: string }>(evidencePath, {
+      query: { ref },
+      payload: PAYLOADS.evidence,
+    });
   }
 
   /**
@@ -853,7 +892,9 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getDocument(documentId: DocumentId): Promise<Result<DocumentBody>> {
-    return request<DocumentBody>(documentPath(documentId));
+    return request<DocumentBody>(documentPath(documentId), {
+      payload: PAYLOADS.documentBody,
+    });
   }
 
   /**
@@ -871,7 +912,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async listPins(query: ListQuery): Promise<Result<EvidencePin[]>> {
-    return request<EvidencePin[], ListQuery>(evidencePinsPath, { query });
+    return request<EvidencePin[], ListQuery>(evidencePinsPath, {
+      query,
+      payload: PAYLOADS.evidencePins,
+    });
   }
 
   /**
@@ -891,6 +935,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<EvidencePin>(evidencePinReviewPath(pinId), {
       method: 'POST',
       body: { state },
+      payload: PAYLOADS.evidencePin,
     });
   }
 
@@ -908,7 +953,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async listPackages(query: ListQuery): Promise<Result<PpapPackage[]>> {
-    return request<PpapPackage[], ListQuery>(packagesPath, { query });
+    return request<PpapPackage[], ListQuery>(packagesPath, {
+      query,
+      payload: PAYLOADS.ppapPackages,
+    });
   }
 
   /**
@@ -923,7 +971,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getPackage(packageId: PackageId): Promise<Result<PpapPackage>> {
-    return request<PpapPackage>(packagePath(packageId));
+    return request<PpapPackage>(packagePath(packageId), { payload: PAYLOADS.ppapPackage });
   }
 
   /**
@@ -942,6 +990,7 @@ export class ApiClient implements SiteIntelligenceService {
     return request<PpapPackage>(packageElementReviewPath, {
       method: 'POST',
       body: review,
+      payload: PAYLOADS.ppapPackage,
     });
   }
 
@@ -965,6 +1014,7 @@ export class ApiClient implements SiteIntelligenceService {
   async searchIdentifiers(term: string, scope: Scope): Promise<Result<SearchHit[]>> {
     return request<SearchHit[], { term: string } & SelectionParameters>(searchPath, {
       query: { term, ...selectionQuery(scope) },
+      payload: PAYLOADS.searchHits,
     });
   }
 
@@ -986,7 +1036,10 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getTopology(scope: Scope): Promise<Result<Topology>> {
-    return request<Topology, SelectionParameters>(topologyPath, { query: selectionQuery(scope) });
+    return request<Topology, SelectionParameters>(topologyPath, {
+      query: selectionQuery(scope),
+      payload: PAYLOADS.topology,
+    });
   }
 
   /**
@@ -1006,6 +1059,7 @@ export class ApiClient implements SiteIntelligenceService {
   async getCanvasRibbon(scope: Scope): Promise<Result<RibbonTile[]>> {
     return request<RibbonTile[], SelectionParameters>(canvasRibbonPath, {
       query: selectionQuery(scope),
+      payload: PAYLOADS.ribbonTiles,
     });
   }
 
@@ -1027,7 +1081,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getAtlas(): Promise<Result<Atlas>> {
-    return request<Atlas>(atlasPath);
+    return request<Atlas>(atlasPath, { payload: PAYLOADS.atlas });
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -1048,7 +1102,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getSourceCatalogue(): Promise<Result<SourceCatalogue>> {
-    return request<SourceCatalogue>(sourcesPath);
+    return request<SourceCatalogue>(sourcesPath, { payload: PAYLOADS.sourceCatalogue });
   }
 
   /**
@@ -1063,7 +1117,9 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getPlanGrid(plantId: PlantId): Promise<Result<PlanGrid>> {
-    return request<PlanGrid>(plantPlanGridPath(plantId));
+    return request<PlanGrid>(plantPlanGridPath(plantId), {
+      payload: PAYLOADS.planGrid,
+    });
   }
 
   /**
@@ -1077,7 +1133,7 @@ export class ApiClient implements SiteIntelligenceService {
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getExitPackage(): Promise<Result<ExitPackage>> {
-    return request<ExitPackage>(exitPackagePath);
+    return request<ExitPackage>(exitPackagePath, { payload: PAYLOADS.exitPackage });
   }
 
   /* -------------------------------------------------------------------------------------------

@@ -27,10 +27,13 @@
  *
  * WHAT IT DOES NOT DO. It computes nothing, rounds nothing, scales nothing and appends no unit (rule
  * P-6): `value` arrives exactly as the solver or the aggregation produced it, and the only formatting
- * in this tree is `./mono-value.tsx`, reached through `kind`. It re-implements none of the primitives
- * it composes — `./card.tsx` owns the surface and the heading, `./evidence-drawer.tsx` owns the
- * trigger and the dialog, `./status-indicator.tsx` owns the icon-plus-label status — so a change to
- * one of them reaches every tile at once instead of drifting between copies.
+ * in this tree is `./mono-value.tsx`, reached through `kind` — which now names the duration rule
+ * beside the four mono-face ones, so a fractional median or an age in hours reaches the reader as a
+ * whole reading while the number the aggregate computed stays exactly what it was. It re-implements
+ * none of the primitives it composes — `./card.tsx` owns the surface and the heading,
+ * `./evidence-drawer.tsx` owns the trigger and the dialog, `./status-indicator.tsx` owns the
+ * icon-plus-label status — so a change to one of them reaches every tile at once instead of drifting
+ * between copies.
  *
  * ACCESSIBILITY — rule B-3. The figure is the content of the evidence trigger, so its visible text
  * starts the control's accessible name (WCAG 2.2 SC 2.5.3) and the trigger is the only focus stop
@@ -45,13 +48,13 @@
  * a first-party figure with a market-intelligence one (rule P-5) — the label it renders is the one
  * the calling screen supplied for that figure.
  */
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
 import type { SimLabel } from '../types';
 import { Card } from './card';
 import { EvidenceRef } from './evidence-drawer';
-import { MonoValue } from './mono-value';
-import type { MonoValueKind } from './mono-value';
+import { MonoValue, formatHours } from './mono-value';
+import type { FigureFormat } from './mono-value';
 import { StatusIndicator } from './status-indicator';
 
 /** Props of {@link MetricTile}. */
@@ -69,8 +72,9 @@ export interface MetricTileProps {
    * The figure exactly as the service computed it.
    *
    * A number or a string, rendered as it arrives: this component does not round it, scale it, add a
-   * unit to it or recompute it (rule P-6). Formatting, where the figure is an amount, an identifier,
-   * a timestamp or a hash, is the job of `./mono-value.tsx` and is selected by {@link kind}.
+   * unit to it or recompute it (rule P-6). Formatting, where the figure is a duration, an amount, an
+   * identifier, a timestamp or a hash, is the job of `./mono-value.tsx` and is selected by
+   * {@link kind}.
    */
   readonly value: string | number;
 
@@ -92,13 +96,15 @@ export interface MetricTileProps {
   readonly simLabel: SimLabel;
 
   /**
-   * Which of the four rules `./mono-value.tsx` applies to the value.
+   * Which presentation rule `./mono-value.tsx` applies to the value.
    *
    * Omitted for a plain count, which is rendered as the value itself in the tile's own type step;
-   * supplied for an amount, identifier, timestamp or hash, so the mono face and the tabular numerals
-   * AAP §0.5.3 requires reach the figure.
+   * `hours` for a duration, which is formatted to the nearest whole hour and printed in that same
+   * type step, because AAP §0.5.3 fixes the mono face for four other kinds only; and one of the four
+   * mono-face kinds for an amount, identifier, timestamp or hash, so the mono face and the tabular
+   * numerals that section requires reach the figure.
    */
-  readonly kind?: MonoValueKind;
+  readonly kind?: FigureFormat;
 
   /**
    * A short qualifier under the figure, such as the window a count covers, when the screen defines
@@ -143,6 +149,30 @@ const LABEL_CLASSES = 'text-13';
 const GROUP_CLASSES = 'flex min-w-0 flex-col gap-1';
 
 /**
+ * The figure as a reader sees it, under the rule the caller named.
+ *
+ * A duration is formatted and printed as text in the tile's own type step, because AAP §0.5.3 fixes
+ * the mono face for money, identifiers, timestamps and hashes only. An amount, identifier, timestamp
+ * or hash goes through `MonoValue`, which adds that face and the tabular numerals. A figure with no
+ * rule named is the plain count, printed exactly as the aggregate returned it (rule P-6).
+ *
+ * @param value - The figure exactly as the service computed it.
+ * @param kind - The presentation rule the calling screen named, if it named one.
+ * @returns The text or the element the evidence trigger wraps.
+ */
+function figureOf(value: string | number, kind: FigureFormat | undefined): ReactNode {
+  if (kind === 'hours') {
+    return formatHours(value);
+  }
+
+  if (kind === undefined) {
+    return value;
+  }
+
+  return <MonoValue value={value} kind={kind} />;
+}
+
+/**
  * Renders one computed figure as a titled tile with the reference that opens its evidence.
  *
  * The card's heading is the caller's caption, the figure is wrapped in the evidence trigger that is
@@ -162,9 +192,7 @@ export function MetricTile({
     <Card title={label}>
       <div className={GROUP_CLASSES}>
         <span className={VALUE_CLASSES}>
-          <EvidenceRef ref={evidenceRef}>
-            {kind === undefined ? value : <MonoValue value={value} kind={kind} />}
-          </EvidenceRef>
+          <EvidenceRef ref={evidenceRef}>{figureOf(value, kind)}</EvidenceRef>
         </span>
         {hint === undefined ? null : <span className={HINT_CLASSES}>{hint}</span>}
         <StatusIndicator meaning="simulated" label={simLabel} className={LABEL_CLASSES} />

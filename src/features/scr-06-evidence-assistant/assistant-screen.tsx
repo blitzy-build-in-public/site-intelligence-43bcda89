@@ -20,12 +20,18 @@
  * focusable element of its own: the panel's question controls and its composer are the screen's
  * interactive content, and they are rendered by the module that owns their behaviour.
  *
+ * THE PRODUCT EYEBROW ABOVE THE TITLE, SO THE HEADER SLOT READS AS ITS SIBLINGS' DO (rule P-7). The
+ * header carries `Site Intelligence` above the title, the name rule P-7 fixes for the product and the
+ * string scr-01, scr-04, scr-07, scr-12 and scr-13 hand to the same `PageHeader` slot. A name a rule
+ * fixes is no claim about a record, so it needs none of the sourcing a figure would: every route can
+ * state it without an input producing it, which is why the slot reads the same way here as there.
+ *
  * NO ACTION IN THE HEADER, ON PURPOSE (rule P-8). SCR-06's one action is the composer's submit, "Ask a
  * suggested question", and it belongs to the composer because it acts on the question in the field.
  * Repeating it in the header's `actions` slot would create a second focus stop whose effect is not
  * distinct from the first's — a control a reader must visit, that asks the same nothing — which is
- * exactly the dead affordance rule P-8 bars. The header therefore carries the title alone, and this
- * file renders no link and no button.
+ * exactly the dead affordance rule P-8 bars. The header therefore carries the eyebrow and the title
+ * alone, and this file renders no link and no button.
  *
  * NO STATE BOUNDARY, NO QUERY AND NO DERIVATION HERE. The panel reads through the port with React
  * Query and decides the screen state once, in one place, from what those reads settled to (rule P-2).
@@ -34,8 +40,9 @@
  * conflict alike (AAP §0.12.4, specification §8).
  *
  * RULES THIS FILE IS BUILT TO SATISFY.
- * - P-6: the only string it owns is the screen title, which AAP §0.12.4 fixes as SCR-06's name. No
- *   figure, amount, date, identifier or record value is typed here.
+ * - P-6: the only strings it owns are the screen title, which AAP §0.12.4 fixes as SCR-06's name, and
+ *   the product eyebrow, which rule P-7 fixes. No figure, amount, date, identifier or record value is
+ *   typed here.
  * - P-2: no data access at all. The seed, the mock adapter, the API client and the domain modules are
  *   not imported, and `scope` is forwarded to the panel untouched — the service intersects it with the
  *   acting role's plant scope, so narrowing it here would put a second reach rule beside the adapter's.
@@ -55,15 +62,21 @@ import { AssistantPanel } from './assistant-panel';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The one string this screen states.
+ * The strings this screen states.
  *
  * The title is AAP §0.12.4's own name for SCR-06, and the navigation entry that reaches this route
- * carries the same label, so the two cannot describe the route differently. It is held here rather
- * than written into the JSX so the wording has a single owner, the way the sibling screens hold
- * theirs; no eyebrow, description or stage note is added, because every one of those would be a claim
- * an input does not make (rule P-6).
+ * carries the same label, so the two cannot describe the route differently. The eyebrow is the
+ * product name, which rule P-7 fixes rather than a record producing it, and it fills the same
+ * `PageHeader` slot scr-01, scr-04, scr-07, scr-12 and scr-13 fill, so the header reads alike on
+ * every route that carries one. Both are held here rather than written into the JSX so the wording
+ * has a single owner, the way the sibling screens hold theirs. No description and no stage note is
+ * added: a supporting line would be a sentence this screen authored about what the assistant says,
+ * and rule P-6 leaves every such claim to the records.
  */
 const SCREEN_TEXT = {
+  /** The eyebrow above the title: the product name rule P-7 fixes. */
+  eyebrow: 'Site Intelligence',
+
   /** The screen's title, in the one level-one heading it renders through `PageHeader`. */
   title: 'Evidence assistant',
 } as const;
@@ -135,9 +148,9 @@ export function AssistantScreen({
 }: AssistantScreenProps): ReactElement {
   return (
     <div className={SCREEN_CLASSES}>
-      {/* The title alone: the composer's submit is the screen's one action and belongs to the panel
-          (rule P-8), so no `actions` slot is passed. */}
-      <PageHeader title={SCREEN_TEXT.title} />
+      {/* The product eyebrow and the title, and no `actions` slot: the composer's submit is the
+          screen's one action and belongs to the panel (rule P-8). */}
+      <PageHeader title={SCREEN_TEXT.title} eyebrow={SCREEN_TEXT.eyebrow} />
 
       <AssistantPanel variant="page" scope={scope} initialQuestionId={initialQuestionId} />
     </div>

@@ -1867,18 +1867,21 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * `"simulated": true` at its top level, beside the file name and media type a browser offers it
    * under.
    *
-   * The brief's gate is the atlas family's own, evaluated before the file is built, so the export is
-   * refused exactly where the picture is refused and the external supplier engineer reaches neither —
-   * and the API client, which composes the brief from its own atlas read, refuses the same persona for
-   * the same reason (AAP 0.12.3). The brief carries only market-intelligence records, each with its
-   * provenance and its label, so the file cannot be read as a first-party record (rules P-5, P-1).
+   * The brief's gate is the atlas family's own, evaluated once before the file is built and over
+   * the same session pack the file is composed from, so the export is refused exactly where the
+   * picture is refused and the external supplier engineer reaches neither. The API client composes
+   * the brief from its own atlas read, so it refuses the same persona for the same reason (AAP
+   * 0.12.3). The brief carries only market-intelligence records, each with its provenance and its
+   * label, so the file cannot be read as a first-party record (rules P-5, P-1). The document itself
+   * is composed once, by the builder both adapters share, so no payload is composed here and thrown
+   * away.
    *
    * @returns The payload: the suggested file name, the JSON media type and the brief's text.
    * @throws Problem - The `Problem` the atlas family refuses the call with.
    */
   async exportChokepointBrief(): Promise<Result<ExportPayload>> {
     return this.dispatch(async (ctx) => {
-      await atlas.buildChokepointBriefPayload(ctx);
+      atlas.assertChokepointBriefReadable(ctx);
 
       const brief = buildChokepointBrief(ctx.state);
 

@@ -284,10 +284,10 @@ export function useActiveRole(): Role | null {
  * Builds the cache every screen reads through.
  *
  * Query keys are `[method, ...args]`, and the invalidation a write owes the reads it touched is issued
- * by `invalidateAfterWrite` in `./query-cache`, which the owner of each write calls once the port has
- * resolved it, naming the members that write moved. This function only creates the client: it fixes
- * the key convention every screen's reads and every write's invalidation share, and it invalidates
- * nothing itself.
+ * by the owner of each write once the port has resolved it: that write calls
+ * `queryClient.invalidateQueries` for the members it moved, with the key window being the member's own
+ * name. This function only creates the client: it fixes the key convention every screen's reads and
+ * every write's invalidation share, and it invalidates nothing itself.
  *
  * Retries and window-focus refetches are off, and both are deliberate: the demonstration is
  * deterministic (AAP 0.2.1), so a background refetch could replace a figure the reader is midway

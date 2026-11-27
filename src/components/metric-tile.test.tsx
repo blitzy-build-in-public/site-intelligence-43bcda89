@@ -8,9 +8,10 @@
  * beside its status icon — whichever of the seven fixed strings arrives, so the tile labels its own
  * figure rather than leaning on the demonstration badge (rule P-1, AAP §0.10); the evidence dialog
  * opening from the trigger, by pointer and by keyboard, on the reference the tile was given; the
- * qualifier that appears only when the caller supplies one; the value routed through the mono face
- * when the caller names a `kind` — grouped and code-labelled by the money rule for an amount, and the
- * raw figure otherwise; one control and no second; no elevation, since the token layer exposes no
+ * qualifier that appears only when the caller supplies one; the value routed through the module's
+ * presentation rules when the caller names a `kind` — grouped and code-labelled by the money rule for
+ * an amount, presented as whole hours by the duration rule for a duration, and the raw figure
+ * otherwise; one control and no second; no elevation, since the token layer exposes no
  * shadow; and both themes rendering the same three lines.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary a component is allowed to read
@@ -33,7 +34,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEMO_CLOCK, SIM_LABELS } from '../types';
 import type { Evidence, Result, SimLabel } from '../types';
 import { MetricTile } from './metric-tile';
-import type { MonoValueKind } from './mono-value';
+import { formatHours } from './mono-value';
+import type { FigureFormat } from './mono-value';
 
 /**
  * The port member the evidence drawer reads through, replaced before the component under test is
@@ -80,6 +82,12 @@ const COUNT = 42;
  * rule has a group separator to place and a decimal separator to convert. It belongs to no record.
  */
 const AMOUNT = 1234.5;
+
+/**
+ * A duration as an aggregate measures it: a fraction of an hour that no reader can scan, shaped like
+ * the median the overview computes. It belongs to no record.
+ */
+const FRACTIONAL_HOURS = 26.666666666666668;
 
 /** The reference the figure carries, an opaque placeholder rather than a record-identifier shape. */
 const EVIDENCE_REF = 'evidence-under-test';
@@ -128,7 +136,7 @@ function renderTile(element: ReactElement): void {
 /** The props a case varies. An optional prop left off stays absent rather than becoming `undefined`. */
 interface TileOverrides {
   readonly hint?: string;
-  readonly kind?: MonoValueKind;
+  readonly kind?: FigureFormat;
   readonly value?: string | number;
   readonly simLabel?: SimLabel;
 }
@@ -332,6 +340,28 @@ describe('MetricTile', () => {
     expect(text).not.toBe(String(AMOUNT));
     // Grouping and the decimal comma move no digit: the digits read back as the value that arrived.
     expect(text.replace(/[^\d]/g, '')).toBe(String(AMOUNT).replace('.', ''));
+  });
+
+  /*
+   * A duration reaches the one duration formatter, which presents the nearest whole hour as text in
+   * the tile's own type step. AAP §0.5.3 fixes the mono face for money, identifiers, timestamps and
+   * hashes only, so this figure carries neither of those utilities; the value is fractional on
+   * purpose, because the raw aggregate is what must never reach the reader (rule P-6).
+   */
+  it('presents an hours figure as whole hours rather than the raw aggregate', () => {
+    renderTile(tileElement({ kind: 'hours', value: FRACTIONAL_HOURS }));
+
+    const figure = evidenceTrigger();
+    const formatted = within(figure).getByText(formatHours(FRACTIONAL_HOURS));
+
+    // No mono face and no tabular numerals: a duration is not one of the four values that take them.
+    expect(formatted.className).not.toMatch(/font-mono|tabular-nums/);
+    // The float the aggregate measured is not on screen, and the whole hour is.
+    expect(within(figure).queryByText(String(FRACTIONAL_HOURS))).toBeNull();
+    expect(formatted).toBeVisible();
+    // The figure still starts the trigger's accessible name, and the label is still on the tile.
+    expect(figure).toHaveAccessibleName(new RegExp(escapeForPattern(visibleFigure(figure))));
+    expect(within(tileRegion()).getByText(SIM_LABEL)).toBeVisible();
   });
 
   it.each(THEMES)('renders its caption, figure and label under the %s theme', (theme) => {

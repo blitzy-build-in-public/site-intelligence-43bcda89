@@ -76,16 +76,28 @@ const SIMULATED_DATA_BADGE = /^Simulated data at /;
 const EVIDENCE_SUFFIX = '— open evidence';
 
 /**
+ * Section 1 of the drawer, which states a figure's value and the rule that produced it.
+ */
+const EVIDENCE_VALUE_SECTION = 'Value and formula';
+
+/**
  * The evidence drawer's four section captions, in the order `src/components/evidence-drawer.tsx`
  * renders them (AAP §0.12.4: value, provenance, formula and inputs, upstream and downstream, and
  * confidence).
  */
 const EVIDENCE_SECTIONS: readonly string[] = [
-  'Value and formula',
+  EVIDENCE_VALUE_SECTION,
   'Source, record and time',
   'Inputs, upstream and downstream',
   'Confidence, missing inputs and documents',
 ];
+
+/**
+ * The failure region's headline, as `src/components/evidence-drawer.tsx` states it: the drawer's own
+ * sentence for a read it could not complete. A figure whose evidence resolves shows it nowhere, so its
+ * absence is what tells an aggregate reference apart from a reference nothing answers.
+ */
+const EVIDENCE_FAILURE_HEADLINE = 'The evidence behind this figure could not be read';
 
 /**
  * The queue's columns in the order `src/features/scr-02-exception-queue/exception-queue-screen.tsx`
@@ -936,18 +948,28 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
 
   await openExceptionsFigure.click();
 
-  const tileDrawer = page.getByRole('dialog', { name: 'Evidence', exact: true });
-  await expect(tileDrawer, 'a tile’s figure opens the evidence drawer').toBeVisible();
+  const tileDrawer = await expectEvidenceDrawerSections(page);
 
   /*
-   * GAP: an overview figure's reference is the composed aggregate reference (`overview:<aggregate>`),
-   * and `getEvidence` resolves record identifiers only, so the drawer opens on that reference and
-   * reports that no record answers it. The screen records this as its own first gap; the drawer is
-   * asserted to open, and no section content is asserted for an aggregate figure here.
+   * An aggregate figure's reference — `overview:<aggregate>` — is answered by the service's evidence
+   * read from the same aggregation module the tile itself is built by, so the drawer opens on the
+   * figure's own sections: the record row quotes the reference the screen composed, the value section
+   * states the count the tile shows, and the failure region appears nowhere.
    */
-  await expect(tileDrawer, 'the drawer states which figure it was opened for').toContainText(
-    'overview:',
-  );
+  await expect(
+    tileDrawer,
+    'the drawer states which figure it was opened for',
+  ).toContainText('overview:');
+
+  await expect(
+    tileDrawer.getByRole('region', { name: EVIDENCE_VALUE_SECTION }),
+    'the aggregate’s own value is stated rather than a failure',
+  ).toContainText(`${openExceptionCount} `);
+
+  await expect(
+    tileDrawer.getByText(EVIDENCE_FAILURE_HEADLINE),
+    'no failure region stands where an aggregate figure’s evidence belongs',
+  ).toHaveCount(0);
 
   await page.keyboard.press('Escape');
   await expect(tileDrawer).toBeHidden();

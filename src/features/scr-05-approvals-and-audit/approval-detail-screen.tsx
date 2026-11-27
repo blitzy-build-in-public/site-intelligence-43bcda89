@@ -83,9 +83,10 @@
  *   the approval's own identifier, exactly as the inbox's figure columns do (`APR-` reference to
  *   `GET /evidence?ref=`).
  * - The cache invalidation after a decision is performed here through `queryClient.invalidateQueries`
- *   with the port member's own name as the key prefix, instead of the shell's `invalidateAfterWrite`
- *   helper: this module may not import `src/app`, and the helper's whole body is that one call per
- *   read. The reads a decision moves are named once, below.
+ *   with the port member's own name as the key prefix, rather than through a helper owned by the
+ *   shell: this module may not import `src/app`, and a write's invalidation is one call per read, so
+ *   the grant-exception dialog declares the same helper beside its own write. The reads a decision
+ *   moves are named once, below.
  * - No control reviews the outcome (`reviewApprovalOutcome`). AAP §0.12.4's SCR-05 row asks the card
  *   to set planned against resulting figures and asks nothing of a review action, so none is offered
  *   rather than one the inputs do not name.

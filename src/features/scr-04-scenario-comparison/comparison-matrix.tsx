@@ -78,7 +78,7 @@ import { MonoValue } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
-import { SIM_LABELS } from '../../types';
+import { CANNOT_COMPUTE_LABEL, SIM_LABELS } from '../../types';
 import type {
   ConstraintCheck,
   Rejected,
@@ -91,18 +91,21 @@ import type {
 } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
- * The wording, in the one place it is written
+ * The wording: the fixed string this component reads, and the words it states itself
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The cell a measure shows when its option's constraint check failed.
+ * The cell a measure shows when its option's constraint check failed, re-exported from the shared
+ * vocabulary.
  *
  * The wording is AAP §0.2.2's and §0.8's own — "the interface shows 'Cannot compute' with that
- * reason" — so it is stated here once, character for character, and exported so the screen's suite
- * asserts the exact text against this single owner instead of retyping it. A paraphrase would be a
- * wording change to a string the plan fixes.
+ * reason" — and its single copy sits in `src/types/primitives.ts`, beside the seven labels, because
+ * the comparison CSV states the same words and a service module may not import a feature module to
+ * reach them (AAP §0.18.1). It is re-exported here so this screen's components and suites keep
+ * reading the exact text from the module they already import instead of retyping it, and so no
+ * second copy of it can drift.
  */
-export const CANNOT_COMPUTE_LABEL = 'Cannot compute';
+export { CANNOT_COMPUTE_LABEL };
 
 /**
  * Every word this matrix states itself, held here so its wording has one owner.

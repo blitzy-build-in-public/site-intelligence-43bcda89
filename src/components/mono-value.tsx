@@ -1,6 +1,6 @@
 /**
  * The presentation formatter of the interface's own figures: one amount carrying its currency code,
- * and one identifier, timestamp and hash style in the tabular mono face.
+ * one duration in hours, and one identifier, timestamp and hash style in the tabular mono face.
  *
  * `platform-contracts.md` §1 fixes the conventions rendered here — a EUR amount carrying at most two
  * decimals with a thousands separator, an instant as ISO 8601 with an offset in Europe/Berlin, the
@@ -9,19 +9,60 @@
  * the interface's own figures, because a second presentation formatter would let two screens show one
  * record at two different values.
  *
- * Two sibling sites format an amount for a purpose that is not the interface's, and each belongs to
- * its own module: `src/services/mock/exports/scenario-csv.ts` renders a machine-readable CSV cell for
- * a spreadsheet — dot decimal, no grouping, exactly two decimals — and never reaches a screen, while
- * `src/services/mock/assistant-script.ts` renders the amount a prose answer states — grouped, at most
- * two decimals, no currency code — before any component renders it. Neither competes with this module
- * for a screen: each answers to its own consumer, and where its convention differs from this module's,
- * the MONEY_FORMAT note below records that both renderings are deliberate.
+ * ONE MONEY FIGURE REACHES A READER IN FOUR SHAPES, AND ALL FOUR ARE DELIBERATE. This passage is the
+ * only record of that decision, and every other site in the tree points here instead of restating it:
+ *
+ * 1. An amount in one of the interface's own figures — `MONEY_FORMAT` below. It is written with
+ *    `de-DE`, the currency as the code `EUR`, and a full stop between thousands, which is the grouping
+ *    locale AAP §0.8 names for the one locale the inputs fix (Europe/Berlin).
+ * 2. An amount inside a record's own sentence — grouped with a comma, and marked by the `EUR ` prefix
+ *    the sentence itself carries. `src/services/mock/assistant-script.ts` composes such a sentence from
+ *    a template the seed owns, and the template writes the marker as its own text; AAP §0.8 quotes the
+ *    resulting shape verbatim — "Spends EUR 21,300 and defers 900 Brno service kits (EUR 108,000) by 10
+ *    days to avoid EUR 2,257,000 of delayed revenue." The prose formatter groups the digits and neither
+ *    adds nor moves the marker, because that marker is the record's content and rule P-6 admits no
+ *    currency marker a service module writes of its own accord.
+ * 3. A CSV field — `src/services/mock/exports/scenario-csv.ts`. That file is a spreadsheet interchange
+ *    format and never reaches a screen, so it is written for a reader's engine rather than a reader's
+ *    eye: a dot decimal, no grouping separator and exactly two decimals.
+ * 4. An amount inside an aggregate's evidence — `src/services/mock/handlers/evidence.ts`. The drawer a
+ *    computed figure opens states that figure as the aggregate's own number, ungrouped, with the unit
+ *    named in words in the reading itself: the Overview's revenue tile prints `3.348.000 EUR` here and
+ *    its drawer reads `3348000 euro of revenue at risk`, and a by-plant bar's drawer reads the same
+ *    number the same way with the plant named. It is composed there rather than formatted here because
+ *    the service tier may not import `src/components` — AAP §0.18.1's boundary discipline keeps every
+ *    figure on the port with nothing of this layer behind it, and rule P-2 keeps the reading inside the
+ *    typed service interface — and because the number has to stay the aggregate's own exact figure, so
+ *    that a drawer and the tile it explains cannot disagree. No formatter is added at that site: the
+ *    handler concatenates the member the aggregate returned and the words the reading already holds.
+ *
+ * A fifth rendering is not a fifth decision. A surface that needs an amount written another way adds
+ * no formatter of its own — it records the departure in this passage first, so a maintainer reads one
+ * record instead of four modules re-litigating the same figure.
+ *
+ * WHAT A DURATION IS, AND WHERE ITS UNIT LIVES. A duration arrives as the exact difference the domain
+ * measured, and this module renders it as the nearest whole hour, because nobody can scan
+ * `145.08333333333334` off a card. It is presentation alone: `src/domain/aggregation/overview.ts` keeps
+ * the median of the fourth Overview tile unrounded as AAP §0.8 fixes it, and nothing here writes back to
+ * that value. The unit is not appended here either — the screen owns the caption that names it
+ * ("Age (hours)", "Median hours to approved plan"), so a figure that spelled its own unit would state it
+ * twice.
+ *
+ * One duration is not rendered here at all, for rendering 4's reasons: the median the fourth Overview
+ * tile carries reaches its evidence drawer as the aggregate's own unrounded figure, with the unit named
+ * in words in the reading ("26.666666666666668 hours from detection to an approved plan, unrounded"),
+ * which `src/services/mock/handlers/evidence.ts` composes because the service tier may not import this
+ * module and the drawer has to print the figure the tile was computed from. The reading says "unrounded"
+ * in its own words, so the exact value is never passed off as the whole-hour width the tile shows.
  *
  * Formatting never changes a value (AAP §0.8, rule P-6). The money rule groups and labels what it is
- * handed and never re-rounds, re-scales or appends a unit of its own; the other three rules render
- * their string character for character. The mono face and the tabular numerals are AAP §0.5.3's
+ * handed and never re-rounds, re-scales or appends a unit of its own; the duration rule's fraction
+ * ceiling is a width on the text rather than an arithmetic step on the value, and it calls no rounding
+ * helper — AAP §0.8 keeps every one of those in `src/domain/solver/rounding.ts`. The other three rules
+ * render their string character for character. The mono face and the tabular numerals are AAP §0.5.3's
  * requirement, so amounts, identifiers, timestamps and hashes align down a column and read as one
- * class of value inside a sentence.
+ * class of value inside a sentence; a duration is not one of them and keeps the type step of the tile
+ * it sits in.
  *
  * A value with no formatted form is shown as the raw input rather than as a formatted `NaN` or a
  * silent zero (rule P-6): a wrong number on screen is the failure that rule exists to prevent, and a
@@ -30,14 +71,30 @@
 import type { ReactElement } from 'react';
 
 /**
- * The four kinds of value this component renders, and the whole of its formatting state space.
+ * The four kinds of value this component renders in the mono face, and the whole of its formatting
+ * state space.
  *
  * One kind is one rule: `money` groups and labels a EUR amount, and `id`, `timestamp` and `hash`
  * pass their string through unchanged. The caller states which kind a value is, so the component
  * never guesses from the value's shape — a nine-digit purchase order number and a nine-figure
  * amount would otherwise be indistinguishable.
+ *
+ * A duration is deliberately not one of the four. AAP §0.5.3 fixes the mono face and its tabular
+ * numerals for money, identifiers, timestamps and hashes only, so an hours reading keeps the type
+ * step of the tile it sits in; {@link FigureFormat} carries it for the tiles, and this component
+ * keeps accepting the four it can render.
  */
 export type MonoValueKind = 'money' | 'id' | 'timestamp' | 'hash';
+
+/**
+ * Every presentation rule this module owns, and the vocabulary a figure on a tile may name.
+ *
+ * The four {@link MonoValueKind} members are rendered by `MonoValue` in the mono face; `hours` is
+ * rendered as text through {@link formatHours} in the tile's own type step. The set is stated once
+ * here rather than as a second list on `MetricTile`, so a new presentation rule is defined in the
+ * module that owns formatting and every call site that could name it sees it at once.
+ */
+export type FigureFormat = MonoValueKind | 'hours';
 
 /** Props of {@link MonoValue}. */
 export interface MonoValueProps {
@@ -91,12 +148,10 @@ export const MONO_VALUE_CLASSES = {
  * post-processing step would put a second formatting rule inside the module that is meant to hold
  * exactly one.
  *
- * Two renderings of one figure therefore coexist in this build, and only one of them is this
- * module's. The plan's prose and the seed records' own sentences quote an amount with the currency
- * code first and a comma as the thousands separator; those sentences are record text, rendered
- * verbatim by the record that owns them. This component emits the amount first, a full stop as the
- * thousands separator and the currency code last, which is the `de-DE` convention fixed above.
- * Neither rendering is a typo in the other, so do not "fix" the separator in a seed record or here.
+ * This is the first of the four renderings the module header records, and the only one this module
+ * emits: an amount in one of the interface's own figures. A sentence a record owns quotes its amount
+ * with the code first and a comma between thousands — rendering 2 there — and neither shape is a typo
+ * in the other, so do not "fix" the separator in a seed record or here.
  */
 const MONEY_FORMAT = new Intl.NumberFormat('de-DE', {
   style: 'currency',
@@ -127,6 +182,48 @@ const MONEY_FORMAT = new Intl.NumberFormat('de-DE', {
 export function formatMoney(value: number | string): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return MONEY_FORMAT.format(value);
+  }
+
+  return String(value);
+}
+
+/**
+ * The interface's one duration formatter, created once at module load beside the money rule, because
+ * compiling a locale's number pattern is the expensive part of formatting.
+ *
+ * The options are the nearest whole hour: the `de-DE` locale of the money rule, so both rules group
+ * and read alike, and a fraction range of zero digits, so a duration such as `145.08333333333334`
+ * reads as `145`. That width is the whole of this rule's arithmetic — it calls no `toFixed`, no
+ * `Math.round` and no helper from `src/domain/solver/rounding.ts`, because AAP §0.8 keeps every
+ * rounding helper there and gives this module presentation alone. What it formats is not changed
+ * either: the median the Overview tile shows stays the unrounded number the aggregate computed, so a
+ * screen that reads the member again reads the same one.
+ *
+ * The unit is not part of the text: the caption that names it ("Age (hours)", "Median hours to
+ * approved plan") belongs to the screen, so appending it here would state it twice.
+ */
+const HOURS_FORMAT = new Intl.NumberFormat('de-DE', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+/**
+ * Formats one duration in hours, or hands back the input's own text when it has no formatted form.
+ *
+ * The contract is {@link formatMoney}'s, which is rule P-6's subject in both cases: only a finite
+ * number is formatted, a string is returned untouched rather than parsed, and a value with no
+ * formatted form keeps the raw input on screen as the marker of the defect — never a formatted `NaN`
+ * and never a substituted zero. Every surface that renders a duration itself calls this function, so
+ * the exception queue's age column and the canvas's urgency card read one record's hours the same way;
+ * the one duration a service composes — an aggregate's unrounded median, stated in the words of its
+ * evidence reading — never passes through it, as the module header records.
+ *
+ * @param value - The duration in hours, exactly as the record or the aggregate states it.
+ * @returns The nearest whole hour, or the input as text.
+ */
+export function formatHours(value: number | string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return HOURS_FORMAT.format(value);
   }
 
   return String(value);
