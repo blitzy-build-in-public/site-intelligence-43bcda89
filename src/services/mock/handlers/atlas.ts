@@ -53,10 +53,12 @@
  * A THIRD FAILURE THAT IS NOT A `Problem`, ON PURPOSE. A pack whose competitor network or crossing
  * carries a first-party provenance, or whose series carries a label its provenance contradicts, would
  * put a mislabelled element on the radar and the network view — the mix rule P-5 forbids, arriving
- * through the data rather than through the code. That is a broken record set rather than a refused
- * call, so it throws an `Error` and fails the session loudly, as `src/services/mock/mock-state.ts`
- * does when the record set holds no persona. A `Problem` would report it as one call's outcome and
- * leave every later call to render the same mislabelled record.
+ * through the data rather than through the code. The same holds for a pack the selector cannot
+ * narrow: a competitor series naming no network the pack holds, or a network stating no product class
+ * the atlas offers. Both are broken record sets rather than refused calls, so they throw an `Error`
+ * and fail the session loudly, as `src/services/mock/mock-state.ts` does when the record set holds no
+ * persona. A `Problem` would report it as one call's outcome and leave every later call to render the
+ * same broken record.
  *
  * DETERMINISTIC AND SIDE-EFFECT FREE. The same state yields an equal payload on every call: records
  * are copied in the order the pack holds them, every member is written in one fixed order, and no
@@ -72,8 +74,8 @@
  *
  * Rules this module is built to satisfy:
  * - P-5: the families are separate members, `provenance` is required, the client series and the
- *   competitor series carry their own labels, and the pack's provenance is checked before it is
- *   served.
+ *   competitor series carry their own labels, and the pack's provenance and its product-class
+ *   classification are both checked before the pack is served.
  * - P-1: every label comes from the fixed vocabulary of `src/types/primitives.ts`; none is retyped
  *   or paraphrased, and the client series carries no second label from the seven-value union beside
  *   its own companion string.
@@ -89,17 +91,19 @@
  * - B-1, B-2: no request is made (the pack is seeded, never fetched) and no credential shape or
  *   environment read appears.
  *
- * THE SELECTOR'S PRODUCT CLASS NARROWS NOTHING INSIDE THE PAYLOAD, AND THE READ TAKES NO ARGUMENT.
- * `getAtlas` takes the session and serves the pack whole, because no market-intelligence record
- * carries a product-class member: `CompetitorNetwork`, `AtlasSite`, `AtlasLane`, `Chokepoint` and
- * `AtlasSeries` have none, and a class is an attribute of the client's own `Product` records.
- * Selecting a competitor by a first-party product attribute would be the blend rule P-5 forbids, and
- * narrowing the client's plants by it would need a product-to-line-to-plant join that no input asks
- * the handler for. The whole pack therefore arrives in one payload — which is what the port's own
- * `getAtlas` documentation states it is for, "so the screen's selector switches between the client
- * and a competitor without a second call" — and the selector narrows what the screen draws. If the
- * seed document is supplied with a class on each competitor network, the read gains an argument that
- * filters on that field, and nothing else changes.
+ * THE SELECTOR'S PRODUCT CLASS IS RECORD CONTENT AND A READ ARGUMENT (AAP 0.12.4). The pack's records
+ * carry the classification the selector filters on: `CompetitorNetwork.productClasses` states the
+ * client product classes a competitor's network competes in, `AtlasSeries.competitorId` names the
+ * network a series scores, and {@link assertPackClassification} refuses a pack where either states
+ * something the atlas cannot resolve. `getAtlas` accepts an optional class so a caller can name the
+ * class it is asking about, and it refuses an unknown one with a `'not-found'` `Problem` naming it; a
+ * known class serves the whole payload, because one read answers every class the selector offers —
+ * which is what the port's own `getAtlas` documentation states it is for, "so the screen's selector
+ * switches between the client and a competitor without a second call". SCR-13 narrows the series,
+ * networks, sites and crossings it draws by that classification, so choosing a class changes what the
+ * radar, the legend and the network view hold and not only the sentence beside the control (AAP
+ * 0.12.4, rule P-8). No figure crosses the families while it does: the class classifies a competitor
+ * rather than stating a first-party reading of one, so the blend rule P-5 is untouched.
  */
 
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
@@ -108,9 +112,11 @@ import type {
   Atlas,
   AtlasSeries,
   AtlasSite,
+  CompetitorId,
   CompetitorNetwork,
   Permission,
   Problem,
+  ProductId,
   Provenance,
   RadarAxis,
   Role,
@@ -217,6 +223,31 @@ function assertCompetitiveRead(ctx: HandlerContext): void {
   }
 }
 
+/**
+ * The failure an unknown product class is refused with.
+ *
+ * The argument names a class the selector offers, so an identifier the records do not hold is a
+ * request for something the pack cannot answer: `'not-found'` is that cause in the contracts §2
+ * vocabulary, and the message names the class it was given and the ones the atlas does offer, both
+ * interpolated from the records so neither list is typed here (rule P-6).
+ *
+ * @param offered - The product classes the seeded records publish.
+ * @param requested - The class the caller asked for.
+ * @returns The failure to throw.
+ */
+function unknownProductClassProblem(
+  offered: readonly ProductId[],
+  requested: ProductId,
+): Problem {
+  return {
+    type: 'not-found',
+    message:
+      `The competitive atlas has no product class ${requested}. The classes it offers are ` +
+      `${offered.join(', ')}.`,
+    traceId: '',
+  };
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The pack's provenance, checked before it is served — rule P-5
  * ------------------------------------------------------------------------------------------- */
@@ -283,6 +314,83 @@ function assertPackProvenance(pack: MarketIntelligencePack): void {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The pack's classification and joins, checked before it is served — AAP 0.12.4, rule P-6
+ * ------------------------------------------------------------------------------------------- */
+
+/** The classes a record states, or the words for a record that states none, so a message reads. */
+function describeClasses(productClasses: readonly ProductId[]): string {
+  return productClasses.length === 0 ? 'no product class' : productClasses.join(', ');
+}
+
+/** The network a series names, or the words for a series that names none. */
+function describeSeriesJoin(competitorId: CompetitorId | null): string {
+  return competitorId === null
+    ? 'naming no competitor network'
+    : `naming the competitor network ${competitorId}`;
+}
+
+/**
+ * Fails loudly when the seeded pack's product-class classification or its series join is broken.
+ *
+ * Two properties are checked, and both are properties of the records rather than of one call, which
+ * is why a breach throws an `Error` instead of returning a `Problem` — the same reason
+ * {@link assertPackProvenance} beside it does:
+ *
+ * 1. A market-intelligence series names a competitor network the pack holds. That series is drawn as
+ *    that competitor's reading, and SCR-13 narrows the series by the product class of the network its
+ *    `competitorId` names, so a join the pack cannot resolve would silently hide a competitor's
+ *    score from every class the selector offers (AAP 0.12.4).
+ * 2. Every competitor network states at least one product class the atlas offers. A network
+ *    classified in nothing would be drawn under no class the selector names, and one classified in an
+ *    identifier the client's own product records do not hold would make the selector's list and the
+ *    classification disagree about the same vocabulary.
+ *
+ * The messages quote the offending record's own identifier and the values it states, both
+ * interpolated, so the report points at the record to fix without an identifier or a class being
+ * written in this file (rule P-6).
+ *
+ * @param pack - The seeded market-intelligence pack the call is about to serve.
+ * @param offered - The product classes the client's own product records publish.
+ * @throws Error - A market-intelligence series names no network the pack holds, or a competitor
+ *   network states no class the atlas offers.
+ */
+function assertPackClassification(
+  pack: MarketIntelligencePack,
+  offered: readonly ProductId[],
+): void {
+  const heldNetworks = pack.competitors.map((network) => network.competitorId);
+  const held = new Set<CompetitorId>(heldNetworks);
+
+  for (const series of pack.radarSeries) {
+    if (series.provenance !== MARKET_INTELLIGENCE) {
+      continue;
+    }
+
+    if (series.competitorId === null || !held.has(series.competitorId)) {
+      throw new Error(
+        `The market-intelligence pack records series ${series.id} with provenance ` +
+          `${MARKET_INTELLIGENCE} and ${describeSeriesJoin(series.competitorId)}, and the pack ` +
+          `holds the competitor networks ${heldNetworks.join(', ')}. A competitor series must name ` +
+          `a network the pack records, because the atlas narrows it by that network's product class.`,
+      );
+    }
+  }
+
+  for (const network of pack.competitors) {
+    if (network.productClasses.some((productClass) => offered.includes(productClass))) {
+      continue;
+    }
+
+    throw new Error(
+      `The market-intelligence pack records competitor network ${network.competitorId} in ` +
+        `${describeClasses(network.productClasses)}, and the atlas offers ` +
+        `${describeClasses(offered)}. A competitor network must state a class the atlas offers, ` +
+        'because the selector filters the networks by it.',
+    );
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
  * One element of the payload — every member copied, no value derived (rules P-5 and P-6)
  * ------------------------------------------------------------------------------------------- */
 
@@ -312,7 +420,9 @@ function clientSiteOf(plant: Plant): AtlasSite {
  * Composed rather than spread so the key order of every site and lane is fixed by this function, and
  * so each nested record is a fresh object: a screen that edited a returned site would edit its own
  * copy rather than the session's seeded record (contracts §1 keeps the state in memory until a reset).
- * The provenance is copied, not assumed, so the payload says where the network came from.
+ * The provenance is copied, not assumed, so the payload says where the network came from, and the
+ * product classes are copied as a fresh list because they are what SCR-13's selector filters on —
+ * the screen reads them and writes neither (AAP 0.12.4).
  *
  * @param network - One competitor network of the pack.
  * @returns The network as the atlas publishes it.
@@ -322,6 +432,7 @@ function competitorNetworkOf(network: CompetitorNetwork): CompetitorNetwork {
     competitorId: network.competitorId,
     label: network.label,
     provenance: network.provenance,
+    productClasses: [...network.productClasses],
     sites: network.sites.map((site) => ({ ...site })),
     lanes: network.lanes.map((lane) => ({ ...lane })),
   };
@@ -367,7 +478,10 @@ function radarAxisOf(axis: RadarAxis): RadarAxis {
  * Both the provenance and the label are the record's own, which is what keeps the client's
  * self-assessment and the competitors' estimates apart inside one list (rule P-5), and the label is
  * copied rather than re-derived so the fixed string stays with the record that owns the reading
- * (rule P-1). The scores are copied so the payload cannot be used to write into the seeded record.
+ * (rule P-1). `competitorId` is copied beside them: it is the join that lets a screen match this
+ * series to the network it scores, and `null` on the client's own series is what tells the two
+ * families apart there (AAP 0.12.4). The scores are copied so the payload cannot be used to write
+ * into the seeded record.
  *
  * @param series - One series of the pack.
  * @returns The series as the atlas publishes it.
@@ -375,6 +489,7 @@ function radarAxisOf(axis: RadarAxis): RadarAxis {
 function radarSeriesOf(series: AtlasSeries): AtlasSeries {
   return {
     id: series.id,
+    competitorId: series.competitorId,
     label: series.label,
     provenance: series.provenance,
     simLabel: series.simLabel,
@@ -399,23 +514,30 @@ function radarSeriesOf(series: AtlasSeries): AtlasSeries {
  * record were mis-seeded without it; the release label travels with the atlas so the chokepoint brief
  * can be composed over this read alone, by both adapters (AAP 0.12.1 "Exports" row).
  *
- * The read takes the session and nothing else, and serves the pack whole for the reason the module
- * header records: no market-intelligence record carries a product-class member, so narrowing a
- * competitor by a first-party product attribute would be the blend rule P-5 forbids. The SCR-13
- * selector narrows what the screen draws — the entity list and the statements beside it — and never
- * what this read returns.
+ * `productClass` is validated before the pack is served: an unknown class is refused as `'not-found'`,
+ * naming it and the classes the atlas offers, and the pack's own classification is checked first, so
+ * every competitor network states the product classes it competes in and every competitor series names
+ * the network it scores (see `assertPackClassification`). A known class serves the whole payload,
+ * because one read answers every class the selector offers and the screen narrows what it draws — the
+ * class is record content the screen filters on as well as a read parameter (the module header records
+ * that split).
  *
  * Two calls over one session return equal payloads: the records are read in the order the pack holds
  * them and nothing is accumulated, ordered by a derived key or read from a clock.
  *
  * @param ctx - The session's state and the persona the call acts as.
+ * @param productClass - The product class the caller is asking about, when it names one.
  * @returns The atlas payload SCR-13 renders.
  * @throws Problem - `type: 'permission'` when the persona may not read the pack or the simulation's
- *   forbidden trigger is set.
+ *   forbidden trigger is set; `type: 'not-found'` when `productClass` is not a class the records hold.
  * @throws Error - The seeded pack would put a mislabelled element on screen (see
- *   `assertPackProvenance`).
+ *   `assertPackProvenance`), or its product-class classification or its series join is broken (see
+ *   `assertPackClassification`).
  */
-export async function getAtlas(ctx: HandlerContext): Promise<Atlas> {
+export async function getAtlas(
+  ctx: HandlerContext,
+  productClass?: ProductId,
+): Promise<Atlas> {
   assertCompetitiveRead(ctx);
 
   const records = ctx.state.records;
@@ -424,6 +546,12 @@ export async function getAtlas(ctx: HandlerContext): Promise<Atlas> {
   assertPackProvenance(pack);
 
   const productClasses = records.products.map((product) => product.id);
+
+  assertPackClassification(pack, productClasses);
+
+  if (productClass !== undefined && !productClasses.includes(productClass)) {
+    throw unknownProductClassProblem(productClasses, productClass);
+  }
 
   return {
     packLabel: ATLAS_PACK_BANNER,

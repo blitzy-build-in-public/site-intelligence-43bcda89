@@ -38,26 +38,18 @@
  * family then looks its own records up by exact identifier. The order below is the order the lookup
  * walks, and it is deterministic: the two composed roots first, because they are the screens' own
  * references and match no identifier prefix; then `atlas:`; then the record families with the longer
- * prefixes first, so `PPAP-` is tested before `PO-` and `POL-` before the shorter `PO-`; then the
- * seven node families the topology and the impact chain carry; and last the one family with no
- * prefix, the declared outbound endpoint, which is selected by the endpoint string its ledger row
- * states. A reference matching no family, or matching one whose records hold no such identifier, is
+ * prefixes first, so `PPAP-` is tested before `PO-` and `POL-` before the shorter `PO-`; then the four
+ * families the atlas's own marks carry, so the evidence behind a crossing, a competitor site or network
+ * and a radar reading is exactly as readable as the mark itself; then the seven node families the
+ * topology and the impact chain carry; and last the one family with no prefix, the declared outbound
+ * endpoint, which is selected by the endpoint string its ledger row states. A reference matching no family, or matching one whose records hold no such identifier, is
  * refused as `'not-found'` naming the reference. There is no fuzzy match, no prefix search over the
- * records and no fall-back to "the first record" — a drawer that silently showed a neighbouring
- * figure would be worse than one that reports the reference it could not resolve. The families, in
- * order: composed aggregate (`overview:`, `canvas:`), atlas series (`atlas:`), package, exception,
- * scenario, approval, audit event, evidence pin, document, customer order, policy, purchase order,
- * plant, supplier, origin, customer, material, production line, product, outbound endpoint.
- *
- * THE TWO FAMILIES SCR-07 OPENS ITS FIGURES FROM — principle PR-6, rule P-6. A ledger count and a
- * policy identifier are figures the governance screen prints, so each of them has to open its evidence
- * the way any other figure does (AAP 0.2.1 F12). Neither underlying record carries a reference to
- * hold, and `LedgerRow`, `PolicyDetail` and `Evidence` are not widened from a handler — contracts §3
- * fixes their members — so the reference is one the record already states: a policy is named by its
- * own identifier, and an outbound endpoint by the endpoint string the declared configuration gives it,
- * which is that ledger row's own key. The endpoint family is therefore the one family selected by an
- * exact declared value rather than by a prefix, and it is tested after every prefix branch so that no
- * prefix can shadow it.
+ * records and no fall-back to "the first record" — a drawer that silently showed a neighbouring figure
+ * would be worse than one that reports the reference it could not resolve. The families, in order:
+ * composed aggregate (`overview:`, `canvas:`), atlas series (`atlas:`), package, exception, scenario,
+ * approval, audit event, evidence pin, document, customer order, policy, purchase order, shared
+ * chokepoint, competitor site and network, radar series reading, plant, supplier, origin, customer,
+ * material, production line, product, outbound endpoint.
  *
  * THE COMPOSED AGGREGATE REFERENCE — AAP 0.2.1 F12, principle PR-6. A computed figure has no record
  * identifier of its own, so the two surfaces that draw one compose a reference naming the aggregate and
@@ -80,7 +72,33 @@
  * product the records do not hold, and a second product list are refused rather than trimmed or
  * widened, because a drawer computed over a population the reference did not name would state a figure
  * the screen never drew.
-
+ *
+ * THE ATLAS FAMILIES ANSWER THE MARKS SCR-13 DRAWS — AAP 0.2.1 F12, AAP 0.12.4. The competitive atlas
+ * draws one mark per radar reading, per site and per shared crossing, and every one of them opens the
+ * record behind it, so this read resolves four further families beside the composed `atlas:` series:
+ * `CHK-nn`, one crossing of the simulated market-intelligence pack; `CMP-nn-Sn`, a competitor's site,
+ * and `CMP-nn`, the network that owns it; `SER-…`, one radar reading, written `<series id>` for the
+ * whole series or `<series id>#<axis id>` for the single score a vertex draws; and `PLT-…`, one of the
+ * client's own plants, which is the client site the network view places. A `#` naming no axis of the
+ * pack, a series the pack does not hold, and a series carrying no score at the axis it was asked for
+ * are all refused as `'not-found'` naming the reference, like every other unresolvable identifier.
+ * The pack is not plant-scoped and it is not reachable without its own permission (rule P-5, AAP 0.8):
+ * a crossing, a competitor's site or network and a radar reading carry no plant subject, so `subjectOf`
+ * narrows none of them, and they are refused to a persona that may not read the pack at all, because
+ * `getAtlas` withholds the whole read from that persona and a reference must not reach a record the
+ * corresponding list read would have withheld. A client plant is a plant-scoped first-party record and
+ * is narrowed to the acting persona's plant scope exactly as every other record that names a plant is.
+ *
+ * THE TWO FAMILIES SCR-07 OPENS ITS FIGURES FROM — principle PR-6, rule P-6. A ledger count and a
+ * policy identifier are figures the governance screen prints, so each of them has to open its evidence
+ * the way any other figure does (AAP 0.2.1 F12). Neither underlying record carries a reference to
+ * hold, and `LedgerRow`, `PolicyDetail` and `Evidence` are not widened from a handler — contracts §3
+ * fixes their members — so the reference is one the record already states: a policy is named by its
+ * own identifier, and an outbound endpoint by the endpoint string the declared configuration gives it,
+ * which is that ledger row's own key. The endpoint family is therefore the one family selected by an
+ * exact declared value rather than by a prefix, and it is tested after every prefix branch so that no
+ * prefix can shadow it.
+ *
  * THE FOUR TOPOLOGY NODE FAMILIES ARE RECORDS — AAP 0.2.1 F12. The FileMap canvas draws nodes that are
  * the seed records themselves: `src/services/mock/handlers/topology.ts` copies each plant, supplier,
  * tier-2 origin and customer into its node, so the node identifier IS the record identifier and the
@@ -127,9 +145,11 @@
  * - P-2, P-3: the verdicts come from `ctx.actor` and the contracts §7.1 matrix through `hasPermission`,
  *   never from `actor.permissions` and never from a caller's claim, so bypassing the role switcher
  *   changes no outcome; the two redactions are applied here, in the service.
- * - P-5: a composed aggregate and a node are first-party or computed, and the atlas family returns the
- *   one market-intelligence series the reference names, with the pack's own provenance and label, so no
- *   payload here blends a market figure with a first-party one in a single number.
+ * - P-5: every payload states the provenance of the one record it reports — `market_intelligence` for a
+ *   crossing, a competitor's site or network and a competitor's radar reading, `first_party` for a node,
+ *   a client plant and the client's own self-assessment series, `computed` for a composed aggregate —
+ *   and no payload carries a member from the other family, so nothing here can blend a market figure
+ *   with a first-party one in a single number.
  * - P-6, P-7: it types no figure, amount or record identifier, reads no fixture, and names no company,
  *   person or vendor of its own; every name it returns is a field of a seeded record.
  * - B-1, B-2: it reads memory and nothing else — no address, no fetch, no environment read, no
@@ -151,6 +171,7 @@ import type {
   ActiveUser,
   Approval,
   AtlasSeries,
+  AtlasSite,
   AuditEvent,
   Classification,
   CompetitorNetwork,
@@ -189,6 +210,7 @@ import type {
 } from '../../../types';
 import type { HandlerContext } from '../mock-state';
 import type {
+  ChokepointRecord,
   Customer,
   CustomerOrder,
   Line,
@@ -226,6 +248,16 @@ const EVIDENCE_REVIEW: Permission = 'evidence.review';
  * document the acting persona may not read (see `mayReadDocumentBody`).
  */
 export const DOCUMENT_CONFIDENTIAL_READ: Permission = 'document.confidential.read';
+
+/**
+ * The permission the competitive atlas requires, and therefore every market-intelligence record its
+ * marks stand on (contracts §7.1, AAP 0.12.3 `GET /market-intelligence/atlas`).
+ *
+ * Evaluated here for the four atlas families so that a reference cannot reach a record the atlas read
+ * would withhold from the acting persona: the evidence behind a competitor's mark is exactly as
+ * readable as the mark itself.
+ */
+const COMPETITIVE_READ: Permission = 'competitive.read';
 
 /** The classification whose body is withheld from a role without the permission above. */
 const CUSTOMER_CONFIDENTIAL: Classification = 'customer-confidential';
@@ -273,6 +305,13 @@ const DECLARED_LABEL: SimLabel = SIM_LABELS[6];
  * only declares (`src/seed/policies.ts`, AAP 0.8).
  */
 const EVALUATED_STATUS: SeededPolicy['evaluationStatus'] = 'evaluated';
+
+/**
+ * The label every market-intelligence element carries: the market-intelligence member of the seven
+ * fixed labels, taken by position so that label text is written once, in `src/types/primitives.ts`
+ * (rule P-1).
+ */
+const MARKET_INTELLIGENCE_LABEL: SimLabel = SIM_LABELS[5];
 
 /**
  * The evidence rule whose condition the records themselves state as a relation among their members:
@@ -327,8 +366,21 @@ const POLICY_PREFIX = 'POL-';
 /** `PO-nnnnnnnn`, one purchase order. */
 const PURCHASE_ORDER_PREFIX = 'PO-';
 
+/** `CHK-nn`, one shared chokepoint of the simulated market-intelligence pack. */
+const CHOKEPOINT_PREFIX = 'CHK-';
+
+/** `CMP-nn-Sn`, a competitor's site, and `CMP-nn`, the network that owns it. */
+const COMPETITOR_PREFIX = 'CMP-';
+
+/** `SER-…`, one radar series, optionally followed by `#<axis id>` for the one score a vertex draws. */
+const SERIES_PREFIX = 'SER-';
+
+/** The separator between a series identifier and the axis a single radar reading sits on. */
+const AXIS_SEPARATOR = '#';
+
 /**
- * `PLT-…`, one plant — a node of the FileMap canvas and the record itself.
+ * `PLT-…`, one plant — a node of the FileMap canvas, the record itself, and the client site the
+ * competitive atlas's network view places beside the competitor networks.
  *
  * The four node prefixes below select the family the drawing's four lanes carry, and each node's
  * identifier is the record's own, because the topology payload copies the record into its node. None
@@ -363,7 +415,9 @@ const PRODUCT_PREFIX = 'PRD-';
  * `atlas:<seriesId>` — one series of the competitive atlas's resilience radar.
  *
  * A radar series is a market-intelligence record rather than a first-party one, so its payload carries
- * the pack's own provenance and label and never a first-party figure beside it (rule P-5).
+ * the pack's own provenance and label and never a first-party figure beside it (rule P-5). The atlas
+ * screen's own marks reference it this way, while the identifiers the radar's vertices and the
+ * network's marks carry are the `SER-` and `CMP-` families above.
  */
 const ATLAS_SERIES_PREFIX = 'atlas:';
 
@@ -455,7 +509,6 @@ type SharedAggregateKey = (typeof SHARED_AGGREGATE_KEYS)[number];
 
 /** Every aggregate key either surface draws. */
 type OverviewAggregateKey = SharedAggregateKey | typeof CRITICAL_EXCEPTIONS_KEY;
-
 /* ---------------------------------------------------------------------------------------------
  * The failures this family refuses with — contracts §2, rule P-8
  * ------------------------------------------------------------------------------------------- */
@@ -729,6 +782,38 @@ function assertDocumentBodyReadable(ctx: HandlerContext, document: DocumentBody)
     DOCUMENT_CONFIDENTIAL_READ,
     `The body of document ${document.id} is classified ${document.classification}, and the acting role (${ctx.actor.role}) does not hold the ${DOCUMENT_CONFIDENTIAL_READ} permission that releases it. The body was withheld before it left the service.`,
   );
+}
+
+/**
+ * Refuses the call when the acting persona may not read the simulated market-intelligence pack.
+ *
+ * A crossing, a competitor's site or network and a radar reading are records of the atlas read, and
+ * `getAtlas` withholds that whole read from a role without `competitive.read` (AAP 0.12.3). Asking the
+ * same question here is what keeps a reference from reaching a record the corresponding list read would
+ * have withheld: the evidence behind a competitor's mark is exactly as readable as the mark itself. The
+ * permission is evaluated with no subject because the pack is not plant-scoped, so the role's matrix
+ * alone decides it. The forbidden trigger refuses it as it refuses every read of this family, so the
+ * state the simulation popover demonstrates is the state a real refusal produces.
+ *
+ * @param ctx - The call's context: the persona the check is made for.
+ * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
+ */
+function assertPackReach(ctx: HandlerContext): void {
+  if (isSimulationOn(ctx.state, 'forbidden')) {
+    throw permissionProblem(
+      ctx,
+      COMPETITIVE_READ,
+      `The simulated market-intelligence pack is not readable in this state; opening the record behind a competitor mark requires the ${COMPETITIVE_READ} permission.`,
+    );
+  }
+
+  if (!hasPermission(ctx.actor.role, COMPETITIVE_READ, null, ctx.actor)) {
+    throw permissionProblem(
+      ctx,
+      COMPETITIVE_READ,
+      `The acting role (${ctx.actor.role}) does not hold the ${COMPETITIVE_READ} permission, so the simulated market-intelligence record behind an atlas mark is not readable here.`,
+    );
+  }
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1571,13 +1656,31 @@ async function resolveComposed(
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * One radar reading: the axis a vertex sits on and the score the series records there.
+ *
+ * Resolved with the series rather than derived by the payload builder, because the axis the reference
+ * names must be one of the pack's own and the score must be the record's own: a reference asking for a
+ * reading the pack does not hold is refused as `'not-found'`, so a payload never states a figure the
+ * record never carried.
+ */
+interface RadarReading {
+  /** The axis the reading sits on, one of the pack's five. */
+  readonly axis: RadarAxis;
+
+  /** The score the series records on that axis, as the record states it. */
+  readonly score: number;
+}
+
+/**
  * The record an evidence reference resolved to.
  *
  * A discriminated union over the families the resolution order names, so the payload builder below can
  * switch over the family and the compiler proves every family is handled: a family added to the union
  * without a builder case does not compile. The record is the session's own record by reference, read
  * and never modified here; the composed aggregate family carries the payload its own read produced,
- * because the figure it names is an aggregate's output rather than a record's field.
+ * because the figure it names is an aggregate's output rather than a record's field, and the atlas
+ * families carry what the record alone cannot answer — the network a competitor's site belongs to, and
+ * the one axis a radar reference named — both resolved here so the builders below stay total.
  */
 type ResolvedRef =
   | { readonly family: 'aggregate'; readonly figure: AggregateFigure }
@@ -1595,6 +1698,18 @@ type ResolvedRef =
   | { readonly family: 'document'; readonly record: DocumentBody }
   | { readonly family: 'customer-order'; readonly record: CustomerOrder }
   | { readonly family: 'purchase-order'; readonly record: PurchaseOrder }
+  | { readonly family: 'chokepoint'; readonly record: ChokepointRecord }
+  | {
+      readonly family: 'competitor-site';
+      readonly record: AtlasSite;
+      readonly network: CompetitorNetwork;
+    }
+  | { readonly family: 'competitor-network'; readonly record: CompetitorNetwork }
+  | {
+      readonly family: 'radar-series';
+      readonly record: AtlasSeries;
+      readonly reading: RadarReading | null;
+    }
   | { readonly family: 'policy'; readonly record: SeededPolicy }
   | { readonly family: 'plant'; readonly record: Plant }
   | { readonly family: 'supplier'; readonly record: Supplier }
@@ -1607,6 +1722,24 @@ type ResolvedRef =
       readonly family: 'outbound-endpoint';
       readonly record: SeedRecordSet['sovereignty']['ledger'][number];
     };
+
+/**
+ * Whether a resolved record belongs to the simulated market-intelligence pack.
+ *
+ * The four families the atlas read publishes are the ones the `competitive.read` check narrows; the
+ * client's own plant is a first-party record and is narrowed by its plant scope instead.
+ *
+ * @param resolved - The record the reference named.
+ * @returns `true` for a crossing, a competitor's site or network, or a radar reading.
+ */
+function isPackFamily(resolved: ResolvedRef): boolean {
+  return (
+    resolved.family === 'chokepoint' ||
+    resolved.family === 'competitor-site' ||
+    resolved.family === 'competitor-network' ||
+    resolved.family === 'radar-series'
+  );
+}
 
 /**
  * The four arms of {@link ResolvedRef} that stand for a node of the FileMap canvas.
@@ -1626,18 +1759,24 @@ type NodeRef = Extract<
  *
  * The root or the prefix selects the family and that family's own records are then searched for the
  * exact identifier, so a reference either names a record the session holds or is refused. The order is
- * the one this module's header states — composed aggregate, atlas series, package, exception,
- * scenario, approval, audit event, pin, document, customer order, policy, purchase order, then the
- * seven node families and the declared outbound endpoint — and it is written out here rather than
- * derived from a table so a reader can see it. `PPAP-` is tested first among the record families
- * because a package identifier begins with the two letters a purchase order's begins with, and a
- * shorter prefix tested first would shadow it; `POL-` is tested before the shorter `PO-` for the same
- * longer-prefix-first reason, and the two cannot actually collide, because a policy identifier's third
- * character is a letter where a purchase order's is the separator. The composed roots are tested
- * before every prefix because `overview:` and `canvas:` match none of them, and the endpoint family is
- * tested once every prefix branch has declined the reference, so no prefix can shadow an endpoint and
- * no endpoint can be read as an identifier.
-
+ * the one this module's header states — composed aggregate, atlas series, package, exception, scenario,
+ * approval, audit event, pin, document, customer order, policy, purchase order, shared chokepoint,
+ * competitor site and network, radar series reading, then the seven node families and the declared
+ * outbound endpoint — and it is written out here rather than derived from a table so a reader can see
+ * it. `PPAP-` is tested first among the record families because a package identifier begins with the
+ * two letters a purchase order's begins with, and a shorter prefix tested first would shadow it;
+ * `POL-` is tested before the shorter `PO-` for the same longer-prefix-first reason, and the two cannot
+ * actually collide, because a policy identifier's third character is a letter where a purchase order's
+ * is the separator. The composed roots are tested before every prefix because `overview:` and
+ * `canvas:` match none of them, and the endpoint family is tested once every prefix branch has declined
+ * the reference, so no prefix can shadow an endpoint and no endpoint can be read as an identifier.
+ *
+ * Two families resolve more than one record. A `CMP-` reference is looked up as a site across the
+ * pack's networks first and as a network second, so a site identifier answers with the network that
+ * owns it as well. A radar reference is split at its `#`: the series is looked up either way, and the
+ * axis is then looked up among the pack's own axes and read at the position that list gives it, because
+ * `AtlasSeries.values` is aligned to the axis order and carries no axis name of its own.
+ *
  * The scenario family is the one family whose records are not all in one list. The options the dataset
  * ships are scanned in place, and the options measured from an exception's own solver case are answered
  * by `scenarioForReference` in the sibling `handlers/scenarios.ts` — the module that produces that set
@@ -1812,6 +1951,80 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
     );
   }
 
+  if (ref.startsWith(CHOKEPOINT_PREFIX)) {
+    const found = records.marketIntelligence.chokepoints.find((candidate) => candidate.id === ref);
+
+    if (found !== undefined) {
+      return { family: 'chokepoint', record: found };
+    }
+
+    throw notFoundProblem(
+      ctx,
+      `The simulated market-intelligence pack holds no shared chokepoint with the identifier ${ref}, so the evidence behind it cannot be resolved.`,
+    );
+  }
+
+  if (ref.startsWith(COMPETITOR_PREFIX)) {
+    const pack = records.marketIntelligence;
+
+    for (const network of pack.competitors) {
+      const site = network.sites.find((candidate) => candidate.id === ref);
+
+      if (site !== undefined) {
+        return { family: 'competitor-site', record: site, network };
+      }
+    }
+
+    const network = pack.competitors.find((candidate) => candidate.competitorId === ref);
+
+    if (network !== undefined) {
+      return { family: 'competitor-network', record: network };
+    }
+
+    throw notFoundProblem(
+      ctx,
+      `The simulated market-intelligence pack holds no competitor site and no competitor network with the identifier ${ref}, so the evidence behind it cannot be resolved.`,
+    );
+  }
+
+  if (ref.startsWith(SERIES_PREFIX)) {
+    const pack = records.marketIntelligence;
+    const [seriesId, axisId] = ref.split(AXIS_SEPARATOR);
+    const series = pack.radarSeries.find((candidate) => candidate.id === seriesId);
+
+    if (series === undefined) {
+      throw notFoundProblem(
+        ctx,
+        `The simulated market-intelligence pack holds no radar series in the reference ${ref}, so the reading behind it cannot be resolved.`,
+      );
+    }
+
+    if (axisId === undefined) {
+      return { family: 'radar-series', record: series, reading: null };
+    }
+
+    const position = pack.radarAxes.findIndex((candidate) => candidate.id === axisId);
+    const axis = pack.radarAxes[position];
+
+    if (axis === undefined) {
+      throw notFoundProblem(
+        ctx,
+        `The simulated market-intelligence pack records no radar axis in the reference ${ref}, so the reading behind it cannot be resolved. The axes it records are ${pack.radarAxes.map((candidate) => candidate.id).join(', ')}.`,
+      );
+    }
+
+    const score = series.values[position];
+
+    if (score === undefined) {
+      throw notFoundProblem(
+        ctx,
+        `The radar series of the reference ${ref} records no score on axis ${axis.id}, so the reading behind it cannot be resolved.`,
+      );
+    }
+
+    return { family: 'radar-series', record: series, reading: { axis, score } };
+  }
+
   /*
    * The node families. These identifiers are the records' own — `TopologyNode.id` and
    * `ImpactChainNode.ref` carry them unchanged — so each family is looked up exactly as the nine above
@@ -1917,7 +2130,7 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
 
   throw notFoundProblem(
     ctx,
-    `The deployment record declares no outbound endpoint named ${ref}, so the evidence behind it cannot be resolved. No record family answers the reference ${ref}. A reference names a package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a customer order, a purchase order, a policy, an outbound endpoint, a plant, a supplier, a tier-2 origin, a customer, a material, a production line or a product; or it names a computed figure as ${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, or one radar series as ${ATLAS_SERIES_PREFIX}<seriesId>.`,
+    `The deployment record declares no outbound endpoint named ${ref}, so the evidence behind it cannot be resolved. No record family answers the reference ${ref}. A reference names a package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a customer order, a purchase order, a policy, an outbound endpoint, a shared chokepoint, a competitor site or network, a radar series reading, a plant, a supplier, a tier-2 origin, a customer, a material, a production line or a product; or it names a computed figure as ${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, or one radar series as ${ATLAS_SERIES_PREFIX}<seriesId>.`,
   );
 }
 
@@ -1932,16 +2145,18 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
  * A record that names a plant is narrowed by it, so a persona cannot read the evidence of a plant
  * outside its scope. The records that reach a plant indirectly are resolved to the plant the records
  * give them: a scenario and an approval to the plant of the exception they answer, a pin to its own
- * node when that node is a plant, a plant to itself, and a production line to the plant it belongs to
- * (AAP 0.12.2: a line belongs to one plant). A package, an audit event, a document, a supplier, an
- * origin, a customer, a material and a product name no plant, and neither does a radar series, which
- * reports a market reading rather than a record placed at a plant, so none of them is plant-scoped and
- * the permission alone decides whether it is readable — which is the reading `hasPermission` documents
- * for a `null` subject. A composed aggregate names a plant only when its key is a plant's reading.
- * The declared configuration is group-wide by construction — the ledger's endpoints and the policy set
- * are the same records for every plant — so a policy and an outbound endpoint name no plant either.
- * The four node families are the one case a single subject cannot state, and they are answered below
- * rather than here.
+ * node when that node is a plant, and a production line to the plant it belongs to (AAP 0.12.2: a line
+ * belongs to one plant). A package, an audit event, a document, a material and a product name no plant,
+ * and neither does a radar series, which reports a market reading rather than a record placed at a
+ * plant, so none of them is plant-scoped and the permission alone decides whether it is readable —
+ * which is the reading `hasPermission` documents for a `null` subject. A composed aggregate names a
+ * plant only when its key is a plant's reading. The four market-intelligence families name no plant
+ * either: the pack describes competitors rather than a record of the client's own, which is the reading
+ * `./atlas.ts` documents for the atlas read itself, so they are never narrowed by a plant scope and are
+ * refused by `assertPackReach` instead. The declared configuration is group-wide by construction — the
+ * ledger's endpoints and the policy set are the same records for every plant — so a policy and an
+ * outbound endpoint name no plant either. The four node families are the one case a single subject
+ * cannot state, and they are answered below rather than here.
  *
  * @param ctx - The call's context, whose records resolve the indirect plants.
  * @param resolved - The record the reference named.
@@ -1968,6 +2183,7 @@ function subjectOf(ctx: HandlerContext, resolved: ResolvedRef): ScopedSubject | 
     case 'approval':
       return plantOfException(records, resolved.record.exceptionId);
     case 'plant':
+    case 'plant':
     case 'supplier':
     case 'origin':
     case 'customer':
@@ -1980,6 +2196,10 @@ function subjectOf(ctx: HandlerContext, resolved: ResolvedRef): ScopedSubject | 
       return null;
     case 'line':
       return { plantId: resolved.record.plantId };
+    case 'chokepoint':
+    case 'competitor-site':
+    case 'competitor-network':
+    case 'radar-series':
     case 'package':
     case 'audit-event':
     case 'document':
@@ -2050,6 +2270,18 @@ function evidenceFor(ctx: HandlerContext, resolved: ResolvedRef): Evidence {
       return policyEvidence(ctx, resolved.record);
     case 'outbound-endpoint':
       return outboundEndpointEvidence(ctx, resolved.record);
+    case 'chokepoint':
+      return chokepointEvidence(ctx, resolved.record);
+    case 'competitor-site':
+      return competitorSiteEvidence(resolved.record, resolved.network);
+    case 'competitor-network':
+      return competitorNetworkEvidence(ctx, resolved.record);
+    case 'radar-series':
+      return radarSeriesEvidence(
+        resolved.record,
+        resolved.reading,
+        ctx.state.records.marketIntelligence.radarAxes,
+      );
     case 'plant':
       return plantEvidence(ctx.state.records, resolved.record);
     case 'supplier':
@@ -2500,46 +2732,268 @@ function purchaseOrderEvidence(ctx: HandlerContext, order: PurchaseOrder): Evide
 }
 
 /**
- * The evidence behind one plant node: the site the record states and the lines it runs.
+ * The evidence behind one shared chokepoint: the share of the pack's networks that route through it,
+ * and the buffer each of those competitors holds there.
  *
- * A plant node of the FileMap canvas is the plant record itself — `topology.ts` copies the record into
- * the node — so the payload reports the record's own name, place, coordinates and lines and nothing
- * derived from them. Its downstream list is the exceptions the records record at the plant: the ones
- * whose disruption lands there and the ones whose also-affected plants name it, which are the records
- * the selection on this node leads a reader to. The formula names the contracts §5 aggregates and the
- * §8 pin rule that read the same records rather than restating any of their figures.
+ * Every figure is the crossing record's own field — its overlap and its per-competitor buffer days —
+ * and the formula states the pack's own rule rather than re-deriving it: the overlap is the share of
+ * the pack's competitor networks that route through the crossing, as a whole percent, and the buffer
+ * days are the days each competitor using the crossing holds there. The payload carries no first-party
+ * member and cites no document, because the crossing is a market-intelligence record read from the pack
+ * alone (rule P-5, AAP 0.8) and every document in the record set is a record of the client's own.
+ *
+ * @param ctx - The call's context, whose pack supplies the networks and lanes that traverse the crossing.
+ * @param crossing - The crossing the reference named.
+ * @returns The crossing's evidence payload.
+ */
+function chokepointEvidence(ctx: HandlerContext, crossing: ChokepointRecord): Evidence {
+  const traversing = ctx.state.records.marketIntelligence.competitors.filter((network) =>
+    network.lanes.some((lane) => lane.chokepointId === crossing.id),
+  );
+  const buffers = Object.entries(crossing.competitorBufferDays);
+
+  return {
+    value: `${crossing.label}: ${crossing.overlap} per cent of the pack's competitor networks route through it`,
+    provenance: 'market_intelligence',
+    label: MARKET_INTELLIGENCE_LABEL,
+    formula:
+      'The pack states a crossing\'s overlap as the share of its competitor networks that route through ' +
+      'it, as a whole percent, and records the buffer days each of those competitors holds there. Both ' +
+      'are fields of the crossing record, the lanes carrying the crossing\'s identifier are what place ' +
+      'it on the network view, and this payload recomputes neither figure.',
+    inputs: [
+      `overlap = ${crossing.overlap}`,
+      ...buffers.map(
+        ([competitorId, bufferDays]) => `buffer days for ${competitorId} = ${bufferDays}`,
+      ),
+    ],
+    upstream: uniqueRefs(buffers.map(([competitorId]) => competitorId)),
+    downstream: uniqueRefs([
+      ...traversing.map((network) => network.competitorId),
+      ...traversing.flatMap((network) =>
+        network.lanes
+          .filter((lane) => lane.chokepointId === crossing.id)
+          .map((lane) => `lane from ${lane.fromId} to ${lane.toId}`),
+      ),
+    ]),
+    confidence: recordConfidence(),
+    missingInputs: [],
+    documents: [],
+  };
+}
+
+/**
+ * The evidence behind one competitor's site: where the pack places it and the lanes that reach it.
+ *
+ * The value states the record's own name and its recorded coordinates, and the inputs are the members
+ * the site record states. The upstream list names the competitor the site belongs to, and the
+ * downstream list names the lanes that start or end at it together with the crossing each of those
+ * lanes traverses, so a reader can see what the position feeds. Every member is market-intelligence
+ * record content and no first-party record appears (rule P-5).
+ *
+ * @param site - The site the reference named.
+ * @param network - The competitor network the site was found in.
+ * @returns The site's evidence payload.
+ */
+function competitorSiteEvidence(site: AtlasSite, network: CompetitorNetwork): Evidence {
+  const touching = network.lanes.filter((lane) => lane.fromId === site.id || lane.toId === site.id);
+
+  return {
+    value: `${site.label} at latitude ${site.latitude}, longitude ${site.longitude}`,
+    provenance: 'market_intelligence',
+    label: MARKET_INTELLIGENCE_LABEL,
+    formula:
+      'A competitor site is a position the simulated market pack records for one of its networks: the ' +
+      'coordinate pair is the record, and the network view, the canvas overlay and the map lens place ' +
+      'the mark there without deriving anything. The lanes listed below are the network\'s own lanes ' +
+      'that start or end at the site, and a crossing a lane names is the crossing that traffic passes ' +
+      'through.',
+    inputs: [
+      `id = ${site.id}`,
+      `competitorId = ${network.competitorId}`,
+      `label = ${site.label}`,
+      `latitude = ${site.latitude}`,
+      `longitude = ${site.longitude}`,
+    ],
+    upstream: uniqueRefs([network.competitorId]),
+    downstream: uniqueRefs([
+      ...touching.map((lane) => `lane from ${lane.fromId} to ${lane.toId}`),
+      ...touching.flatMap((lane) => (lane.chokepointId === undefined ? [] : [lane.chokepointId])),
+    ]),
+    confidence: recordConfidence(),
+    missingInputs: [],
+    documents: [],
+  };
+}
+
+/**
+ * The evidence behind one competitor network: the sites and lanes the pack records for it.
+ *
+ * The counts in the value and the members in the inputs are the network record's own, and the
+ * downstream list names the crossings its lanes traverse and the radar series that report on it, so a
+ * reader can follow the network from the payload to every surface it feeds. Nothing here aggregates a
+ * competitor figure with a first-party one: the network is market intelligence from end to end
+ * (rule P-5).
+ *
+ * @param ctx - The call's context, whose pack supplies the series that report on the network.
+ * @param network - The network the reference named.
+ * @returns The network's evidence payload.
+ */
+function competitorNetworkEvidence(ctx: HandlerContext, network: CompetitorNetwork): Evidence {
+  const scoring = ctx.state.records.marketIntelligence.radarSeries.filter(
+    (candidate) => candidate.competitorId === network.competitorId,
+  );
+
+  return {
+    value: `${network.label}: ${network.sites.length} sites and ${network.lanes.length} lanes in the simulated pack`,
+    provenance: 'market_intelligence',
+    label: MARKET_INTELLIGENCE_LABEL,
+    formula:
+      'A competitor network is the set of sites and lanes the simulated market pack records for one ' +
+      'competitor. The network view draws those records as they stand, the shared crossings are the ' +
+      'ones its lanes name, and the radar scores it through the series that names it as the network it ' +
+      'reports on. No member of this payload is a first-party reading.',
+    inputs: [
+      `competitorId = ${network.competitorId}`,
+      `label = ${network.label}`,
+      `productClasses = ${network.productClasses.join(', ')}`,
+      ...network.sites.map((site) => `site ${site.id}: ${site.label}`),
+      ...network.lanes.map((lane) => `lane from ${lane.fromId} to ${lane.toId}`),
+    ],
+    upstream: uniqueRefs([network.competitorId]),
+    downstream: uniqueRefs([
+      ...network.lanes.flatMap((lane) => (lane.chokepointId === undefined ? [] : [lane.chokepointId])),
+      ...scoring.map((series) => series.id),
+    ]),
+    confidence: recordConfidence(),
+    missingInputs: [],
+    documents: [],
+  };
+}
+
+/**
+ * The evidence behind one radar reading: one score of one series on one axis, or the whole series.
+ *
+ * `reading` is the axis and score the reference named — the single reading a vertex draws — or `null`
+ * for the whole series. With a reading the value is the series' own score on that axis, labelled with
+ * the axis' own name; without one the value states the series and every axis reading is listed in the
+ * inputs. A score is read at the position the pack's axis list gives its axis, because
+ * `AtlasSeries.values` is aligned to that order and carries no axis name of its own, and nothing here
+ * averages, rescales or combines one series' reading with another's.
+ *
+ * The provenance and the label are the record's own (rule P-5, rule P-1). A competitor series is market
+ * intelligence and carries the market-intelligence member of the fixed labels; the client's own series
+ * is a first-party self-assessment, and `Evidence.label` is typed `SimLabel`, which the client's
+ * companion string is deliberately not a member of. The client's series therefore carries `Simulated
+ * data` here: the self-assessment is a seeded record rather than a computed figure, and the longer,
+ * series-specific companion string belongs to the drawing that shows one series beside another, not to
+ * a drawer that reports a single record.
+ *
+ * @param series - The series the reference named.
+ * @param reading - The one axis and score the reference named, or `null` for the whole series.
+ * @param axes - The pack's axis list, in the order the series' scores align to.
+ * @returns The reading's evidence payload.
+ */
+function radarSeriesEvidence(
+  series: AtlasSeries,
+  reading: RadarReading | null,
+  axes: readonly RadarAxis[],
+): Evidence {
+  const recorded = axes.flatMap((axis, position) => {
+    const score = series.values[position];
+
+    return score === undefined ? [] : [`${axis.label} = ${score}`];
+  });
+
+  return {
+    value:
+      reading === null
+        ? `${series.label}: ${recorded.length} axis readings recorded`
+        : `${reading.axis.label}, ${series.label}: ${reading.score}`,
+    provenance: series.provenance,
+    label: series.provenance === 'market_intelligence' ? MARKET_INTELLIGENCE_LABEL : SIMULATED_DATA,
+    formula:
+      'A radar score is one reading of one series on one axis. The pack publishes the axis list, every ' +
+      'series states one score per axis in that order, and the radar draws the score at the position ' +
+      'its axis holds. The series name, the axis name and the score are the record\'s own, so no ' +
+      'reading is averaged, rescaled or combined with another series.',
+    inputs: [
+      `id = ${series.id}`,
+      `provenance = ${series.provenance}`,
+      `simLabel = ${series.simLabel}`,
+      ...(series.competitorId === null ? [] : [`competitorId = ${series.competitorId}`]),
+      ...recorded,
+    ],
+    upstream: uniqueRefs(series.competitorId === null ? [] : [series.competitorId]),
+    downstream: [],
+    confidence: recordConfidence(),
+    missingInputs: [],
+    documents: [],
+  };
+}
+
+/**
+ * The evidence behind one plant: the site the record states, the lines it runs and the records that
+ * name it.
+ *
+ * A plant is reached two ways and drawn from the one record both times: a node of the FileMap canvas,
+ * because `topology.ts` copies the record into its node, and the client site the competitive atlas's
+ * network view places beside the competitor networks. The value and the inputs are the record's own
+ * members — its name, place, coordinates and the lines it runs — and the records that name the plant
+ * are what the payload lists around it: the lines it runs come first, and the exceptions raised at it,
+ * the customer orders it serves and the purchase orders it receives follow. The exceptions include the
+ * ones whose disruption lands at the plant and the ones whose also-affected plants name it, which is
+ * the same rule `src/domain/aggregation/exceptions.ts` narrows a plant scope by. The plant is a seeded
+ * first-party record rather than a computed figure, so it carries `Simulated data` and cites the
+ * documents that name it, exactly as the other first-party families do; the figures that name a plant —
+ * revenue at risk by plant, the queue the plant filter narrows and the pins the canvas badges the node
+ * with — are the contracts §5 aggregates and the contracts §8 pin rule over these same records, and
+ * this payload states those rules and derives nothing from them.
  *
  * @param records - The session's record set.
- * @param plant - The plant record the reference named.
+ * @param plant - The plant the reference named.
  * @returns The plant's evidence payload.
  */
 function plantEvidence(records: SeedRecordSet, plant: Plant): Evidence {
+  const lines = records.lines
+    .filter((line) => line.plantId === plant.id)
+    .map((line) => line.id);
   const exceptions = records.exceptions
     .filter(
       (exception) =>
         exception.plantId === plant.id || exception.alsoAffectsPlantIds.includes(plant.id),
     )
     .map((exception) => exception.id);
+  const customerOrders = records.customerOrders
+    .filter((order) => order.plantId === plant.id)
+    .map((order) => order.id);
+  const purchaseOrders = records.purchaseOrders
+    .filter((order) => order.plantId === plant.id)
+    .map((order) => order.id);
 
   return {
-    value: `${plant.name}, ${plant.location}`,
+    value: `${plant.name}, ${plant.location}: ${lines.length} production lines recorded`,
     provenance: 'first_party',
     label: SIMULATED_DATA,
     formula:
-      'The plant record states its own name, place, coordinates and the lines it runs. The figures that ' +
-      'name a plant — revenue at risk by plant, the queue the plant filter narrows, and the pins the ' +
-      'canvas badges the node with — are the contracts §5 aggregates and the contracts §8 pin rule over ' +
-      'the records that name this plant. This payload states those rules and derives nothing from them.',
+      'A plant is the place a disruption lands on — one of the values the shell\'s plant filter and the ' +
+      'acting role\'s plant scope select between, the node the canvas draws and the client site the ' +
+      'atlas\'s network view places. Its coordinate pair is the record\'s own, which the map lens ' +
+      'projects and the canvas draws as a node without deriving anything from it. The figures that name ' +
+      'a plant — revenue at risk by plant, the queue the plant filter narrows and the pins the canvas ' +
+      'badges the node with — are the contracts §5 aggregates and the contracts §8 pin rule over the ' +
+      'lines it runs, the exceptions raised at it and the orders it serves, which are the records this ' +
+      'payload lists around it.',
     inputs: [
       `id = ${plant.id}`,
       `name = ${plant.name}`,
       `location = ${plant.location}`,
       `latitude = ${plant.latitude}`,
       `longitude = ${plant.longitude}`,
-      ...plant.lineIds.map((lineId) => `lineId = ${lineId}`),
+      ...plant.lineIds.map((lineId) => `line = ${lineId}`),
     ],
-    upstream: uniqueRefs(plant.lineIds),
-    downstream: uniqueRefs(exceptions),
+    upstream: uniqueRefs(lines),
+    downstream: uniqueRefs([...exceptions, ...customerOrders, ...purchaseOrders]),
     confidence: recordConfidence(),
     missingInputs: [],
     documents: documentsCiting(records, plant.id),
@@ -3161,11 +3615,12 @@ function outboundEndpointEvidence(
  *
  * The permission is evaluated before the reference is resolved, so an identifier without
  * `evidence.read` learns nothing about whether the record exists; the plant scope is evaluated once the
- * record is known, and a canvas node — which reaches several plants rather than belonging to one — is
- * narrowed over every plant the records place it in, by `assertNodeReach`; a pin is refused when
- * `listVisiblePins` would not have released it, so a reference cannot reach a pin the read filter
- * withholds; and a customer-confidential document is withheld from a persona that may not read its
- * body, exactly as `getDocument` withholds it.
+ * record is known; a market-intelligence reference is refused to a persona that may not read the atlas
+ * pack, so a reference cannot reach a record `getAtlas` would have withheld; a canvas node — which
+ * reaches several plants rather than belonging to one — is narrowed over every plant the records place
+ * it in, by `assertNodeReach`; a pin is refused when `listVisiblePins` would not have released it, so a
+ * reference cannot reach a pin the read filter withholds; and a customer-confidential document is
+ * withheld from a persona that may not read its body, exactly as `getDocument` withholds it.
  *
  * A composed aggregate reference is answered from the aggregate read's own output (AAP 0.2.1 F12), so
  * the drawer states the figure the composing screen showed rather than a second computation of it, and
@@ -3184,6 +3639,10 @@ export async function getEvidence(ctx: HandlerContext, ref: string): Promise<Evi
   assertEvidenceRead(ctx);
 
   const resolved = await resolveRef(ctx, ref.trim());
+
+  if (isPackFamily(resolved)) {
+    assertPackReach(ctx);
+  }
 
   if (isNodeRef(resolved)) {
     assertNodeReach(ctx, resolved);

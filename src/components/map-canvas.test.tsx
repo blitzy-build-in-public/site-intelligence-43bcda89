@@ -11,12 +11,15 @@
  * node the mapper cannot resolve declaring no drawer and opening none (rule P-8); the two zoom
  * controls stop at the ends of their range and say why (rule P-8); the competitor marks, the chokepoint
  * halos and the legend appear only when the atlas payload supplies them, and always with the fixed
- * market-intelligence label imported from `src/types` (rules P-1, P-5); and the lens renders under
- * both themes.
+ * market-intelligence label imported from `src/types` (rules P-1, P-5); a competitor's hue follows its
+ * own identifier rather than the position the payload lists it in, in the marks and in the legend row
+ * alike; and the lens renders under both themes.
  *
- * The fixtures hold plain words for the record names and neutral keys for the identifiers, so this
- * suite borrows no value from a seed record and names no domain identifier shape: what the map draws
- * is entirely the caller's props, and the lens formats no figure of its own (rule P-6). The topology
+ * The fixtures hold plain words for the record names and neutral keys for the identifiers, with the one
+ * exception the overlay's contract requires: a competitor network's identifier states the contracts'
+ * `CMP-nn` ordinal, because that identifier — and not a list position — decides the hue the network is
+ * painted in. No fixture borrows a value from a seed record: what the map draws is entirely the
+ * caller's props, and the lens formats no figure of its own (rule P-6). The topology
  * carries two nodes of every family and pin counts that between them cover all six `PinState`
  * members, so a lens that drew only the first node of each array, or that printed one state and
  * dropped the rest, fails here rather than passing on a one-node fixture. The service is mocked
@@ -29,11 +32,12 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Atlas, Chokepoint, PinCounts, Topology, TopologyNode } from '../types';
+import type { Atlas, Chokepoint, CompetitorNetwork, PinCounts, Topology, TopologyNode } from '../types';
 import { SIM_LABELS } from '../types';
 import { MAP_CANVAS_TEXT, MAP_VIEW_PRESETS, MAP_VIEW_PRESET_LABELS, MapCanvas } from './map-canvas';
 import type { MapCanvasProps } from './map-canvas';
-import { CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
+import { CHART_TONE_CLASSES, CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
+import type { CompetitorSlot } from './horizontal-bar-chart';
 
 /**
  * The service the evidence drawer reads through, replaced because this suite is about the drawing.
@@ -190,7 +194,7 @@ const CROSSING: Chokepoint = {
   id: 'crossing-one',
   label: 'Southern sea crossing',
   overlap: 67,
-  competitorBufferDays: { 'competitor-one': 12 },
+  competitorBufferDays: { 'CMP-01': 12 },
   contentionNote: 'Three networks use the crossing and the buffer each holds differs.',
   provenance: 'market_intelligence',
 };
@@ -198,6 +202,10 @@ const CROSSING: Chokepoint = {
 /**
  * A market-intelligence payload: one competitor network of two sites with a lane through the crossing,
  * and the crossing itself.
+ *
+ * The network's identifier is the `CMP-nn` shape the contracts give a competitor, because the overlay
+ * resolves the hue a network is painted in from that identifier; the sites name the same competitor so
+ * the fixture states one record rather than a mark and a name that disagree.
  *
  * The recorded series and axes are empty because this suite asserts nothing about the radar; the atlas
  * shape allows empty lists, and the fields the lens reads are the networks and the crossings.
@@ -209,20 +217,21 @@ const ATLAS: Atlas = {
   clientSites: [],
   competitors: [
     {
-      competitorId: 'competitor-one',
+      competitorId: 'CMP-01',
       label: 'Aurelvik Drive Systems',
       provenance: 'market_intelligence',
+      productClasses: ['product-one'],
       sites: [
         {
           id: 'site-alpha',
-          competitorId: 'competitor-one',
+          competitorId: 'CMP-01',
           label: 'Ningbo drive plant',
           latitude: 29.87,
           longitude: 121.55,
         },
         {
           id: 'site-beta',
-          competitorId: 'competitor-one',
+          competitorId: 'CMP-01',
           label: 'Gdansk assembly',
           latitude: 54.35,
           longitude: 18.65,
@@ -235,6 +244,77 @@ const ATLAS: Atlas = {
   radarAxes: [],
   radarSeries: [],
 };
+
+/**
+ * The three competitors the slot case reorders, one site each so a network's mark is a single polygon.
+ *
+ * Their identifiers carry the ordinals §4.2 selects the three competitor hues by — `CMP-01` the first,
+ * `CMP-02` the second, `CMP-03` the third — and the three sites sit far apart so no two marks can
+ * coincide on the map. The names are plainly synthetic rather than seed records: this suite holds no
+ * value that belongs to the dataset.
+ */
+const NETWORK_FIRST: CompetitorNetwork = {
+  competitorId: 'CMP-01',
+  label: 'Competitor alpha',
+  provenance: 'market_intelligence',
+  productClasses: ['product-one'],
+  sites: [
+    {
+      id: 'site-alpha',
+      competitorId: 'CMP-01',
+      label: 'Alpha assembly',
+      latitude: 52.52,
+      longitude: 13.4,
+    },
+  ],
+  lanes: [],
+};
+
+/** The second competitor: its own ordinal, and a site nowhere near the other two. */
+const NETWORK_SECOND: CompetitorNetwork = {
+  competitorId: 'CMP-02',
+  label: 'Competitor beta',
+  provenance: 'market_intelligence',
+  productClasses: ['product-one'],
+  sites: [
+    {
+      id: 'site-beta',
+      competitorId: 'CMP-02',
+      label: 'Beta assembly',
+      latitude: 35.68,
+      longitude: 139.69,
+    },
+  ],
+  lanes: [],
+};
+
+/** The third competitor, whose ordinal is the last of the three §4.2 gives a hue to. */
+const NETWORK_THIRD: CompetitorNetwork = {
+  competitorId: 'CMP-03',
+  label: 'Competitor gamma',
+  provenance: 'market_intelligence',
+  productClasses: ['product-one'],
+  sites: [
+    {
+      id: 'site-gamma',
+      competitorId: 'CMP-03',
+      label: 'Gamma assembly',
+      latitude: 41.88,
+      longitude: -87.63,
+    },
+  ],
+  lanes: [],
+};
+
+/**
+ * The same atlas payload with its competitor networks in the order given.
+ *
+ * The slot case feeds the three networks in the pack's own order and then in the opposite one, so the
+ * only difference between the two drawings is which position each competitor holds in the list.
+ */
+function overlayOf(networks: readonly CompetitorNetwork[]): Atlas {
+  return { ...ATLAS, competitors: [...networks] };
+}
 
 /**
  * The mapping a case that asserts nothing about evidence starts from: no record stands behind any
@@ -295,6 +375,53 @@ function pointerStates(classList: string): readonly string[] {
 /** Every node of the map, as the focusable groups the drawing renders one of per topology node. */
 function nodeMarks(container: HTMLElement): readonly Element[] {
   return [...container.querySelectorAll('svg g[role="button"]')];
+}
+
+/** The stroke token the chart tone table gives a competitor slot, read from the table that owns it. */
+function strokeOfSlot(slot: CompetitorSlot): string {
+  return CHART_TONE_CLASSES[`competitor-${slot}`].stroke;
+}
+
+/** The swatch token the chart tone table gives a competitor slot, read the same way. */
+function swatchOfSlot(slot: CompetitorSlot): string {
+  return CHART_TONE_CLASSES[`competitor-${slot}`].swatch;
+}
+
+/** The class in a class list that names a competitor stroke, or `''` where the list holds none. */
+function competitorStrokeToken(classList: string): string {
+  return classList.split(' ').find((name) => name.startsWith('stroke-competitor')) ?? '';
+}
+
+/**
+ * The hue each competitor network's marks are stroked in: one entry per network the overlay painted, in
+ * the order the payload lists them.
+ *
+ * The drawing emits one `<g>` per painted network, so the entries line up with the payload's order and a
+ * case can say which position each competitor holds. A network's sites all take that network's own slot,
+ * so the first mark of a group states the hue of the whole group.
+ */
+function competitorStrokeTokens(container: HTMLElement): readonly string[] {
+  const group = within(container).getByRole('group', {
+    name: `${MARKET_INTELLIGENCE_LABEL}: ${MAP_CANVAS_TEXT.competitorGroupSuffix}`,
+  });
+
+  return [...group.children].map((networkGroup) =>
+    competitorStrokeToken(networkGroup.querySelector('polygon')?.getAttribute('class') ?? ''),
+  );
+}
+
+/**
+ * The swatch token of the legend row printed for one competitor's name.
+ *
+ * The row is found by the name a reader sees rather than by its position, so the legend is checked
+ * against the competitor it describes: a row that kept its neighbour's swatch fails here however the
+ * payload was ordered.
+ */
+function competitorSwatchOf(container: HTMLElement, label: string): string {
+  const row = within(container).getByText(label).closest('li');
+  const classList = row?.querySelector('[class*="bg-competitor"]')?.getAttribute('class') ?? '';
+
+  return classList.split(' ').find((name) => name.startsWith('bg-competitor')) ?? '';
 }
 
 /**
@@ -758,6 +885,40 @@ describe('MapCanvas', () => {
     expect(within(halos).getByText(CROSSING.label)).toBeInTheDocument();
     /* The legend's own row adds the competitor name tag the shared legend owns. */
     expect(screen.getByText('Aurelvik Drive Systems')).toBeInTheDocument();
+  });
+
+  it('paints each competitor in the hue its own identifier names, whatever order the payload lists them', () => {
+    const forward = renderLens({
+      overlay: overlayOf([NETWORK_FIRST, NETWORK_SECOND, NETWORK_THIRD]),
+    });
+    const reversed = renderLens({
+      overlay: overlayOf([NETWORK_THIRD, NETWORK_SECOND, NETWORK_FIRST]),
+    });
+
+    /* One mark group per painted network, in the payload's order: the reversed payload is the same three
+       competitors read backwards. A hue taken from a position swaps every mark with its neighbour here,
+       while a hue taken from the identifier keeps each competitor in the colour its own record names. */
+    expect(competitorStrokeTokens(forward.container)).toStrictEqual([
+      strokeOfSlot(1),
+      strokeOfSlot(2),
+      strokeOfSlot(3),
+    ]);
+    expect(competitorStrokeTokens(reversed.container)).toStrictEqual([
+      strokeOfSlot(3),
+      strokeOfSlot(2),
+      strokeOfSlot(1),
+    ]);
+
+    /* The legend row names its competitor, so its swatch is bound to that name and not to a position:
+       neither ordering moves a swatch to another competitor. */
+    for (const [network, slot] of [
+      [NETWORK_FIRST, 1],
+      [NETWORK_SECOND, 2],
+      [NETWORK_THIRD, 3],
+    ] as const) {
+      expect(competitorSwatchOf(forward.container, network.label)).toBe(swatchOfSlot(slot));
+      expect(competitorSwatchOf(reversed.container, network.label)).toBe(swatchOfSlot(slot));
+    }
   });
 
   it('places a halo at the crossing’s own position when the payload states one', () => {

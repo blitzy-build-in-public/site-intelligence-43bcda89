@@ -41,10 +41,12 @@
  * competitor element is drawn from the atlas payload. The two are never combined into one mark, one
  * series or one reading: the competitor overlay keeps its own hollow marks in the three competitor
  * roles of specification §4.2, its legend row carries the fixed market-intelligence label imported
- * from `src/types`, and a chokepoint halo prints the same label under its own name. No figure is
- * blended and none is computed here (rule P-6): the pin counts arrive in `topology.pinsByNode` and
- * are printed as they arrive, and the component formats no currency amount, no timestamp and no
- * record identifier.
+ * from `src/types`, and a chokepoint halo prints the same label under its own name. Which of the three
+ * roles a competitor is painted in is resolved from that competitor's own identifier through
+ * `competitorSlotOf` — the one lookup the radar, the legend and the atlas network view read as well —
+ * so a payload that lists its networks in another order repaints nothing. No figure is blended and
+ * none is computed here (rule P-6): the pin counts arrive in `topology.pinsByNode` and are printed as
+ * they arrive, and the component formats no currency amount, no timestamp and no record identifier.
  *
  * Rules this module is built to satisfy:
  * - B-1, T-20: the bundled module is the only geographic source; no request of any kind is made.
@@ -83,7 +85,8 @@ import type {
 
 import { EvidenceDrawer } from './evidence-drawer';
 import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from './graph-vocabulary';
-import { CHART_TONE_CLASSES, CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
+import { CHART_TONE_CLASSES, competitorSlotOf, CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
+import type { CompetitorSlot } from './horizontal-bar-chart';
 import { Legend } from './legend';
 import type { LegendEntry } from './legend';
 import { meaningOf } from './status-indicator';
@@ -357,19 +360,10 @@ const LANE_CLASSES = 'fill-none stroke-control-boundary';
  * Overlay — competitor marks, chokepoint halos and the legend
  * ------------------------------------------------------------------------------------------- */
 
-/**
- * How many competitor networks the overlay draws.
- *
- * Specification §4.2 assigns three competitor hues, and the market-intelligence pack this build serves
- * holds three networks (`CMP-01` to `CMP-03`). A fourth network would need a fourth role token before
- * it could be drawn in a colour of its own, so one beyond the three is not painted in a colour that
- * would read as another competitor's.
- */
-const COMPETITOR_SLOTS: readonly (1 | 2 | 3)[] = [1, 2, 3];
-
 /** A competitor site's mark: hollow, so it never competes with a filled first-party mark. Its stroke
- * is the chart tone table's `competitor-1/2/3` role for the network's own slot (§4.2, rule P-5), so a
- * mark, a radar series and a legend swatch of one company resolve one token from one owner. */
+ * is the chart tone table's `competitor-1/2/3` role for the slot the network's own identifier resolves
+ * (§4.2, rule P-5), so a mark, a radar series and a legend swatch of one company resolve one token
+ * from one owner. */
 const COMPETITOR_SITE_CLASSES = 'fill-none';
 
 /** A chokepoint halo: the simulated status role, dashed so it reads as an extent rather than a place. */
@@ -963,19 +957,75 @@ const HALO_STROKE = 2;
 const HALO_DASH = '4 3';
 
 /**
+ * One competitor network the overlay can paint: the network as the payload states it, and the slot
+ * that selects the role it is drawn in.
+ */
+interface SlottedNetwork {
+  /** The network as the payload states it. */
+  readonly network: CompetitorNetwork;
+  /** The `competitor-1/2/3` role that network's marks and its legend row take (§4.2). */
+  readonly slot: CompetitorSlot;
+}
+
+/**
+ * The competitor networks the overlay can paint, each with the slot its own identifier names.
+ *
+ * WHICH ROLE A COMPETITOR IS PAINTED IN IS ITS OWN RECORD'S ANSWER, NOT ITS POSITION'S. Specification
+ * §4.2 gives three competitor hues, and the market-intelligence pack this build serves names its
+ * competitors `CMP-01` to `CMP-03` (contracts §1), so the ordinal a hue is selected by travels on the
+ * record. `competitorSlotOf` reads that ordinal and nothing else — the same lookup the radar's polygons,
+ * this overlay's legend and the atlas network view resolve their colour through — so a payload that
+ * lists its networks in another order repaints none of them, and one competitor is never drawn in two
+ * hues by two surfaces reading two differently ordered lists.
+ *
+ * A NETWORK WITH NO SLOT IS LEFT OUT, NOT RECOLOURED. The identifier states no slot when it carries no
+ * `CMP-` ordinal of its own, and the slot is already held when an earlier network in the payload names
+ * it. Two networks in one hue and one shape would be indistinguishable and specification §4.2 defines
+ * three roles and no fourth, so such a network is not drawn here at all: painting it in the accent would
+ * present market intelligence as one of the client's own readings (rule P-5), and painting it in a
+ * neighbour's hue would misattribute every mark of it. It is drawn again as soon as the payload names a
+ * slot no other network holds.
+ *
+ * The marks and the legend both read this one function, so a row is never printed for a network the
+ * drawing left out and never omitted for one it painted.
+ *
+ * @param overlay The atlas payload.
+ * @returns One entry per drawable network, in the payload's order.
+ */
+function slottedNetworksOf(overlay: Atlas): readonly SlottedNetwork[] {
+  const slotted: SlottedNetwork[] = [];
+  const slotsInUse = new Set<CompetitorSlot>();
+
+  for (const network of overlay.competitors) {
+    const slot = competitorSlotOf(network.competitorId);
+
+    if (slot === null || slotsInUse.has(slot)) {
+      continue;
+    }
+
+    slotsInUse.add(slot);
+    slotted.push({ network, slot });
+  }
+
+  return slotted;
+}
+
+/**
  * The competitor networks of the atlas payload, drawn as hollow marks in the three competitor roles.
  *
  * Only the atlas payload reaches this far: a first-party node is drawn from the topology and never from
  * here, so a market-intelligence position can never be painted as one of the client's own sites (rule
  * P-5). The group's own name repeats the imported market-intelligence label, so the marks are named as
- * what they are wherever they are read, and nothing in the group carries a figure or a count.
+ * what they are wherever they are read, and nothing in the group carries a figure or a count. The role a
+ * network's marks are stroked in is {@link slottedNetworksOf}'s answer, so it follows the competitor's
+ * own identifier rather than the position the payload lists it in.
  *
  * @param overlay The atlas payload.
  * @param projection The projection in use.
- * @returns The competitor marks, or `null` when the payload holds no network to draw.
+ * @returns The competitor marks, or `null` when no network in the payload can be painted.
  */
 function competitorMarksFor(overlay: Atlas, projection: GeoProjection): ReactNode {
-  const networks = overlay.competitors.slice(0, COMPETITOR_SLOTS.length);
+  const networks = slottedNetworksOf(overlay);
 
   if (networks.length === 0) {
     return null;
@@ -986,39 +1036,31 @@ function competitorMarksFor(overlay: Atlas, projection: GeoProjection): ReactNod
       role="group"
       aria-label={`${MARKET_INTELLIGENCE_LABEL}: ${MAP_CANVAS_TEXT.competitorGroupSuffix}`}
     >
-      {networks.map((network, position) => {
-        const slot = COMPETITOR_SLOTS[position];
+      {networks.map(({ network, slot }) => (
+        <g key={network.competitorId} aria-hidden="true">
+          {network.sites.map((site: AtlasSite) => {
+            const point = projectPoint(projection, site.longitude, site.latitude);
 
-        if (slot === undefined) {
-          return null;
-        }
+            if (point === undefined) {
+              return null;
+            }
 
-        return (
-          <g key={network.competitorId} aria-hidden="true">
-            {network.sites.map((site: AtlasSite) => {
-              const point = projectPoint(projection, site.longitude, site.latitude);
+            const [x, y] = point;
 
-              if (point === undefined) {
-                return null;
-              }
-
-              const [x, y] = point;
-
-              return (
-                <polygon
-                  key={site.id}
-                  points={`${x},${y - COMPETITOR_SITE_RADIUS} ${x + COMPETITOR_SITE_RADIUS},${y} ${x},${y + COMPETITOR_SITE_RADIUS} ${x - COMPETITOR_SITE_RADIUS},${y}`}
-                  strokeWidth={2}
-                  className={joinClassNames(
-                    COMPETITOR_SITE_CLASSES,
-                    CHART_TONE_CLASSES[`competitor-${slot}`].stroke,
-                  )}
-                />
-              );
-            })}
-          </g>
-        );
-      })}
+            return (
+              <polygon
+                key={site.id}
+                points={`${x},${y - COMPETITOR_SITE_RADIUS} ${x + COMPETITOR_SITE_RADIUS},${y} ${x},${y + COMPETITOR_SITE_RADIUS} ${x - COMPETITOR_SITE_RADIUS},${y}`}
+                strokeWidth={2}
+                className={joinClassNames(
+                  COMPETITOR_SITE_CLASSES,
+                  CHART_TONE_CLASSES[`competitor-${slot}`].stroke,
+                )}
+              />
+            );
+          })}
+        </g>
+      ))}
     </g>
   );
 }
@@ -1079,34 +1121,25 @@ function halosFor(halos: readonly ChokepointHalo[]): ReactNode {
  * The legend entries the overlay contributes: one per competitor network, each carrying the imported
  * market-intelligence label and the competitor name tag the shared legend adds.
  *
- * `./legend.tsx` owns both of those strings and prints them, so this component supplies the record's
- * own name and the slot its colour comes from, and nothing else. A network beyond the three the
- * specification gives hues to contributes no entry, because a row with no colour would describe a mark
- * the map does not draw.
+ * `./legend.tsx` owns both of those strings and prints them, so this component supplies the record's own
+ * name and the slot its colour comes from, and nothing else. Which networks contribute is
+ * {@link slottedNetworksOf}'s decision, the one the marks are drawn from as well, so a row never
+ * describes a mark the map left out and a painted network never goes unlisted; the row's `index` is that
+ * same slot, so the swatch beside the name and the marks on the map are one token on one record.
  *
  * @param overlay The atlas payload.
  * @returns One entry per drawable competitor network.
  */
 function competitorLegendEntries(overlay: Atlas): readonly LegendEntry[] {
-  const entries: LegendEntry[] = [];
-
-  overlay.competitors.slice(0, COMPETITOR_SLOTS.length).forEach((network, position) => {
-    const slot = COMPETITOR_SLOTS[position];
-
-    if (slot === undefined) {
-      return;
-    }
-
-    entries.push({
+  return slottedNetworksOf(overlay).map(
+    ({ network, slot }): LegendEntry => ({
       kind: 'competitor',
       id: network.competitorId,
       label: network.label,
       index: slot,
       simLabel: MARKET_INTELLIGENCE_LABEL,
-    });
-  });
-
-  return entries;
+    }),
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------

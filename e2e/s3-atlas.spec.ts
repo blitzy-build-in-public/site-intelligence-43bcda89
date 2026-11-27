@@ -9,9 +9,10 @@
  * WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY LEAVES ALONE. Five tests:
  *
  * 1. `T-21` — SCR-13's surface: the chokepoint alert strip that leads it, the pack banner, the
- *    product-class and entity selectors, the five-axis radar with a label per series, the legend that
- *    keys those series apart, the network view, the chokepoint table with its overlap, buffer days and
- *    contention note, and the radar's "View as table" reading of the same series.
+ *    product-class selector that narrows the drawing and restores the whole pack, the entity selector,
+ *    the five-axis radar with a label per series, the legend that keys those series apart, the network
+ *    view, the chokepoint table with its overlap, buffer days and contention note, and the radar's
+ *    "View as table" reading of the same series.
  * 2. The canvas's first-party surface as the auditor, the persona the pack's read is refused to: what
  *    no first-party figure may carry, and the absence of the overlay and the halos there.
  * 3. The S3 additions on the canvas as a persona the pack's read admits: the competitor overlay, one
@@ -130,9 +131,11 @@ const BANNER_REGION = 'Market-intelligence pack';
 /** The region holding SCR-13's two selector groups. */
 const SELECTOR_REGION = 'What the atlas is read for';
 
-/** The selector group of product classes, and the caption prefix that restates the choice in words. */
+/** The selector group of product classes, the caption prefix that restates the choice in words, and
+ *  the control that puts every class the pack holds back in view. */
 const CLASS_GROUP = 'Product class in view';
 const CLASS_CAPTION_PREFIX = 'Product class in view:';
+const ALL_CLASSES = 'All product classes';
 
 /** The selector group of the client and the competitor networks. */
 const ENTITY_GROUP = 'Entity in view';
@@ -302,6 +305,20 @@ async function labelsOf(items: Locator): Promise<string[]> {
 }
 
 /**
+ * The competitor groups the network view draws, one per competitor network in view.
+ *
+ * The screen narrows the networks by the product class in view, so this locator is what an assertion
+ * counts to prove the class filter reaches the drawing rather than only the caption (AAP 0.12.4).
+ */
+function networkCompetitorGroups(page: Page): Locator {
+  return page
+    .getByRole('region', { name: NETWORK_REGION })
+    .getByRole('figure', { name: mentions(NETWORK_TITLE) })
+    .getByRole('group', { name: NETWORK_GROUP })
+    .getByRole('group', { name: mentions(COMPETITOR_NAME_TAG) });
+}
+
+/**
  * The position of the first header matching `pattern`, or `-1`.
  *
  * A header's wording is the table's own, so a column is located by what it says rather than by its
@@ -331,23 +348,50 @@ test('T-21 the atlas labels each simulated series on its own and keeps market in
   await expect(selector).toBeVisible();
 
   /* The product-class filter acts, and the class it selects is restated in words beside it, so the
-     choice never rests on which control looks active (rule B-3). */
-  const classButtons = selector.getByRole('group', { name: CLASS_GROUP }).getByRole('button');
+     choice never rests on which control looks active (rule B-3). Its first control is the unfiltered
+     state, and every control after it names one class the pack holds. */
+  const classGroup = selector.getByRole('group', { name: CLASS_GROUP });
+  const classButtons = classGroup.getByRole('button');
   const classCount = await classButtons.count();
   expect(classCount, 'the atlas must offer the product classes the pack holds').toBeGreaterThan(1);
+  await expect(classGroup.getByRole('button', { name: ALL_CLASSES })).toBeVisible();
+
+  const entityButtons = selector.getByRole('group', { name: ENTITY_GROUP }).getByRole('button');
+  const legendRows = page
+    .getByRole('region', { name: RADAR_REGION })
+    .getByRole('list')
+    .getByRole('listitem');
 
   const chosenClass = collapse(await classButtons.nth(classCount - 1).textContent());
   expect(chosenClass, 'a class control must state the class it selects').not.toBe('');
 
   await classButtons.nth(classCount - 1).click();
-  await expect(selector.getByRole('group', { name: CLASS_GROUP })).toContainText(
-    `${CLASS_CAPTION_PREFIX} ${chosenClass}`,
-  );
+  await expect(classGroup).toContainText(`${CLASS_CAPTION_PREFIX} ${chosenClass}`);
+
+  /* A class narrows what the atlas draws: fewer series, fewer entities and fewer competitor groups
+     than the pack holds, so the control filters the view rather than restating it (AAP 0.12.4). */
+  const narrows = `the class in view must narrow the atlas: ${chosenClass}`;
+  const narrowedSeries = await legendRows.count();
+  const narrowedEntities = await entityButtons.count();
+  const narrowedGroups = await networkCompetitorGroups(page).count();
+
+  expect(narrowedSeries, narrows).toBeGreaterThan(0);
+  expect(narrowedEntities, narrows).toBeGreaterThan(0);
+  expect(narrowedGroups, narrows).toBeGreaterThan(0);
+  expect(narrowedSeries, narrows).toBeLessThan(COMPETITOR_NETWORKS + 1);
+  expect(narrowedEntities, narrows).toBeLessThan(COMPETITOR_NETWORKS + 1);
+  expect(narrowedGroups, narrows).toBeLessThan(COMPETITOR_NETWORKS);
+
+  /* Every class the pack holds is reachable again from the class group's first control, so the
+     narrowing is reversible, and the whole pack is drawn once it is (rule P-8). */
+  await classGroup.getByRole('button', { name: ALL_CLASSES }).click();
+  await expect(classGroup).toContainText(`${CLASS_CAPTION_PREFIX} ${ALL_CLASSES}`);
+  await expect(entityButtons).toHaveCount(COMPETITOR_NETWORKS + 1);
+  await expect(legendRows).toHaveCount(COMPETITOR_NETWORKS + 1);
+  await expect(networkCompetitorGroups(page)).toHaveCount(COMPETITOR_NETWORKS);
 
   /* The entity selector offers the client and one control per competitor; each competitor's control
      carries the name tag, the client's carries its self-assessment label (rule P-5). */
-  const entityButtons = selector.getByRole('group', { name: ENTITY_GROUP }).getByRole('button');
-  await expect(entityButtons).toHaveCount(COMPETITOR_NETWORKS + 1);
   await expect(entityButtons.filter({ hasText: COMPETITOR_NAME_TAG })).toHaveCount(COMPETITOR_NETWORKS);
   await expect(entityButtons.filter({ hasText: CLIENT_SELF_ASSESSMENT })).toHaveCount(1);
 
@@ -360,12 +404,8 @@ test('T-21 the atlas labels each simulated series on its own and keeps market in
   await expect(drawing.getByText(CLIENT_SELF_ASSESSMENT, { exact: true })).toHaveCount(1);
   await expect(drawing.getByText(SIMULATED_DATA, { exact: true })).toHaveCount(0);
 
-  /* The legend beside the radar keys each series on its own, so no entry merges the two families. */
-  const legendRows = page
-    .getByRole('region', { name: RADAR_REGION })
-    .getByRole('list')
-    .getByRole('listitem');
-  await expect(legendRows).toHaveCount(COMPETITOR_NETWORKS + 1);
+  /* The legend beside the radar keys each series on its own, so no entry merges the two families.
+     The whole pack is in view again, which the class group's own assertions above established. */
   await expect(legendRows.filter({ hasText: COMPETITOR_NAME_TAG })).toHaveCount(COMPETITOR_NETWORKS);
   await expect(legendRows.filter({ hasText: MARKET_INTELLIGENCE })).toHaveCount(COMPETITOR_NETWORKS);
   await expect(legendRows.filter({ hasText: CLIENT_SELF_ASSESSMENT })).toHaveCount(1);

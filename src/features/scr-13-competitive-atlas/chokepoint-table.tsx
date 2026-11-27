@@ -28,11 +28,17 @@
  *
  * The competitors a row's buffers belong to are resolved from the record itself — the keys of
  * `Chokepoint.competitorBufferDays` — and never by joining the crossing against competitors passed
- * separately. `Chokepoint` carries no competitor label, so the identifier the record supplies is
- * what the competitor column prints, tagged: a display name could only be joined from
- * `Atlas.competitors`, which this component does not receive, and inventing one here is what rule
- * P-7 forbids. Both competitor columns read that one list in the record's own order, and the buffer
- * column repeats the identifier beside each day count, so no figure is left unattributed.
+ * separately. Both competitor columns read that one list in the record's own order, and the buffer
+ * column repeats the competitor beside each day count so no figure is left unattributed.
+ *
+ * THE PACK'S COMPANY NAME IS PRINTED BESIDE THE IDENTIFIER, AND IT COMES FROM THE CALLER'S OWN
+ * RECORDS. A `Chokepoint` identifies a competitor and carries no company name, and a name written
+ * inside this module would be one it invented (rule P-7). The calling screen holds those names —
+ * they are the labels of the networks the atlas serves — so it passes the optional
+ * {@link ChokepointTableProps.competitorNameOf} resolver, and this component prints whatever it
+ * answers between the identifier and the tag. A resolver that answers nothing leaves the identifier
+ * alone, so the line reads `CMP-0x` rather than a name no record states. The name is record content:
+ * it arrives as a prop and this module keeps no copy of it (rules P-6, P-7).
  *
  * The competitor tag is imported here and never worded. Rule P-5's text pairs a competitor name with
  * one tag word, while AAP 0.10's companion-string row pairs the same tag with a different second
@@ -41,11 +47,23 @@
  * constant's documentation. This file imports the constant and renders it verbatim, and types no tag
  * text at all, so the resolution keeps one owner and a change to it needs one edit.
  *
+ * THE FIGURES OPEN THE RECORD THEY CAME FROM — AAP 0.2.1 F12, AAP 0.12.4. The overlap and the buffer
+ * days are the only numbers on SCR-13 a reader may want to inspect behind the table, so each one is
+ * wrapped in `src/components/evidence-drawer.tsx`'s `EvidenceRef` on the crossing's own identifier: a
+ * click, or `Enter` or `Space` on the focused trigger, opens the crossing's record with its source,
+ * record, freshness and formula beside the table. The reference is the row's `Chokepoint.id`, which the
+ * service's `getEvidence` read resolves, so the trigger is never a control that opens nothing
+ * (rule P-8). The buffer column repeats the competitor on each line it opens, so a reader still reads
+ * `<competitor> <name> <days>` on one line and a screen reader still hears whose buffer a day count
+ * is (rule P-5).
+ *
  * Accessibility (rule B-3). The `<table>`, its caption, its `scope="col"` headers and its `J`/`K` row
  * cursor all come from `src/components/data-table.tsx`, the application's only table vocabulary, and
- * the caption is mandatory there. No row opens a record, so no row activation is supplied and no row
- * is a control that cannot act (rule P-8). Row height comes from the density token `DataTable`
- * binds, so the density switch resizes these rows together with every other table.
+ * the caption is mandatory there. The two figures are the table's controls and no row is: the row
+ * carries no activation of its own, so a reader is never offered a row that cannot act (rule P-8), and
+ * each trigger keeps the shared control layer's 24x24 px target and 2 px focus ring. Row height comes
+ * from the density token `DataTable` binds, so the density switch resizes these rows together with
+ * every other table.
  *
  * Rules this module is built to satisfy:
  * - B-1: it renders from props only, names no address and sends no request. B-2: no credential field
@@ -58,14 +76,26 @@
  *   literal or record-identifier literal is typed here. P-7: no name is invented. P-8: no dead
  *   control.
  */
+import { useMemo } from 'react';
 import type { JSX } from 'react';
 
 import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
+import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { StatusIndicator } from '../../components/status-indicator';
 import { COMPETITOR_NAME_TAG, SIM_LABELS } from '../../types';
 import type { Chokepoint, CompetitorId, Provenance, SimLabel } from '../../types';
+
+/**
+ * Resolves the name the pack holds for a competitor identifier, or `undefined` when it holds none.
+ *
+ * The table cannot own these names (rule P-7): they are the records the atlas serves, so the calling
+ * screen builds the resolver over the payload it read and this table only asks it for a name. The
+ * `undefined` answer is a reading rather than a gap, and the table prints the identifier alone when
+ * it meets one.
+ */
+export type CompetitorNameResolver = (competitorId: CompetitorId) => string | undefined;
 
 /** Props of {@link ChokepointTable}. */
 export interface ChokepointTableProps {
@@ -94,6 +124,18 @@ export interface ChokepointTableProps {
    * atlas whose product-class filter leaves no crossing to list.
    */
   readonly emptyMessage?: string;
+
+  /**
+   * The resolver that answers the pack's company name for a competitor identifier.
+   *
+   * Optional because a table rendered without an atlas behind it has no names to print, and a
+   * required resolver would force every caller to invent one (rule P-7). When it is supplied, each
+   * competitor line prints the name it answers between the identifier and the tag, so a reader who
+   * meets `CMP-0x` learns which company it is without opening the export; when it is absent, or when
+   * it answers `undefined` for a competitor the pack records no name for, the line keeps the
+   * identifier alone.
+   */
+  readonly competitorNameOf?: CompetitorNameResolver;
 }
 
 /**
@@ -177,6 +219,18 @@ interface CompetitorBuffer {
 interface CompetitorCellsProps {
   /** The competitors using the crossing, in the record's own order. */
   readonly buffers: readonly CompetitorBuffer[];
+
+  /** The resolver that answers each competitor's company name, when the caller holds one. */
+  readonly competitorNameOf?: CompetitorNameResolver;
+}
+
+/**
+ * Props of the buffer-day cell: the pairs the competitor column reads, and the crossing whose record
+ * every figure in this cell opens.
+ */
+interface BufferDaysCellProps extends CompetitorCellsProps {
+  /** The identifier of the crossing the row is about, which is the record behind each day count. */
+  readonly chokepointId: string;
 }
 
 /**
@@ -196,14 +250,39 @@ function competitorBuffersOf(chokepoint: Chokepoint): readonly CompetitorBuffer[
 }
 
 /**
- * The competitor lines of one row: each competitor's identifier in the mono face, followed by the
- * competitor-name tag that rule P-5 requires on every competitor element.
+ * The company name a competitor line prints between its identifier and what follows, or `null` when
+ * no name is available for it.
+ *
+ * The name is the caller's record content (rule P-7): this module asks the resolver and prints the
+ * answer, and it holds no name of its own. A resolver that answers nothing — or a caller that
+ * supplied none — leaves the identifier alone rather than printing a placeholder, an abbreviation or
+ * a name this module would have to invent, and the space after the name keeps the line reading as
+ * one phrase to assistive technology.
+ */
+function competitorNameLine(
+  competitorId: CompetitorId,
+  competitorNameOf: CompetitorNameResolver | undefined,
+): JSX.Element | null {
+  const name = competitorNameOf?.(competitorId);
+
+  return name === undefined ? null : (
+    <>
+      <span>{name}</span>{' '}
+    </>
+  );
+}
+
+/**
+ * The competitor lines of one row: each competitor's identifier in the mono face, the company name
+ * the caller resolves for it, then the competitor-name tag that rule P-5 requires on every
+ * competitor element.
  *
  * The tag is the imported constant, never text typed here, so the fixed string keeps the one owner
- * the types layer gives it. A space separates the identifier from the tag, so the cell's text reads
- * as one phrase to assistive technology; the flexible gap carries the visible spacing.
+ * the types layer gives it, and it follows the name so no competitor name appears without it. A space
+ * separates the parts, so the cell's text reads as one phrase to assistive technology; the flexible
+ * gap carries the visible spacing.
  */
-function CompetitorCell({ buffers }: CompetitorCellsProps): JSX.Element {
+function CompetitorCell({ buffers, competitorNameOf }: CompetitorCellsProps): JSX.Element {
   if (buffers.length === 0) {
     return <span className="text-text-secondary">{NO_COMPETITOR_MARKER}</span>;
   }
@@ -213,6 +292,7 @@ function CompetitorCell({ buffers }: CompetitorCellsProps): JSX.Element {
       {buffers.map((buffer) => (
         <li key={buffer.competitorId} className={COMPETITOR_ENTRY_CLASSES}>
           <MonoValue value={buffer.competitorId} kind="id" />{' '}
+          {competitorNameLine(buffer.competitorId, competitorNameOf)}
           <span className={COMPETITOR_TAG_CLASSES}>{COMPETITOR_NAME_TAG}</span>
         </li>
       ))}
@@ -221,15 +301,22 @@ function CompetitorCell({ buffers }: CompetitorCellsProps): JSX.Element {
 }
 
 /**
- * The buffer-day lines of one row: each competitor's identifier followed by the days it holds at the
- * crossing.
+ * The buffer-day lines of one row: each competitor's identifier, the company name the caller
+ * resolves for it, and the days it holds at the crossing.
  *
- * The identifier is repeated here on purpose. A column of bare figures would leave a reader — and a
+ * The competitor is repeated here on purpose. A column of bare figures would leave a reader — and a
  * screen reader moving cell by cell — unable to tell whose buffer a day count is, which is the
- * blending rule P-5 forbids in its plainest form. The number itself is printed exactly as the record
- * states it: no rounding, no unit conversion, no total and no ordering.
+ * blending rule P-5 forbids in its plainest form. Each day count is the trigger that opens the
+ * crossing's own record behind it (AAP 0.2.1 F12), so the line reads `<competitor> <name> <days>`
+ * whether it is seen or heard and the figure is never a control that opens nothing (rule P-8). The
+ * number itself is printed exactly as the record states it: no rounding, no unit conversion, no total
+ * and no ordering.
  */
-function BufferDaysCell({ buffers }: CompetitorCellsProps): JSX.Element {
+function BufferDaysCell({
+  chokepointId,
+  buffers,
+  competitorNameOf,
+}: BufferDaysCellProps): JSX.Element {
   if (buffers.length === 0) {
     return <span className="text-text-secondary">{NO_COMPETITOR_MARKER}</span>;
   }
@@ -239,7 +326,8 @@ function BufferDaysCell({ buffers }: CompetitorCellsProps): JSX.Element {
       {buffers.map((buffer) => (
         <li key={buffer.competitorId} className={COMPETITOR_ENTRY_CLASSES}>
           <MonoValue value={buffer.competitorId} kind="id" />{' '}
-          <span>{buffer.bufferDays}</span>
+          {competitorNameLine(buffer.competitorId, competitorNameOf)}
+          <EvidenceRef ref={chokepointId}>{buffer.bufferDays}</EvidenceRef>
         </li>
       ))}
     </ul>
@@ -254,49 +342,73 @@ function BufferDaysCell({ buffers }: CompetitorCellsProps): JSX.Element {
  * Each `render` is a closure over one record and returns what that record holds. No column declares
  * `sortable`, because a sort control here would replace the pack's own order with one computed in a
  * component. The two numeric columns carry `align: 'end'`, so their figures line up on their last
- * digit the way the shared table draws every numeric column.
+ * digit the way the shared table draws every numeric column, and each of their figures is the trigger
+ * that opens the crossing's own record (AAP 0.2.1 F12).
+ *
+ * A factory rather than a constant, because the two competitor cells print the company name the
+ * caller resolves, and that resolver is a prop. The column set, its order and every other cell are
+ * the same for every caller (rules P-1, P-5).
+ *
+ * @param competitorNameOf - The resolver that answers a competitor's company name, when the caller
+ *   holds one; absent leaves each competitor line with its identifier alone (rule P-7).
+ * @returns The columns the table renders, in the order above.
  */
-const CHOKEPOINT_COLUMNS: readonly TableColumn<Chokepoint>[] = [
-  {
-    id: 'chokepoint',
-    header: 'Chokepoint',
-    render: (row) => <MonoValue value={row.id} kind="id" />,
-  },
-  {
-    id: 'crossing',
-    header: 'Crossing',
-    render: (row) => row.label,
-  },
-  {
-    id: 'competitors',
-    header: 'Competitors',
-    render: (row) => <CompetitorCell buffers={competitorBuffersOf(row)} />,
-  },
-  {
-    id: 'overlap',
-    header: 'Overlap',
-    align: 'end',
-    render: (row) => row.overlap,
-  },
-  {
-    id: 'buffer-days',
-    header: 'Competitor buffer days',
-    align: 'end',
-    render: (row) => <BufferDaysCell buffers={competitorBuffersOf(row)} />,
-  },
-  {
-    id: 'contention',
-    header: 'Contention note',
-    render: (row) => <span className={NOTE_CLASSES}>{row.contentionNote}</span>,
-  },
-  {
-    id: 'provenance',
-    header: 'Provenance',
-    render: (row) => (
-      <StatusIndicator meaning="simulated" label={PROVENANCE_LABELS[row.provenance]} />
-    ),
-  },
-];
+function chokepointColumnsOf(
+  competitorNameOf: CompetitorNameResolver | undefined,
+): readonly TableColumn<Chokepoint>[] {
+  return [
+    {
+      id: 'chokepoint',
+      header: 'Chokepoint',
+      render: (row) => <MonoValue value={row.id} kind="id" />,
+    },
+    {
+      id: 'crossing',
+      header: 'Crossing',
+      render: (row) => row.label,
+    },
+    {
+      id: 'competitors',
+      header: 'Competitors',
+      render: (row) => (
+        <CompetitorCell
+          buffers={competitorBuffersOf(row)}
+          {...(competitorNameOf === undefined ? {} : { competitorNameOf })}
+        />
+      ),
+    },
+    {
+      id: 'overlap',
+      header: 'Overlap',
+      align: 'end',
+      render: (row) => <EvidenceRef ref={row.id}>{row.overlap}</EvidenceRef>,
+    },
+    {
+      id: 'buffer-days',
+      header: 'Competitor buffer days',
+      align: 'end',
+      render: (row) => (
+        <BufferDaysCell
+          chokepointId={row.id}
+          buffers={competitorBuffersOf(row)}
+          {...(competitorNameOf === undefined ? {} : { competitorNameOf })}
+        />
+      ),
+    },
+    {
+      id: 'contention',
+      header: 'Contention note',
+      render: (row) => <span className={NOTE_CLASSES}>{row.contentionNote}</span>,
+    },
+    {
+      id: 'provenance',
+      header: 'Provenance',
+      render: (row) => (
+        <StatusIndicator meaning="simulated" label={PROVENANCE_LABELS[row.provenance]} />
+      ),
+    },
+  ];
+}
 
 /**
  * A row's key in the table: the crossing's identifier, which the pack holds once per crossing, so a
@@ -322,9 +434,10 @@ const KEEP_SUPPLIED_ROW_ORDER = (): void => {
  * Renders the atlas's chokepoint table.
  *
  * The table is presentational by contract: it takes the crossings the service served and prints them
- * one row per crossing, in the order they arrived, with each market-intelligence figure labelled and
- * each competitor element tagged. It reads no clock, holds no state and calls nothing, so a
- * re-render of the atlas draws the same table from the same payload.
+ * one row per crossing, in the order they arrived, with each market-intelligence figure labelled,
+ * each competitor element tagged and each competitor line naming the company the caller resolves for
+ * it. It reads no clock, holds no state and calls nothing, so a re-render of the atlas draws the same
+ * table from the same payload.
  *
  * The caption is always rendered, from the caller's wording or from {@link DEFAULT_CAPTION}, and an
  * atlas with no crossing to list shows the caller's sentence or {@link DEFAULT_EMPTY_MESSAGE} rather
@@ -334,10 +447,13 @@ export function ChokepointTable({
   chokepoints,
   caption,
   emptyMessage,
+  competitorNameOf,
 }: ChokepointTableProps): JSX.Element {
+  const columns = useMemo(() => chokepointColumnsOf(competitorNameOf), [competitorNameOf]);
+
   return (
     <DataTable
-      columns={CHOKEPOINT_COLUMNS}
+      columns={columns}
       rows={chokepoints}
       getRowKey={rowKeyOf}
       caption={caption ?? DEFAULT_CAPTION}

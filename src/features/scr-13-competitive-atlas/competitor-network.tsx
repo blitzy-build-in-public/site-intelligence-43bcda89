@@ -33,11 +33,11 @@
  * There is no member of this component that combines them — no overlap count, no score, no sum, no
  * shared axis — so a blended figure has nowhere to come from. The two families are also told apart
  * by SHAPE rather than by hue alone (rule B-3): a client site is a filled circle, and the first,
- * second and third competitor networks draw hollow diamond, square and triangle marks, resolved from
- * each network's position among the networks the payload carries. The three hues specification §4.2
- * assigns to the competitors are applied in that same order, and this module names their role
- * utilities directly because the shared chart tone table belongs to a module this feature does not
- * import; a mark, a radar series and a legend swatch therefore resolve the same token.
+ * second and third competitor networks draw hollow diamond, square and triangle marks. Which of those
+ * shapes, and which of the three hues specification §4.2 assigns the competitors, a network takes is
+ * resolved from its `competitorId` through `competitorSlotOf` — the same lookup the radar polygons
+ * and the legend swatches read — so a mark keeps its colour when the payload lists the networks in
+ * another order.
  *
  * WHY EVERY FIXED STRING IS IMPORTED AND NONE IS WRITTEN HERE (rule P-1). A competitor's printed name
  * is followed by `COMPETITOR_NAME_TAG`, and the name line of every competitor series is followed by
@@ -68,16 +68,48 @@
  * or crossing becomes a control because it states its identity and asks the screen to select it, or
  * because the caller's `evidenceRefFor` resolved the evidence record behind it: it is then a
  * `<g role="button" tabIndex={0}>` whose accessible name states what it is, whose family tag tells
- * market intelligence from the client's own record, and which answers `Enter`, `Space` and the
- * pointer. An SVG element receives no focus ring from the browser, so each mark draws its own in the
- * `focus-ring` role, and a mark holds an invisible target of at least 24x24 px at the widest width
- * the drawing is given. A crossing the payload places nowhere is left out rather than drawn at a
- * guessed place, so a reader is never shown contention at the wrong coordinates.
+ * market intelligence from the client's own record, and which answers `Enter` and `Space` on the
+ * mark itself. An SVG element receives no focus ring from the browser, so each mark draws its own in
+ * the `focus-ring` role, and a mark holds an invisible target of at least 24x24 px at the widest
+ * width the drawing is given. A crossing the payload places nowhere is left out rather than drawn at
+ * a guessed place, so a reader is never shown contention at the wrong coordinates.
+ *
+ * THE ENTITY IN VIEW IS MARKED IN THE DRAWING, NOT ONLY IN THE CAPTION (rule P-8). SCR-13's entity
+ * selector reports the network a reader picked, and a control whose only effect is its own highlight
+ * does not perform the selection function it presents. `highlightedCompetitorId` therefore reaches
+ * this drawing: the family in view is drawn with a heavier stroke, prints its names in the emphasised
+ * weight and states `aria-current` on its group, while a competitor family that is not in view
+ * recedes to the ground fill, hairline stroke and secondary text role
+ * `src/components/dependency-graph.tsx` dims a node with. The client's own family is not a competitor
+ * family and is never receded; it is emphasised when the entity in view is the client's own network,
+ * which the caller states as `null`. Nothing else changes: every mark keeps its own accessible name,
+ * its target, its rings and its keyboard activation, so the emphasis is a weight and a role token
+ * rather than a hue or a hidden series (rule B-3).
+ *
+ * WHY THE POINTER IS RESOLVED BY PROXIMITY. A mark's target has to stay past the 24x24 px minimum
+ * rule B-3 asks for, and the pack can place two marks closer together than one target is wide — a
+ * competitor's site a few units from the client's own, two records stating one coordinate — so the
+ * target painted last covers the mark drawn before it and would take a press aimed at its neighbour.
+ * The drawing therefore resolves the press instead of leaving it to the browser's hit test:
+ * {@link CompetitorNetwork} listens once, on the `<svg>`, converts the pointer's coordinates into
+ * this drawing's own units and activates the mark whose centre is NEAREST the press, within the
+ * target radius a mark already carries — see {@link nearestNetworkMark}. A press on the ground
+ * between marks activates nothing, and a press inside a mark's own group but outside every target is
+ * that mark's own: a site's or a crossing's printed name is part of the mark, so pressing a name
+ * selects the mark it names. The keyboard route needs none of this and stays exact, because `Enter`
+ * or `Space` runs on the focused mark itself.
  */
 import { useMemo, useState } from 'react';
-import type { JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import type {
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from 'react';
 
 import { EvidenceDrawer } from '../../components/evidence-drawer';
+import { CHART_TONE_CLASSES, competitorSlotOf } from '../../components/horizontal-bar-chart';
+import type { CompetitorSlot } from '../../components/horizontal-bar-chart';
 import {
   CLIENT_SELF_ASSESSMENT_LABEL,
   COMPETITOR_NAME_TAG,
@@ -87,6 +119,7 @@ import type {
   AtlasLane,
   AtlasSite,
   Chokepoint,
+  CompetitorId,
   CompetitorNetwork as CompetitorNetworkPayload,
 } from '../../types';
 
@@ -254,34 +287,20 @@ const LABEL_BAND_LINE_HEIGHT = 15;
 const LABEL_BAND_PADDING = 18;
 
 /* ---------------------------------------------------------------------------------------------
- * The competitor slots — shape and hue resolved by position, never by an identifier
+ * The competitor slots — shape and hue resolved from the competitor's own identifier
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * A competitor network's slot: the ordinal that selects both its shape and its hue.
- *
- * Specification §4.2 assigns three competitor colours, so three slots exist. The slot is derived from
- * a network's position among the networks the payload carries rather than from its identifier,
- * because an identifier is a record's name and a marker vocabulary is a chart concern (rule P-6).
- */
-type CompetitorSlot = 1 | 2 | 3;
-
-/** The three slots, in the order §4.2 assigns the hues: the first network takes the first hue. */
-const COMPETITOR_SLOTS: readonly CompetitorSlot[] = [1, 2, 3];
 
 /**
  * The stroke utility each slot's hue resolves to.
  *
- * These are role-token utilities from `src/theme/tokens.css`, so a mark is repainted by the theme
- * layer and not by this component. The shared chart tone table in `src/components/horizontal-bar-chart.tsx`
- * holds the same three utilities for the charts, and this file names them directly only because that
- * module is not one this feature imports; both read the same `--color-competitor-*` roles, so a mark
- * and a legend swatch of one competitor cannot disagree.
+ * It reads the three competitor entries of the one chart tone table in
+ * `src/components/horizontal-bar-chart.tsx`, so a network mark, a radar polygon and a legend swatch
+ * of one competitor resolve one role token from one owner, and a re-pointed role reaches them all.
  */
 const COMPETITOR_STROKE_CLASSES = {
-  1: 'stroke-competitor-1',
-  2: 'stroke-competitor-2',
-  3: 'stroke-competitor-3',
+  1: CHART_TONE_CLASSES['competitor-1'].stroke,
+  2: CHART_TONE_CLASSES['competitor-2'].stroke,
+  3: CHART_TONE_CLASSES['competitor-3'].stroke,
 } as const satisfies Record<CompetitorSlot, string>;
 
 /**
@@ -335,13 +354,23 @@ const CLIENT_LANE_CLASSES = 'fill-none stroke-control-boundary';
 const MARK_LABEL_CLASSES = 'fill-text-primary stroke-surface-1 text-12';
 
 /**
- * The extra weight the selected mark's own name takes.
+ * The extra weight a mark's own name takes where its state has to read without colour.
  *
- * Selection already draws a ring outside the focus ring and states `aria-current`, but a reader who
- * cannot separate the two rings by size still needs a second, non-colour cue: the heavier weight of
- * the selected mark's name is that cue, and it is a weight the type scale already bundles.
+ * A selected mark's name and every name of the family in view carry it: selection already draws a
+ * ring outside the focus ring and states `aria-current`, and the entity in view states the same, but
+ * a reader who cannot separate two rings by size, or two hues, still needs a cue that is not colour —
+ * and this is a weight the type scale already bundles (rule B-3).
  */
 const SELECTED_LABEL_CLASSES = 'font-semibold';
+
+/**
+ * A site's or a crossing's printed name where its family is not the one in view.
+ *
+ * The secondary text role, haloed by the surface beneath it: it is a role specification §4 measures,
+ * so a receded name never drops below the 4.5:1 rule B-3 requires of text, and the recession is
+ * carried by a role token rather than by a hue.
+ */
+const RECEDED_LABEL_CLASSES = 'fill-text-secondary stroke-surface-1 text-12';
 
 /** A series' name in the label band: the primary text role. */
 const BAND_NAME_CLASSES = 'fill-text-primary text-12';
@@ -362,6 +391,43 @@ const COMPETITOR_LANE_STROKE = 1.5;
 const COMPETITOR_LANE_DASH = '6 4';
 
 /* ---------------------------------------------------------------------------------------------
+ * The emphasis of a family — how the entity in view is marked, and how the others recede
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * How one family of the drawing is painted while the screen reports an entity in view.
+ *
+ * `highlighted` is the family the screen reports on, `receded` a competitor family that is not it, and
+ * `default` is what every family is painted as when the screen highlights nothing — so a caller that
+ * passes no `highlightedCompetitorId` receives exactly the drawing it received before the prop
+ * existed, mark for mark.
+ */
+type FamilyEmphasis = 'highlighted' | 'receded' | 'default';
+
+/** The stroke a competitor's shape carries when no family is in view: the drawing's own weight. */
+const COMPETITOR_MARK_STROKE = 2;
+
+/** The stroke the highlighted family's marks take, so the emphasis is a weight and never a hue. */
+const HIGHLIGHTED_MARK_STROKE = 3;
+
+/** The hairline a receded family's marks take, in the same device the graph lens dims a node with. */
+const RECEDED_MARK_STROKE = 1;
+
+/**
+ * A competitor mark whose family is not the one in view: the ground fill and the hairline stroke
+ * `src/components/dependency-graph.tsx` dims a node with.
+ *
+ * Both are role tokens rather than a hue, so the family keeps its own shape and its own place on the
+ * drawing while the family in view carries the emphasis, and a reader who cannot separate two hues
+ * still reads which family the screen reports on (rule B-3).
+ */
+const RECEDED_MARK_CLASSES = 'fill-ground stroke-hairline';
+
+/** A receded competitor's lane: the same hairline role, at the width the client's own lanes use. */
+const RECEDED_LANE_CLASSES = 'fill-none stroke-hairline';
+const RECEDED_LANE_STROKE = CLIENT_LANE_STROKE;
+
+/* ---------------------------------------------------------------------------------------------
  * The public surface
  * ------------------------------------------------------------------------------------------- */
 
@@ -371,11 +437,13 @@ export interface CompetitorNetworkProps {
    * The market-intelligence competitor networks drawn over the client's own sites, in the order the
    * atlas payload lists them. Required.
    *
-   * A network's POSITION in this list decides both the shape and the hue of its marks, because
-   * specification §4.2 assigns the three competitor roles by order. The payload holds three networks,
-   * so the drawing holds three slots; a fourth network would need a fourth role token before it could
-   * be drawn in a hue of its own, and one beyond the third is left out rather than painted in a
-   * colour that would read as another competitor's network.
+   * A network's IDENTIFIER decides both the shape and the hue of its marks, through
+   * `competitorSlotOf` (`CMP-01` takes §4.2's first competitor slot, `CMP-02` the second, `CMP-03`
+   * the third), so the order this list holds them in moves the drawing's groups and no mark's colour.
+   * The payload holds three networks, so the drawing holds three slots; a network whose identifier
+   * states no slot of its own, and one whose slot another network already holds, is left out rather
+   * than painted in a colour that would read as another competitor's network — the table view beside
+   * the drawing still carries its sites.
    *
    * Every network here is market intelligence (rule P-5). Its sites are drawn hollow, its lanes
    * dashed, and its printed name carries the imported competitor tag — so the two families cannot be
@@ -446,6 +514,29 @@ export interface CompetitorNetworkProps {
    * up by its exact identifier.
    */
   readonly evidenceRefFor?: ((entityId: string) => string | undefined) | undefined;
+
+  /**
+   * The competitor network the screen holds as the entity in view, `null` when that entity is the
+   * client's own network, or `undefined` when the screen highlights nothing. Optional.
+   *
+   * WHAT IT MARKS, AND WHY IT IS STRUCTURAL. SCR-13's entity selector reports the series a reader
+   * picked, and a control whose only effect is its own highlight does not perform the selection it
+   * presents (rule P-8). The entity in view is therefore marked inside this drawing: the highlighted
+   * family's marks are drawn with a heavier stroke, its printed names take the emphasised weight and
+   * its group states `aria-current`. The other competitor families recede with the device
+   * `src/components/dependency-graph.tsx` dims a node with — the ground fill and a hairline stroke,
+   * with their printed names in the secondary text role, which is a role §4 measures — so the
+   * recession is a role token rather than a hue, and no name falls below the contrast rule B-3
+   * requires. The client's own family is not a competitor family and so is not receded when a
+   * competitor is in view.
+   *
+   * WHAT IT NEVER TOUCHES. The selected mark's own ring and `aria-current`, every mark's accessible
+   * name, its focus ring, its pointer target and its keyboard activation, and the press resolution
+   * above, are all exactly what they are without the prop: the emphasis changes how a family is
+   * painted, never what a mark is or does. A caller that omits the prop receives the drawing it
+   * received before the prop existed.
+   */
+  readonly highlightedCompetitorId?: CompetitorId | null | undefined;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1229,14 +1320,22 @@ function drawingOf(
   }
 
   const slotsTaken: SlottedNetwork[] = [];
+  const slotsInUse = new Set<CompetitorSlot>();
 
-  for (let position = 0; position < networks.length; position += 1) {
-    const network = networks[position];
-    const slot = COMPETITOR_SLOTS[position];
+  for (const network of networks) {
+    const slot = competitorSlotOf(network.competitorId);
 
-    if (network === undefined || slot === undefined) {
+    /* A network whose identifier states no slot of its own — and one whose slot another network
+       already holds — is left out rather than painted in a hue and a shape that would read as another
+       competitor's: specification §4.2 defines three competitor roles and no fourth, so two networks
+       in one hue would be indistinguishable on the drawing. The table view beside the drawing still
+       carries every site of such a network, and the network is placed again as soon as the payload
+       names its own slot. */
+    if (slot === null || slotsInUse.has(slot)) {
       continue;
     }
+
+    slotsInUse.add(slot);
 
     const sites: SitePlacement[] = [];
 
@@ -1354,6 +1453,129 @@ function drawingOf(
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * Pointer resolution — the press belongs to the mark nearest it
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The attribute one mark's activation group carries: the site or crossing identifier it reports.
+ *
+ * It is what lets the drawing's press resolution attribute a press that lands inside a mark's own
+ * group — on its printed name, which lies outside every target — to that mark, without the mark
+ * keeping a press handler of its own. {@link InteractiveMark} renders it on the group as
+ * `data-mark-entity`, and {@link owningEntityOf} reads it back from the element a press landed on.
+ */
+const MARK_ENTITY_ATTRIBUTE = 'data-mark-entity';
+
+/** One mark a press can resolve to: the entity its activation reports, and the point it is drawn at. */
+interface NetworkMarkCentre {
+  /** The site's or crossing's identifier, which is what the mark reports and opens evidence for. */
+  readonly entityId: string;
+  /** The x the mark's target is centred on, in the drawing's own units. */
+  readonly x: number;
+  /** The y the mark's target is centred on, in the drawing's own units. */
+  readonly y: number;
+}
+
+/**
+ * The mark a press at a point belongs to: the nearest centre within the target radius, or `null`.
+ *
+ * WHY THE NEAREST CENTRE AND NOT THE TOPMOST TARGET. Two marks can be drawn closer together than a
+ * target is wide — the targets have to stay past the 24x24 px minimum rule B-3 asks for, while the
+ * pack can place a competitor's site a few units from the client's own — so the target painted last
+ * covers the mark drawn before it and would take a press aimed at its neighbour. Comparing the press
+ * against the centres answers the question a reader is asking, "which mark did I press", on the
+ * drawing's own geometry rather than on paint order, and it keeps the large targets the pointer
+ * needs.
+ *
+ * Two marks drawn at one centre — two records may state one coordinate — are told apart by their
+ * order in `marks`, which is the order the drawing paints them, so the answer is deterministic. A
+ * radius that is not positive, and a point the browser could not resolve (a coordinate that is not a
+ * finite number), match nothing and yield `null`, which is what keeps a press on empty ground from
+ * activating a mark at all (rule P-8).
+ *
+ * @param marks The marks a press can resolve to, in the order the drawing paints them.
+ * @param point The press, in the drawing's own coordinates.
+ * @param radius How far from a mark's centre a press still belongs to it, in the same units.
+ * @returns The nearest mark within `radius`, or `null` when the press is clear of every one.
+ */
+export function nearestNetworkMark(
+  marks: readonly NetworkMarkCentre[],
+  point: { readonly x: number; readonly y: number },
+  radius: number,
+): NetworkMarkCentre | null {
+  if (!(radius > 0)) {
+    return null;
+  }
+
+  const limit = radius * radius;
+  let nearest: NetworkMarkCentre | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const mark of marks) {
+    const offsetX = mark.x - point.x;
+    const offsetY = mark.y - point.y;
+    const distance = offsetX * offsetX + offsetY * offsetY;
+
+    /* Strictly nearer, so the first of two marks at one centre is the one answered. */
+    if (distance <= limit && distance < nearestDistance) {
+      nearest = mark;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
+/**
+ * Every mark the drawing paints, in the order it paints them: the shared crossings first, then each
+ * competitor's sites in the payload's order, then the client's own — which is the order of the
+ * drawing's groups, and therefore the order a press that is equally near two marks resolves in.
+ *
+ * @param drawing The placed drawing, whose marks are what a press can reach.
+ * @returns One entry per drawn mark, with the point its target is centred on.
+ */
+function drawingMarksOf(drawing: NetworkDrawing): readonly NetworkMarkCentre[] {
+  const marks: NetworkMarkCentre[] = [];
+
+  for (const crossing of drawing.chokepoints) {
+    marks.push({ entityId: crossing.id, x: crossing.x, y: crossing.y });
+  }
+
+  for (const placed of drawing.competitors) {
+    for (const site of placed.sites) {
+      marks.push({ entityId: site.site.id, x: site.x, y: site.y });
+    }
+  }
+
+  for (const site of drawing.client.sites) {
+    marks.push({ entityId: site.site.id, x: site.x, y: site.y });
+  }
+
+  return marks;
+}
+
+/**
+ * The entity of the mark whose own group received the press, or `null` when it landed elsewhere.
+ *
+ * A mark prints its name beside its target and the name lies outside every target's reach, so a
+ * reader who presses a site's printed name is pressing that mark alone: the drawing attributes the
+ * press to the group it landed in. A press on the ground between marks, or on a lane, belongs to no
+ * group and activates nothing (rule P-8).
+ *
+ * @param target The element the press landed on, as the event reports it.
+ * @returns The entity identifier the pressed mark reports, or `null` for a press on no mark.
+ */
+function owningEntityOf(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  const owner = target.closest(`[${MARK_ENTITY_ATTRIBUTE}]`);
+
+  return owner === null ? null : owner.getAttribute(MARK_ENTITY_ATTRIBUTE);
+}
+
+/* ---------------------------------------------------------------------------------------------
  * Interaction — what a mark answers to, and what it is called
  * ------------------------------------------------------------------------------------------- */
 
@@ -1431,45 +1653,117 @@ function pointerStrokeClassFor(slot: CompetitorSlot | null): string {
 }
 
 /**
+ * The role tokens one competitor's shape is painted with at the emphasis in view.
+ *
+ * A receded family takes the ground fill and the hairline stroke instead of its own hue, and every
+ * other state keeps the hue its identifier resolves, so no mark ever takes a colour that would read as
+ * another competitor's (rule P-5).
+ *
+ * @param slot The competitor's slot, which selects the hue.
+ * @param emphasis How this family is painted while an entity is in view.
+ * @returns The class list of the shape.
+ */
+function competitorMarkClassesFor(slot: CompetitorSlot, emphasis: FamilyEmphasis): string {
+  if (emphasis === 'receded') {
+    return RECEDED_MARK_CLASSES;
+  }
+
+  return joinClassNames(COMPETITOR_MARK_CLASSES, COMPETITOR_STROKE_CLASSES[slot]);
+}
+
+/**
+ * The stroke weight one family's marks are drawn with at the emphasis in view.
+ *
+ * @param emphasis How this family is painted while an entity is in view.
+ * @returns The weight, in the drawing's own units.
+ */
+function markStrokeFor(emphasis: FamilyEmphasis): number {
+  if (emphasis === 'highlighted') {
+    return HIGHLIGHTED_MARK_STROKE;
+  }
+
+  return emphasis === 'receded' ? RECEDED_MARK_STROKE : COMPETITOR_MARK_STROKE;
+}
+
+/**
+ * The class list one mark's printed name takes: its family's text role, plus the weight a selected
+ * mark or the family in view adds. Exactly one `fill-` utility is present in every arm, so no two text
+ * roles are ever set on one name and the contrast is the one §4 measured for the role that wins.
+ *
+ * @param emphasis How this family is painted while an entity is in view.
+ * @param isSelected Whether the screen holds this very mark as selected.
+ * @returns The class list of the name.
+ */
+function nameClassesFor(emphasis: FamilyEmphasis, isSelected: boolean): string {
+  const base = emphasis === 'receded' ? RECEDED_LABEL_CLASSES : MARK_LABEL_CLASSES;
+
+  return joinClassNames(
+    base,
+    isSelected || emphasis === 'highlighted' ? SELECTED_LABEL_CLASSES : undefined,
+  );
+}
+
+/**
  * The visible mark of one site: a filled circle for the client's own network, and the hollow shape its
  * slot assigns for a competitor's.
  *
+ * The shape is the family's own in every state; the emphasis in view only changes how it is painted —
+ * a heavier stroke for the family the screen reports on, the graph lens's ground fill and hairline for
+ * a competitor family that is not it — and a highlighted client site draws the accent stroke at the
+ * highlighted weight around its filled circle, so both families gain the same structural cue (rule
+ * B-3). The mark's size, its target and its accessible name are the same in every state.
+ *
  * @param placed The site's mark.
+ * @param emphasis How this family is painted while an entity is in view.
  * @returns The shape element.
  */
-function markOf(placed: PlacedSite): JSX.Element {
+function markOf(placed: PlacedSite, emphasis: FamilyEmphasis): JSX.Element {
   const { slot, x, y } = placed;
 
   if (slot === null) {
-    return <circle cx={x} cy={y} r={CLIENT_SITE_RADIUS} className={CLIENT_MARK_CLASSES} />;
+    if (emphasis !== 'highlighted') {
+      return <circle cx={x} cy={y} r={CLIENT_SITE_RADIUS} className={CLIENT_MARK_CLASSES} />;
+    }
+
+    return (
+      <circle
+        cx={x}
+        cy={y}
+        r={CLIENT_SITE_RADIUS}
+        strokeWidth={HIGHLIGHTED_MARK_STROKE}
+        className={joinClassNames(CLIENT_MARK_CLASSES, CHART_TONE_CLASSES.accent.stroke)}
+      />
+    );
   }
 
   return (
     <polygon
       points={competitorMarkPoints(slot, x, y, COMPETITOR_MARK_RADIUS)}
-      strokeWidth={2}
-      className={joinClassNames(COMPETITOR_MARK_CLASSES, COMPETITOR_STROKE_CLASSES[slot])}
+      strokeWidth={markStrokeFor(emphasis)}
+      className={competitorMarkClassesFor(slot, emphasis)}
     />
   );
 }
 
 /** Props of {@link InteractiveMark}: the scaffolding every activateable mark shares. */
 interface InteractiveMarkProps {
+  /** The site or crossing the mark reports, which the drawing's press resolution reads back. */
+  readonly entityId: string;
   /** The mark's accessible name. */
   readonly label: string;
   /** Whether activating the mark opens the evidence drawer. */
   readonly opensEvidence: boolean;
   /** Whether the screen holds the mark's entity as selected. */
   readonly isSelected: boolean;
-  /** Reports the activation to the drawing, which selects and opens the evidence. */
+  /** Reports the keyboard activation to the drawing, which selects and opens the evidence. */
   readonly onActivate: () => void;
   /** The rings and the shape the mark draws. */
   readonly children: ReactNode;
 }
 
 /**
- * The scaffolding of an activateable mark: the button role, the keyboard and pointer handlers, and
- * the selected state.
+ * The scaffolding of an activateable mark: the button role, the keyboard handler, the selected state
+ * and the identifier the drawing's press resolution attributes a press back to.
  *
  * The mark is a `<g role="button" tabIndex={0}>` rather than a native button because an SVG drawing
  * has no native control to place inside it, and it answers the two keys a button answers. Its name is
@@ -1478,10 +1772,16 @@ interface InteractiveMarkProps {
  * cannot see the ring, and `aria-haspopup` is stated only where activating the mark really does open
  * the drawer beside the drawing (rule P-8).
  *
- * @param props The name, the state, the handler and the mark itself.
+ * A mark carries no press handler of its own. Its group carries the entity identifier instead, and
+ * the drawing resolves one press to the mark nearest it, so a press that lands in this mark's group
+ * is attributed to this mark while a press aimed at its dot is not handed to a neighbour painted
+ * above it — and one gesture can never activate two marks.
+ *
+ * @param props The entity, the name, the state, the handler and the mark itself.
  * @returns The interactive group.
  */
 function InteractiveMark({
+  entityId,
   label,
   opensEvidence,
   isSelected,
@@ -1495,8 +1795,8 @@ function InteractiveMark({
       aria-label={label}
       aria-current={isSelected ? 'true' : undefined}
       {...(opensEvidence ? { 'aria-haspopup': 'dialog' as const } : {})}
+      data-mark-entity={entityId}
       className="group cursor-pointer"
-      onClick={onActivate}
       onKeyDown={(event: ReactKeyboardEvent<SVGGElement>) => {
         if (!isActivationKey(event)) {
           return;
@@ -1521,6 +1821,8 @@ interface SiteMarkProps {
   readonly isSelected: boolean;
   /** Whether activating the mark opens the evidence drawer. */
   readonly opensEvidence: boolean;
+  /** How this site's family is painted while the screen reports an entity in view. */
+  readonly emphasis: FamilyEmphasis;
   /** Reports the activation to the drawing. */
   readonly onActivate: () => void;
 }
@@ -1543,12 +1845,14 @@ function SiteMark({
   crossingLabel,
   isSelected,
   opensEvidence,
+  emphasis,
   onActivate,
 }: SiteMarkProps): JSX.Element {
   const { site, x, y, slot, labelX, labelY } = placed;
 
   return (
     <InteractiveMark
+      entityId={site.id}
       label={siteAriaLabel(placed, crossingLabel)}
       opensEvidence={opensEvidence}
       isSelected={isSelected}
@@ -1578,16 +1882,13 @@ function SiteMark({
         strokeWidth={RING_STROKE}
         className={joinClassNames(POINTER_RING_CLASSES, pointerStrokeClassFor(slot))}
       />
-      {markOf(placed)}
+      {markOf(placed, emphasis)}
       <text
         x={labelX}
         y={labelY}
         strokeWidth={3}
         paintOrder="stroke"
-        className={joinClassNames(
-          MARK_LABEL_CLASSES,
-          isSelected ? SELECTED_LABEL_CLASSES : undefined,
-        )}
+        className={nameClassesFor(emphasis, isSelected)}
       >
         {site.label}
       </text>
@@ -1629,6 +1930,7 @@ function ChokepointMark({
 
   return (
     <InteractiveMark
+      entityId={crossing.id}
       label={chokepointAriaLabel(crossing)}
       opensEvidence={opensEvidence}
       isSelected={isSelected}
@@ -1692,6 +1994,8 @@ interface LaneArcsProps {
   readonly lanes: readonly PlacedLane[];
   /** The competitor whose hue the lanes take, or `null` for the client's own lanes. */
   readonly slot: CompetitorSlot | null;
+  /** How this family is painted while the screen reports an entity in view. */
+  readonly emphasis: FamilyEmphasis;
 }
 
 /**
@@ -1707,10 +2011,12 @@ interface LaneArcsProps {
  * @param props The lanes and the family whose hue they take.
  * @returns The arcs, or `null` when the network states no drawable lane.
  */
-function LaneArcs({ lanes, slot }: LaneArcsProps): ReactNode {
+function LaneArcs({ lanes, slot, emphasis }: LaneArcsProps): ReactNode {
   if (lanes.length === 0) {
     return null;
   }
+
+  const receded = slot !== null && emphasis === 'receded';
 
   return (
     <g aria-hidden="true">
@@ -1726,9 +2032,13 @@ function LaneArcs({ lanes, slot }: LaneArcsProps): ReactNode {
           <path
             key={lane.key}
             d={lane.path}
-            strokeWidth={COMPETITOR_LANE_STROKE}
+            strokeWidth={receded ? RECEDED_LANE_STROKE : COMPETITOR_LANE_STROKE}
             strokeDasharray={COMPETITOR_LANE_DASH}
-            className={joinClassNames('fill-none', COMPETITOR_STROKE_CLASSES[slot])}
+            className={
+              receded
+                ? RECEDED_LANE_CLASSES
+                : joinClassNames('fill-none', COMPETITOR_STROKE_CLASSES[slot])
+            }
           />
         ),
       )}
@@ -1746,6 +2056,8 @@ interface SiteMarksProps {
   readonly crossingLabelBySiteId: ReadonlyMap<string, string>;
   /** Resolves the evidence reference a site opens, where the caller supplied the mapper. */
   readonly evidenceRefFor: ((entityId: string) => string | undefined) | undefined;
+  /** How this group's family is painted while the screen reports an entity in view. */
+  readonly emphasis: FamilyEmphasis;
   /** Reports an activated site to the drawing, which selects it and opens its evidence. */
   readonly activateEntity: (entityId: string) => void;
 }
@@ -1761,6 +2073,7 @@ function SiteMarks({
   selectedEntityId,
   crossingLabelBySiteId,
   evidenceRefFor,
+  emphasis,
   activateEntity,
 }: SiteMarksProps): ReactNode {
   return sites.map((placed) => (
@@ -1770,6 +2083,7 @@ function SiteMarks({
       crossingLabel={crossingLabelBySiteId.get(placed.site.id)}
       isSelected={placed.site.id === selectedEntityId}
       opensEvidence={evidenceRefFor?.(placed.site.id) !== undefined}
+      emphasis={emphasis}
       onActivate={() => {
         activateEntity(placed.site.id);
       }}
@@ -1787,6 +2101,8 @@ interface ClientNetworkGroupProps {
   readonly crossingLabelBySiteId: ReadonlyMap<string, string>;
   /** Resolves the evidence reference a site opens, where the caller supplied the mapper. */
   readonly evidenceRefFor: ((entityId: string) => string | undefined) | undefined;
+  /** How the client's family is painted while the screen reports an entity in view. */
+  readonly emphasis: FamilyEmphasis;
   /** Reports an activated site to the drawing. */
   readonly activateEntity: (entityId: string) => void;
 }
@@ -1797,7 +2113,9 @@ interface ClientNetworkGroupProps {
  *
  * The group name carries the imported self-assessment label rather than one of the seven §5.3 labels,
  * so a reader meeting the group knows it is the client's own reading and not a competitor estimate
- * (AAP 0.10, rule P-5).
+ * (AAP 0.10, rule P-5). When the screen reports the client's own network as the entity in view, the
+ * group states `aria-current` and its marks and names carry the emphasised weight, which is how the
+ * selector's choice reaches the drawing (rule P-8).
  *
  * @param props The client's network and what its marks reach.
  * @returns The group.
@@ -1807,19 +2125,22 @@ function ClientNetworkGroup({
   selectedEntityId,
   crossingLabelBySiteId,
   evidenceRefFor,
+  emphasis,
   activateEntity,
 }: ClientNetworkGroupProps): JSX.Element {
   return (
     <g
       role="group"
       aria-label={`${COMPETITOR_NETWORK_TEXT.clientGroupName}, ${CLIENT_SELF_ASSESSMENT_LABEL}`}
+      aria-current={emphasis === 'highlighted' ? 'true' : undefined}
     >
-      <LaneArcs lanes={network.lanes} slot={null} />
+      <LaneArcs lanes={network.lanes} slot={null} emphasis={emphasis} />
       <SiteMarks
         sites={network.sites}
         selectedEntityId={selectedEntityId}
         crossingLabelBySiteId={crossingLabelBySiteId}
         evidenceRefFor={evidenceRefFor}
+        emphasis={emphasis}
         activateEntity={activateEntity}
       />
     </g>
@@ -1836,6 +2157,8 @@ interface CompetitorNetworkGroupProps {
   readonly crossingLabelBySiteId: ReadonlyMap<string, string>;
   /** Resolves the evidence reference a site opens, where the caller supplied the mapper. */
   readonly evidenceRefFor: ((entityId: string) => string | undefined) | undefined;
+  /** How this competitor's family is painted while the screen reports an entity in view. */
+  readonly emphasis: FamilyEmphasis;
   /** Reports an activated site to the drawing. */
   readonly activateEntity: (entityId: string) => void;
 }
@@ -1843,6 +2166,11 @@ interface CompetitorNetworkGroupProps {
 /**
  * One competitor's network: its lanes, its sites, and a group name that carries both the imported
  * competitor tag after the network's name and the imported market-intelligence label.
+ *
+ * When the screen reports this competitor as the entity in view the group states `aria-current`, its
+ * marks are drawn with the heavier stroke and its printed names take the emphasised weight; a
+ * competitor that is not in view recedes with the graph lens's ground fill, hairline stroke and
+ * secondary text role (rule P-8, rule B-3).
  *
  * @param props One competitor's network and what its marks reach.
  * @returns The group, or `null` when the frame can place none of the network's sites.
@@ -1852,6 +2180,7 @@ function CompetitorNetworkGroup({
   selectedEntityId,
   crossingLabelBySiteId,
   evidenceRefFor,
+  emphasis,
   activateEntity,
 }: CompetitorNetworkGroupProps): JSX.Element | null {
   if (placed.sites.length === 0) {
@@ -1862,13 +2191,15 @@ function CompetitorNetworkGroup({
     <g
       role="group"
       aria-label={`${placed.network.label} ${COMPETITOR_NAME_TAG}, ${COMPETITOR_NETWORK_TEXT.competitorGroupSuffix}, ${MARKET_INTELLIGENCE_LABEL}`}
+      aria-current={emphasis === 'highlighted' ? 'true' : undefined}
     >
-      <LaneArcs lanes={placed.lanes} slot={placed.slot} />
+      <LaneArcs lanes={placed.lanes} slot={placed.slot} emphasis={emphasis} />
       <SiteMarks
         sites={placed.sites}
         selectedEntityId={selectedEntityId}
         crossingLabelBySiteId={crossingLabelBySiteId}
         evidenceRefFor={evidenceRefFor}
+        emphasis={emphasis}
         activateEntity={activateEntity}
       />
     </g>
@@ -2031,6 +2362,43 @@ function SeriesBand({ rows }: SeriesBandProps): ReactNode {
 const ROOT_CLASSES = 'flex min-w-0 flex-col gap-3';
 
 /**
+ * How one competitor's family is painted while the screen reports an entity in view.
+ *
+ * `undefined` — the caller highlights nothing — leaves every family exactly as it was; the competitor
+ * the screen names is emphasised; every OTHER competitor family recedes, and so does every competitor
+ * family when the entity in view is the client's own network (which the caller states as `null`). The
+ * client's own family is not a competitor family and is never receded here: it is emphasised when
+ * `null` says it is the entity in view.
+ *
+ * @param highlightedCompetitorId The competitor in view, `null` for the client's own, or `undefined`.
+ * @param competitorId The competitor the family being painted belongs to.
+ * @returns The emphasis that family is painted at.
+ */
+function competitorEmphasisOf(
+  highlightedCompetitorId: CompetitorId | null | undefined,
+  competitorId: CompetitorId,
+): FamilyEmphasis {
+  if (highlightedCompetitorId === undefined) {
+    return 'default';
+  }
+
+  return highlightedCompetitorId === competitorId ? 'highlighted' : 'receded';
+}
+
+/**
+ * How the client's own family is painted: emphasised when it is the entity in view, and untouched
+ * otherwise.
+ *
+ * @param highlightedCompetitorId The competitor in view, `null` for the client's own, or `undefined`.
+ * @returns The emphasis the client's family is painted at.
+ */
+function clientEmphasisOf(
+  highlightedCompetitorId: CompetitorId | null | undefined,
+): FamilyEmphasis {
+  return highlightedCompetitorId === null ? 'highlighted' : 'default';
+}
+
+/**
  * Renders the competitive atlas's network view.
  *
  * The drawing is presentational by contract: it takes the atlas payload's sites, lanes and crossings
@@ -2041,10 +2409,15 @@ const ROOT_CLASSES = 'flex min-w-0 flex-col gap-3';
  *
  * Each mark is a keyboard-operable control whose name says what it is and which family it belongs to,
  * the two families are drawn as separate groups with separate shapes, line styles and labels, and the
- * label band states each series' fixed label. Activating a mark reports the entity and, where the
+ * label band states each series' fixed label. When the screen reports an entity in view, that family
+ * is emphasised and its group states `aria-current` while the other competitor families recede — see
+ * {@link CompetitorNetworkProps.highlightedCompetitorId}. Activating a mark reports the entity and, where the
  * caller's mapper resolves one, opens `src/components/evidence-drawer.tsx` as a sibling of the
  * drawing rather than inside it, because a dialog is not an SVG element and the drawer portals itself
- * out of the flow anyway.
+ * out of the flow anyway. A press is resolved by the drawing rather than by the browser's hit test:
+ * {@link nearestNetworkMark} picks the mark nearest the press within the target radius, so a dense
+ * cluster opens the mark under the pointer even where a neighbour's larger target is painted above
+ * it, while the keyboard route keeps activating the focused mark exactly.
  *
  * @param props The two families' records, the shared crossings, the controlled selection, the handler
  *   that reports a selection and the mapper that resolves a mark's evidence. See
@@ -2060,6 +2433,7 @@ export function CompetitorNetwork({
   selectedEntityId,
   onSelectEntity,
   evidenceRefFor,
+  highlightedCompetitorId,
 }: CompetitorNetworkProps): JSX.Element {
   const [openEvidenceRef, setOpenEvidenceRef] = useState<string | null>(null);
 
@@ -2067,6 +2441,7 @@ export function CompetitorNetwork({
     () => drawingOf(clientSites, networks, lanes, chokepoints),
     [clientSites, networks, lanes, chokepoints],
   );
+  const marks = drawingMarksOf(drawing);
 
   /**
    * Reports an activated entity to the screen and opens the evidence the caller resolved for it.
@@ -2081,6 +2456,44 @@ export function CompetitorNetwork({
     setOpenEvidenceRef(evidenceRefFor?.(entityId) ?? null);
   }
 
+  /**
+   * Resolves one press on the drawing to the mark the reader aimed at.
+   *
+   * The pointer's client coordinates are converted into this drawing's own units by the scale the
+   * element applies to its view box, and the mark nearest that point — within the target radius a
+   * mark already carries — is the one activated. That is what lifts the press off the painted hit
+   * areas: their overlap is unavoidable at a size the pointer needs, so the nearest centre decides
+   * rather than which target happened to be painted last. A press inside a mark's own group but
+   * outside every target belongs to that mark, so a site's or a crossing's printed name selects the
+   * mark it names. Everything else — the ground between marks, a lane, a press the element cannot
+   * place because it reports no width — activates nothing (rule P-8).
+   *
+   * @param event The press the drawing received.
+   */
+  function activateMarkAt(event: ReactMouseEvent<SVGSVGElement>): void {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const scale = rect.width / VIEW_WIDTH;
+
+    if (scale > 0) {
+      const point = {
+        x: (event.clientX - rect.left) / scale,
+        y: (event.clientY - rect.top) / scale,
+      };
+      const mark = nearestNetworkMark(marks, point, TARGET_RADIUS);
+
+      if (mark !== null) {
+        activateEntity(mark.entityId);
+        return;
+      }
+    }
+
+    const own = owningEntityOf(event.target);
+
+    if (own !== null) {
+      activateEntity(own);
+    }
+  }
+
   return (
     <div className={ROOT_CLASSES}>
       <svg
@@ -2089,6 +2502,7 @@ export function CompetitorNetwork({
         preserveAspectRatio="xMidYMid meet"
         role="group"
         aria-label={COMPETITOR_NETWORK_TEXT.groupLabel}
+        onClick={activateMarkAt}
       >
         <ChokepointGroup
           crossings={drawing.chokepoints}
@@ -2104,6 +2518,7 @@ export function CompetitorNetwork({
             selectedEntityId={selectedEntityId}
             crossingLabelBySiteId={drawing.crossingLabelBySiteId}
             evidenceRefFor={evidenceRefFor}
+            emphasis={competitorEmphasisOf(highlightedCompetitorId, placed.network.competitorId)}
             activateEntity={activateEntity}
           />
         ))}
@@ -2113,6 +2528,7 @@ export function CompetitorNetwork({
           selectedEntityId={selectedEntityId}
           crossingLabelBySiteId={drawing.crossingLabelBySiteId}
           evidenceRefFor={evidenceRefFor}
+          emphasis={clientEmphasisOf(highlightedCompetitorId)}
           activateEntity={activateEntity}
         />
 

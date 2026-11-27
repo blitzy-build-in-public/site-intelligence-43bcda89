@@ -105,6 +105,7 @@ import type {
   ActiveUser,
   Approval,
   ApprovalStatus,
+  Atlas,
   DocumentBody,
   EvidencePin,
   ExceptionId,
@@ -146,6 +147,7 @@ import { buildChokepointBrief } from '../exports/chokepoint-brief';
 import { buildEvidencePack } from '../exports/evidence-pack';
 import { buildScenarioComparisonCsv } from '../exports/scenario-csv';
 import { listApprovals } from './handlers/approvals';
+import { getAtlas } from './handlers/atlas';
 import { traceIdFor } from './handlers/audit';
 import { MockBackend } from './mock-backend';
 import { createMockState, type HandlerContext } from './mock-state';
@@ -1023,6 +1025,281 @@ describe('permission enforcement', () => {
     expect(problem.message).toContain(EXCEPTION_READ_PERMISSION);
     expect(problem.rolesWithPermission).not.toContain(externalEngineer.role);
   }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 4b. The atlas pack — a broken classification fails the session, not one call
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the atlas pack', () => {
+  /**
+   * A session and the context a port call hands the atlas handler, acting as the persona the
+   * contracts grant `competitive.read` to.
+   *
+   * @returns The state and the handler context over it.
+   */
+  async function atlasSession(): Promise<HandlerContext> {
+    const state = await createMockState();
+    const record = firstOf(
+      state.records.users.filter((user) => user.id === PLANT_MANAGER),
+      'seeded plant manager',
+    );
+
+    return { state, actor: personaFor(record), traceId: traceIdFor(state.requestCount + 1) };
+  }
+
+  it('fails loudly when a competitor network states no class the atlas offers', async () => {
+    const context = await atlasSession();
+    const pack = context.state.records.marketIntelligence;
+    const network = firstOf(pack.competitors, 'competitor network');
+    const offered = context.state.records.products.map((product) => product.id);
+
+    // A class the client's own products do not publish can never be chosen in the selector, so a
+    // network classified only in it would be drawn under no class at all.
+    const unoffered = `${network.competitorId}-class`;
+
+    expect(offered).not.toContain(unoffered);
+
+    context.state.records = {
+      ...context.state.records,
+      marketIntelligence: {
+        ...pack,
+        competitors: pack.competitors.map((entry) =>
+          entry.competitorId === network.competitorId
+            ? { ...entry, productClasses: [unoffered] }
+            : entry,
+        ),
+      },
+    };
+
+    // A broken record set is reported as the defect it is, naming the record to fix, rather than as
+    // one call's failure that would leave the same record on every later read.
+    await expect(getAtlas(context)).rejects.toThrow(network.competitorId);
+  });
+
+  it('fails loudly when a competitor series names no network the pack holds', async () => {
+    const context = await atlasSession();
+    const pack = context.state.records.marketIntelligence;
+    const series = firstOf(
+      pack.radarSeries.filter((entry) => entry.provenance === 'market_intelligence'),
+      'market-intelligence series',
+    );
+
+    context.state.records = {
+      ...context.state.records,
+      marketIntelligence: {
+        ...pack,
+        radarSeries: pack.radarSeries.map((entry) =>
+          entry.id === series.id ? { ...entry, competitorId: null } : entry,
+        ),
+      },
+    };
+
+    // The series is hidden from every class the selector offers when its join resolves to nothing, so
+    // the pack is refused rather than served with a competitor's reading missing.
+    await expect(getAtlas(context)).rejects.toThrow(series.id);
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The evidence behind the atlas records — AAP 0.2.1 F12, AAP 0.12.4
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The four record families SCR-13's marks stand on, driven through the port the screen reads.
+ *
+ * Each case reads the atlas as a persona the contracts grant `competitive.read` to, takes an
+ * identifier the payload itself published and asks `getEvidence` for the record behind it, so no
+ * identifier is typed here and no payload is hand-built: what a drawer would show is what these cases
+ * assert (rule P-2, rule P-6). The refusals are driven the same way, because a reference whose family
+ * or axis the pack does not hold must reach the drawer as the typed failure rather than as a
+ * neighbouring record.
+ */
+describe('the evidence behind the atlas records', () => {
+  /**
+   * One session, the persona the atlas is readable to, and the payload it answered with.
+   *
+   * The plant manager is the persona because the contracts grant it `competitive.read` while it is
+   * scoped to a single plant, so the same session can also show that a client plant outside that scope
+   * is refused.
+   *
+   * @returns The adapter, acting as that persona, and the atlas payload it served.
+   */
+  async function atlasReading(): Promise<{ readonly backend: MockBackend; readonly atlas: Atlas }> {
+    const backend = await readyBackend();
+
+    await actAs(backend, PLANT_MANAGER);
+
+    return { backend, atlas: (await backend.getAtlas()).data };
+  }
+
+  it('resolves the crossing behind a shared chokepoint from the record own members', async () => {
+    const { backend, atlas } = await atlasReading();
+    const crossing = firstOf(atlas.chokepoints, 'shared chokepoint');
+
+    const evidence = (await backend.getEvidence(crossing.id)).data;
+
+    /* The payload is market intelligence under the fixed label, and every figure in it is the
+       crossing record's own (rule P-1, rule P-5). */
+    expect(evidence.provenance).toBe('market_intelligence');
+    expect(evidence.label).toBe(SIM_LABELS[5]);
+    expect(evidence.value).toContain(String(crossing.overlap));
+    expect(evidence.inputs).toContain(`overlap = ${crossing.overlap}`);
+
+    const buffers = Object.entries(crossing.competitorBufferDays);
+
+    expect(buffers.length).toBeGreaterThan(0);
+
+    for (const [competitorId, bufferDays] of buffers) {
+      expect(evidence.inputs).toContain(`buffer days for ${competitorId} = ${bufferDays}`);
+      expect(evidence.upstream).toContain(competitorId);
+    }
+
+    /* Nothing the payload states is missing, and it cites no document: every document in the record
+       set belongs to the client rather than to the pack (rule P-5). */
+    expect(evidence.missingInputs).toStrictEqual([]);
+    expect(evidence.documents).toStrictEqual([]);
+  });
+
+  it('resolves a competitor site, and the network that owns it under the competitor identifier', async () => {
+    const { backend, atlas } = await atlasReading();
+    const network = firstOf(atlas.competitors, 'competitor network');
+    const site = firstOf(network.sites, 'competitor site');
+
+    const siteEvidence = (await backend.getEvidence(site.id)).data;
+
+    expect(siteEvidence.provenance).toBe('market_intelligence');
+    expect(siteEvidence.label).toBe(SIM_LABELS[5]);
+    expect(siteEvidence.value).toContain(site.label);
+    expect(siteEvidence.value).toContain(String(site.latitude));
+    expect(siteEvidence.upstream).toStrictEqual([network.competitorId]);
+
+    const touching = network.lanes.filter(
+      (lane) => lane.fromId === site.id || lane.toId === site.id,
+    );
+
+    expect(touching.length).toBeGreaterThan(0);
+
+    for (const lane of touching) {
+      expect(siteEvidence.downstream).toContain(`lane from ${lane.fromId} to ${lane.toId}`);
+    }
+
+    const networkEvidence = (await backend.getEvidence(network.competitorId)).data;
+
+    expect(networkEvidence.provenance).toBe('market_intelligence');
+    expect(networkEvidence.label).toBe(SIM_LABELS[5]);
+    expect(networkEvidence.value).toContain(network.label);
+    expect(networkEvidence.inputs).toContain(`competitorId = ${network.competitorId}`);
+  });
+
+  it('resolves a radar reading with and without the axis a vertex names', async () => {
+    const { backend, atlas } = await atlasReading();
+    const axis = firstOf(atlas.radarAxes, 'radar axis');
+    const competitorSeries = atlas.radarSeries.find(
+      (series) => series.provenance === 'market_intelligence',
+    );
+    const clientSeries = atlas.radarSeries.find((series) => series.competitorId === null);
+
+    if (competitorSeries === undefined || clientSeries === undefined) {
+      throw new Error('The payload serves no competitor series and no client series.');
+    }
+
+    const score = competitorSeries.values[atlas.radarAxes.indexOf(axis)];
+
+    if (score === undefined) {
+      throw new Error('The series records no score on the axis this case reads.');
+    }
+
+    /* The reference a radar vertex carries: the series, the separator, then the axis. */
+    const reading = (await backend.getEvidence(`${competitorSeries.id}#${axis.id}`)).data;
+
+    expect(reading.provenance).toBe('market_intelligence');
+    expect(reading.label).toBe(SIM_LABELS[5]);
+    expect(reading.value).toContain(axis.label);
+    expect(reading.value).toContain(String(score));
+    expect(reading.inputs).toContain(`${axis.label} = ${score}`);
+
+    /* Without the separator the whole series answers, with every axis reading it holds listed. */
+    const whole = (await backend.getEvidence(competitorSeries.id)).data;
+
+    expect(whole.value).toContain(competitorSeries.label);
+
+    atlas.radarAxes.forEach((entry, position) => {
+      const recorded = competitorSeries.values[position];
+
+      if (recorded !== undefined) {
+        expect(whole.inputs).toContain(`${entry.label} = ${recorded}`);
+      }
+    });
+
+    /* The client's own series is a first-party self-assessment, so it carries the label of a seeded
+       record rather than the market-intelligence one (rule P-1, rule P-5). */
+    const client = (await backend.getEvidence(clientSeries.id)).data;
+
+    expect(client.provenance).toBe('first_party');
+    expect(client.label).toBe(SIM_LABELS[0]);
+  });
+
+  it('resolves a client plant and narrows it to the acting persona plant scope', async () => {
+    const { backend, atlas } = await atlasReading();
+    const scope = plantScopeFor('plant-manager');
+    const inside = atlas.clientSites.find((site) => scope.includes(site.id));
+    const outside = atlas.clientSites.find((site) => !scope.includes(site.id));
+
+    if (inside === undefined || outside === undefined) {
+      throw new Error('The atlas serves no plant inside and none outside the persona plant scope.');
+    }
+
+    const evidence = (await backend.getEvidence(inside.id)).data;
+
+    expect(evidence.provenance).toBe('first_party');
+    expect(evidence.label).toBe(SIM_LABELS[0]);
+    expect(evidence.value).toContain(inside.label);
+    expect(evidence.inputs).toContain(`id = ${inside.id}`);
+
+    /* A plant the acting role cannot act at is refused exactly as every other plant-scoped record is:
+       a reference narrows nothing the matrix would have released. */
+    const refused = await refusalOf(() => backend.getEvidence(outside.id));
+
+    expect(refused.type).toBe('permission');
+  });
+
+  it('refuses a radar reference naming an axis the pack does not hold, and one naming no record', async () => {
+    const { backend, atlas } = await atlasReading();
+    const series = firstOf(atlas.radarSeries, 'radar series');
+    const unknownAxis = `${series.id}#${series.id}-axis`;
+    const unknownSeries = `${series.id}-absent`;
+
+    const axisRefusal = await refusalOf(() => backend.getEvidence(unknownAxis));
+
+    expect(axisRefusal.type).toBe('not-found');
+    expect(axisRefusal.message).toContain(unknownAxis);
+
+    const seriesRefusal = await refusalOf(() => backend.getEvidence(unknownSeries));
+
+    expect(seriesRefusal.type).toBe('not-found');
+    expect(seriesRefusal.message).toContain(unknownSeries);
+
+    /* And a reference belonging to no family at all is refused naming what it sent. */
+    const strayRefusal = await refusalOf(() => backend.getEvidence(atlas.packVersion));
+
+    expect(strayRefusal.type).toBe('not-found');
+    expect(strayRefusal.message).toContain(atlas.packVersion);
+  });
+
+  it('refuses a market-intelligence record to a persona that may not read the pack', async () => {
+    const { backend, atlas } = await atlasReading();
+    const crossing = firstOf(atlas.chokepoints, 'shared chokepoint');
+
+    await actAs(backend, EXTERNAL_ENGINEER);
+
+    const refused = await refusalOf(() => backend.getEvidence(crossing.id));
+
+    /* The evidence behind a mark is exactly as readable as the mark itself: the pack's own read
+       permission decides it, so a reference cannot reach a record the atlas withholds (rule P-8). */
+    expect(refused.type).toBe('permission');
+    expect(refused.requiredPermission).toBe('competitive.read');
+  });
 });
 
 

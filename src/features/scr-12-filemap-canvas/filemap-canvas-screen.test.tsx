@@ -708,7 +708,7 @@ const CROSSING: Chokepoint = {
   id: 'crossing-one',
   label: 'Southern sea crossing',
   overlap: 67,
-  competitorBufferDays: { 'competitor-one': 12 },
+  competitorBufferDays: { 'CMP-01': 12 },
   contentionNote: 'Three networks use the crossing and the buffer each holds differs.',
   provenance: 'market_intelligence',
 };
@@ -718,7 +718,8 @@ const CROSSING: Chokepoint = {
  *
  * The screen forwards this payload to the map lens unchanged and asserts nothing about it, so all this
  * fixture has to do is satisfy the shape the lens draws and prove the surface still renders while the
- * overlay is present (rules P-4, P-5).
+ * overlay is present (rules P-4, P-5). The network therefore carries the contracts' `CMP-nn` identifier,
+ * without which the lens resolves no hue for it and leaves its marks unpainted.
  */
 const ATLAS: Atlas = {
   packLabel: 'Market-intelligence pack, simulated',
@@ -727,20 +728,21 @@ const ATLAS: Atlas = {
   clientSites: [],
   competitors: [
     {
-      competitorId: 'competitor-one',
+      competitorId: 'CMP-01',
       label: 'Aurelvik Drive Systems',
       provenance: 'market_intelligence',
+      productClasses: ['product-one'],
       sites: [
         {
           id: 'site-alpha',
-          competitorId: 'competitor-one',
+          competitorId: 'CMP-01',
           label: 'Ningbo drive plant',
           latitude: 29.87,
           longitude: 121.55,
         },
         {
           id: 'site-beta',
-          competitorId: 'competitor-one',
+          competitorId: 'CMP-01',
           label: 'Gdansk assembly',
           latitude: 54.35,
           longitude: 18.65,

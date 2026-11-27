@@ -33,6 +33,13 @@
  * `src/seed/plants.ts` and `src/seed/products.ts`; the atlas handler merges them into the DTO. A
  * second copy here would be a first-party record inside the pack, which rule P-5 keeps out.
  *
+ * The pack classifies its competitors too, which is what SCR-13's product-class selector narrows
+ * (AAP 0.12.4, rule P-6). Each network states the client product classes it competes in — the
+ * identifiers `src/seed/products.ts` holds, so the selector's list and the classification share one
+ * vocabulary — and each competitor series names the network it scores, the client's own series
+ * naming none. Both members are classification rather than measurement: no competitor figure is
+ * added, summed or compared with a first-party one through either (rule P-5).
+ *
  * Labels are referenced, never retyped (rule P-1). `packLabel` is the `ATLAS_PACK_BANNER`
  * constant of `src/types/primitives.ts`, whose text is also where the pack's release version is
  * quoted; `MARKET_PACK_VERSION` below is the one owner of that release label for the records
@@ -185,11 +192,15 @@ export const MARKET_INTELLIGENCE: MarketIntelligencePack = {
      * CMP-01: an Asian-assembly network with a European finishing plant and a Mexican components
      * plant. Its Europe-bound lane names the Suez Canal crossing and its transpacific lane the
      * Panama Canal crossing; the Atlantic lane between its two western plants names none.
+     *
+     * The pack classifies it in the client's `PRD-R75` class, which is the class SCR-13's selector
+     * filters on: a classification of the competitor, carrying no first-party measure.
      */
     {
       competitorId: 'CMP-01',
       label: 'Aurelvik Drive Systems',
       provenance: 'market_intelligence',
+      productClasses: ['PRD-R75'],
       sites: [
         {
           id: 'CMP-01-S1',
@@ -224,11 +235,15 @@ export const MARKET_INTELLIGENCE: MarketIntelligencePack = {
      * CMP-02: a southeast-Asian moulding plant feeding a Moroccan finishing plant and a Czech
      * housings plant. Its two Malay-bound lanes name the Strait of Malacca crossing and the Suez
      * Canal crossing, and the Moroccan-to-Czech lane names the Strait of Gibraltar crossing.
+     *
+     * The pack classifies it in the client's `PRD-A200` class, which is the class SCR-13's selector
+     * filters on: a classification of the competitor, carrying no first-party measure.
      */
     {
       competitorId: 'CMP-02',
       label: 'Norbrek Housings Group',
       provenance: 'market_intelligence',
+      productClasses: ['PRD-A200'],
       sites: [
         {
           id: 'CMP-02-S1',
@@ -263,11 +278,15 @@ export const MARKET_INTELLIGENCE: MarketIntelligencePack = {
      * CMP-03: a Taiwanese sensor plant feeding a Portuguese assembly plant and a Mexican stamping
      * plant. Its Europe-bound lane names the Strait of Malacca crossing and its transpacific lane
      * the Panama Canal crossing; the Atlantic lane between its western plants names none.
+     *
+     * The pack classifies it in the client's `PRD-V40` class, which is the class SCR-13's selector
+     * filters on: a classification of the competitor, carrying no first-party measure.
      */
     {
       competitorId: 'CMP-03',
       label: 'Kasvara Components',
       provenance: 'market_intelligence',
+      productClasses: ['PRD-V40'],
       sites: [
         {
           id: 'CMP-03-S1',
@@ -392,6 +411,7 @@ export const MARKET_INTELLIGENCE: MarketIntelligencePack = {
      */
     {
       id: 'SER-CLIENT',
+      competitorId: null,
       label: 'Client network',
       provenance: 'first_party',
       simLabel: CLIENT_SELF_ASSESSMENT_LABEL,
@@ -399,6 +419,7 @@ export const MARKET_INTELLIGENCE: MarketIntelligencePack = {
     },
     {
       id: 'SER-CMP-01',
+      competitorId: 'CMP-01',
       label: 'Aurelvik Drive Systems',
       provenance: 'market_intelligence',
       simLabel: MARKET_INTELLIGENCE_SIM_LABEL,
@@ -406,6 +427,7 @@ export const MARKET_INTELLIGENCE: MarketIntelligencePack = {
     },
     {
       id: 'SER-CMP-02',
+      competitorId: 'CMP-02',
       label: 'Norbrek Housings Group',
       provenance: 'market_intelligence',
       simLabel: MARKET_INTELLIGENCE_SIM_LABEL,
@@ -413,6 +435,7 @@ export const MARKET_INTELLIGENCE: MarketIntelligencePack = {
     },
     {
       id: 'SER-CMP-03',
+      competitorId: 'CMP-03',
       label: 'Kasvara Components',
       provenance: 'market_intelligence',
       simLabel: MARKET_INTELLIGENCE_SIM_LABEL,

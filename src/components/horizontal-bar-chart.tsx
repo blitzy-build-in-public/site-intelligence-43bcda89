@@ -32,6 +32,12 @@
  * one: this surface draws one bar per datum and sums, stacks and compares nothing, so blending
  * provenance is not something it can do.
  *
+ * WHICH COMPETITOR HUE A RECORD IS PAINTED IN IS DECIDED HERE TOO. {@link competitorSlotOf} turns a
+ * competitor identifier into the `competitor-1/2/3` slot, so the radar, the legend and the atlas
+ * network view resolve a competitor's colour from the record rather than from the position it happens
+ * to hold in a list, and two payload lists ordered differently cannot paint one competitor in two
+ * hues.
+ *
  * KEYBOARD AND FOCUS — rule B-3, WCAG 2.2 AA. Each mark is a `<g role="button" tabIndex={0}>` whose
  * accessible name states the category, the value and, where the datum carries one, the exact §5.3
  * simulation label (`SimLabel`, so rule P-1 is a type rather than a habit and the chart never decides
@@ -208,6 +214,66 @@ export const CHART_TONE_CLASSES = {
     swatch: 'bg-competitor-3',
   },
 } as const satisfies Record<ChartTone, ChartToneClasses>;
+
+/* ---------------------------------------------------------------------------------------------
+ * Competitor slots — which of §4.2's three competitor roles a record is painted in
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The slot one competitor is drawn in: the ordinal that selects the `competitor-1/2/3` role of
+ * specification §4.2.
+ *
+ * Three slots exist because that section defines three competitor hues. The radar, the legend and the
+ * atlas network view each resolve a competitor's slot through {@link competitorSlotOf}, so a polygon,
+ * a swatch and a network mark of one competitor cannot disagree about its colour.
+ */
+export type CompetitorSlot = 1 | 2 | 3;
+
+/**
+ * The identifier pattern the market-intelligence pack's competitors follow: contracts §1's `CMP-nn`.
+ *
+ * Only the ordinal is captured, and the whole identifier must match, so a competitor's own site
+ * (`CMP-01-S1`) or a series that scores it (`SER-CMP-01`) never resolves a slot of its own.
+ */
+const COMPETITOR_IDENTIFIER_PATTERN = /^CMP-(\d+)$/u;
+
+/** The three ordinals §4.2 gives a hue, in its own order. */
+const COMPETITOR_SLOT_ORDINALS = [1, 2, 3] as const;
+
+/**
+ * The slot a competitor's records are painted in, derived from its identifier and from nothing else.
+ *
+ * WHY THE IDENTIFIER AND NOT A POSITION. The three competitor hues are positional, but the lists a
+ * caller holds competitors in are not: the radar series, the networks and a table's rows can each
+ * arrive in a different order, and a hue resolved from a position in one of those lists paints one
+ * competitor in two colours the moment two payload lists are ordered differently. The pack names its
+ * competitors `CMP-01` to `CMP-03` (contracts §1), so the identifier carries the ordinal the colour is
+ * selected by and every renderer resolves the same slot from the same record field.
+ *
+ * `null` IS AN ANSWER, AND IT SAYS "NO SLOT OF ITS OWN". An identifier carrying no `CMP-` ordinal, and
+ * one whose ordinal is beyond the third competitor, resolves no slot — the caller paints that series
+ * in the first competitor hue rather than in the first-party accent, so a competitor is never
+ * presented as the client's own reading (rule P-5). A drawing that can only choose between one
+ * competitor's hue and another's leaves such a network out instead of recolouring it.
+ *
+ * @param competitorId - The competitor identifier the record carries, or `null` where it carries none.
+ * @returns The competitor's slot, or `null` when the identifier states none.
+ */
+export function competitorSlotOf(competitorId: string | null | undefined): CompetitorSlot | null {
+  if (competitorId === null || competitorId === undefined) {
+    return null;
+  }
+
+  const match = COMPETITOR_IDENTIFIER_PATTERN.exec(competitorId);
+
+  if (match === null) {
+    return null;
+  }
+
+  const ordinal = Number(match[1]);
+
+  return COMPETITOR_SLOT_ORDINALS.find((slot) => slot === ordinal) ?? null;
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The datum and the props

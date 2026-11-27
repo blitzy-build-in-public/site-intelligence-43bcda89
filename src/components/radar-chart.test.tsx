@@ -6,13 +6,19 @@
  * series sharing a shape, and every vertex placed by its own series' reading alone so an outline
  * averaged with another series is caught; each series painted from its provenance role token; every
  * competitor's name followed by the imported competitor tag and its market-intelligence label; the
- * client's series followed by the imported self-assessment tag and by no other label; no element
+ * client's series followed by the imported self-assessment tag and by no other label; one label per
+ * series printed at that series' own polygon, with a swatch in the polygon's role token and a leader
+ * to its own vertex; a ground-role halo painted before each label's fill, so a name that a spoke or
+ * another outline crosses still reads; no element
  * carrying a combined reading; vertex marks keyboard operable with a name that states axis, series
  * and score, opening the evidence the caller's required mapper resolved and reporting the series it
- * picked; a vertex the mapper cannot resolve left a plain mark rather than a control (rule P-8); the
- * ordinal a colour is selected by; a polygon's fill and stroke read from the one chart tone table the
- * other surfaces resolve too; an outline that takes no pointer events and a pointer that opens the
- * mark nearest it rather than the neighbour whose larger target received the click; and both themes.
+ * picked; every outline transparent to pointer events and painted below every vertex mark, so no
+ * polygon can take the press that belongs to a mark; a press resolved by the drawing to the vertex
+ * nearest it — even where a neighbouring vertex's target is painted above that dot, and to nothing at
+ * all when it lands clear of every vertex; a vertex the mapper cannot resolve left a plain
+ * mark rather than a control (rule P-8); the slot a colour is selected by, which follows the
+ * competitor's own identifier rather than this list's order; a polygon's fill and
+ * stroke read from the one chart tone table the other surfaces resolve too; and both themes.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `./evidence-drawer.tsx` reads
  * through (rule P-2), so no seed module, adapter or hash chain is involved and the suite observes
@@ -35,7 +41,7 @@ import { CLIENT_SELF_ASSESSMENT_LABEL, COMPETITOR_NAME_TAG, SIM_LABELS } from '.
 import type { AtlasSeries, Evidence, RadarAxis, Result } from '../types';
 import { EVIDENCE_DRAWER_TEXT } from './evidence-drawer';
 import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
-import { competitorToneOf, RadarChart, RADAR_CHART_TEXT } from './radar-chart';
+import { competitorToneOf, nearestRadarMark, RadarChart, RADAR_CHART_TEXT } from './radar-chart';
 import type { RadarChartProps } from './radar-chart';
 
 /**
@@ -78,15 +84,24 @@ const AXES: readonly RadarAxis[] = [
  */
 const CLIENT_SERIES: AtlasSeries = {
   id: 'series-client',
+  competitorId: null,
   label: 'Client network',
   provenance: 'first_party',
   simLabel: CLIENT_SELF_ASSESSMENT_LABEL,
   values: [68, 54, 61, 87, 70],
 };
 
-/** A competitor's series: market intelligence, so its figures must carry the fixed label. */
+/**
+ * A competitor's series: market intelligence, so its figures must carry the fixed label.
+ *
+ * The three competitors' identifiers follow contracts §1's `CMP-nn` pattern, because the hue each one
+ * is painted in is resolved from the identifier (`competitorSlotOf`) rather than from the order this
+ * list holds them in: `CMP-01` takes the first competitor role, `CMP-02` the second and `CMP-03` the
+ * third, so a case that reorders `SERIES` keeps every outline in its own colour.
+ */
 const COMPETITOR_ALPHA: AtlasSeries = {
   id: 'series-competitor-alpha',
+  competitorId: 'CMP-01',
   label: 'Competitor alpha',
   provenance: 'market_intelligence',
   simLabel: MARKET_INTELLIGENCE_LABEL,
@@ -96,6 +111,7 @@ const COMPETITOR_ALPHA: AtlasSeries = {
 /** The second competitor, whose scores differ on every axis so no two outlines can coincide. */
 const COMPETITOR_BETA: AtlasSeries = {
   id: 'series-competitor-beta',
+  competitorId: 'CMP-02',
   label: 'Competitor beta',
   provenance: 'market_intelligence',
   simLabel: MARKET_INTELLIGENCE_LABEL,
@@ -105,6 +121,7 @@ const COMPETITOR_BETA: AtlasSeries = {
 /** The third competitor: the last piece of the market-intelligence side of the drawing. */
 const COMPETITOR_GAMMA: AtlasSeries = {
   id: 'series-competitor-gamma',
+  competitorId: 'CMP-03',
   label: 'Competitor gamma',
   provenance: 'market_intelligence',
   simLabel: MARKET_INTELLIGENCE_LABEL,
@@ -124,8 +141,8 @@ const COMPETITORS: readonly AtlasSeries[] = [COMPETITOR_ALPHA, COMPETITOR_BETA, 
 
 /**
  * The area utility each series must be painted with, in drawing order: the accent role for the
- * client's first-party series and the three competitor roles by ordinal, which is the same selection
- * `./legend.tsx` paints its swatches from.
+ * client's first-party series and the three competitor roles by the slot each competitor's own
+ * identifier states, which is the same selection `./legend.tsx` paints its swatches from.
  */
 const EXPECTED_AREA_CLASSES = [
   'fill-accent',
@@ -206,6 +223,69 @@ function svgElement(): SVGSVGElement {
   return element;
 }
 
+/**
+ * The centre and the radius of one control's invisible pointer target, in the drawing's own units.
+ *
+ * The target is the circle a mark paints with nothing and reaches the pointer with, so reading it
+ * back is how a case states a press in the drawing's coordinates rather than restating the
+ * component's own geometry.
+ */
+function targetOf(control: Element): { readonly point: PolygonPoint; readonly radius: number } {
+  const target = control.querySelector('circle[pointer-events="all"]');
+
+  if (target === null) {
+    throw new Error('the control drew no pointer target');
+  }
+
+  return {
+    point: { x: Number(target.getAttribute('cx')), y: Number(target.getAttribute('cy')) },
+    radius: Number(target.getAttribute('r')),
+  };
+}
+
+/** How far apart two points of the drawing's grid are, in the drawing's own units. */
+function distanceBetween(one: PolygonPoint, other: PolygonPoint): number {
+  return Math.hypot(one.x - other.x, one.y - other.y);
+}
+
+/**
+ * Lays the drawing out at its own scale, then presses it at one point of its own grid.
+ *
+ * jsdom computes no layout at all, so the element reports a zero-width box and the drawing declines
+ * to resolve a press against it — correctly, since there is no scale to convert the pointer by. A
+ * case that exercises the press states the box a browser would have measured: the view box's own
+ * width and height, with the element's top-left corner at the origin, which makes one user unit one
+ * CSS pixel and lets the press be stated in the drawing's coordinates. The press is dispatched at the
+ * `<svg>` itself, which is the element the drawing resolves a press on.
+ */
+function pressAt(point: PolygonPoint): void {
+  const svg = svgElement();
+  const box = (svg.getAttribute('viewBox') ?? '')
+    .trim()
+    .split(/\s+/u)
+    .map(Number);
+  const width = box[2];
+  const height = box[3];
+
+  if (width === undefined || height === undefined || !(width > 0) || !(height > 0)) {
+    throw new Error('the radar rendered no view box to lay out');
+  }
+
+  vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: height,
+    width,
+    height,
+    toJSON: () => ({}),
+  });
+
+  fireEvent.click(svg, { clientX: point.x, clientY: point.y });
+}
+
 /** Every rendered line of text in the drawing, trimmed, in document order. */
 function textContents(scope: Element = svgElement()): readonly string[] {
   return Array.from(scope.querySelectorAll('text'), (node) => (node.textContent ?? '').trim());
@@ -231,12 +311,12 @@ function pointsOf(polygon: SVGPolygonElement): readonly PolygonPoint[] {
 }
 
 /**
- * The class tokens one rendered polygon carries, so a case can assert which utilities the drawing
+ * The class tokens one rendered element carries, so a case can assert which utilities the drawing
  * applied to it and which it did not. Read as tokens rather than as one substring of the attribute,
  * because a negative assertion needs to compare a class with a class.
  */
-function classTokensOf(polygon: SVGPolygonElement): readonly string[] {
-  return (polygon.getAttribute('class') ?? '')
+function classTokensOf(element: Element): readonly string[] {
+  return (element.getAttribute('class') ?? '')
     .split(/\s+/)
     .filter((token) => token !== '');
 }
@@ -279,18 +359,21 @@ function scaleOf(): { readonly centre: PolygonPoint; readonly outerRadius: numbe
 }
 
 /**
- * The group that carries one series' name and companion label.
+ * The label-band group that carries one series' name and its companion label.
  *
- * The drawing prints a series' two lines as two `<text>` elements inside one group, so finding the
- * group by its name line is what lets a case assert the pairing rather than the presence of each
- * string somewhere in the drawing.
+ * The drawing prints a series' name twice — once at its own polygon and once in the band beneath the
+ * axes — so the band row is the group holding BOTH a name line and a companion line. Finding it that
+ * way is what lets a case assert the pairing rather than the presence of each string somewhere in the
+ * drawing.
  */
 function labelGroupFor(name: string): Element {
-  const group = Array.from(svgElement().querySelectorAll('g')).find((candidate) =>
-    Array.from(candidate.querySelectorAll('text')).some(
-      (text) => (text.textContent ?? '').trim() === name,
-    ),
-  );
+  const group = Array.from(svgElement().querySelectorAll('g')).find((candidate) => {
+    const lines = [...candidate.querySelectorAll('text')].map((text) =>
+      (text.textContent ?? '').trim(),
+    );
+
+    return lines.length > 1 && lines[0] === name;
+  });
 
   if (group === undefined) {
     throw new Error(`no label group carries the name ${name}`);
@@ -299,9 +382,40 @@ function labelGroupFor(name: string): Element {
   return group;
 }
 
+/**
+ * The item at a position, or a failure naming what was missing.
+ *
+ * `noUncheckedIndexedAccess` makes every indexed read a possible absence, and a case that reached for
+ * a missing element would otherwise compare against `undefined` and report the wrong thing.
+ */
+function at<T>(items: readonly T[], index: number, what: string): T {
+  const item = items[index];
+
+  if (item === undefined) {
+    throw new Error(`the ${what} at position ${String(index)} is missing`);
+  }
+
+  return item;
+}
+
+/**
+ * The `class` attribute of the name line inside one label-band row.
+ *
+ * The row prints its name and its companion label as two `<text>` elements in that order, so the
+ * first is the name line — which is what a case reads to assert the weight the series in view takes.
+ */
+function nameLineOf(row: Element): string {
+  const [nameLine] = [...row.querySelectorAll('text')];
+
+  if (nameLine === undefined) {
+    throw new Error('the band row printed no name line');
+  }
+
+  return nameLine.getAttribute('class') ?? '';
+}
+
 /** The accessible name one vertex mark must carry: the axis, the series and the score. */
-function vertexName(series: AtlasSeries, axisIndex: number): string {
-  const axis = AXES[axisIndex];
+function vertexName(series: AtlasSeries, axisIndex: number): string {  const axis = AXES[axisIndex];
   const value = series.values[axisIndex];
 
   if (axis === undefined || value === undefined) {
@@ -345,7 +459,9 @@ describe('RadarChart', () => {
 
     const texts = textContents();
 
-    expect(AXES).toHaveLength(texts.length - SERIES.length * 2);
+    /* Three lines per series: its name and its companion tag in the label band, and its own label at
+       its polygon. Everything else the drawing prints is an axis name. */
+    expect(AXES).toHaveLength(texts.length - SERIES.length * 3);
     for (const axis of AXES) {
       expect(texts.filter((text) => text === axis.label)).toHaveLength(1);
     }
@@ -593,11 +709,70 @@ describe('RadarChart', () => {
     }
   });
 
+  it('keeps every outline transparent to pointer events', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    const shapes = polygons();
+
+    expect(shapes).toHaveLength(SERIES.length);
+
+    for (const shape of shapes) {
+      /* The wash and the stroke decorate the readings the vertex marks carry, and no outline acts,
+         so a polygon that took a press would swallow a mark's activation or hand it to another
+         series' record. */
+      expect(shape.getAttribute('pointer-events')).toBe('none');
+    }
+  });
+
+  it('paints every outline below every vertex mark in document order', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    const shapes = polygons();
+    const marks = screen.getAllByRole('button');
+
+    expect(shapes).toHaveLength(SERIES.length);
+    expect(marks).toHaveLength(SERIES.length * AXES.length);
+
+    for (const shape of shapes) {
+      for (const mark of marks) {
+        /* A polygon painted after a mark sits above it and takes the press that belonged to it,
+           which is the defect this order exists to prevent: every outline precedes every mark. */
+        expect(shape.compareDocumentPosition(mark) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+      }
+    }
+  });
+
+  it('opens the record the caller resolved for the mark that was pressed', async () => {
+    const axis = AXES[0];
+
+    if (axis === undefined) {
+      throw new Error('no axis is defined to press a mark on');
+    }
+
+    /* One reference per vertex, so the case proves the drawer was asked for the record behind the
+       mark that was pressed rather than for a neighbour's. */
+    renderChart({ evidenceRefFor: (seriesId, axisId) => `${seriesId}#${axisId}` });
+
+    const mark = screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) });
+
+    /* The client series is painted first, so its marks are the ones later series' decoration used to
+       cover; the press lands on the centre of its own pointer target. */
+    pressAt(targetOf(mark).point);
+
+    expect(
+      await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title }),
+    ).toBeInTheDocument();
+    expect(getEvidence).toHaveBeenCalledTimes(1);
+    expect(getEvidence).toHaveBeenCalledWith(`${CLIENT_SERIES.id}#${axis.id}`);
+  });
+
   it('opens the resolved evidence by pointer and closes it again', async () => {
     const user = userEvent.setup();
     renderChart({ evidenceRefFor: () => EVIDENCE_REF });
 
-    await user.click(screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) }));
+    pressAt(targetOf(screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) })).point);
 
     expect(
       await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title }),
@@ -608,46 +783,92 @@ describe('RadarChart', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('keeps every series outline out of the pointer’s way, so no shape swallows an aim', () => {
-    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+  it('resolves a press to the nearest vertex even where a neighbour’s target is painted above it', async () => {
+    const axis = AXES[0];
 
-    expect(polygons()).toHaveLength(SERIES.length);
-
-    /* The outline is a reading drawn around the marks, not a control: a click on it must fall through. */
-    for (const polygon of polygons()) {
-      expect(polygon).toHaveAttribute('pointer-events', 'none');
+    if (axis === undefined) {
+      throw new Error('no axis is defined to press a mark on');
     }
-  });
 
-  it('opens the mark nearest the pointer when a neighbour’s target received the event', async () => {
-    renderChart({ evidenceRefFor: (seriesId: string) => `atlas:${seriesId}` });
+    /* Two series whose scores on every axis place their vertices a few units apart — closer together
+       than one pointer target is wide — so the target painted last, the second series', covers the
+       first series' dot. */
+    const lower: AtlasSeries = {
+      ...COMPETITOR_ALPHA,
+      id: 'series-lower',
+      competitorId: 'competitor-lower',
+      label: 'Lower network',
+      values: [50, 50, 50, 50, 50],
+    };
+    const upper: AtlasSeries = {
+      ...COMPETITOR_BETA,
+      id: 'series-upper',
+      competitorId: 'competitor-upper',
+      label: 'Upper network',
+      values: [55, 55, 55, 55, 55],
+    };
 
-    /* The layout a browser reports: one user unit per client pixel and no offset, so a click's client
-       coordinates are the drawing's own. */
-    Object.defineProperty(svgElement(), 'getScreenCTM', {
-      configurable: true,
-      value: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) as unknown as DOMMatrix,
+    renderChart({
+      series: [lower, upper],
+      evidenceRefFor: (seriesId, axisId) => `${seriesId}#${axisId}`,
     });
 
-    const [clientPolygon] = polygons();
-    const axisIndex = 1;
-    const clientDot = clientPolygon === undefined ? undefined : pointsOf(clientPolygon)[axisIndex];
+    const lowerMark = screen.getByRole('button', { name: vertexName(lower, 0) });
+    const upperMark = screen.getByRole('button', { name: vertexName(upper, 0) });
+    const lowerTarget = targetOf(lowerMark);
+    const upperTarget = targetOf(upperMark);
 
-    if (clientDot === undefined) {
-      throw new Error('the client polygon carries no vertex on the axis this case points at');
-    }
+    /* The reproduction: the press point lies inside both targets, and the second series' target is
+       painted above the first's dot, so a press resolved to the topmost target would open the upper
+       record. The drawing answers with the vertex whose centre is nearest the pointer instead. */
+    expect(distanceBetween(lowerTarget.point, upperTarget.point)).toBeLessThan(upperTarget.radius);
+    expect(
+      lowerMark.compareDocumentPosition(upperMark) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
-    /* A neighbour whose larger invisible target covers that dot receives the pointer instead. */
-    const neighbour = screen.getByRole('button', { name: vertexName(COMPETITOR_ALPHA, axisIndex) });
-
-    fireEvent.click(neighbour, { clientX: clientDot.x, clientY: clientDot.y });
+    pressAt(lowerTarget.point);
 
     expect(
       await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title }),
     ).toBeInTheDocument();
-    expect(getEvidence).toHaveBeenCalledWith(`atlas:${CLIENT_SERIES.id}`);
+    // One gesture, one activation: the press resolved to a single vertex.
+    expect(getEvidence).toHaveBeenCalledTimes(1);
+    expect(getEvidence).toHaveBeenCalledWith(`${lower.id}#${axis.id}`);
   });
 
+  it('activates nothing when the press lands clear of every vertex', () => {
+    const onActivate = vi.fn();
+    renderChart({ onActivate, evidenceRefFor: () => EVIDENCE_REF });
+
+    /* The drawing's own origin corner. Every vertex sits within one ring radius of the centre, so a
+       press there is inside no target and the drawing activates nothing (rule P-8). */
+    pressAt({ x: 0, y: 0 });
+
+    expect(onActivate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(getEvidence).not.toHaveBeenCalled();
+  });
+
+  it('answers a point with the nearest vertex, and with none beyond the target radius', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    /* The radius is the drawing's own, read back from a rendered target rather than restated. */
+    const { radius } = targetOf(screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) }));
+    const near = { seriesId: 'series-near', axisId: 'axis-near', point: { x: 100, y: 100 } };
+    const far = {
+      seriesId: 'series-far',
+      axisId: 'axis-far',
+      point: { x: 100, y: 100 + radius * 1.5 },
+    };
+
+    // The nearer centre answers, whatever order the marks are listed in.
+    expect(nearestRadarMark([far, near], { x: 102, y: 104 }, radius)).toBe(near);
+    // Two vertices at one centre are told apart by the order the drawing paints them in.
+    expect(nearestRadarMark([near, { ...far, point: near.point }], near.point, radius)).toBe(near);
+    // A press whose nearest vertex is still beyond the radius belongs to no vertex at all.
+    expect(nearestRadarMark([near, far], { x: 100, y: 100 + radius * 3 }, radius)).toBeNull();
+    expect(nearestRadarMark([], near.point, radius)).toBeNull();
+  });
 
   it('leaves every vertex a plain mark when the mapper resolves no record for it', () => {
     renderChart({ evidenceRefFor: NO_VERTEX_EVIDENCE });
@@ -684,20 +905,24 @@ describe('RadarChart', () => {
     // The vertex the mapper could not resolve is a mark, not a control (rule P-8).
     expect(screen.queryByRole('button', { name: vertexName(CLIENT_SERIES, 0) })).toBeNull();
 
-    const clientLayer = polygons()[0]?.parentElement;
-    const plainMarks = Array.from(clientLayer?.querySelectorAll('circle') ?? []).filter(
+    /* The client series' own mark group. Its outline is a layer of its own, painted below every
+       mark so no polygon can sit above a trigger and take its activation, so the group holding the
+       marks is found from a control it renders rather than from the polygon beside it. */
+    const clientMarkGroup = screen.getByRole('button', {
+      name: vertexName(CLIENT_SERIES, 1),
+    }).parentElement;
+    const plainMarks = Array.from(clientMarkGroup?.querySelectorAll('circle') ?? []).filter(
       (circle) => circle.closest('[role="button"]') === null,
     );
 
-    expect(clientLayer?.querySelectorAll('g[role="button"]')).toHaveLength(AXES.length - 1);
+    expect(clientMarkGroup?.querySelectorAll('g[role="button"]')).toHaveLength(AXES.length - 1);
     // One plain circle for the unresolved vertex, and no other mark left outside a control.
     expect(plainMarks).toHaveLength(1);
     expect(plainMarks[0]).not.toHaveAttribute('role');
     expect(plainMarks[0]).not.toHaveAttribute('tabindex');
   });
 
-  it('reports the series a reader picked and opens no evidence when the mapper resolves none', async () => {
-    const user = userEvent.setup();
+  it('reports the series a reader picked and opens no evidence when the mapper resolves none', () => {
     const onActivate = vi.fn();
     renderChart({ onActivate, evidenceRefFor: NO_VERTEX_EVIDENCE });
 
@@ -705,18 +930,275 @@ describe('RadarChart', () => {
 
     expect(mark).not.toHaveAttribute('aria-haspopup');
 
-    await user.click(mark);
+    pressAt(targetOf(mark).point);
 
     expect(onActivate).toHaveBeenCalledWith(CLIENT_SERIES.id);
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(getEvidence).not.toHaveBeenCalled();
   });
 
-  it('resolves the competitor tone by ordinal and gives the client series none', () => {
+  it('resolves the competitor tone from the competitor identifier, not from the drawing order', () => {
     expect(competitorToneOf(SERIES, COMPETITOR_ALPHA.id)).toBe(1);
     expect(competitorToneOf(SERIES, COMPETITOR_BETA.id)).toBe(2);
     expect(competitorToneOf(SERIES, COMPETITOR_GAMMA.id)).toBe(3);
     expect(competitorToneOf(SERIES, CLIENT_SERIES.id)).toBeNull();
+
+    /* The same three competitors in the opposite order: the identifier still answers, so a payload
+       list that arrives in another order repaints nothing. */
+    const reordered = [...SERIES].reverse();
+
+    expect(competitorToneOf(reordered, COMPETITOR_ALPHA.id)).toBe(1);
+    expect(competitorToneOf(reordered, COMPETITOR_BETA.id)).toBe(2);
+    expect(competitorToneOf(reordered, COMPETITOR_GAMMA.id)).toBe(3);
+
+    /* An identifier that states no competitor ordinal has no slot of its own, and neither does a
+       series the chart was not handed. */
+    const unnamed: AtlasSeries = {
+      ...COMPETITOR_ALPHA,
+      id: 'series-unnamed',
+      competitorId: 'network-one',
+    };
+
+    expect(competitorToneOf([unnamed], unnamed.id)).toBeNull();
+    expect(competitorToneOf(SERIES, 'series-not-drawn')).toBeNull();
+  });
+
+  it('prints every series’ own label at its own polygon, with a swatch and a leader to its vertex', () => {
+    renderChart();
+
+    const { centre } = scaleOf();
+    const shapes = polygons();
+    const labelGroups = [...svgElement().querySelectorAll('g[pointer-events="none"]')];
+
+    /* One label per series, and no label standing in for two. */
+    expect(labelGroups).toHaveLength(SERIES.length);
+    expect(shapes).toHaveLength(SERIES.length);
+
+    labelGroups.forEach((group, index) => {
+      const one = at(SERIES, index, 'labelled series');
+      const shape = at(shapes, index, 'polygon of the labelled series');
+      const [leader] = [...group.querySelectorAll('path')];
+      const [swatch] = [...group.querySelectorAll('circle')];
+      const [words] = [...group.querySelectorAll('text')];
+
+      /* The words are the series' own label, and they sit in the primary text role so the name never
+         rests on a hue (rule P-1, rule B-3). */
+      expect((words?.textContent ?? '').trim()).toBe(one.label);
+      expect(words?.getAttribute('class')).toContain('fill-text-primary');
+
+      /* The leader starts at one of that polygon's own vertices, so the label is tied to the outline
+         it names and not to a neighbour's. */
+      const start = /^M ([-\d.]+) ([-\d.]+)/u.exec(leader?.getAttribute('d') ?? '');
+      const vertex = { x: Number(start?.[1]), y: Number(start?.[2]) };
+
+      expect(pointsOf(shape).some((point) => distanceBetween(point, vertex) < 0.01)).toBe(true);
+
+      /* The label sits on the axis its index selects ... */
+      const angle = -Math.PI / 2 + ((Math.PI * 2) / AXES.length) * (index % AXES.length);
+      const fromCentre = { x: vertex.x - centre.x, y: vertex.y - centre.y };
+      const radialSpan = Math.hypot(fromCentre.x, fromCentre.y);
+
+      expect(radialSpan).toBeGreaterThan(0);
+      expect(
+        (fromCentre.x * Math.sin(angle) - fromCentre.y * Math.cos(angle)) / radialSpan,
+      ).toBeCloseTo(0, 2);
+
+      /* ... and its swatch lies beyond the vertex on that same ray, so the words stand outside the
+         outline they name rather than on top of it. */
+      const swatchPoint = {
+        x: Number(swatch?.getAttribute('cx')),
+        y: Number(swatch?.getAttribute('cy')),
+      };
+      const offset = { x: swatchPoint.x - vertex.x, y: swatchPoint.y - vertex.y };
+      const span = Math.hypot(fromCentre.x, fromCentre.y) * Math.hypot(offset.x, offset.y);
+
+      /* The sine of the angle between the two directions — coordinates are rounded to two decimals, so
+         the comparison is scaled by both lengths rather than left as a raw cross product. */
+      expect((fromCentre.x * offset.y - fromCentre.y * offset.x) / span).toBeCloseTo(0, 2);
+      expect(fromCentre.x * offset.x + fromCentre.y * offset.y).toBeGreaterThan(0);
+
+      /* The swatch is painted in that polygon's own role token: the one fill the outline carries. */
+      const fills = classTokensOf(shape).filter((token) => token.startsWith('fill-'));
+
+      expect(fills).toHaveLength(1);
+      expect(swatch?.getAttribute('class')).toBe(fills[0]);
+
+      /* The words stand outside their swatch in both directions — away from the drawing's vertical
+         centre line, so two labels on opposite sides of it cannot meet, and back towards its
+         horizontal centre line, so the axis name at the outer end of the same spoke stays clear. */
+      const wordsPoint = {
+        x: Number(words?.getAttribute('x')),
+        y: Number(words?.getAttribute('y')),
+      };
+
+      expect(Math.sign(wordsPoint.x - swatchPoint.x)).toBe(
+        Math.sign(swatchPoint.x - centre.x),
+      );
+      expect(Math.abs(wordsPoint.y - centre.y)).toBeLessThan(
+        Math.abs(swatchPoint.y - centre.y),
+      );
+    });
+  });
+
+  it('haloes every polygon label so a name crossing a stroke still reads', () => {
+    renderChart();
+
+    const labelGroups = [...svgElement().querySelectorAll('g[pointer-events="none"]')];
+
+    expect(labelGroups).toHaveLength(SERIES.length);
+
+    labelGroups.forEach((group, index) => {
+      const one = at(SERIES, index, 'labelled series');
+      const [words] = [...group.querySelectorAll('text')];
+      const tokens = words === undefined ? [] : classTokensOf(words);
+      const strokeTokens = tokens.filter((token) => token.startsWith('stroke-'));
+
+      /* The words are still the series' own label, in the primary text role whose contrast §4
+         measures: the halo is painted around the glyphs and never in place of that fill (rule B-3). */
+      expect((words?.textContent ?? '').trim()).toBe(one.label);
+      expect(tokens).toContain('fill-text-primary');
+      expect(tokens.filter((token) => token.startsWith('fill-'))).toHaveLength(1);
+
+      /* The halo is the card's surface role token and nothing else — the surface the drawing sits on,
+         which is the device `src/components/map-canvas.tsx` uses for its own labels: a role the theme
+         resolves, never a raw colour and never a second tone the words would be read in. */
+      expect(strokeTokens).toEqual(['stroke-surface-1']);
+
+      /* SVG's own paint order draws that stroke first and the fill over it, which is what surrounds
+         each glyph with the halo instead of striking a line through it, and the join keeps the strip
+         of halo at a letter's corner continuous. */
+      expect(words?.getAttribute('paint-order')).toBe('stroke');
+      expect(words?.getAttribute('stroke-linejoin')).toBe('round');
+
+      /* Wide enough to clear the stroke a letter crosses: at least one unit of halo on each side of
+         the glyph, which a hairline spoke or a two-unit series outline cannot outrun. */
+      expect(Number(words?.getAttribute('stroke-width'))).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('marks the series in view inside the drawing and leaves every reading as it was', () => {
+    const selected = COMPETITOR_BETA;
+
+    renderChart({ selectedSeriesId: selected.id, evidenceRefFor: () => EVIDENCE_REF });
+
+    const shapes = polygons();
+
+    /* Every series is still drawn with every vertex it states: the marking emphasises, it never
+       filters and never restates a score. */
+    expect(shapes).toHaveLength(SERIES.length);
+
+    for (const shape of shapes) {
+      expect(pointsOf(shape)).toHaveLength(AXES.length);
+      expect(shape.getAttribute('pointer-events')).toBe('none');
+    }
+
+    /* The selected series' outline is drawn heavier than every other series', and no other outline
+       changes weight, so the emphasis is structural rather than a hue a reader has to separate. */
+    const selectedIndex = SERIES.indexOf(selected);
+    const selectedWidth = Number(
+      at(shapes, selectedIndex, 'selected polygon').getAttribute('stroke-width'),
+    );
+
+    expect(selectedWidth).toBeGreaterThan(0);
+
+    const otherWidths = shapes
+      .filter((_shape, index) => index !== selectedIndex)
+      .map((shape) => shape.getAttribute('stroke-width'));
+
+    expect(new Set(otherWidths).size).toBe(1);
+
+    for (const width of otherWidths) {
+      expect(Number(width)).toBeLessThan(selectedWidth);
+    }
+
+    /* Its label-band row states `aria-current` and prints its name in the emphasised weight, and no
+       other row carries either. */
+    const current = [...svgElement().querySelectorAll('g[aria-current="true"]')];
+
+    expect(current).toHaveLength(1);
+
+    const row = at(current, 0, 'band row in view');
+
+    expect(row.textContent).toContain(`${selected.label} ${COMPETITOR_NAME_TAG}`);
+    expect(nameLineOf(row)).toContain('font-semibold');
+  });
+
+  it('marks the client’s own series in view when the screen reports it', () => {
+    renderChart({ selectedSeriesId: CLIENT_SERIES.id });
+
+    const shapes = polygons();
+    const clientIndex = SERIES.indexOf(CLIENT_SERIES);
+    const clientWidth = Number(at(shapes, clientIndex, 'client polygon').getAttribute('stroke-width'));
+
+    expect(clientWidth).toBeGreaterThan(0);
+
+    shapes.forEach((shape, index) => {
+      if (index === clientIndex) {
+        return;
+      }
+
+      expect(Number(shape.getAttribute('stroke-width'))).toBeLessThan(clientWidth);
+    });
+
+    const current = [...svgElement().querySelectorAll('g[aria-current="true"]')];
+
+    expect(current).toHaveLength(1);
+
+    const row = at(current, 0, 'band row in view');
+
+    expect(row.textContent).toContain(CLIENT_SERIES.label);
+    expect(nameLineOf(row)).toContain('font-semibold');
+    /* The client's row keeps its own companion label beside the emphasised name. */
+    expect(row.textContent).toContain(CLIENT_SELF_ASSESSMENT_LABEL);
+  });
+
+  it('marks nothing when the screen reports no entity in view', () => {
+    renderChart({ selectedSeriesId: null });
+
+    expect(svgElement().querySelectorAll('[aria-current]')).toHaveLength(0);
+
+    const shapes = polygons();
+    const [first] = shapes;
+
+    if (first === undefined) {
+      throw new Error('the chart drew no polygon');
+    }
+
+    /* One weight for every outline: nothing is emphasised when the caller reports no entity. */
+    const widths = new Set(shapes.map((shape) => shape.getAttribute('stroke-width')));
+
+    expect(widths.size).toBe(1);
+  });
+
+  it('paints one competitor in one hue however the payload orders its series', () => {
+    /* The series list and the networks are independent members of the payload, so this case draws the
+       competitors in the reverse of the order their identifiers state — the order a reordered payload
+       would hand over — and each outline must keep the hue its own identifier resolves. */
+    const reordered = [...COMPETITORS].reverse();
+    const expected = [
+      CHART_TONE_CLASSES['competitor-3'],
+      CHART_TONE_CLASSES['competitor-2'],
+      CHART_TONE_CLASSES['competitor-1'],
+    ] as const;
+
+    renderChart({ series: reordered });
+
+    const shapes = polygons();
+
+    expect(shapes).toHaveLength(expected.length);
+
+    expected.forEach((tone, index) => {
+      const polygon = shapes[index];
+
+      if (polygon === undefined) {
+        throw new Error(`the drawing rendered no polygon at position ${String(index)}`);
+      }
+
+      const classes = classTokensOf(polygon);
+
+      expect(classes).toContain(tone.fill);
+      expect(classes).toContain(tone.stroke);
+    });
   });
 
   it.each(THEMES)('draws the same radar under the %s theme', (theme) => {
@@ -745,6 +1227,7 @@ describe('RadarChart', () => {
   it('skips a score the payload does not state rather than drawing a zero for it', () => {
     const partial: AtlasSeries = {
       id: 'series-partial',
+      competitorId: 'competitor-partial',
       label: 'Partly stated network',
       provenance: 'market_intelligence',
       simLabel: MARKET_INTELLIGENCE_LABEL,

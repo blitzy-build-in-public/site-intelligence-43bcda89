@@ -41,7 +41,33 @@
  *    reader makes one (WCAG 2.2 SC 4.1.3).
  * 10. Both themes draw the same surface, read through accessible names, roles and text rather than
  *     through a colour value (rule B-3).
- * 11. The chokepoint alert strip leads the content once the read settles — one alert per crossing the
+ * 11. The product-class selector narrows every drawn surface — the radar series, the competitor
+ *     networks, their sites and the crossings their lanes traverse — states the class in view in words
+ *     beside its controls, restores the whole pack from "All product classes", and falls back to the
+ *     class's own default entity when the chosen one leaves the view (AAP §0.12.4, rules B-3, P-8).
+ * 12. Every mark the screen draws opens the record behind it — a radar vertex the single reading it
+ *     draws, a site mark and a crossing halo the identifier the payload gave it, and the chokepoint
+ *     table's overlap and buffer-day figures the crossing of their own row — and the drawer shows that
+ *     record's four sections rather than a failure region (AAP §0.2.1 F12, §0.12.4, rule P-8).
+ * 13. A press on either drawing is resolved to the mark nearest the pointer — even where a
+ *     neighbouring mark's larger target is painted above the mark aimed at — and to nothing at all
+ *     when it lands clear of every mark (rule P-8).
+ * 14. The entity in view is marked in both drawings rather than only in the caption beside the
+ *     selector: the radar's emphasised outline and its `aria-current` label-band row follow it, and
+ *     the network drawing emphasises that family while the other competitor families recede — the
+ *     client's own network included, both as the atlas's opening entity and after a competitor is
+ *     chosen (rule P-8, rule B-3).
+ * 15. One competitor keeps one hue on every surface when the payload orders its series and its
+ *     networks differently, because the slot each renderer paints is resolved from the competitor's
+ *     own identifier (rule P-5).
+ * 16. Every series is labelled at its own polygon inside the radar drawing — its own label, its own
+ *     swatch and a leader to its own vertex — so the outlines are told apart on the drawing rather
+ *     than only in the legend beside it (rule P-1).
+ * 17. Both of the atlas's tables state whose figures they print: the network table's last column
+ *     labels every row with the family it belongs to — market intelligence for a competitor's site,
+ *     `Simulated data` for the client's own — and the chokepoint table names each competitor beside
+ *     its identifier and its buffer days, from the name the payload holds (rules P-1, P-5, P-7).
+ * 18. The chokepoint alert strip leads the content once the read settles — one alert per crossing the
  *     payload carried, in the payload's order, each carrying the market-intelligence label and no
  *     control at all (AAP 0.14.1's S3 row, AAP 0.7's S3 stage row, rules P-1, P-5 and P-8).
  *
@@ -60,8 +86,10 @@
  * the overlap and the buffer days are this suite's own plain placeholders, stated once as constants
  * and compared as the values that were supplied. No case recomputes a figure, no case types a
  * currency amount, and no identifier carries a record's shape (`crossing-one`, `series-client`,
- * `competitor-two`) — the seed holds the real records, and a component test that borrowed them would
- * assert the payload instead of the screen. Every fixed string the screen shows is imported from the
+ * `site-client-one`) — except a competitor's, which follows contracts §1's `CMP-nn` pattern because
+ * the slot every renderer paints it in is resolved from that identifier and from nothing else. The
+ * seed holds the real records, and a component test that borrowed them would assert the payload
+ * instead of the screen. Every fixed string the screen shows is imported from the
  * module that owns it (`ATLAS_PACK_BANNER`, `COMPETITOR_NAME_TAG`, `CLIENT_SELF_ASSESSMENT_LABEL`,
  * `SIM_LABELS`, `SOURCE_LABELS`, `COMPETITIVE_ATLAS_TEXT`, `STATE_BOUNDARY_TEXT`,
  * `COMPETITOR_NETWORK_TEXT`, `RADAR_CHART_TEXT`, `VIEW_AS_TABLE_LABELS`), so a reworded label reaches
@@ -112,11 +140,13 @@
  * system clock, touches the network or reaches outside the service boundary.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
+import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
+import { CHART_TONE_CLASSES } from '../../components/horizontal-bar-chart';
 import { RADAR_CHART_TEXT } from '../../components/radar-chart';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
@@ -136,13 +166,14 @@ import type {
   Chokepoint,
   CompetitorId,
   CompetitorNetwork,
-  ExportPayload,
   Evidence,
+  ExportPayload,
   Freshness,
   FreshnessState,
   Meta,
   Permission,
   Problem,
+  ProductId,
   RadarAxis,
   Result,
   Role,
@@ -150,20 +181,20 @@ import type {
   SourceId,
 } from '../../types';
 import { COMPETITIVE_ATLAS_TEXT, CompetitiveAtlasScreen } from './competitive-atlas-screen';
-import { COMPETITOR_NETWORK_TEXT } from './competitor-network';
+import { COMPETITOR_NETWORK_TEXT, nearestNetworkMark } from './competitor-network';
 
 /* ---------------------------------------------------------------------------------------------
  * The port, replaced — rule P-2
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The members of the port this screen reads, and the only ones this suite stubs.
+ * The members of the port this surface reaches, and the only ones this suite stubs.
  *
  * Typed as a `Pick` of the port rather than as a shape of this file's own, so the stub cannot drift
  * from the interface: a member the screen starts to call that the stub does not carry fails the type
  * check here instead of arriving at run time as a call on `undefined`. The screen makes one read and
- * one action, and the drawer a radar vertex opens makes its own evidence read; no other member of
- * `SiteIntelligenceService` answers this surface.
+ * one action, and the evidence drawer that every mark it draws opens reads the third, so no other
+ * member of `SiteIntelligenceService` answers this surface.
  */
 type AtlasPort = Pick<
   SiteIntelligenceService,
@@ -259,11 +290,40 @@ const AXES: readonly RadarAxis[] = [
 ];
 
 /**
+ * The two product classes the fixture payload offers, and the classes its competitor networks are
+ * classified in.
+ *
+ * `Competitor A` competes in both, `Competitor B` only in the first and `Competitor C` only in the
+ * second, so a case can choose a class that narrows the atlas by more than one surface without
+ * emptying it, and can choose the class that removes a competitor it had selected.
+ */
+const FIRST_CLASS = 'class-one';
+const SECOND_CLASS = 'class-two';
+
+/**
+ * The three competitor identifiers the fixture payload carries, in the pattern contracts §1 fixes for
+ * them (`CMP-nn`).
+ *
+ * The identifier is what a competitor's colour is selected by — the screen's legend, the radar and
+ * the network drawing all resolve their slot from it through `competitorSlotOf` — so the fixture
+ * states the identifiers in that pattern rather than as plain placeholders: `CMP-01` takes §4.2's
+ * first competitor slot, `CMP-02` the second and `CMP-03` the third. A case that reorders the payload
+ * therefore keeps each competitor in its own hue.
+ */
+const COMPETITOR_ONE: CompetitorId = 'CMP-01';
+const COMPETITOR_TWO: CompetitorId = 'CMP-02';
+const COMPETITOR_THREE: CompetitorId = 'CMP-03';
+
+/**
  * The client's own series: a first-party self-assessment, so it carries the companion tag from
  * `src/types` rather than one of the seven fixed labels.
+ *
+ * `competitorId` is `null` because the series reports on the client rather than on a competitor
+ * network, which is what keeps the class filter from hiding it.
  */
 const CLIENT_SERIES: AtlasSeries = {
   id: 'series-client',
+  competitorId: null,
   label: 'Client network',
   provenance: 'first_party',
   simLabel: CLIENT_SELF_ASSESSMENT_LABEL,
@@ -275,11 +335,13 @@ const CLIENT_SERIES: AtlasSeries = {
  *
  * Their names are deliberately plain and their scores differ on every axis, so no two outlines can
  * coincide and a screen that merged two series into one shape would draw a polygon the count below
- * cannot explain (rule P-5).
+ * cannot explain (rule P-5). Each names the network it scores, which is the join the class filter
+ * reads.
  */
 const COMPETITOR_SERIES: readonly AtlasSeries[] = [
   {
     id: 'series-competitor-one',
+    competitorId: COMPETITOR_ONE,
     label: 'Competitor A',
     provenance: 'market_intelligence',
     simLabel: SIM_LABELS[5],
@@ -287,6 +349,7 @@ const COMPETITOR_SERIES: readonly AtlasSeries[] = [
   },
   {
     id: 'series-competitor-two',
+    competitorId: COMPETITOR_TWO,
     label: 'Competitor B',
     provenance: 'market_intelligence',
     simLabel: SIM_LABELS[5],
@@ -294,6 +357,7 @@ const COMPETITOR_SERIES: readonly AtlasSeries[] = [
   },
   {
     id: 'series-competitor-three',
+    competitorId: COMPETITOR_THREE,
     label: 'Competitor C',
     provenance: 'market_intelligence',
     simLabel: SIM_LABELS[5],
@@ -322,12 +386,14 @@ const CLIENT_SITE: AtlasSite = {
  *
  * Both sites belong to the network that lists them and the lane joins them, so the drawing places
  * every mark from the payload alone. A lane names a crossing where the pack records one, which is
- * what places the shared-chokepoint halos.
+ * what places the shared-chokepoint halos. The product classes are the payload's own list of the
+ * classes the network competes in, which is what the screen's class filter reads.
  *
  * @param competitorId The competitor the network belongs to, as the payload spells it.
  * @param label The network's own name.
  * @param siteSuffix The suffix that keeps this network's two site identifiers distinct.
  * @param crossingId The crossing this network's lane traverses.
+ * @param productClasses The product classes the pack classifies this network in.
  * @returns The network.
  */
 function competitorNetwork(
@@ -335,11 +401,13 @@ function competitorNetwork(
   label: string,
   siteSuffix: string,
   crossingId: string,
+  productClasses: readonly ProductId[],
 ): CompetitorNetwork {
   return {
     competitorId,
     label,
     provenance: 'market_intelligence',
+    productClasses: [...productClasses],
     sites: [
       {
         id: `site-${siteSuffix}-one`,
@@ -362,10 +430,34 @@ function competitorNetwork(
 
 /** The three competitor networks, in the order the pack lists them. */
 const COMPETITOR_NETWORKS: readonly CompetitorNetwork[] = [
-  competitorNetwork('competitor-one', 'Competitor A', 'competitor-a', 'crossing-one'),
-  competitorNetwork('competitor-two', 'Competitor B', 'competitor-b', 'crossing-one'),
-  competitorNetwork('competitor-three', 'Competitor C', 'competitor-c', 'crossing-two'),
+  competitorNetwork(COMPETITOR_ONE, 'Competitor A', 'competitor-a', 'crossing-one', [
+    FIRST_CLASS,
+    SECOND_CLASS,
+  ]),
+  competitorNetwork(COMPETITOR_TWO, 'Competitor B', 'competitor-b', 'crossing-one', [FIRST_CLASS]),
+  competitorNetwork(COMPETITOR_THREE, 'Competitor C', 'competitor-c', 'crossing-two', [
+    SECOND_CLASS,
+  ]),
 ];
+
+/** The competitor networks the first class leaves in view: the ones the pack classifies in it. */
+const FIRST_CLASS_NETWORKS: readonly CompetitorNetwork[] = COMPETITOR_NETWORKS.filter((network) =>
+  network.productClasses.includes(FIRST_CLASS),
+);
+
+/**
+ * The §4.2 tone each fixture competitor's identifier states, stated once so a case compares a surface
+ * against the competitor's identity rather than against the position it holds in a list.
+ *
+ * `CMP-01` is the first competitor role, `CMP-02` the second and `CMP-03` the third — the slot every
+ * renderer resolves from the identifier through `competitorSlotOf`, so a payload that orders its
+ * series and its networks differently must still paint each competitor in its own entry of this list.
+ */
+const COMPETITOR_TONE_BY_ID = [
+  { competitorId: COMPETITOR_ONE, tone: CHART_TONE_CLASSES['competitor-1'] },
+  { competitorId: COMPETITOR_TWO, tone: CHART_TONE_CLASSES['competitor-2'] },
+  { competitorId: COMPETITOR_THREE, tone: CHART_TONE_CLASSES['competitor-3'] },
+] as const;
 
 /* ---------------------------------------------------------------------------------------------
  * The shared crossings, and the two measures the table prints exactly as stated
@@ -398,8 +490,8 @@ const CHOKEPOINTS: readonly Chokepoint[] = [
     label: 'Chokepoint one',
     overlap: OVERLAP_FIRST,
     competitorBufferDays: {
-      'competitor-one': BUFFER_DAYS_FIRST,
-      'competitor-two': BUFFER_DAYS_SECOND,
+      [COMPETITOR_ONE]: BUFFER_DAYS_FIRST,
+      [COMPETITOR_TWO]: BUFFER_DAYS_SECOND,
     },
     contentionNote: 'The note the pack states for the first crossing.',
     provenance: 'market_intelligence',
@@ -408,7 +500,7 @@ const CHOKEPOINTS: readonly Chokepoint[] = [
     id: 'crossing-two',
     label: 'Chokepoint two',
     overlap: OVERLAP_SECOND,
-    competitorBufferDays: { 'competitor-three': BUFFER_DAYS_THIRD },
+    competitorBufferDays: { [COMPETITOR_THREE]: BUFFER_DAYS_THIRD },
     contentionNote: 'The note the pack states for the second crossing.',
     provenance: 'market_intelligence',
   },
@@ -430,13 +522,40 @@ const CHOKEPOINTS: readonly Chokepoint[] = [
 const ATLAS: Atlas = {
   packLabel: ATLAS_PACK_BANNER,
   packVersion: 'pack-version-under-test',
-  productClasses: ['class-one', 'class-two'],
+  productClasses: [FIRST_CLASS, SECOND_CLASS],
   clientSites: [CLIENT_SITE],
   competitors: [...COMPETITOR_NETWORKS],
   chokepoints: [...CHOKEPOINTS],
   radarAxes: [...AXES],
   radarSeries: [...SERIES],
 };
+
+/**
+ * What the first class leaves drawn, derived from the fixture the way the screen derives it: the
+ * networks the pack classifies in that class, the series the client and those networks carry, the
+ * crossings a lane of one of them traverses, and the sites they place.
+ *
+ * A case compares the surface against these, so an assertion states what the payload holds rather
+ * than a number typed twice (rule P-6).
+ */
+const FIRST_CLASS_SERIES: readonly AtlasSeries[] = SERIES.filter(
+  (entry) =>
+    entry.competitorId === null ||
+    FIRST_CLASS_NETWORKS.some((network) => network.competitorId === entry.competitorId),
+);
+
+/** The crossings the first class leaves in view. */
+const FIRST_CLASS_CHOKEPOINTS: readonly Chokepoint[] = CHOKEPOINTS.filter((crossing) =>
+  FIRST_CLASS_NETWORKS.some((network) =>
+    network.lanes.some((lane) => lane.chokepointId === crossing.id),
+  ),
+);
+
+/** The sites the first class leaves drawn: the client's own and those of its networks. */
+const FIRST_CLASS_SITES: readonly AtlasSite[] = [
+  ...ATLAS.clientSites,
+  ...FIRST_CLASS_NETWORKS.flatMap((network) => [...network.sites]),
+];
 
 /**
  * The payload of a pack with nothing to compare: no series and no crossing, so the screen's own
@@ -448,6 +567,52 @@ const EMPTY_PACK: Atlas = {
   competitors: [],
   chokepoints: [],
   radarSeries: [],
+};
+
+/* ---------------------------------------------------------------------------------------------
+ * The payload the press cases draw: two marks close enough that one target covers the other's dot
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The competitor site the press cases draw, placed beside the client's own site on the drawing's
+ * frame.
+ *
+ * Both coordinates are this suite's own plain placeholders, chosen so the frame draws the two marks
+ * a few units apart — closer together than a mark's pointer target, which is the overlap the press
+ * resolution exists for.
+ */
+const PRESS_SITE: AtlasSite = {
+  id: 'site-press-competitor',
+  competitorId: COMPETITOR_ONE,
+  label: 'Competitor site pressed',
+  latitude: 48.8,
+  longitude: 11.9,
+};
+
+/**
+ * The atlas the press cases draw: the client's own site and one competitor's site, and no lane, so
+ * nothing but those two marks stands on the drawing.
+ *
+ * A crossing record stays in the payload because a pack with no crossing is the screen's empty state;
+ * with no lane naming it the frame has nowhere to place it, so it draws no halo and the two marks are
+ * all a press can reach.
+ */
+const PRESS_ATLAS: Atlas = {
+  ...ATLAS,
+  competitors: [
+    {
+      competitorId: COMPETITOR_ONE,
+      label: 'Competitor A',
+      provenance: 'market_intelligence',
+      productClasses: [FIRST_CLASS],
+      sites: [PRESS_SITE],
+      lanes: [],
+    },
+  ],
+  chokepoints: CHOKEPOINTS.slice(0, 1),
+  radarSeries: SERIES.filter(
+    (entry) => entry.competitorId === null || entry.competitorId === PRESS_SITE.competitorId,
+  ),
 };
 
 /**
@@ -505,6 +670,19 @@ const EXPORT_PAYLOAD: ExportPayload = {
     2,
   ),
 };
+
+/**
+ * One `Result<Evidence>` envelope, shaped as the port answers it: the record, an empty freshness report
+ * and the correlation identifier every stubbed answer in this suite carries.
+ *
+ * @param evidence The record the drawer is answered with.
+ * @returns The envelope the port resolves with.
+ */
+function evidenceEnvelope(evidence: Evidence): Result<Evidence> {
+  const meta: Meta = { freshness: [], simulated: true, traceId: TRACE_ID };
+
+  return { data: evidence, meta };
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The refusals a state case needs
@@ -692,9 +870,143 @@ async function radarCard(): Promise<HTMLElement> {
   return screen.findByRole('region', { name: COMPETITIVE_ATLAS_TEXT.radarCardTitle });
 }
 
+/**
+ * The polygons the radar actually draws, one per series it was handed.
+ *
+ * Read from the drawing rather than from the payload, so a case proves what a reader receives: the
+ * class filter narrows the shapes on the surface, not the caption beside them.
+ *
+ * @returns Every polygon of the radar's own group, in document order.
+ */
+async function radarPolygons(): Promise<SVGPolygonElement[]> {
+  const card = await radarCard();
+  const drawing = within(card).getByRole('group', { name: RADAR_CHART_TEXT.groupLabel });
+
+  return [...drawing.querySelectorAll<SVGPolygonElement>('polygon')];
+}
+
 /** The network card: the surface holding the drawing and its table view. */
 async function networkCard(): Promise<HTMLElement> {
   return screen.findByRole('region', { name: COMPETITIVE_ATLAS_TEXT.networkCardTitle });
+}
+
+/**
+ * One competitor's own group inside the network drawing, found by the name the drawing gives it.
+ *
+ * The name is the network's tagged label, the words for what it draws and the label its figures carry,
+ * so the lookup states the record rather than a position among the drawing's groups.
+ */
+function competitorGroupIn(drawing: HTMLElement, network: CompetitorNetwork): HTMLElement {
+  return within(drawing).getByRole('group', {
+    name: new RegExp(
+      `^${escapeRegExp(`${network.label} ${COMPETITOR_NAME_TAG}`)}, ${escapeRegExp(
+        COMPETITOR_NETWORK_TEXT.competitorGroupSuffix,
+      )}`,
+      'u',
+    ),
+  });
+}
+
+/** The client's own group inside the network drawing, named as the self-assessment it is. */
+function clientGroupIn(drawing: HTMLElement): HTMLElement {
+  return within(drawing).getByRole('group', {
+    name: `${COMPETITOR_NETWORK_TEXT.clientGroupName}, ${CLIENT_SELF_ASSESSMENT_LABEL}`,
+  });
+}
+
+/**
+ * The `stroke-width` each of a drawing's polygons is drawn with, in document order.
+ *
+ * The emphasis the entity in view takes is a drawing weight rather than a hue, so a case reads it back
+ * from the markup instead of comparing a colour value (rule B-3).
+ */
+function polygonStrokeWidthsOf(drawing: HTMLElement): readonly number[] {
+  return [...drawing.querySelectorAll('polygon')].map((polygon) =>
+    Number(polygon.getAttribute('stroke-width')),
+  );
+}
+
+/**
+ * The centre and the radius of one mark's invisible pointer target, in the drawing's own units.
+ *
+ * The target is the circle a mark paints with nothing and reaches the pointer with, so reading it
+ * back is how a press case states a press in the drawing's coordinates instead of restating the
+ * component's geometry.
+ *
+ * @param mark The mark's control, as the drawing rendered it.
+ * @returns The target's centre and its radius.
+ */
+function targetOf(mark: Element): {
+  readonly centre: { readonly x: number; readonly y: number };
+  readonly radius: number;
+} {
+  const target = mark.querySelector('circle[pointer-events="all"]');
+
+  if (target === null) {
+    throw new Error('the mark drew no pointer target');
+  }
+
+  return {
+    centre: { x: Number(target.getAttribute('cx')), y: Number(target.getAttribute('cy')) },
+    radius: Number(target.getAttribute('r')),
+  };
+}
+
+/**
+ * How far apart two points of a drawing's grid are, in that drawing's own units.
+ *
+ * @param one The first point.
+ * @param other The second point.
+ * @returns The distance between them.
+ */
+function distanceBetween(
+  one: { readonly x: number; readonly y: number },
+  other: { readonly x: number; readonly y: number },
+): number {
+  return Math.hypot(one.x - other.x, one.y - other.y);
+}
+
+/**
+ * Lays the drawing out at its own scale, then presses it at one point of its own grid.
+ *
+ * jsdom computes no layout at all, so the element reports a zero-width box and the drawing declines
+ * to resolve a press against it — correctly, since there is no scale to convert the pointer by. A
+ * press case states the box a browser would have measured: the view box's own width and height, with
+ * the element's top-left corner at the origin, which makes one user unit one CSS pixel and lets the
+ * press be stated in the drawing's coordinates. The press is dispatched at the `<svg>`, which is the
+ * element the drawing resolves a press on.
+ *
+ * @param drawing The drawing's own `<svg>`.
+ * @param point The point to press, in the drawing's coordinates.
+ */
+function pressDrawingAt(
+  drawing: HTMLElement,
+  point: { readonly x: number; readonly y: number },
+): void {
+  const box = (drawing.getAttribute('viewBox') ?? '')
+    .trim()
+    .split(/\s+/u)
+    .map(Number);
+  const width = box[2];
+  const height = box[3];
+
+  if (width === undefined || height === undefined || !(width > 0) || !(height > 0)) {
+    throw new Error('the drawing rendered no view box to lay out');
+  }
+
+  vi.spyOn(drawing, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: height,
+    width,
+    height,
+    toJSON: () => ({}),
+  });
+
+  fireEvent.click(drawing, { clientX: point.x, clientY: point.y });
 }
 
 /** The chokepoint card: the surface holding the crossings table. */
@@ -714,10 +1026,7 @@ beforeEach(() => {
   }
 
   port.getAtlas.mockResolvedValue(envelope(ATLAS));
-  port.getEvidence.mockResolvedValue({
-    data: EVIDENCE,
-    meta: { freshness: [], simulated: true, traceId: TRACE_ID },
-  });
+  port.getEvidence.mockResolvedValue(evidenceEnvelope(EVIDENCE));
   port.exportChokepointBrief.mockResolvedValue({
     data: { ...EXPORT_PAYLOAD },
     meta: { freshness: [], simulated: true, traceId: TRACE_ID },
@@ -821,9 +1130,11 @@ describe('CompetitiveAtlasScreen', () => {
     }
   });
 
-  it('asks the service for the series behind the vertex a reader activates', async () => {
+  it('asks the service for the reading behind the vertex a reader activates', async () => {
     const user = userEvent.setup();
     const series = at(SERIES, 0, 'radar series');
+    const axis = at(AXES, 0, 'radar axis');
+    const score = at(series.values, 0, 'series score');
 
     renderScreen();
 
@@ -834,13 +1145,20 @@ describe('CompetitiveAtlasScreen', () => {
     /* One control per mark, so every vertex of every series opens its own evidence (AAP 0.2.1 F12). */
     expect(vertices).toHaveLength(SERIES.length * AXES.length);
 
-    await user.click(at(vertices, 0, 'radar vertex'));
+    const vertex = within(drawing).getByRole('button', {
+      name: `${axis.label}, ${series.label}: ${String(score)}`,
+    });
+
+    vertex.focus();
+    expect(vertex).toHaveFocus();
+
+    await user.keyboard('{Enter}');
     await screen.findByRole('dialog');
 
-    /* The reference names the series, which is the record the pack states the scores in: the drawer
-       is asked for that series and for no other (rule P-5, one series per payload). */
+    /* The reference names the one reading the vertex draws — the series, the separator, then the axis
+       it sits on — which is the record the pack states that score in (AAP §0.2.1 F12, rule P-5). */
     expect(port.getEvidence).toHaveBeenCalledTimes(1);
-    expect(port.getEvidence.mock.calls[0]?.[0]).toBe(`atlas:${series.id}`);
+    expect(port.getEvidence.mock.calls[0]?.[0]).toBe(`${series.id}#${axis.id}`);
   });
 
   it('tags the client’s own series as a self-assessment and never as a second simulated-data label', async () => {
@@ -956,6 +1274,462 @@ describe('CompetitiveAtlasScreen', () => {
     });
   });
 
+  it('paints one competitor in one hue on every surface when the payload orders its lists differently', async () => {
+    const user = userEvent.setup();
+
+    /* The networks arrive in the reverse of the order their identifiers state, while the series keep
+       the pack's own order: a hue resolved from a list position would put each competitor in another
+       company's colour here, so every surface named below proves the slot follows the identifier. */
+    port.getAtlas.mockResolvedValue(
+      envelope({ ...ATLAS, competitors: [...COMPETITOR_NETWORKS].reverse() }),
+    );
+
+    renderScreen();
+
+    const card = await radarCard();
+    const legend = within(card).getByRole('list');
+    const polygons = await radarPolygons();
+    const drawing = await networkCard();
+    const entityGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    expect(polygons).toHaveLength(SERIES.length);
+
+    for (const { competitorId, tone } of COMPETITOR_TONE_BY_ID) {
+      const series = COMPETITOR_SERIES.find((entry) => entry.competitorId === competitorId);
+      const network = COMPETITOR_NETWORKS.find((entry) => entry.competitorId === competitorId);
+
+      if (series === undefined || network === undefined) {
+        throw new Error(`the fixture states no series or no network for ${competitorId}`);
+      }
+
+      /* The legend swatch beside the series' own name. */
+      const row = within(legend).getByText(series.label, { exact: true }).closest('li');
+
+      if (row === null) {
+        throw new Error(`no legend row describes ${series.label}`);
+      }
+
+      expect(row.querySelector('span[aria-hidden="true"]')?.getAttribute('class')).toContain(
+        tone.swatch,
+      );
+
+      /* The radar's own polygon for that series, at the position the payload gives it. */
+      const polygon = polygons[SERIES.indexOf(series)];
+
+      if (polygon === undefined) {
+        throw new Error(`the radar drew no polygon for ${series.label}`);
+      }
+
+      const outline = polygon.getAttribute('class') ?? '';
+
+      expect(outline).toContain(tone.fill);
+      expect(outline).toContain(tone.stroke);
+
+      /* And every mark of that competitor's own network, drawn in the same role token: the competitor
+         is marked as the entity in view first, so the drawing paints its hue rather than the
+         recession it applies to a competitor family that is not in view. */
+      await user.click(
+        within(entityGroup).getByRole('button', {
+          name: new RegExp(`^${escapeRegExp(network.label)}`, 'u'),
+        }),
+      );
+
+      const group = competitorGroupIn(drawing, network);
+
+      expect(group).toHaveAttribute('aria-current', 'true');
+
+      const marks = [...group.querySelectorAll('polygon')];
+
+      expect(marks.length).toBeGreaterThan(0);
+
+      for (const mark of marks) {
+        const classes = mark.getAttribute('class') ?? '';
+
+        expect(classes).toContain(tone.stroke);
+        expect(classes).not.toContain('stroke-hairline');
+      }
+    }
+  });
+
+  it('prints every series’ own label inside the radar drawing, beside its own polygon', async () => {
+    renderScreen();
+
+    const drawing = within(await radarCard()).getByRole('group', {
+      name: RADAR_CHART_TEXT.groupLabel,
+    });
+
+    /* Each series is labelled at its own outline rather than only in the legend beside it, so a reader
+       can tell the polygons apart on the drawing itself (rule P-1). */
+    const labels = [...drawing.querySelectorAll('g[pointer-events="none"] text')].map((text) =>
+      (text.textContent ?? '').trim(),
+    );
+
+    expect(labels).toEqual(SERIES.map((series) => series.label));
+  });
+
+  it('marks the client’s own network, the entity the atlas opens on, in both drawings', async () => {
+    renderScreen();
+
+    const radarDrawing = within(await radarCard()).getByRole('group', {
+      name: RADAR_CHART_TEXT.groupLabel,
+    });
+    const widths = polygonStrokeWidthsOf(radarDrawing);
+    const clientIndex = SERIES.indexOf(CLIENT_SERIES);
+    const clientWidth = at(widths, clientIndex, 'client outline width');
+
+    /* The client's series is the one the atlas opens on, so its outline is the emphasised one and
+       every other outline keeps the drawing's own weight. */
+    expect(clientWidth).toBeGreaterThan(0);
+
+    widths.forEach((width, index) => {
+      if (index === clientIndex) {
+        return;
+      }
+
+      expect(width).toBeLessThan(clientWidth);
+    });
+
+    /* The radar's label-band row names the same entity, so the drawing carries the selection itself
+       and not only the selector beside it (rule P-8). */
+    const rows = [...radarDrawing.querySelectorAll('g[aria-current="true"]')];
+
+    expect(rows).toHaveLength(1);
+    expect(at(rows, 0, 'radar band row in view').textContent).toContain(CLIENT_SERIES.label);
+
+    /* In the network drawing the client's own group is the marked one ... */
+    const drawing = await networkCard();
+    const client = clientGroupIn(drawing);
+
+    expect(client).toHaveAttribute('aria-current', 'true');
+    expect(within(client).getByText(CLIENT_SITE.label, { exact: true }).getAttribute('class')).toContain(
+      'font-semibold',
+    );
+
+    /* ... and every competitor family recedes to the graph lens's ground fill and hairline stroke,
+       with its printed names in the text role §4 measures for a recessed reading. */
+    for (const network of COMPETITOR_NETWORKS) {
+      const group = competitorGroupIn(drawing, network);
+
+      expect(group).not.toHaveAttribute('aria-current');
+
+      const marks = [...group.querySelectorAll('polygon')];
+
+      expect(marks.length).toBeGreaterThan(0);
+
+      for (const mark of marks) {
+        const classes = mark.getAttribute('class') ?? '';
+
+        expect(classes).toContain('fill-ground');
+        expect(classes).toContain('stroke-hairline');
+      }
+
+      expect(
+        within(group)
+          .getByText(`${network.label} site one`, { exact: true })
+          .getAttribute('class'),
+      ).toContain('fill-text-secondary');
+    }
+  });
+
+  it('moves the marking to the competitor the entity selector chooses, and recedes the others', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const chosen = at(COMPETITOR_NETWORKS, 1, 'chosen competitor network');
+    const chosenSeries = COMPETITOR_SERIES.find(
+      (entry) => entry.competitorId === chosen.competitorId,
+    );
+    const chosenTone = COMPETITOR_TONE_BY_ID.find(
+      (entry) => entry.competitorId === chosen.competitorId,
+    )?.tone;
+
+    if (chosenSeries === undefined || chosenTone === undefined) {
+      throw new Error('the fixture states no series or no tone for the competitor under test');
+    }
+
+    const entityGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    await user.click(
+      within(entityGroup).getByRole('button', {
+        name: new RegExp(`^${escapeRegExp(chosen.label)}`, 'u'),
+      }),
+    );
+
+    /* The radar's emphasised outline followed the selection, and so did its label-band row. */
+    const radarDrawing = within(await radarCard()).getByRole('group', {
+      name: RADAR_CHART_TEXT.groupLabel,
+    });
+    const widths = polygonStrokeWidthsOf(radarDrawing);
+    const chosenIndex = SERIES.indexOf(chosenSeries);
+    const chosenWidth = at(widths, chosenIndex, 'chosen outline width');
+
+    expect(chosenWidth).toBeGreaterThan(0);
+
+    widths.forEach((width, index) => {
+      if (index === chosenIndex) {
+        return;
+      }
+
+      expect(width).toBeLessThan(chosenWidth);
+    });
+
+    const rows = [...radarDrawing.querySelectorAll('g[aria-current="true"]')];
+
+    expect(rows).toHaveLength(1);
+    expect(at(rows, 0, 'radar band row in view').textContent).toContain(chosenSeries.label);
+
+    /* In the network drawing that competitor's own group is marked and keeps its own hue ... */
+    const drawing = await networkCard();
+    const chosenGroup = competitorGroupIn(drawing, chosen);
+
+    expect(chosenGroup).toHaveAttribute('aria-current', 'true');
+
+    const chosenMarks = [...chosenGroup.querySelectorAll('polygon')];
+
+    expect(chosenMarks.length).toBeGreaterThan(0);
+
+    for (const mark of chosenMarks) {
+      const classes = mark.getAttribute('class') ?? '';
+
+      expect(classes).toContain(chosenTone.stroke);
+      expect(classes).not.toContain('stroke-hairline');
+    }
+
+    /* ... the client's own family is no longer the entity in view ... */
+    expect(clientGroupIn(drawing)).not.toHaveAttribute('aria-current');
+
+    /* ... and every other competitor family recedes. */
+    for (const network of COMPETITOR_NETWORKS) {
+      if (network.competitorId === chosen.competitorId) {
+        continue;
+      }
+
+      const group = competitorGroupIn(drawing, network);
+
+      expect(group).not.toHaveAttribute('aria-current');
+
+      for (const mark of group.querySelectorAll('polygon')) {
+        expect(mark.getAttribute('class')).toContain('stroke-hairline');
+      }
+    }
+  });
+
+  it('narrows the drawn series, networks, sites and crossings to the class in view', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const classGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.classGroupLabel,
+    });
+
+    /* The atlas opens with every class in view, so the whole pack is drawn before the class is
+       chosen — the narrowing below is the control's doing and not the opening state's. */
+    expect(await radarPolygons()).toHaveLength(SERIES.length);
+    expect(FIRST_CLASS_SERIES.length).toBeLessThan(SERIES.length);
+
+    await user.click(within(classGroup).getByRole('button', { name: FIRST_CLASS }));
+
+    /* The caption restates the class and says what it narrowed (AAP §0.12.4, rule B-3). */
+    expect(
+      within(classGroup).getByText(
+        `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${FIRST_CLASS}. ${COMPETITIVE_ATLAS_TEXT.classCaptionDetail}`,
+      ),
+    ).toBeInTheDocument();
+
+    /* The radar draws one polygon per series in view, and the legend and the entity selector list
+       exactly those series: the client's own, which reports on no competitor, and each competitor
+       the pack classifies in the class. */
+    expect(await radarPolygons()).toHaveLength(FIRST_CLASS_SERIES.length);
+
+    const legend = within(await radarCard()).getByRole('list');
+
+    expect(within(legend).getAllByRole('listitem')).toHaveLength(FIRST_CLASS_SERIES.length);
+
+    const entityGroup = screen.getByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    expect(within(entityGroup).getAllByRole('button')).toHaveLength(FIRST_CLASS_SERIES.length);
+
+    for (const network of COMPETITOR_NETWORKS) {
+      const offered = within(entityGroup).queryByRole('button', {
+        name: new RegExp(`^${escapeRegExp(network.label)}`, 'u'),
+      });
+
+      expect(offered === null).toBe(!FIRST_CLASS_NETWORKS.includes(network));
+    }
+
+    /* The network view places the sites of the networks in view and none of the others. */
+    const networkDrawing = await networkCard();
+
+    for (const site of FIRST_CLASS_SITES) {
+      expect(within(networkDrawing).getAllByText(site.label, { exact: true }).length).toBeGreaterThan(
+        0,
+      );
+    }
+
+    for (const network of COMPETITOR_NETWORKS) {
+      for (const site of network.sites) {
+        if (FIRST_CLASS_NETWORKS.includes(network)) {
+          continue;
+        }
+
+        expect(within(networkDrawing).queryByText(site.label, { exact: true })).toBeNull();
+      }
+    }
+
+    /* The network's table view lists the same sites the drawing places, so the two never disagree. */
+    await user.click(
+      within(networkDrawing).getByRole('button', {
+        name: `${VIEW_AS_TABLE_LABELS.showTable}: ${COMPETITIVE_ATLAS_TEXT.networkFigureTitle}`,
+      }),
+    );
+
+    const networkTable = screen.getByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.networkTableCaption,
+    });
+
+    expect(within(networkTable).getAllByRole('row')).toHaveLength(FIRST_CLASS_SITES.length + 1);
+
+    /* And the chokepoint table lists only the crossings a lane of an in-view network traverses. */
+    const chokepointTable = screen.getByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption,
+    });
+
+    expect(FIRST_CLASS_CHOKEPOINTS.length).toBeGreaterThan(0);
+    expect(FIRST_CLASS_CHOKEPOINTS.length).toBeLessThan(CHOKEPOINTS.length);
+    expect(within(chokepointTable).getAllByRole('row')).toHaveLength(FIRST_CLASS_CHOKEPOINTS.length + 1);
+  });
+
+  it('restores the whole pack from the “All product classes” control', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const classGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.classGroupLabel,
+    });
+
+    await user.click(within(classGroup).getByRole('button', { name: FIRST_CLASS }));
+
+    expect(await radarPolygons()).toHaveLength(FIRST_CLASS_SERIES.length);
+
+    /* The unfiltered state is reachable again, so choosing a class narrows nothing irreversibly
+       (rule P-8). */
+    await user.click(
+      within(classGroup).getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.allClassesLabel }),
+    );
+
+    expect(
+      within(classGroup).getByText(
+        `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${COMPETITIVE_ATLAS_TEXT.allClassesLabel}. ${COMPETITIVE_ATLAS_TEXT.allClassesCaptionDetail}`,
+      ),
+    ).toBeInTheDocument();
+
+    expect(await radarPolygons()).toHaveLength(SERIES.length);
+    expect(within(within(await radarCard()).getByRole('list')).getAllByRole('listitem')).toHaveLength(
+      SERIES.length,
+    );
+
+    const entityGroup = screen.getByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    expect(within(entityGroup).getAllByRole('button')).toHaveLength(SERIES.length);
+
+    const chokepointTable = screen.getByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption,
+    });
+
+    expect(within(chokepointTable).getAllByRole('row')).toHaveLength(CHOKEPOINTS.length + 1);
+  });
+
+  it('falls back to the class’s own default entity when the chosen one leaves the view', async () => {
+    const user = userEvent.setup();
+    const third = at(COMPETITOR_NETWORKS, 2, 'competitor network');
+
+    renderScreen();
+
+    const entityGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    await user.click(
+      within(entityGroup).getByRole('button', {
+        name: new RegExp(`^${escapeRegExp(third.label)}`, 'u'),
+      }),
+    );
+
+    expect(
+      screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${third.label}`),
+    ).toBeInTheDocument();
+
+    /* The first class classifies no network this series reports on, so the caption returns to the
+       class's own default series instead of naming one the radar no longer draws. */
+    await user.click(
+      within(screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel })).getByRole(
+        'button',
+        { name: FIRST_CLASS },
+      ),
+    );
+
+    expect(
+      screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${CLIENT_SERIES.label}`),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${third.label}`),
+    ).toBeNull();
+    expect(
+      within(entityGroup).queryByRole('button', {
+        name: new RegExp(`^${escapeRegExp(third.label)}`, 'u'),
+      }),
+    ).toBeNull();
+  });
+
+  it('states the class group’s selection in words beside the control that carries it', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const classGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.classGroupLabel,
+    });
+
+    /* The atlas opens with every class in view, and both the caption and the control say so rather
+       than leaving the reader to compare colours (rule B-3). */
+    expect(
+      within(classGroup).getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.allClassesLabel }),
+    ).toHaveClass('bg-action-primary-bg');
+    expect(within(classGroup).getByRole('button', { name: FIRST_CLASS })).not.toHaveClass(
+      'bg-action-primary-bg',
+    );
+    expect(
+      within(classGroup).getByText(
+        `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${COMPETITIVE_ATLAS_TEXT.allClassesLabel}. ${COMPETITIVE_ATLAS_TEXT.allClassesCaptionDetail}`,
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(within(classGroup).getByRole('button', { name: FIRST_CLASS }));
+
+    expect(within(classGroup).getByRole('button', { name: FIRST_CLASS })).toHaveClass(
+      'bg-action-primary-bg',
+    );
+    expect(
+      within(classGroup).getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.allClassesLabel }),
+    ).not.toHaveClass('bg-action-primary-bg');
+    expect(
+      within(classGroup).getByText(
+        `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${FIRST_CLASS}. ${COMPETITIVE_ATLAS_TEXT.classCaptionDetail}`,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('explains a permission refusal with the permission, the roles that hold it and the trace id', async () => {
     port.getAtlas.mockRejectedValue(DENIAL);
 
@@ -1013,22 +1787,435 @@ describe('CompetitiveAtlasScreen', () => {
       expect(collapsedTextOf(at(cells, 1, 'name cell'))).toBe(crossing.label);
 
       /* The two figures are printed exactly as the record stated them: nothing rounds, converts or
-         totals them here (rule P-6). */
-      expect(collapsedTextOf(at(cells, 3, 'overlap cell'))).toBe(String(crossing.overlap));
+         totals them here (rule P-6). Each one is the trigger that opens the crossing's record, so the
+         figure leads the control's accessible name (rule P-8, AAP §0.2.1 F12). */
+      expect(
+        within(at(cells, 3, 'overlap cell')).getByRole('button', {
+          name: new RegExp(`^${escapeRegExp(String(crossing.overlap))}\\b`, 'u'),
+        }),
+      ).toBeInTheDocument();
       expect(collapsedTextOf(at(cells, 5, 'note cell'))).toBe(crossing.contentionNote);
 
       /* Every row is market intelligence, and the cell says so with the label its record carries
          (rule P-1, rule P-5). */
       expect(collapsedTextOf(at(cells, 6, 'provenance cell'))).toBe(SIM_LABELS[5]);
 
-      /* The buffer column repeats the competitor beside its days, so no figure is left unattributed. */
+      /* The buffer column repeats the competitor beside its days, so no figure is left unattributed,
+         and each day count opens the crossing's own record. */
       const bufferCell = at(cells, 4, 'buffer days cell');
 
       for (const [competitorId, days] of Object.entries(crossing.competitorBufferDays)) {
         expect(within(bufferCell).getByText(competitorId)).toBeInTheDocument();
-        expect(within(bufferCell).getByText(String(days))).toBeInTheDocument();
+        expect(
+          within(bufferCell).getAllByRole('button', {
+            name: new RegExp(`^${escapeRegExp(String(days))}\\b`, 'u'),
+          }).length,
+        ).toBeGreaterThan(0);
       }
     });
+  });
+
+  it('labels every row of the network table with the family its figures belong to', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const card = await networkCard();
+
+    /* The network drawing's table view: the same sites it places, printed as figures. */
+    await user.click(
+      within(card).getByRole('button', {
+        name: `${VIEW_AS_TABLE_LABELS.showTable}: ${COMPETITIVE_ATLAS_TEXT.networkFigureTitle}`,
+      }),
+    );
+
+    const table = screen.getByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.networkTableCaption,
+    });
+    const headers = within(table).getAllByRole('columnheader');
+
+    /* The provenance column closes the row, after the coordinates it speaks for, in the position and
+       with the treatment the chokepoint table gives its own provenance column (rule P-5). */
+    expect(collapsedTextOf(at(headers, headers.length - 1, 'trailing header'))).toBe(
+      COMPETITIVE_ATLAS_TEXT.columnProvenance,
+    );
+
+    const rows = within(table).getAllByRole('row').slice(1);
+
+    /**
+     * The one row that prints a given site, found by the site's name rather than by its position, so
+     * a case reads the row a reader would point at.
+     *
+     * @param siteLabel The name the row prints for its site.
+     * @returns The row.
+     * @throws When no row prints that site, which is the failure the case is asserting.
+     */
+    function rowOf(siteLabel: string): HTMLElement {
+      const row = rows.find(
+        (candidate) =>
+          collapsedTextOf(at(within(candidate).getAllByRole('cell'), 1, 'site cell')) === siteLabel,
+      );
+
+      if (row === undefined) {
+        throw new Error(`the network table printed no row for ${siteLabel}`);
+      }
+
+      return row;
+    }
+
+    /* The client's own row is a seeded first-party record, so its network, its site and both of its
+       coordinates are labelled `Simulated data` and never market intelligence (rules P-1, P-5). */
+    const clientRow = rowOf(CLIENT_SITE.label);
+    const clientCells = within(clientRow).getAllByRole('cell');
+
+    expect(collapsedTextOf(at(clientCells, 0, 'client network cell'))).toBe(
+      COMPETITIVE_ATLAS_TEXT.clientSiteKind,
+    );
+    expect(collapsedTextOf(at(clientCells, 2, 'client latitude cell'))).toBe(
+      String(CLIENT_SITE.latitude),
+    );
+    expect(collapsedTextOf(at(clientCells, 3, 'client longitude cell'))).toBe(
+      String(CLIENT_SITE.longitude),
+    );
+    expect(collapsedTextOf(at(clientCells, 4, 'client provenance cell'))).toBe(SIM_LABELS[0]);
+    expect(within(clientRow).queryByText(SIM_LABELS[5])).toBeNull();
+
+    /* Every competitor's row is market intelligence: the same column says so for the network, the
+       site and both coordinates at once, and the network's name keeps its tag beside it. */
+    for (const network of COMPETITOR_NETWORKS) {
+      for (const site of network.sites) {
+        const row = rowOf(site.label);
+        const cells = within(row).getAllByRole('cell');
+
+        expect(collapsedTextOf(at(cells, 0, 'competitor network cell'))).toBe(
+          `${network.label} ${COMPETITOR_NAME_TAG}`,
+        );
+        expect(collapsedTextOf(at(cells, 2, 'site latitude cell'))).toBe(String(site.latitude));
+        expect(collapsedTextOf(at(cells, 3, 'site longitude cell'))).toBe(String(site.longitude));
+        expect(collapsedTextOf(at(cells, 4, 'competitor provenance cell'))).toBe(SIM_LABELS[5]);
+        expect(within(row).queryByText(SIM_LABELS[0])).toBeNull();
+      }
+    }
+  });
+
+  it('names each competitor of the chokepoint table beside its identifier and its buffer days', async () => {
+    renderScreen();
+
+    await chokepointCard();
+
+    const table = screen.getByRole('table', { name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption });
+    const rows = within(table).getAllByRole('row').slice(1);
+
+    CHOKEPOINTS.forEach((crossing, index) => {
+      const cells = within(at(rows, index, 'crossing row')).getAllByRole('cell');
+      const competitors = at(cells, 2, 'competitors cell');
+      const bufferDays = at(cells, 4, 'buffer days cell');
+      const entries = Object.entries(crossing.competitorBufferDays);
+      const competitorLines = within(competitors).getAllByRole('listitem');
+      const bufferLines = within(bufferDays).getAllByRole('listitem');
+
+      expect(competitorLines).toHaveLength(entries.length);
+      expect(bufferLines).toHaveLength(entries.length);
+
+      entries.forEach(([competitorId, days], lineIndex) => {
+        const network = COMPETITOR_NETWORKS.find(
+          (candidate) => candidate.competitorId === competitorId,
+        );
+
+        if (network === undefined) {
+          throw new Error(`the fixture holds no network for ${competitorId}`);
+        }
+
+        /* The pack's own name sits between the identifier and the tag, so the line reads as one
+           attributable phrase and names the company the identifier stands for (rules P-5, P-7). */
+        expect(collapsedTextOf(at(competitorLines, lineIndex, 'competitor line'))).toBe(
+          `${competitorId} ${network.label} ${COMPETITOR_NAME_TAG}`,
+        );
+
+        /* The day count carries the same two: whose buffer it is, printed on the line the figure is
+           on, with the figure still the trigger that opens the crossing's record (rule P-8). */
+        const bufferLine = at(bufferLines, lineIndex, 'buffer line');
+
+        expect(collapsedTextOf(bufferLine)).toMatch(
+          new RegExp(`^${escapeRegExp(`${competitorId} ${network.label} `)}${String(days)}\\b`, 'u'),
+        );
+        expect(
+          within(bufferLine).getByRole('button', {
+            name: new RegExp(`^${escapeRegExp(String(days))}\\b`, 'u'),
+          }),
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  it('opens the evidence behind a radar vertex on the one reading the vertex draws', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const card = await radarCard();
+    const drawing = within(card).getByRole('group', { name: RADAR_CHART_TEXT.groupLabel });
+    const axis = at(AXES, 0, 'radar axis');
+    const score = at(CLIENT_SERIES.values, 0, 'client score');
+
+    /* One control per reading — every series across every axis — so no vertex is left a plain mark
+       (AAP §0.2.1 F12, rule P-8). */
+    expect(within(drawing).getAllByRole('button')).toHaveLength(SERIES.length * AXES.length);
+
+    const vertex = within(drawing).getByRole('button', {
+      name: `${axis.label}, ${CLIENT_SERIES.label}: ${String(score)}`,
+    });
+
+    /* The mark is a keyboard-operable control that opens something (rule B-3, rule P-8). */
+    expect(vertex).toHaveAttribute('tabindex', '0');
+    expect(vertex).toHaveAttribute('aria-haspopup', 'dialog');
+
+    vertex.focus();
+    expect(vertex).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    /* What it opens is the one reading it draws: the series it belongs to, the separator, then the
+       axis it sits on (AAP §0.2.1 F12, §0.12.4). */
+    expect(port.getEvidence).toHaveBeenCalledWith(`${CLIENT_SERIES.id}#${axis.id}`);
+
+    const dialog = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    expect(await within(dialog).findByText(EVIDENCE.value)).toBeInTheDocument();
+    expect(within(dialog).getByText(EVIDENCE.formula)).toBeInTheDocument();
+
+    /* The reference is printed in the drawer's record line and again in its source section, so the
+       record the vertex named is what the drawer reports. */
+    expect(
+      within(dialog).getAllByText(`${CLIENT_SERIES.id}#${axis.id}`).length,
+    ).toBeGreaterThan(0);
+    expect(within(dialog).queryByText(EVIDENCE_DRAWER_TEXT.failureHeadline)).toBeNull();
+  });
+
+  it('opens the record each network mark names, a client site, a competitor site and a crossing', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const card = await networkCard();
+    const competitorSite = at(
+      at(COMPETITOR_NETWORKS, 0, 'competitor network').sites,
+      0,
+      'competitor site',
+    );
+    const crossing = at(CHOKEPOINTS, 0, 'shared chokepoint');
+
+    /* Every site the frame places and every crossing it draws is a control that opens its record, so
+       no mark is left as a plain shape (AAP §0.2.1 F12, rule P-8). */
+    const drawnSites = [
+      ...ATLAS.clientSites,
+      ...COMPETITOR_NETWORKS.flatMap((network) => [...network.sites]),
+    ];
+
+    for (const mark of [...drawnSites, ...CHOKEPOINTS]) {
+      expect(
+        within(card)
+          .getByRole('button', { name: new RegExp(`^${escapeRegExp(mark.label)}`, 'u') })
+          .getAttribute('aria-haspopup'),
+      ).toBe('dialog');
+    }
+
+    /* Every mark reports the identifier it was drawn from, and that identifier is the reference the
+       drawer opens: the client's own site, a competitor's site and a shared crossing alike. */
+    const marks = [
+      { label: CLIENT_SITE.label, reference: CLIENT_SITE.id },
+      { label: competitorSite.label, reference: competitorSite.id },
+      { label: crossing.label, reference: crossing.id },
+    ];
+
+    for (const mark of marks) {
+      const control = within(card).getByRole('button', {
+        name: new RegExp(`^${escapeRegExp(mark.label)}`, 'u'),
+      });
+
+      expect(control).toHaveAttribute('aria-haspopup', 'dialog');
+
+      control.focus();
+      await user.keyboard('{Enter}');
+
+      expect(port.getEvidence).toHaveBeenLastCalledWith(mark.reference);
+
+      const dialog = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+      expect(await within(dialog).findByText(EVIDENCE.value)).toBeInTheDocument();
+      /* The record line and the source section both print the reference the mark named. */
+      expect(within(dialog).getAllByText(mark.reference).length).toBeGreaterThan(0);
+      expect(within(dialog).queryByText(EVIDENCE_DRAWER_TEXT.failureHeadline)).toBeNull();
+
+      await user.click(
+        within(dialog).getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }),
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title })).toBeNull();
+      });
+    }
+  });
+
+  it('resolves a press to the nearest network mark even where another mark’s target is painted above it', async () => {
+    port.getAtlas.mockResolvedValue(envelope(PRESS_ATLAS));
+
+    renderScreen();
+
+    const card = await networkCard();
+    const drawing = within(card).getByRole('group', { name: COMPETITOR_NETWORK_TEXT.groupLabel });
+    const clientMark = within(drawing).getByRole('button', {
+      name: new RegExp(`^${escapeRegExp(CLIENT_SITE.label)}`, 'u'),
+    });
+    const competitorMark = within(drawing).getByRole('button', {
+      name: new RegExp(`^${escapeRegExp(PRESS_SITE.label)}`, 'u'),
+    });
+    const clientTarget = targetOf(clientMark);
+    const competitorTarget = targetOf(competitorMark);
+
+    /* The reproduction: the competitor's dot lies inside the client's target, and the client's group
+       is painted last, so a press resolved to the topmost target would open the client site's record
+       instead. The drawing answers with the mark whose centre is nearest the pointer. */
+    expect(distanceBetween(clientTarget.centre, competitorTarget.centre)).toBeLessThan(
+      clientTarget.radius,
+    );
+    expect(
+      competitorMark.compareDocumentPosition(clientMark) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    pressDrawingAt(drawing, competitorTarget.centre);
+
+    /* One gesture, one activation — and it is the mark the reader aimed at. */
+    expect(port.getEvidence).toHaveBeenCalledTimes(1);
+    expect(port.getEvidence).toHaveBeenLastCalledWith(PRESS_SITE.id);
+
+    const dialog = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    expect(await within(dialog).findByText(EVIDENCE.value)).toBeInTheDocument();
+    /* The record line and the source section both print the reference the mark named. */
+    expect(within(dialog).getAllByText(PRESS_SITE.id).length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText(EVIDENCE_DRAWER_TEXT.failureHeadline)).toBeNull();
+  });
+
+  it('attributes a press on a mark’s printed name to the mark that name belongs to', async () => {
+    port.getAtlas.mockResolvedValue(envelope(PRESS_ATLAS));
+
+    renderScreen();
+
+    const card = await networkCard();
+    const drawing = within(card).getByRole('group', { name: COMPETITOR_NETWORK_TEXT.groupLabel });
+    const competitorMark = within(drawing).getByRole('button', {
+      name: new RegExp(`^${escapeRegExp(PRESS_SITE.label)}`, 'u'),
+    });
+    const printedName = competitorMark.querySelector('text');
+
+    if (printedName === null) {
+      throw new Error('the mark printed no name to press');
+    }
+
+    /* A mark's name is part of the mark and lies outside every target's reach, so a press on it is
+       the mark's own. jsdom reports no layout, which is the other half of the case: with no box to
+       convert the pointer by, the drawing falls back to the mark whose own group received the press
+       rather than dividing by a scale of zero. */
+    fireEvent.click(printedName);
+
+    expect(port.getEvidence).toHaveBeenCalledTimes(1);
+    expect(port.getEvidence).toHaveBeenLastCalledWith(PRESS_SITE.id);
+    expect(
+      await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title }),
+    ).toBeInTheDocument();
+  });
+
+  it('activates nothing when a press on the network drawing lands clear of every mark', async () => {
+    port.getAtlas.mockResolvedValue(envelope(PRESS_ATLAS));
+
+    renderScreen();
+
+    const card = await networkCard();
+    const drawing = within(card).getByRole('group', { name: COMPETITOR_NETWORK_TEXT.groupLabel });
+
+    /* The top-left corner of the plot, nowhere near the two marks this payload draws: the press
+       reaches no target and belongs to no mark, so nothing is selected and no record opens
+       (rule P-8). */
+    pressDrawingAt(drawing, { x: 1, y: 1 });
+
+    expect(port.getEvidence).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('answers a point with the nearest network mark, and with none beyond the target radius', async () => {
+    renderScreen();
+
+    const card = await networkCard();
+    const drawing = within(card).getByRole('group', { name: COMPETITOR_NETWORK_TEXT.groupLabel });
+
+    /* The radius is the drawing's own, read back from a rendered target rather than restated. */
+    const { radius } = targetOf(at(within(drawing).getAllByRole('button'), 0, 'network mark'));
+    const near = { entityId: 'entity-near', x: 100, y: 100 };
+    const far = { entityId: 'entity-far', x: 100, y: 100 + radius * 1.5 };
+
+    // The nearer centre answers, whatever order the marks are listed in.
+    expect(nearestNetworkMark([far, near], { x: 102, y: 104 }, radius)).toBe(near);
+    // Two marks at one centre are told apart by the order the drawing paints them in.
+    expect(nearestNetworkMark([near, { ...far, y: near.y }], near, radius)).toBe(near);
+    // A press whose nearest mark is still beyond the radius belongs to no mark at all.
+    expect(nearestNetworkMark([near, far], { x: 100, y: 100 + radius * 3 }, radius)).toBeNull();
+    expect(nearestNetworkMark([], near, radius)).toBeNull();
+  });
+
+  it('makes the overlap and every buffer-day figure open the record of the row crossing', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    await chokepointCard();
+
+    const table = screen.getByRole('table', { name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption });
+    const crossing = at(CHOKEPOINTS, 0, 'shared chokepoint');
+    const row = at(within(table).getAllByRole('row').slice(1), 0, 'crossing row');
+    const cells = within(row).getAllByRole('cell');
+    const overlapTrigger = within(at(cells, 3, 'overlap cell')).getByRole('button');
+
+    /* The figure is the control's label, and the record behind it is the row's crossing (rule P-8). */
+    expect(overlapTrigger).toHaveAccessibleName(
+      new RegExp(`^${escapeRegExp(String(crossing.overlap))}\\b`, 'u'),
+    );
+
+    await user.click(overlapTrigger);
+
+    expect(port.getEvidence).toHaveBeenLastCalledWith(crossing.id);
+
+    const dialog = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    expect(await within(dialog).findByText(EVIDENCE.value)).toBeInTheDocument();
+    /* The record line and the source section both print the crossing the figure named. */
+    expect(within(dialog).getAllByText(crossing.id).length).toBeGreaterThan(0);
+
+    await user.click(within(dialog).getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title })).toBeNull();
+    });
+
+    const bufferCell = at(cells, 4, 'buffer days cell');
+    const bufferTriggers = within(bufferCell).getAllByRole('button');
+
+    expect(bufferTriggers).toHaveLength(Object.keys(crossing.competitorBufferDays).length);
+
+    /* The buffer column repeats the competitor on each line, so the day count is never unattributed,
+       and the keyboard reaches the figure it belongs to (rule P-5, rule B-3). */
+    for (const [competitorId] of Object.entries(crossing.competitorBufferDays)) {
+      expect(within(bufferCell).getByText(competitorId)).toBeInTheDocument();
+    }
+
+    const firstTrigger = at(bufferTriggers, 0, 'buffer-day trigger');
+
+    firstTrigger.focus();
+    expect(firstTrigger).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    expect(port.getEvidence).toHaveBeenLastCalledWith(crossing.id);
   });
 
   it('leads the atlas content with one alert per crossing the payload carried, each labelled market intelligence', async () => {
@@ -1318,8 +2505,10 @@ describe('CompetitiveAtlasScreen', () => {
     const classStatus = within(classGroup).getByRole('status');
     const entityStatus = within(entityGroup).getByRole('status');
 
+    /* Nothing is narrowed until a reader chooses a class, so the caption says the whole pack is in
+       view and, once a class is chosen, says what that class narrows (AAP §0.12.4). */
     expect(collapsedTextOf(classStatus)).toContain(COMPETITIVE_ATLAS_TEXT.classCaptionPrefix);
-    expect(collapsedTextOf(classStatus)).toContain(COMPETITIVE_ATLAS_TEXT.classCaptionDetail);
+    expect(collapsedTextOf(classStatus)).toContain(COMPETITIVE_ATLAS_TEXT.allClassesCaptionDetail);
     expect(collapsedTextOf(entityStatus)).toContain(COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix);
 
     /* The entity caption names the series the payload put in view, and the class caption follows the
@@ -1333,6 +2522,10 @@ describe('CompetitiveAtlasScreen', () => {
 
     expect(within(classGroup).getByRole('status')).toBe(classStatus);
     expect(collapsedTextOf(classStatus)).toContain(secondClass);
+
+    /* And the same region now states what that class narrows, which is the class filter acting rather
+       than only being named (AAP §0.12.4). */
+    expect(collapsedTextOf(classStatus)).toContain(COMPETITIVE_ATLAS_TEXT.classCaptionDetail);
   });
 
   it.each(THEMES)('holds under the %s theme', async (theme) => {

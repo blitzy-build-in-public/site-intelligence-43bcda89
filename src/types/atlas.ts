@@ -26,6 +26,14 @@
  * holds no second copy of either fixed string and `Atlas.packLabel` remains a plain slot the
  * handler fills.
  *
+ * The selector's filter and the radar-to-network join are record content as well (rule P-6, AAP
+ * 0.12.4). `CompetitorNetwork.productClasses` states the client product classes the simulated pack
+ * classifies a competitor's network in, and `AtlasSeries.competitorId` names the network a series
+ * scores — `null` for the client's own first-party series. Both are classifications rather than
+ * measures: neither adds a figure, neither mixes a first-party value into a market-intelligence one
+ * (rule P-5), and a caller narrows what it draws on the first while resolving one identity across
+ * the radar and the network view on the second.
+ *
  * `ClientSeriesLabel` repeats the literal held by `CLIENT_SELF_ASSESSMENT_LABEL` in `./primitives`
  * because this module declares types and no runtime code: importing that constant by value would
  * put JavaScript into a types-only module, which `verbatimModuleSyntax` and the module's purpose
@@ -77,6 +85,17 @@ export type ClientSeriesLabel = 'Simulated data: client self-assessment';
 export interface AtlasSeries {
   /** The series' identifier, stable across renders and selections. */
   id: string;
+
+  /**
+   * The competitor network the series reports on, or `null` for the client's own first-party series.
+   *
+   * It is the join that lets a series and a network resolve one identity, so SCR-13's selector and
+   * its drawings can narrow a series by the network's product class without matching a label
+   * against a name. A competitor's series names its network's `competitorId`; the client's own names
+   * none, which is how the two families stay apart inside one list (rule P-5). It carries no figure
+   * and adds none (rule P-6).
+   */
+  competitorId: CompetitorId | null;
 
   /** The name the legend prints beside the series' mark. */
   label: string;
@@ -173,6 +192,18 @@ export interface CompetitorNetwork {
 
   /** Where the network's records came from, always market intelligence. */
   provenance: Provenance;
+
+  /**
+   * The client product classes this competitor's network competes in, as the simulated
+   * market-intelligence pack classifies them.
+   *
+   * It is a classification of the competitor rather than a measure of it, so it holds no
+   * first-party figure and nothing aggregates, compares or blends it with a first-party value
+   * (rule P-5). It is what SCR-13's product-class selector filters on: while a class is in view, the
+   * networks naming it are the ones drawn, and every other drawn surface follows from them
+   * (AAP 0.12.4).
+   */
+  productClasses: ProductId[];
 
   /** The competitor's sites on the network view. */
   sites: AtlasSite[];

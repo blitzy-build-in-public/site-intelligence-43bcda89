@@ -22,10 +22,12 @@
  * and pin counts that between them cover all six `PinState` members, plus one market-intelligence atlas
  * of a single competitor network whose lane names one crossing. No seed module, no `src/services/mock`
  * and nothing from `tests/fixtures` is imported (rule P-2; rule P-6 keeps the seed file's expected
- * results as fixtures for the domain, not for a component). Every identifier is neutral and no label is
- * shaped like a domain record, so the `no-typed-figures` source check reads this folder without a
- * collision, and the only literals the cases state are structural: the drawing's wording for the six
- * pin states, which this suite restates so a reworded summary fails here.
+ * results as fixtures for the domain, not for a component). Every identifier is neutral apart from the
+ * competitor's, which states the contracts' `CMP-nn` ordinal because `map-canvas.tsx` resolves the hue a
+ * competitor network is painted in from that identifier and drops a network carrying none, and no label
+ * is shaped like a domain record, so the drawing reads this folder without a collision, and the only
+ * literals the cases state are structural: the drawing's wording for the six pin states, which this
+ * suite restates so a reworded summary fails here.
  *
  * THE ONE SERVICE MEMBER IS REPLACED, NOT REACHED. The drawing mounts `EvidenceDrawer` for a node whose
  * evidence reference the caller resolved, and the drawer reads `getEvidence` through
@@ -292,7 +294,7 @@ const CROSSING: Chokepoint = {
   id: 'crossing-one',
   label: 'Southern sea crossing',
   overlap: 67,
-  competitorBufferDays: { 'competitor-one': 12 },
+  competitorBufferDays: { 'CMP-01': 12 },
   contentionNote: 'Three networks use the crossing and the buffer each holds differs.',
   provenance: 'market_intelligence',
 };
@@ -300,6 +302,8 @@ const CROSSING: Chokepoint = {
 /**
  * A market-intelligence payload: one competitor network of two sites whose lane names the crossing.
  *
+ * The network carries the contracts' `CMP-nn` identifier, because `map-canvas.tsx` resolves the hue a
+ * competitor is painted in from that identifier and leaves a network that states no ordinal unpainted.
  * The recorded series and axes are empty because this suite asserts nothing about the radar: the atlas
  * shape allows empty lists and the fields the drawing reads for the overlay are the networks and the
  * crossings.
@@ -311,20 +315,21 @@ const ATLAS: Atlas = {
   clientSites: [],
   competitors: [
     {
-      competitorId: 'competitor-one',
+      competitorId: 'CMP-01',
       label: 'Aurelvik Drive Systems',
       provenance: 'market_intelligence',
+      productClasses: ['product-one'],
       sites: [
         {
           id: 'site-alpha',
-          competitorId: 'competitor-one',
+          competitorId: 'CMP-01',
           label: 'Ningbo drive plant',
           latitude: 29.87,
           longitude: 121.55,
         },
         {
           id: 'site-beta',
-          competitorId: 'competitor-one',
+          competitorId: 'CMP-01',
           label: 'Gdansk assembly',
           latitude: 54.35,
           longitude: 18.65,
