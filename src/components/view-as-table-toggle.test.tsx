@@ -5,8 +5,8 @@
  * requires a working table view of every chart, map and graph, and rule B-3 requires every
  * interactive element to be keyboard operable with a visible focus indicator and an announced
  * state. Each case below asserts one clause of the component's own contract — the two labels the
- * exported constant owns, the `aria-pressed` state that reports which representation is showing,
- * the request an activation makes, keyboard-only operation, the accessible name with and without a
+ * exported constant owns and the accessible name that states the action in each direction, the
+ * request an activation makes, keyboard-only operation, the accessible name with and without a
  * chart label, the shape of the rendered element (one native button, no `tabIndex`, never
  * disabled), the 24x24 px target and focus-ring tokens, and rendering under both themes. The
  * parent that owns the state is exercised through a two-line harness, which is how
@@ -70,21 +70,28 @@ afterEach(() => {
 });
 
 describe('ViewAsTableToggle', () => {
-  it('offers the table while the chart is shown, announcing the pressed state as false', () => {
+  it('offers the table while the chart is shown, stating that action in its name alone', () => {
     const toggle = renderToggle('chart');
 
     expect(toggle).toHaveAccessibleName(showTable);
     expect(toggle).toHaveTextContent(showTable);
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    // One model states one thing: the name carries the state, so no pressed state sits beside it.
+    expect(toggle).not.toHaveAttribute('aria-pressed');
+    expect(toggle).not.toHaveAttribute('aria-selected');
+    expect(toggle).not.toHaveAttribute('aria-current');
     expect(toggle).toBeEnabled();
   });
 
-  it('offers the chart while the table is shown, announcing the pressed state as true', () => {
+  it('offers the chart while the table is shown, stating the opposite action and no mode', () => {
     const toggle = renderToggle('table');
 
     expect(toggle).toHaveAccessibleName(showChart);
     expect(toggle).toHaveTextContent(showChart);
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // "View as chart" reports nothing about the table, so a `pressed` state here would contradict
+    // the name a screen-reader user just heard. The control is a plain button whose name changes.
+    expect(toggle).not.toHaveAttribute('aria-pressed');
+    expect(toggle).not.toHaveAttribute('aria-selected');
+    expect(toggle).not.toHaveAttribute('aria-current');
     expect(toggle).toBeEnabled();
   });
 
@@ -140,7 +147,7 @@ describe('ViewAsTableToggle', () => {
     // showing the chart until the parent renders the value it was asked for.
     expect(onViewingChange).toHaveBeenCalledWith('table');
     expect(toggle).toHaveAccessibleName(showTable);
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).not.toHaveAttribute('aria-pressed');
     expect(screen.queryByRole('button', { name: showChart })).toBeNull();
   });
 
@@ -168,6 +175,8 @@ describe('ViewAsTableToggle', () => {
     expect(toggle).not.toHaveAttribute('tabindex');
     expect(toggle.tabIndex).toBe(0);
     expect(document.querySelector('[role="button"]')).toBeNull();
+    // No second state model replaces the pressed state the action name makes unnecessary.
+    expect(document.querySelector('[role="switch"]')).toBeNull();
     // Rule P-8: a control that cannot act must not exist, so neither disabled attribute appears.
     expect(toggle).not.toHaveAttribute('disabled');
     expect(toggle).not.toHaveAttribute('aria-disabled');
@@ -186,6 +195,21 @@ describe('ViewAsTableToggle', () => {
     expect(toggle).toHaveClass('border-control-boundary');
     // Specification §4.3 exposes no shadow token, so an elevated control must not exist.
     expect(toggle.className).not.toMatch(/\bshadow-/);
+  });
+
+  it('answers the pointer with a hover fill and a pressed pair from role tokens', () => {
+    const toggle = renderToggle('chart');
+
+    /* Pressure and hover feedback are part of the control contract rather than a detail of one
+       component: the control states the hover fill it was missing beside the pressed pair, and both
+       are role tokens so neither theme bakes in a palette value. */
+    expect(toggle).toHaveClass('hover:bg-surface-1');
+    expect(toggle).toHaveClass('hover:text-text-primary');
+    expect(toggle).toHaveClass('active:bg-surface-2');
+    expect(toggle).toHaveClass('active:border-accent');
+    // Rule B-3: the colour change is carried by a transition a reduced-motion session never runs.
+    expect(toggle).toHaveClass('motion-safe:transition-colors');
+    expect(toggle).toHaveClass('motion-safe:duration-150');
   });
 
   it.each(['command', 'paper'] as const)(
@@ -219,14 +243,14 @@ describe('ViewAsTableToggle', () => {
     await user.click(screen.getByRole('button', { name: showTable }));
 
     const switched = screen.getByRole('button', { name: showChart });
-    expect(switched).toHaveAttribute('aria-pressed', 'true');
+    expect(switched).not.toHaveAttribute('aria-pressed');
 
     await user.click(switched);
 
-    expect(screen.getByRole('button', { name: showTable })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
+    const switchedBack = screen.getByRole('button', { name: showTable });
+    expect(switchedBack).not.toHaveAttribute('aria-pressed');
+    // The name alone reports the change in both directions, with no mode announced beside it.
+    expect(screen.queryByRole('button', { name: showChart })).toBeNull();
   });
 
   it('keeps the caller layout class alongside its own styling', () => {

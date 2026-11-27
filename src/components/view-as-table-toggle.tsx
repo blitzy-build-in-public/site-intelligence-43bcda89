@@ -49,14 +49,17 @@ const NEXT_VIEWING: Readonly<Record<Viewing, Viewing>> = {
  * elevated one, because specification §4.3 exposes no shadow token at all. Sizes come from the
  * token scale — `text-13` for the label, `rounded-control` for the 2 px radius, `min-h-6 min-w-6`
  * for the 24x24 px target the accessibility rule sets — and the focus ring is the 2 px
- * `--color-focus-ring` outline, drawn only for keyboard focus. The hover tint and its transition
- * use role tokens, and `motion-safe:` keeps the transition out of a reduced-motion session.
+ * `--color-focus-ring` outline, drawn only for keyboard focus. The pointer states are role tokens:
+ * `hover:` fills the first surface behind the label and lightens it to the primary text role, and
+ * `active:` holds the accent boundary over the second surface so a press reads as one step below a
+ * hover. `motion-safe:` keeps the transition out of a reduced-motion session.
  */
 const CONTROL_CLASSES = [
   'inline-flex min-h-6 min-w-6 items-center justify-center',
   'rounded-control border border-control-boundary px-2 py-1',
   'bg-transparent font-sans text-13 text-text-secondary',
-  'hover:text-text-primary',
+  'hover:bg-surface-1 hover:text-text-primary',
+  'active:border-accent active:bg-surface-2',
   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
@@ -81,11 +84,18 @@ export interface ViewAsTableToggleProps {
  * The switch between a chart's drawn form and its table form.
  *
  * It renders one native `<button>`, so `Enter` and `Space` activate it and the browser owns the
- * keyboard behaviour; no key handler is registered here. The visible label states the action
- * ("View as table" while the chart is up) and `aria-pressed` states the current representation, so
- * a screen-reader user hears both what activating it does and which form is showing. The visible
- * text is a prefix of the accessible name, which keeps the label a user can read and the label a
- * screen reader announces in agreement.
+ * keyboard behaviour; no key handler is registered here. The visible label and the accessible name
+ * both state the action the control performs — "View as table" while the chart is up, "View as
+ * chart" once the table is — so the visible text is a prefix of the accessible name and the label a
+ * user reads and the name a screen reader announces agree.
+ *
+ * The control holds no state of its own and therefore declares none: the name carries the state,
+ * because it names the other representation exactly when the parent has switched to this one.
+ * `aria-pressed` is deliberately absent. The words are fixed — success criterion 9 and the browser
+ * checks quote "View as table" — and `VIEW_AS_TABLE_LABELS` above is their single owner, so a
+ * pressed state would put a second, differently-scoped model beside them: the name would state the
+ * action while "pressed" stated the mode, and a screen-reader user would hear the contradiction
+ * "View as chart, pressed". One model states one thing, and it is the action.
  */
 export function ViewAsTableToggle({
   viewing,
@@ -100,7 +110,6 @@ export function ViewAsTableToggle({
     <button
       type="button"
       aria-label={accessibleName}
-      aria-pressed={viewing === 'table'}
       className={className === undefined ? CONTROL_CLASSES : `${CONTROL_CLASSES} ${className}`}
       onClick={() => {
         onViewingChange(NEXT_VIEWING[viewing]);

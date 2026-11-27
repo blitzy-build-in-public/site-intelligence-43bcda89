@@ -35,14 +35,17 @@ const CURRENT_THEME_CLASSES = 'font-mono text-12 text-text-caption';
  *
  * The focus ring is drawn on `focus-visible` from the `--color-focus-ring` role, so a keyboard user
  * sees where they are and a pointer click leaves no ring behind; the offset keeps the ring clear of
- * the boundary it meets. The hover tint and its transition use role tokens, and `motion-safe:` keeps
- * the transition out of a reduced-motion session.
+ * the boundary it meets. The pointer states are role tokens too: `hover:` steps the fill to the first
+ * surface and the label to the primary text role, and `active:` holds the accent boundary over the
+ * second surface, so a press reads as one step below a hover. `motion-safe:` keeps the transition out
+ * of a reduced-motion session.
  */
 const SWITCH_CLASSES = [
   'inline-flex min-h-6 min-w-6 items-center justify-center',
   'rounded-control border border-control-boundary px-2',
   'bg-transparent font-mono text-12 text-text-secondary',
-  'hover:text-text-primary',
+  'hover:bg-surface-1 hover:text-text-primary',
+  'active:border-accent active:bg-surface-2',
   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');

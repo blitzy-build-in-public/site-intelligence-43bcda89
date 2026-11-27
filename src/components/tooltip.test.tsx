@@ -7,14 +7,26 @@
  * and operable by keyboard with a visible focus indicator. The reason is therefore asserted on both
  * paths it has to take — keyboard focus and pointer hover — because either path alone would leave
  * a user without the explanation, and the disabled control is asserted to refuse activation from
- * both. Nothing here hashes or reads the clock, so the jsdom environment `vite.config.ts` sets by
- * default applies.
+ * both. Rule B-3's motion clause is covered by the hover and pressed states: they exist on both
+ * variants, they are carried by a `motion-safe` transition, and they never paint on a disabled
+ * control. The trigger's description is asserted with the hint closed, because a screen reader that
+ * resolves it at focus time would otherwise announce the control with no reason. The two class lists
+ * the module exports are asserted as the single owner of the control's appearance — both variants are
+ * built on `CONTROL_STRUCTURE_CLASSES`, the secondary one composes `SECONDARY_CONTROL_CLASSES` and
+ * the primary one does not — because the application's links compose those same two lists instead of
+ * restating them. Nothing here hashes or reads the clock, so the jsdom environment `vite.config.ts`
+ * sets by default applies.
  */
 
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { ActionButton, Tooltip } from './tooltip';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  ActionButton,
+  CONTROL_STRUCTURE_CLASSES,
+  SECONDARY_CONTROL_CLASSES,
+  Tooltip,
+} from './tooltip';
 
 /** The reason a stage-owned control carries once it is disabled, in the specification's own words. */
 const STAGE_REASON = 'Arrives in stage S4';
@@ -37,6 +49,33 @@ function renderDisabledButton(onClick: () => void): HTMLButtonElement {
   );
   return screen.getByRole('button', { name: 'Open part' });
 }
+
+/**
+ * The colour property a state utility paints: `hover:bg-ground`, `active:text-text-primary` and
+ * `aria-disabled:hover:border-control-boundary` reduce to the property family `bg`, `text` or
+ * `border`. A test can then compare which properties the pointer states touch against the ones the
+ * disabled state re-asserts, without pinning either to a particular role.
+ */
+function colourFamily(utility: string): string {
+  const name = utility.slice(utility.lastIndexOf(':') + 1);
+  return name.split('-')[0] ?? '';
+}
+
+/**
+ * The utilities that paint a control at rest: the ones no state prefix reaches.
+ *
+ * A shared class list mixes the resting appearance with its `hover:` and `active:` states, and only
+ * the resting half tells the two variants apart — the pressed pair legitimately overlaps, because
+ * both variants lift their boundary to the accent role while pressed.
+ */
+function restingUtilities(classList: string): readonly string[] {
+  return classList.split(' ').filter((utility) => !utility.includes(':'));
+}
+
+/** Leaves `<html>` on the default theme for whichever suite runs next, as the other suites do. */
+afterEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+});
 
 describe('Tooltip', () => {
   it('stays closed until its trigger is hovered or focused', () => {
@@ -81,6 +120,36 @@ describe('Tooltip', () => {
     expect(description).toHaveAttribute('role', 'tooltip');
     expect(description).toHaveTextContent(STAGE_REASON);
     expect(trigger).toHaveAccessibleDescription(STAGE_REASON);
+  });
+
+  it('carries the reason as the trigger description before the hint is shown', () => {
+    const trigger = renderTooltippedButton();
+
+    /* A screen reader computes the accessible description when focus arrives. If the association
+       existed only on the render that follows the focus event that opened the hint, the button would
+       be announced with no reason at all — so this is asserted with nothing hovered or focused. */
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(trigger).toHaveAccessibleDescription(STAGE_REASON);
+    expect(screen.getAllByText(STAGE_REASON)).toHaveLength(1);
+  });
+
+  it('keeps the description and the element it points at after the hint closes', async () => {
+    const user = userEvent.setup();
+    const trigger = renderTooltippedButton();
+
+    await user.tab();
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    await user.tab();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    /* One description element, still mounted: `aria-describedby` never points at nothing, which is
+       what an unmounted hint would leave behind and what axe reports as a dangling reference. */
+    const describedBy = trigger.getAttribute('aria-describedby');
+    expect(describedBy).not.toBeNull();
+    expect(document.getElementById(describedBy ?? '')).toHaveTextContent(STAGE_REASON);
+    expect(trigger).toHaveAccessibleDescription(STAGE_REASON);
+    expect(screen.getAllByText(STAGE_REASON)).toHaveLength(1);
   });
 
   it('keeps a description the trigger already carried and appends its own', async () => {
@@ -168,6 +237,13 @@ describe('ActionButton', () => {
     expect(button).toHaveAccessibleDescription(STAGE_REASON);
   });
 
+  it('T-16 announces the disabled reason on focus without waiting for the hint to open', () => {
+    const button = renderDisabledButton(vi.fn());
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(button).toHaveAccessibleDescription(STAGE_REASON);
+  });
+
   it('shows the same reason on pointer hover as it does on keyboard focus', async () => {
     const user = userEvent.setup();
     const button = renderDisabledButton(vi.fn());
@@ -217,6 +293,117 @@ describe('ActionButton', () => {
     }
   });
 
+  it.each([
+    {
+      variant: 'primary' as const,
+      name: 'Approve',
+      states: [
+        'hover:border-control-boundary',
+        'hover:bg-ground',
+        'hover:text-text-primary',
+        'active:border-accent',
+        'active:bg-surface-2',
+        'active:text-text-primary',
+      ],
+    },
+    {
+      variant: 'secondary' as const,
+      name: 'Request changes',
+      states: [
+        'hover:border-accent',
+        'hover:bg-surface-1',
+        'active:border-accent',
+        'active:bg-ground',
+      ],
+    },
+  ])(
+    'paints a hover and a pressed state from role tokens on the $variant variant',
+    ({ variant, name, states }) => {
+      render(<ActionButton variant={variant}>{name}</ActionButton>);
+
+      const button = screen.getByRole('button', { name });
+
+      for (const utility of states) {
+        expect(button).toHaveClass(utility);
+      }
+
+      /* Rule B-3: the colour change is carried by a transition a reduced-motion session never
+         runs. */
+      expect(button).toHaveClass('motion-safe:transition-colors');
+      expect(button).toHaveClass('motion-safe:duration-150');
+    },
+  );
+
+  it('composes the shared control structure and the one secondary appearance', () => {
+    render(
+      <>
+        <ActionButton variant="primary">Approve</ActionButton>
+        <ActionButton>Request changes</ActionButton>
+      </>,
+    );
+
+    const primary = screen.getByRole('button', { name: 'Approve' });
+    const secondary = screen.getByRole('button', { name: 'Request changes' });
+
+    /* The structure is not written into the button twice either: every control in the product takes
+       the bordered shape, the 24x24 px target, the focus ring and the colour transition from the one
+       exported list, so a caller composing it renders the same control the screen's buttons are. */
+    const structure = CONTROL_STRUCTURE_CLASSES.split(' ');
+    expect(structure.length).toBeGreaterThan(0);
+    for (const button of [primary, secondary]) {
+      for (const utility of structure) {
+        expect(button).toHaveClass(utility);
+      }
+    }
+
+    /* The secondary appearance is the exported list in full, so the stage-notice and not-found links
+       that compose it and this variant cannot drift apart. */
+    const shared = SECONDARY_CONTROL_CLASSES.split(' ');
+    expect(shared.length).toBeGreaterThan(0);
+    for (const utility of shared) {
+      expect(secondary).toHaveClass(utility);
+    }
+
+    /* The primary action is not the secondary one: it carries none of that list's resting colours,
+       which is what distinguishes the two variants. */
+    for (const utility of restingUtilities(SECONDARY_CONTROL_CLASSES)) {
+      expect(primary).not.toHaveClass(utility);
+    }
+  });
+
+  it.each(['primary', 'secondary'] as const)(
+    'keeps the %s variant inert under the pointer while it is disabled',
+    (variant) => {
+      render(
+        <ActionButton variant={variant} disabled disabledReason={STAGE_REASON}>
+          Approve
+        </ActionButton>,
+      );
+
+      const button = screen.getByRole('button', { name: 'Approve' });
+      const states = button.className.split(' ');
+      const paintedByThePointer = states.filter(
+        (utility) => utility.startsWith('hover:') || utility.startsWith('active:'),
+      );
+      const repaintedWhileDisabled = states.filter(
+        (utility) =>
+          utility.startsWith('aria-disabled:hover:') || utility.startsWith('aria-disabled:active:'),
+      );
+      const properties = (utilities: readonly string[]): ReadonlySet<string> =>
+        new Set(utilities.map(colourFamily));
+
+      /* Every colour property the pointer states can paint has to be re-asserted on the disabled
+         control; `aria-disabled:hover:` and `aria-disabled:active:` outrank a plain `hover:` and
+         `active:` on specificity, so the disabled appearance wins instead of being repainted the
+         moment the pointer crosses the control or it is pressed. */
+      const painted = properties(paintedByThePointer);
+      const repainted = properties(repaintedWhileDisabled);
+
+      expect(painted.size).toBeGreaterThan(0);
+      expect([...painted].filter((property) => !repainted.has(property))).toEqual([]);
+    },
+  );
+
   it('carries the 24x24 px minimum target and the theme focus-ring role', () => {
     render(<ActionButton>Ask a suggested question</ActionButton>);
 
@@ -240,4 +427,64 @@ describe('ActionButton', () => {
     expect(button).toHaveClass('w-full');
     expect(button).toHaveAttribute('type', 'button');
   });
+
+  it('occupies the same box while disabled as it does while enabled', () => {
+    render(
+      <>
+        <ActionButton className="w-full">Verify chain</ActionButton>
+        <ActionButton className="w-full" disabled disabledReason={STAGE_REASON}>
+          Export evidence pack
+        </ActionButton>
+      </>,
+    );
+
+    const enabled = screen.getByRole('button', { name: 'Verify chain' });
+    const disabled = screen.getByRole('button', { name: 'Export evidence pack' });
+
+    /* The caller's layout classes land on the element the caller's layout sizes — the button itself
+       while it can act, the Tooltip wrapper while it cannot — so a `w-full` control does not change
+       width the moment it becomes disabled. jsdom has no layout engine, so the class contract is the
+       assertion: exactly one element per state carries the caller's class, and the disabled button
+       fills the wrapper that carries it. */
+    expect(enabled).toHaveClass('w-full');
+    expect(enabled.parentElement).not.toHaveClass('w-full');
+
+    const wrapper = disabled.parentElement;
+    expect(wrapper).toHaveClass('relative');
+    expect(wrapper).toHaveClass('w-full');
+    expect(disabled).toHaveClass('w-full');
+  });
+
+  /*
+   * AAP §0.18.1 asks that both themes be checked in component tests by rendering under each
+   * `data-theme` value. The control's colours are role utilities the theme layer resolves, so one
+   * class list has to serve both themes: the check is that every utility a control carries is a role
+   * token or a structural utility — no palette literal and no `rgb()` anywhere — and that the class
+   * list is the same under either attribute, which is what keeps the theme files the only owner of
+   * the colour. Both themes are also measured in a real browser during verification, where the roles
+   * resolve to the measured values.
+   */
+  for (const theme of ['command', 'paper'] as const) {
+    it(`renders the same role-token control under the ${theme} theme`, () => {
+      document.documentElement.setAttribute('data-theme', theme);
+      render(
+        <>
+          <ActionButton variant="primary">Approve</ActionButton>
+          <ActionButton>Request changes</ActionButton>
+          <ActionButton disabled disabledReason={STAGE_REASON}>
+            Verify chain
+          </ActionButton>
+        </>,
+      );
+
+      expect(document.documentElement).toHaveAttribute('data-theme', theme);
+      const buttons = screen.getAllByRole('button');
+      expect(buttons).toHaveLength(3);
+      for (const button of buttons) {
+        expect(button.getAttribute('class') ?? '').not.toMatch(/#[0-9a-f]{3,8}|\brgba?\(/i);
+        expect(button).toHaveClass('focus-visible:outline-focus-ring');
+        expect(button).not.toHaveClass('shadow-md');
+      }
+    });
+  }
 });

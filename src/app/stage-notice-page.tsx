@@ -21,6 +21,7 @@ import type { ReactElement } from 'react';
 
 import { Card } from '../components/card';
 import { PageHeader } from '../components/page-header';
+import { CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from '../components/tooltip';
 import { FURTHER_ROUTES, NAV_ITEMS } from './nav-items';
 
 /**
@@ -63,20 +64,18 @@ const WORKSPACE_NOUN = 'workspace';
 /**
  * The page's only link surface.
  *
- * Role tokens only, so the link resolves its colours per theme: the second raised surface, the
- * control boundary, the primary text role and the accent boundary on hover. The focus ring is the
- * 2 px `--color-focus-ring` outline drawn on `focus-visible` alone, so a pointer click leaves no ring
- * behind (rule B-3), and `min-h-6` keeps the target at the 24x24 px minimum the same rule sets. No
- * shadow exists to select, and the transition sits inside `motion-safe` so a reduced-motion session
- * skips it.
+ * It composes the two class lists `src/components/tooltip.tsx` owns rather than restating them: the
+ * bordered structure every control shares (the 24x24 px minimum target of rule B-3, the 13 px label,
+ * the 2 px `--color-focus-ring` outline drawn on `focus-visible` alone so a pointer click leaves no
+ * ring behind, and the `motion-safe` colour transition), then the one secondary appearance (the
+ * second raised surface, the control boundary, and its hover and pressed states). That is what keeps
+ * this link and the not-found page's link identical to the secondary `ActionButton`; `self-start`
+ * is the only thing added here, because the link sits in a column and takes its own width.
  */
 const LINK_CLASSES = [
-  'inline-flex min-h-6 items-center gap-2 self-start',
-  'rounded-control border border-control-boundary px-3 py-1',
-  'bg-surface-2 text-13 font-medium text-text-primary',
-  'hover:border-accent',
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
-  'motion-safe:transition-colors motion-safe:duration-150',
+  CONTROL_STRUCTURE_CLASSES,
+  SECONDARY_CONTROL_CLASSES,
+  'self-start',
 ].join(' ');
 
 /** The page column: a header above the card, separated by the 4 px grid the token tables fix. */
@@ -120,13 +119,40 @@ function workspaceNameFor(pathname: string): string | null {
 }
 
 /**
+ * The workspace's name as it reads inside the sentence.
+ *
+ * Only the first character is ever lower-cased, so the label continues the sentence rather than
+ * opening it while every character after the first keeps the case the navigation table gave it. A
+ * capital after the first character marks a name the product writes in its own case - the
+ * workspace's own name, "FileMap canvas", is one - and such a label is kept verbatim, its first
+ * character included: rule P-7 fixes that spelling, and lower-casing its opening would still write
+ * "fileMap canvas". A name absent or blank answers the empty string, which the sentence renders
+ * without a name.
+ *
+ * @param workspaceName The name read from the navigation table, or `null` where the path has none.
+ * @returns The name as the sentence writes it, or the empty string where there is none.
+ */
+function sentenceCasedName(workspaceName: string | null): string {
+  const trimmed = workspaceName === null ? '' : workspaceName.trim();
+  if (trimmed.length === 0) {
+    return '';
+  }
+
+  const rest = trimmed.slice(1);
+  return /[A-Z]/.test(rest) ? trimmed : `${trimmed.charAt(0).toLowerCase()}${rest}`;
+}
+
+/**
  * The one sentence the page states.
  *
- * `The <workspace> workspace arrives in stage S<stage>.` is the fixed shape, with the name
- * lower-cased into the sentence. A label that already ends in "workspace" - the evidence entry is
- * called "Evidence workspace" - contributes that word itself rather than repeating it, because the
- * evidence route must read "The evidence workspace arrives in stage S4." A name absent or blank
- * leaves the sentence without one, keeping the shape and never rendering an empty heading.
+ * `The <workspace> workspace arrives in stage S<stage>.` is the fixed shape. The name's first
+ * character is lower-cased where the label is not a mixed-case name of the product's own, so the
+ * name reads as the rest of the sentence while the remainder keeps its own case: rule P-7 fixes the
+ * workspace's name as "FileMap canvas", and lower-casing it would write "fileMap canvas". A label
+ * that already ends in "workspace" - the evidence entry is called "Evidence workspace" - contributes
+ * that word itself rather than repeating it, because the evidence route must read "The evidence
+ * workspace arrives in stage S4." A name absent or blank leaves the sentence without one, keeping
+ * the shape and never rendering an empty heading.
  *
  * Exported because it is the whole of what the page says: a test can assert the wording for a stage
  * and a name without mounting a router.
@@ -140,7 +166,7 @@ export function stageNoticeSentence(
   workspaceName: string | null,
 ): string {
   const arrival = `arrives in stage S${stage}.`;
-  const name = workspaceName === null ? '' : workspaceName.trim().toLowerCase();
+  const name = sentenceCasedName(workspaceName);
 
   if (name.length === 0) {
     return `The workspace on this route ${arrival}`;

@@ -33,6 +33,7 @@ import { Link } from 'react-router';
 
 import { Card } from '../components/card';
 import { PageHeader } from '../components/page-header';
+import { CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from '../components/tooltip';
 
 /** The page's title, and the text of the one heading the page renders. */
 const NOT_FOUND_TITLE = 'Page not found';
@@ -57,14 +58,22 @@ const EXCEPTIONS_PATH = '/exceptions';
 const EXCEPTIONS_LINK_LABEL = 'Go to the exception queue';
 
 /**
- * The link's appearance: the secondary-action shape of `src/components/tooltip.tsx`, so the one
- * control on this page looks like the controls a reader has already met in the shell. The underline
- * keeps the link identifiable without relying on colour, `min-h-6 min-w-6` is the 24x24 px minimum
- * target of rule B-3, and the focus ring is the 2 px `--color-focus-ring` role drawn on
- * `focus-visible` so a pointer click leaves no ring behind.
+ * The link's appearance: the secondary-control shape `src/components/tooltip.tsx` owns, composed
+ * rather than restated, so the one control on this page answers the pointer the way every other
+ * control in the shell does and picks up their token changes with them.
+ *
+ * The 1 px `control-boundary` border and the raised `surface-2` fill are what identify it as a
+ * control without relying on colour (WCAG 1.4.1), which is why it carries no underline: the shape,
+ * not a text decoration, is the affordance. {@link CONTROL_STRUCTURE_CLASSES} supplies the 24x24 px
+ * minimum target of rule B-3 and the 2 px `--color-focus-ring` ring drawn on `focus-visible`, and
+ * {@link SECONDARY_CONTROL_CLASSES} the fill, boundary, hover and pressed states; `self-start` is
+ * the one addition, keeping the link at its own width inside the column.
  */
-const EXCEPTIONS_LINK_CLASSES =
-  'inline-flex min-h-6 min-w-6 items-center self-start rounded-control border border-control-boundary bg-surface-2 px-3 py-1 text-13 font-medium text-text-primary underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring';
+const EXCEPTIONS_LINK_CLASSES = [
+  CONTROL_STRUCTURE_CLASSES,
+  SECONDARY_CONTROL_CLASSES,
+  'self-start',
+].join(' ');
 
 /**
  * Renders the not-found page for any route the router does not declare.

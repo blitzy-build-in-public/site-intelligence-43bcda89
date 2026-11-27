@@ -34,14 +34,17 @@ const CURRENT_DENSITY_CLASSES = 'font-mono text-12 text-text-caption';
  *
  * `min-h-6 min-w-6` is the 24x24 px target rule B-3 sets, on top of the `px-2` inset. The
  * `focus-visible` outline is the 2 px `--color-focus-ring` role, drawn for keyboard focus only, so
- * the ring a keyboard user needs is never suppressed. The colour transition is `motion-safe:`, which
- * leaves it out of a session that asks for reduced motion.
+ * the ring a keyboard user needs is never suppressed. The pointer states are the theme switch's, so
+ * the two controls sit in the top bar as one pair: `hover:` fills the first surface behind the label
+ * and `active:` holds the accent boundary over the second surface while the control is pressed. The
+ * colour transition is `motion-safe:`, which leaves it out of a session that asks for reduced motion.
  */
 const DENSITY_BUTTON_CLASSES = [
   'inline-flex min-h-6 min-w-6 items-center justify-center',
   'rounded-control border border-control-boundary px-2',
   'font-mono text-12 text-text-secondary',
-  'hover:text-text-primary',
+  'hover:bg-surface-1 hover:text-text-primary',
+  'active:border-accent active:bg-surface-2',
   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');

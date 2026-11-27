@@ -13,6 +13,11 @@
  * simulated-data label of its own either (rule P-1) — a column whose figures came from a seed record
  * carries its own label inside the caller's `render`.
  *
+ * A table with nothing to show renders the caller's `emptyMessage` in one cell spanning every
+ * column, and that prop is required so the cell can never be blank. A table the caller declared no
+ * columns for counts as nothing to show and takes the same cell, because a row of no cells is not a
+ * row: it states nothing on screen and reaches no assistive technology.
+ *
  * Row height comes from the density token (`--row-height`, bound to `--row-compact` at 32px and
  * `--row-comfortable` at 44px by `src/theme/tokens.css`) rather than from a pixel value here, so the
  * global density switch resizes every table in the application at once. This component only reads
@@ -62,8 +67,14 @@ export interface DataTableProps<Row> {
   readonly onSort: (columnId: string) => void;
   /** Called when the user opens the row: `Enter` on the row cursor, or a double click. */
   readonly onRowActivate?: (row: Row) => void;
-  /** Shown in a single full-width cell when there are no rows. */
-  readonly emptyMessage?: string;
+  /**
+   * The sentence shown in a single full-width cell when the table shows no data rows — because the
+   * caller supplied none, or because it declared no columns to show them in. Required: a table that
+   * renders neither rows nor a sentence leaves a blank grid where every other state is explained.
+   * The caller supplies it because the sentence belongs to the screen (AAP §0.12.4), and inventing
+   * a default here would be a displayed string no input fixes (AAP §0.1).
+   */
+  readonly emptyMessage: string;
 }
 
 /**
@@ -96,20 +107,33 @@ const CELL_CLASS = 'border-b border-hairline px-3 align-middle';
 /**
  * The sort control: a real button, at least 24 by 24 px (B-3's target minimum), carrying the 2px
  * focus ring of the theme on keyboard focus only.
+ *
+ * The pointer states are role tokens: `hover:` fills the first surface and lifts the label to the
+ * primary text role, `active:` holds the second surface under the press. The label colour the JSX
+ * supplies says whether this column is the sorted one; these utilities outrank it on a hover and a
+ * press because Tailwind emits a variant after the unprefixed utility it overrides. Both states are
+ * carried by the same `motion-safe` colour transition the other controls use, so this control's
+ * feedback is paced like theirs and a reduced-motion session gets it instantly.
  */
 const SORT_BUTTON_CLASS =
-  'inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control bg-transparent p-0 font-mono text-12 font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
+  'inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control bg-transparent p-0 font-mono text-12 font-medium hover:bg-surface-1 hover:text-text-primary active:bg-surface-2 active:text-text-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring motion-safe:transition-colors motion-safe:duration-150';
 
-/** The row cursor's focus indicator, drawn inside the row so it is never clipped by a scroll box. */
+/**
+ * The row cursor's focus indicator, drawn inside the row so it is never clipped by a scroll box.
+ * It carries no outline-hiding utility for the reason given above: the ring the `J`/`K` cursor is
+ * followed by would lose its outline style and never paint.
+ */
 const ROW_CLASS =
   'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
 
 /**
- * A row that opens something also advertises it: a pointer cursor and a hover ground, which fades in
- * over 150ms and is switched off entirely under `prefers-reduced-motion` (B-3).
+ * A row that opens something also advertises it: a pointer cursor, a hover ground and a pressed
+ * ground, which swap over 150ms and are switched off entirely under `prefers-reduced-motion` (B-3).
+ * The pressed fill steps back to the first surface, so a press reads as one step below the hover it
+ * started from rather than as nothing happening.
  */
 const ACTIVATABLE_ROW_CLASS =
-  'cursor-pointer transition-colors duration-150 hover:bg-surface-2 motion-reduce:transition-none';
+  'cursor-pointer transition-colors duration-150 hover:bg-surface-2 active:bg-surface-1 motion-reduce:transition-none';
 
 /**
  * Joins the class names that apply, dropping the ones a conditional left out, so a variant reads as
@@ -154,6 +178,10 @@ function happenedInsideControl(target: EventTarget | null): boolean {
  * Exactly one row is tabbable at a time — the row cursor carries `tabIndex={0}` and every other row
  * `tabIndex={-1}` — so a table of any length is a single tab stop, and `J`/`K` then move focus
  * through the rows, wrapping at both ends.
+ *
+ * Each data row also states its position for assistive technology — `aria-rowindex` read against the
+ * table's `aria-rowcount` — so a move with `J`/`K` announces where the cursor landed and not only
+ * what the row holds.
  */
 export function DataTable<Row>({
   columns,
@@ -168,17 +196,33 @@ export function DataTable<Row>({
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [cursorIndex, setCursorIndex] = useState(0);
 
-  /** A table always has at least one cell per row, even when the caller declared no columns. */
+  /**
+   * Whether the body shows the empty sentence instead of data rows. A caller that declares no
+   * columns has nothing to show either, so it takes the same rendering: mapping its rows would emit
+   * a `<tr>` with no `<td>` in it, which states nothing and is invisible to assistive technology.
+   */
+  const showsEmptyMessage = rows.length === 0 || columns.length === 0;
+  /** The empty cell spans every column, and one when the caller declared no columns to span. */
   const columnCount = Math.max(columns.length, 1);
+  /** The rows the body actually renders: the caller's rows, or the one cell that explains them. */
+  const bodyRowCount = showsEmptyMessage ? 1 : rows.length;
+  /**
+   * What `aria-rowcount` announces: the body rows plus the header row, because ARIA numbers a
+   * table's rows from 1 and this table's row 1 is the header. A data row's `aria-rowindex` is its
+   * 0-based list position plus 2 for the same reason.
+   */
+  const rowCount = bodyRowCount + 1;
   const lastRowIndex = rows.length - 1;
 
   /**
    * The cursor is clamped to the rows this render has rather than trusted as stored: a filter, a
    * write-back or a role switch can shrink the list under it, and a stale index would leave no row
-   * tabbable at all.
+   * tabbable at all. It is also absent whenever the body shows the empty sentence, since that
+   * rendering has no data row for the cursor to sit on.
    */
-  const activeIndex =
-    rows.length === 0 ? -1 : Math.min(Math.max(cursorIndex, 0), lastRowIndex);
+  const activeIndex = showsEmptyMessage
+    ? -1
+    : Math.min(Math.max(cursorIndex, 0), lastRowIndex);
 
   /** Moves the cursor and the DOM focus together, which is what makes `J`/`K` a roving cursor. */
   function moveCursorTo(index: number): void {
@@ -232,7 +276,16 @@ export function DataTable<Row>({
 
   return (
     <div className="w-full overflow-x-auto">
-      <table ref={tableRef} className={TABLE_CLASS} onKeyDown={handleKeyDown}>
+      {/*
+        `aria-rowcount` counts the header row as row 1, so a reader given a data row's position also
+        knows how many rows the table holds in total: the row count includes it.
+      */}
+      <table
+        ref={tableRef}
+        className={TABLE_CLASS}
+        aria-rowcount={rowCount}
+        onKeyDown={handleKeyDown}
+      >
         {/*
           The caption is the table's accessible name and is read by assistive technology; it is
           visually hidden because every screen already names the table it shows in its own page
@@ -297,49 +350,57 @@ export function DataTable<Row>({
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 ? (
+          {showsEmptyMessage ? (
             <tr className={ROW_HEIGHT_CLASS}>
               <td
                 colSpan={columnCount}
                 className={classNames(CELL_CLASS, 'text-text-secondary')}
               >
-                {emptyMessage ?? ''}
+                {emptyMessage}
               </td>
             </tr>
           ) : (
-            rows.map((row, index) => (
-              <tr
-                key={getRowKey(row)}
-                tabIndex={index === activeIndex ? 0 : -1}
-                className={classNames(
-                  ROW_HEIGHT_CLASS,
-                  ROW_CLASS,
-                  onRowActivate === undefined ? undefined : ACTIVATABLE_ROW_CLASS,
-                )}
-                onFocus={() => {
-                  setCursorIndex(index);
-                }}
-                onDoubleClick={
-                  onRowActivate === undefined
-                    ? undefined
-                    : () => {
-                        activateRow(row);
-                      }
-                }
-              >
-                {columns.map((column) => (
-                  <td
-                    key={column.id}
-                    className={classNames(
-                      CELL_CLASS,
-                      column.align === 'end' ? 'text-end' : 'text-start',
-                    )}
-                  >
-                    {column.render(row, index)}
-                  </td>
-                ))}
-              </tr>
-            ))
+            rows.map((row, index) => {
+              /*
+                `aria-rowindex` counts the header row as row 1, so this data row — at 0-based list
+                index `index` — is row `index + 2`. It is deliberately not `index + 1`: that is the
+                header's position, and announcing it would say the cursor sits on a different row.
+              */
+              return (
+                <tr
+                  key={getRowKey(row)}
+                  tabIndex={index === activeIndex ? 0 : -1}
+                  aria-rowindex={index + 2}
+                  className={classNames(
+                    ROW_HEIGHT_CLASS,
+                    ROW_CLASS,
+                    onRowActivate === undefined ? undefined : ACTIVATABLE_ROW_CLASS,
+                  )}
+                  onFocus={() => {
+                    setCursorIndex(index);
+                  }}
+                  onDoubleClick={
+                    onRowActivate === undefined
+                      ? undefined
+                      : () => {
+                          activateRow(row);
+                        }
+                  }
+                >
+                  {columns.map((column) => (
+                    <td
+                      key={column.id}
+                      className={classNames(
+                        CELL_CLASS,
+                        column.align === 'end' ? 'text-end' : 'text-start',
+                      )}
+                    >
+                      {column.render(row, index)}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>
