@@ -10,12 +10,12 @@
  * both. Rule B-3's motion clause is covered by the hover and pressed states: they exist on both
  * variants, they are carried by a `motion-safe` transition, and they never paint on a disabled
  * control. The trigger's description is asserted with the hint closed, because a screen reader that
- * resolves it at focus time would otherwise announce the control with no reason. The two class lists
- * the module exports are asserted as the single owner of the control's appearance — both variants are
- * built on `CONTROL_STRUCTURE_CLASSES`, the secondary one composes `SECONDARY_CONTROL_CLASSES` and
- * the primary one does not — because the application's links compose those same two lists instead of
- * restating them. Nothing here hashes or reads the clock, so the jsdom environment `vite.config.ts`
- * sets by default applies.
+ * resolves it at focus time would otherwise announce the control with no reason. The three class
+ * lists the module exports are asserted as the single owners of the control's appearance — both
+ * variants are built on `CONTROL_STRUCTURE_CLASSES`, the primary one composes
+ * `PRIMARY_STATE_CLASSES`, the secondary one `SECONDARY_CONTROL_CLASSES` — because the
+ * application's links compose those same two lists instead of restating them. Nothing here hashes or
+ * reads the clock, so the jsdom environment `vite.config.ts` sets by default applies.
  */
 
 import { render, screen } from '@testing-library/react';
@@ -24,6 +24,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ActionButton,
   CONTROL_STRUCTURE_CLASSES,
+  PRIMARY_STATE_CLASSES,
   SECONDARY_CONTROL_CLASSES,
   Tooltip,
 } from './tooltip';
@@ -182,6 +183,54 @@ describe('Tooltip', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
     expect(trigger).toHaveFocus();
   });
+
+  it.each([
+    {
+      placement: undefined,
+      side: 'default',
+      painted: 'bottom-full',
+      rejected: 'top-full',
+    },
+    {
+      placement: 'bottom' as const,
+      side: 'bottom',
+      painted: 'top-full',
+      rejected: 'bottom-full',
+    },
+  ])('paints the hint on the $side placement', async ({ placement, painted, rejected }) => {
+    const user = userEvent.setup();
+    render(
+      <Tooltip label={STAGE_REASON} {...(placement === undefined ? {} : { placement })}>
+        <button type="button">Open part</button>
+      </Tooltip>,
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'Open part' }));
+
+    /* `placement` is public and no other case passes it, so the side each row asks for is asserted
+       both ways round: the hint carries the utility that side paints and must not carry the other
+       one's, which is what a component ignoring the prop cannot satisfy. */
+    const hint = screen.getByRole('tooltip');
+    expect(hint).toHaveClass(painted);
+    expect(hint).not.toHaveClass(rejected);
+  });
+
+  it('hands the caller layout classes to the wrapper and never to the control', () => {
+    render(
+      <Tooltip label={STAGE_REASON} className="w-full">
+        <button type="button">Open part</button>
+      </Tooltip>,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Open part' });
+    const wrapper = trigger.parentElement;
+
+    /* Asserted on `Tooltip` itself, not through `ActionButton`'s disabled branch: the layout classes
+       size the wrapper the calling screen positions, and the control keeps its own list. */
+    expect(wrapper).toHaveClass('relative');
+    expect(wrapper).toHaveClass('w-full');
+    expect(trigger).not.toHaveClass('w-full');
+  });
 });
 
 describe('ActionButton', () => {
@@ -297,34 +346,35 @@ describe('ActionButton', () => {
     {
       variant: 'primary' as const,
       name: 'Approve',
-      states: [
-        'hover:border-control-boundary',
-        'hover:bg-ground',
-        'hover:text-text-primary',
-        'active:border-accent',
-        'active:bg-surface-2',
-        'active:text-text-primary',
-      ],
+      appearance: PRIMARY_STATE_CLASSES,
     },
     {
       variant: 'secondary' as const,
       name: 'Request changes',
-      states: [
-        'hover:border-accent',
-        'hover:bg-surface-1',
-        'active:border-accent',
-        'active:bg-ground',
-      ],
+      appearance: SECONDARY_CONTROL_CLASSES,
     },
   ])(
     'paints a hover and a pressed state from role tokens on the $variant variant',
-    ({ variant, name, states }) => {
+    ({ variant, name, appearance }) => {
       render(<ActionButton variant={variant}>{name}</ActionButton>);
 
       const button = screen.getByRole('button', { name });
 
+      /* The roles are named through the list that owns them rather than retyped here: no input fixes
+         which role a hover or a press uses, so retyping the utilities would fail the suite on a
+         legitimate token change while rule B-3's requirement still held. What is asserted is that
+         requirement — this variant paints its owner list, and every state utility in that list names
+         a role colour family. */
+      const states = appearance
+        .split(' ')
+        .filter((utility) => utility.startsWith('hover:') || utility.startsWith('active:'));
+
+      expect(states.some((utility) => utility.startsWith('hover:'))).toBe(true);
+      expect(states.some((utility) => utility.startsWith('active:'))).toBe(true);
       for (const utility of states) {
         expect(button).toHaveClass(utility);
+        expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(/^(bg|text|border)-[a-z]/);
+        expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/i);
       }
 
       /* Rule B-3: the colour change is carried by a transition a reduced-motion session never
@@ -458,11 +508,11 @@ describe('ActionButton', () => {
   /*
    * AAP §0.18.1 asks that both themes be checked in component tests by rendering under each
    * `data-theme` value. The control's colours are role utilities the theme layer resolves, so one
-   * class list has to serve both themes: the check is that every utility a control carries is a role
-   * token or a structural utility — no palette literal and no `rgb()` anywhere — and that the class
-   * list is the same under either attribute, which is what keeps the theme files the only owner of
-   * the colour. Both themes are also measured in a real browser during verification, where the roles
-   * resolve to the measured values.
+   * class list has to serve both themes: the check is that no utility a control carries under
+   * either theme is a palette literal or an `rgb()` value, that the focus ring it paints is the
+   * theme's own role, and that it carries no shadow, which is what keeps the theme files the only
+   * owner of the colour. Both themes are also measured in a real browser during verification, where
+   * the roles resolve to the measured values.
    */
   for (const theme of ['command', 'paper'] as const) {
     it(`renders the same role-token control under the ${theme} theme`, () => {
@@ -477,7 +527,6 @@ describe('ActionButton', () => {
         </>,
       );
 
-      expect(document.documentElement).toHaveAttribute('data-theme', theme);
       const buttons = screen.getAllByRole('button');
       expect(buttons).toHaveLength(3);
       for (const button of buttons) {

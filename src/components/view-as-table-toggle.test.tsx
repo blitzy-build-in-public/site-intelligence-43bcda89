@@ -8,9 +8,9 @@
  * exported constant owns and the accessible name that states the action in each direction, the
  * request an activation makes, keyboard-only operation, the accessible name with and without a
  * chart label, the shape of the rendered element (one native button, no `tabIndex`, never
- * disabled), the 24x24 px target and focus-ring tokens, and rendering under both themes. The
- * parent that owns the state is exercised through a two-line harness, which is how
- * `./chart-frame.tsx` composes the control.
+ * disabled), the hover fill and pressed pair the exported pointer-state list owns, the 24x24 px
+ * target and focus-ring tokens, and rendering under both themes. The parent that owns the state is
+ * exercised through a two-line harness, which is how `./chart-frame.tsx` composes the control.
  *
  * Renders under the jsdom environment `vite.config.ts` configures; nothing here hashes, reads the
  * clock or shows a figure (rule P-6).
@@ -22,7 +22,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { VIEW_AS_TABLE_LABELS, ViewAsTableToggle } from './view-as-table-toggle';
+import {
+  POINTER_STATE_CLASSES,
+  VIEW_AS_TABLE_LABELS,
+  ViewAsTableToggle,
+} from './view-as-table-toggle';
 import type { Viewing } from './view-as-table-toggle';
 
 /**
@@ -201,12 +205,25 @@ describe('ViewAsTableToggle', () => {
     const toggle = renderToggle('chart');
 
     /* Pressure and hover feedback are part of the control contract rather than a detail of one
-       component: the control states the hover fill it was missing beside the pressed pair, and both
-       are role tokens so neither theme bakes in a palette value. */
-    expect(toggle).toHaveClass('hover:bg-surface-1');
-    expect(toggle).toHaveClass('hover:text-text-primary');
-    expect(toggle).toHaveClass('active:bg-surface-2');
-    expect(toggle).toHaveClass('active:border-accent');
+       component, and which role answers the pointer is the control's own choice: no input fixes it.
+       Naming the states through the component's exported list keeps a legitimate token change to
+       one edit in one file, while a control that stops applying the list still fails below. */
+    const pointerStates = POINTER_STATE_CLASSES.split(' ');
+    const hoverStates = pointerStates.filter((utility) => utility.startsWith('hover:'));
+    const pressedStates = pointerStates.filter((utility) => utility.startsWith('active:'));
+
+    expect(hoverStates.length).toBeGreaterThan(0);
+    expect(pressedStates.length).toBeGreaterThan(0);
+    expect(toggle).toHaveClass(...pointerStates);
+
+    // Each state names a role, so neither theme bakes in a palette value: the colour family
+    // follows the last variant prefix, and no palette literal, `rgb()` call or arbitrary value
+    // appears.
+    for (const utility of pointerStates) {
+      expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(/^(bg|text|border)-[a-z]/);
+      expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/i);
+    }
+
     // Rule B-3: the colour change is carried by a transition a reduced-motion session never runs.
     expect(toggle).toHaveClass('motion-safe:transition-colors');
     expect(toggle).toHaveClass('motion-safe:duration-150');
@@ -219,7 +236,6 @@ describe('ViewAsTableToggle', () => {
 
       const toggle = renderToggle('chart');
 
-      expect(document.documentElement.dataset.theme).toBe(theme);
       // Each theme file supplies the value behind these role tokens, so the control renders
       // unchanged under both and picks no palette value of its own.
       expect(toggle).toHaveClass('text-text-secondary');

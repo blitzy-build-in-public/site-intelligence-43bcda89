@@ -45,21 +45,39 @@ const NEXT_VIEWING: Readonly<Record<Viewing, Viewing>> = {
 };
 
 /**
+ * The control's pointer states, and their single owner: the hover fill and the pressed pair.
+ *
+ * Both states come from role tokens alone — `hover:` fills the first surface behind the label and
+ * lifts it to the primary text role, and `active:` holds the accent boundary over the second
+ * surface so a press reads as one step below a hover — with no raw palette value, no arbitrary
+ * value and no opacity, because dimming a label is exactly how contrast falls below the ratio rule
+ * B-3 requires.
+ *
+ * It is exported so the component suite names these states through this list rather than retyping
+ * them: which role answers the pointer is this control's own choice that no input fixes, so a
+ * legitimate token change must move the list and the suite together, while a control that stops
+ * applying the list still fails the suite.
+ */
+export const POINTER_STATE_CLASSES = [
+  'hover:bg-surface-1 hover:text-text-primary',
+  'active:border-accent active:bg-surface-2',
+].join(' ');
+
+/**
  * The control's surface: a bordered, secondary-text control on the page ground rather than an
  * elevated one, because specification §4.3 exposes no shadow token at all. Sizes come from the
  * token scale — `text-13` for the label, `rounded-control` for the 2 px radius, `min-h-6 min-w-6`
  * for the 24x24 px target the accessibility rule sets — and the focus ring is the 2 px
- * `--color-focus-ring` outline, drawn only for keyboard focus. The pointer states are role tokens:
- * `hover:` fills the first surface behind the label and lightens it to the primary text role, and
- * `active:` holds the accent boundary over the second surface so a press reads as one step below a
- * hover. `motion-safe:` keeps the transition out of a reduced-motion session.
+ * `--color-focus-ring` outline, drawn only for keyboard focus. The pointer states are
+ * {@link POINTER_STATE_CLASSES} composed in place, so the hover fill and the pressed pair keep one
+ * owner instead of being restated here, while both remain role tokens. `motion-safe:` keeps the
+ * transition out of a reduced-motion session.
  */
 const CONTROL_CLASSES = [
   'inline-flex min-h-6 min-w-6 items-center justify-center',
   'rounded-control border border-control-boundary px-2 py-1',
   'bg-transparent font-sans text-13 text-text-secondary',
-  'hover:bg-surface-1 hover:text-text-primary',
-  'active:border-accent active:bg-surface-2',
+  POINTER_STATE_CLASSES,
   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');

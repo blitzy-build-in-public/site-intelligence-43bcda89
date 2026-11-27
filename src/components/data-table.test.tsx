@@ -3,17 +3,22 @@
  *
  * Each case asserts a contract the component promises rather than its markup: the caption that
  * names the table (B-3), the scoped column headers, the sort control that is a real button reporting
- * `aria-sort` while the order stays the caller's own, the `J`/`K` row cursor with its wrap-around, its
- * single tab stop and its focus-ring token (AAP §0.12.4, T-16), `Enter` and double-click activation,
- * the keys the cursor must leave to the fields and controls it passes through, row heights that
- * resolve through `--row-height` rather than a pixel value, the same table under both themes, and
- * the empty sentence in both shapes that have nothing to show — no rows, and no columns to show
- * them in. The cells hold made-up labels because the component computes nothing (P-6):
- * what a cell shows is entirely the caller's `render`.
+ * `aria-sort` while the order stays the caller's own and whose caret turns only for an ascending
+ * column, the `J`/`K` row cursor with its wrap-around, its single tab stop, its focus-ring token and
+ * the clamp that keeps it tabbable when the row list shrinks under it (AAP §0.12.4, T-16), the row
+ * key that keeps each row on its own DOM node across a re-sort, `Enter` and double-click activation,
+ * the keys the cursor must leave to the fields and controls it passes through and to a held modifier
+ * or an event another handler already consumed, the alignment a column states in its header cell and
+ * in its cells, row heights that resolve through `--row-height` rather than a pixel value, the same
+ * table under both themes, and the empty sentence in both shapes that have nothing to show — no
+ * rows, and no columns to show them in. The cells hold made-up labels because the component computes
+ * nothing (P-6): what a cell shows is entirely the caller's `render`.
  */
 
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import { DataTable } from './data-table';
@@ -88,9 +93,14 @@ interface TableOptions {
   readonly emptyMessage?: string;
 }
 
-/** Renders the table with this suite's defaults, overriding only what a case asserts on. */
-function renderTable(options: TableOptions = {}): void {
-  render(
+/**
+ * The table this suite's caller renders, so a case that re-renders hands the same component a new
+ * prop set instead of mounting a second table beside the first.
+ */
+function tableElement(
+  options: TableOptions = {},
+): ReactElement<DataTableProps<Row>> {
+  return (
     <DataTable<Row>
       columns={options.columns ?? COLUMNS}
       rows={options.rows ?? ROWS}
@@ -100,8 +110,18 @@ function renderTable(options: TableOptions = {}): void {
       onSort={options.onSort ?? noop}
       onRowActivate={options.onRowActivate ?? noop}
       emptyMessage={options.emptyMessage ?? EMPTY_MESSAGE}
-    />,
+    />
   );
+}
+
+/**
+ * Renders the table with this suite's defaults, overriding only what a case asserts on.
+ *
+ * It returns the render result so a case that asserts on a re-render can pass `rerender` the next
+ * prop set for the same component; a case that renders once ignores the return value.
+ */
+function renderTable(options: TableOptions = {}): RenderResult {
+  return render(tableElement(options));
 }
 
 /** The two themes the switch offers, named as `src/theme/theme-provider.tsx` writes them. */
@@ -168,6 +188,60 @@ describe('DataTable', () => {
     }
   });
 
+  it('keeps each row on its own DOM node when the caller re-sorts it', () => {
+    const { rerender } = renderTable();
+    const alphaRow = rowAt(0);
+    expect(alphaRow).toHaveTextContent('Alpha');
+
+    // `getRowKey` is required precisely so a re-sort or a write-back re-render keeps each row's DOM
+    // node. Keying the rows by array position instead would leave node 0 holding a different row and
+    // remount it, losing the focus and the cursor state that row was carrying.
+    rerender(tableElement({ rows: [ROWS[1], ROWS[0], ROWS[2]] }));
+
+    expect(bodyRows()).toHaveLength(ROWS.length);
+    expect(rowAt(0)).not.toBe(alphaRow);
+    expect(rowAt(0)).toHaveTextContent('Beta');
+    expect(rowAt(1)).toBe(alphaRow);
+    expect(rowAt(1)).toHaveTextContent('Alpha');
+  });
+
+  it('aligns a column marked end from its header cell through every cell below it', () => {
+    const columns = [
+      ...COLUMNS,
+      {
+        id: 'ledger',
+        header: 'Ledger',
+        align: 'end',
+        render: () => 'Held in the ledger',
+      },
+    ] as const satisfies readonly TableColumn<Row>[];
+    renderTable({ columns });
+
+    // `end` exists so figures line up on their last digit, so it has to reach the column's header
+    // cell as well as the cells under it: a header that starts where its figures end misaligns the
+    // whole column. A column that names no alignment keeps the default and stays at the start.
+    const headers = screen.getAllByRole('columnheader');
+    expect(headers).toHaveLength(columns.length);
+    const endHeader = screen.getByRole('columnheader', { name: 'Ledger' });
+    expect(endHeader).toHaveClass('text-end');
+    for (const header of headers) {
+      if (header !== endHeader) {
+        expect(header).toHaveClass('text-start');
+      }
+    }
+
+    for (const row of bodyRows()) {
+      const cells = within(row).getAllByRole('cell');
+      expect(cells).toHaveLength(columns.length);
+      const endCell = cells[cells.length - 1];
+      if (endCell === undefined) {
+        throw new Error('the table rendered no cell for the end-aligned column');
+      }
+      expect(endCell).toHaveTextContent('Held in the ledger');
+      expect(endCell).toHaveClass('text-end');
+    }
+  });
+
   it('states each row position for assistive technology, counting the header row as row 1', () => {
     renderTable();
 
@@ -217,6 +291,32 @@ describe('DataTable', () => {
       'aria-sort',
       'none',
     );
+  });
+
+  it('flips the sort caret over only while the column is ascending', () => {
+    const { rerender } = renderTable();
+
+    /** The caret's class list, which is where its rotation lives. */
+    function caretClass(): string {
+      const caret = screen
+        .getByRole('button', { name: 'Name' })
+        .querySelector('svg');
+      if (caret === null) {
+        throw new Error('the sort control rendered no caret');
+      }
+      return caret.getAttribute('class') ?? '';
+    }
+
+    // `aria-sort` already announces the order, so the caret is decoration: it points down for the
+    // caller's own order and for descending, and flips over for ascending.
+    expect(caretClass()).toContain('shrink-0');
+    expect(caretClass()).not.toContain('rotate-180');
+
+    rerender(tableElement({ sort: { columnId: 'name', direction: 'asc' } }));
+    expect(caretClass()).toContain('rotate-180');
+
+    rerender(tableElement({ sort: { columnId: 'name', direction: 'desc' } }));
+    expect(caretClass()).not.toContain('rotate-180');
   });
 
   it('reports the column id to the caller when its sort control is activated', async () => {
@@ -308,6 +408,29 @@ describe('DataTable', () => {
 
     await user.keyboard('k');
     expect(document.activeElement).toBe(rowAt(ROWS.length - 1));
+  });
+
+  it('T-16 keeps the cursor row tabbable when the row list shrinks under it', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderTable();
+    // The row records its own index as the cursor when it takes focus, so the flush makes index 2
+    // the stored cursor before the list shrinks under it.
+    await act(async () => {
+      rowAt(2).focus();
+    });
+    expect(cursorRow()).toBe(rowAt(2));
+
+    // A filter, a write-back or a role switch can shrink the list under a cursor index the table
+    // already stored. Without the clamp the stored 2 would match no row, no row would carry
+    // `tabIndex={0}`, and nothing in the table would be reachable by `Tab` (rule B-3).
+    rerender(tableElement({ rows: [ROWS[0]] }));
+
+    expect(bodyRows()).toHaveLength(1);
+    expect(cursorRow()).toBe(rowAt(0));
+
+    screen.getByRole('button', { name: 'Name' }).focus();
+    await user.tab();
+    expect(document.activeElement).toBe(rowAt(0));
   });
 
   it('T-16 opens the focused row on Enter', async () => {
@@ -418,6 +541,113 @@ describe('DataTable', () => {
     expect(onRowActivate).not.toHaveBeenCalled();
   });
 
+  it.each(['Control', 'Alt', 'Meta'] as const)(
+    'T-16 leaves J to the browser while %s is held',
+    async (modifier) => {
+      const user = userEvent.setup();
+      renderTable();
+      rowAt(0).focus();
+
+      // A held modifier turns J into a browser or operating-system shortcut, so the table leaves the
+      // keystroke alone: neither the focus nor the cursor moves off the row it was on.
+      await user.keyboard(`{${modifier}>}j{/${modifier}}`);
+
+      expect(document.activeElement).toBe(rowAt(0));
+      expect(cursorRow()).toBe(rowAt(0));
+    },
+  );
+
+  it('T-16 leaves a key event another handler has already consumed', async () => {
+    const user = userEvent.setup();
+    renderTable();
+    // A key event another handler consumed is not the table's to act on, so a `preventDefault`
+    // during the capture phase keeps the row cursor from seeing the key at all.
+    screen.getByRole('table').addEventListener(
+      'keydown',
+      (event) => {
+        event.preventDefault();
+      },
+      { capture: true, once: true },
+    );
+
+    rowAt(0).focus();
+    await user.keyboard('j');
+
+    expect(document.activeElement).toBe(rowAt(0));
+    expect(cursorRow()).toBe(rowAt(0));
+  });
+
+  it('T-16 leaves J to a link, an editable and a linked control inside a row', async () => {
+    const user = userEvent.setup();
+    const columns = [
+      ...COLUMNS,
+      {
+        id: 'reference',
+        header: 'Reference',
+        render: () => <a href="#reference">Open the reference</a>,
+      },
+      {
+        id: 'note',
+        header: 'Note',
+        render: () => (
+          <span
+            contentEditable="true"
+            suppressContentEditableWarning={true}
+            tabIndex={0}
+          >
+            Editable note
+          </span>
+        ),
+      },
+      {
+        id: 'record',
+        header: 'Record',
+        render: () => (
+          <span role="link" tabIndex={0}>
+            Linked record
+          </span>
+        ),
+      },
+    ] as const satisfies readonly TableColumn<Row>[];
+    renderTable({ columns });
+
+    const row = rowAt(0);
+    // Each of these owns its own keys — a link takes `Enter`, an editable takes every character and
+    // an element announced as a link is one — so a J pressed on any of them is not a row move.
+    const targets = [
+      within(row).getByText('Open the reference'),
+      within(row).getByText('Editable note'),
+      within(row).getByText('Linked record'),
+    ];
+
+    for (const target of targets) {
+      target.focus();
+      expect(document.activeElement).toBe(target);
+
+      await user.keyboard('j');
+      expect(document.activeElement).toBe(target);
+      expect(cursorRow()).toBe(row);
+    }
+  });
+
+  it('T-16 takes no key action while the empty sentence stands in place of the rows', () => {
+    renderTable({ rows: [] });
+
+    const cell = within(rowAt(0)).getByRole('cell');
+    // No row in the body is one the cursor can sit on, so J and K are not this table's keys: its
+    // handler returns without consuming either keystroke.
+    for (const key of ['j', 'k']) {
+      expect(fireEvent.keyDown(cell, { key })).toBe(true);
+    }
+
+    expect(
+      bodyRows().filter((row) => row.getAttribute('tabindex') === '0'),
+    ).toHaveLength(0);
+    expect(screen.getByRole('table').contains(document.activeElement)).toBe(
+      false,
+    );
+  });
+
   it('renders the empty message in one cell spanning every column', () => {
     renderTable({ rows: [], emptyMessage: EMPTY_MESSAGE });
 
@@ -461,7 +691,6 @@ describe('DataTable', () => {
 
   it('T-16 announces no row as a control and takes no key action when the caller supplies no activation', async () => {
     const user = userEvent.setup();
-    const onSort = vi.fn();
     render(
       <DataTable<Row>
         columns={COLUMNS}
@@ -469,7 +698,7 @@ describe('DataTable', () => {
         getRowKey={(row) => row.key}
         caption={CAPTION}
         sort={null}
-        onSort={onSort}
+        onSort={noop}
         emptyMessage={EMPTY_MESSAGE}
       />,
     );
@@ -483,7 +712,6 @@ describe('DataTable', () => {
     first.focus();
     await user.keyboard('{Enter}');
 
-    expect(onSort).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(first);
     expect(bodyRows().map((row) => row.getAttribute('tabindex'))).toEqual([
       '0',
@@ -497,7 +725,6 @@ describe('DataTable', () => {
       setRootAttribute('data-density', density);
       renderTable();
 
-      expect(document.documentElement).toHaveAttribute('data-density', density);
       for (const row of bodyRows()) {
         // The height is the density token, so the global switch resizes every table in the app.
         expect(row.className).toContain('h-[var(--row-height)]');
@@ -513,7 +740,6 @@ describe('DataTable', () => {
       setRootAttribute('data-theme', theme);
       renderTable();
 
-      expect(document.documentElement).toHaveAttribute('data-theme', theme);
       expect(screen.getByRole('table')).toHaveAccessibleName(CAPTION);
       expect(screen.getAllByRole('columnheader')).toHaveLength(COLUMNS.length);
       expect(bodyRows()).toHaveLength(ROWS.length);

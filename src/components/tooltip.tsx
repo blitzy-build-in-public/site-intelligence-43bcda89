@@ -165,17 +165,37 @@ export const SECONDARY_CONTROL_CLASSES = [
 ].join(' ');
 
 /**
+ * The primary action's hover and pressed states, and their single owner.
+ *
+ * The one action a screen exists to take answers the pointer rather than going inert under it:
+ * `hover:` moves the filled action pair to the ground role, and `active:` rests on a raised surface
+ * behind the accent boundary, so a press reads as lower than the hover that preceded it. Every value
+ * is a role token — no raw palette value, no arbitrary value and no opacity appears here, because
+ * dimming a label is exactly how contrast falls below the ratio rule B-3 requires.
+ *
+ * It is exported because no input fixes which role a pointer state uses; that treatment is the
+ * component author's own choice. The component suite therefore names this list instead of retyping
+ * its utilities, so a legitimate token change here still leaves rule B-3's requirement — a hover
+ * state and a pressed state built from role tokens, with no palette literal and no shadow — holding.
+ */
+export const PRIMARY_STATE_CLASSES = [
+  'hover:border-control-boundary hover:bg-ground hover:text-text-primary',
+  'active:border-accent active:bg-surface-2 active:text-text-primary',
+].join(' ');
+
+/**
  * The visible difference between an action, an action under the pointer, and a disabled one.
  *
  * {@link CONTROL_STRUCTURE_CLASSES} supplies what every variant shares, so a variant states only
  * its own colours and their states. `hover:` and `active:` give each variant a hover fill and a
- * pressed fill built from role tokens alone. The primary variant inverts its own fill on hover — the
- * AAP 0.5.3 Cream-fill/Chocolate-label action pair and its inverse — so the label keeps its measured
- * contrast in both themes, and it darkens once more to a raised surface while pressed; the secondary
- * variant is {@link SECONDARY_CONTROL_CLASSES} itself, the one owner of that appearance, so the
- * button and the application's links cannot drift apart. No raw palette value, no arbitrary value and
- * no opacity appears here, because dimming a label is exactly how contrast falls below the ratio rule
- * B-3 requires.
+ * pressed fill built from role tokens alone, and each variant takes its pair from the one list that
+ * owns it: {@link PRIMARY_STATE_CLASSES} for the primary action, {@link SECONDARY_CONTROL_CLASSES}
+ * for the secondary one. The primary variant inverts its own fill on hover — the AAP 0.5.3
+ * Cream-fill/Chocolate-label action pair and its inverse — so the label keeps its measured contrast
+ * in both themes, and it darkens once more to a raised surface while pressed; the secondary variant
+ * is the list the application's links compose too, so the button and those links cannot drift apart.
+ * No raw palette value, no arbitrary value and no opacity appears here, because dimming a label is
+ * exactly how contrast falls below the ratio rule B-3 requires.
  *
  * The `aria-disabled` variants are how a control that cannot act looks inert without the `disabled`
  * attribute: the primary fill drops to a raised surface and the label to the secondary text role,
@@ -189,8 +209,7 @@ export const SECONDARY_CONTROL_CLASSES = [
 const BUTTON_VARIANT_CLASSES = {
   primary: [
     'border-action-primary-bg bg-action-primary-bg text-action-primary-fg',
-    'hover:border-control-boundary hover:bg-ground hover:text-text-primary',
-    'active:border-accent active:bg-surface-2 active:text-text-primary',
+    PRIMARY_STATE_CLASSES,
     'aria-disabled:border-control-boundary aria-disabled:bg-surface-2',
     'aria-disabled:text-text-secondary aria-disabled:cursor-not-allowed',
     'aria-disabled:hover:border-control-boundary aria-disabled:hover:bg-surface-2',
