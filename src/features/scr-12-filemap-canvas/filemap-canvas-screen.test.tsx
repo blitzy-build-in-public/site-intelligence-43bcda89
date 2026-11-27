@@ -1,0 +1,1438 @@
+/**
+ * Component suite for `filemap-canvas-screen.tsx`, the SCR-12 FileMap canvas of stage S2.
+ *
+ * WHAT IS UNDER TEST. The screen is the listener of `/canvas` and the composer of four presentational
+ * siblings, so every case below asserts a clause of that composition rather than its markup: the lens
+ * is drawn in a region that takes 65% of the row from the wide breakpoint and stacks under it; the
+ * ribbon shows one labelled tile per aggregate the read returned, each carrying its own
+ * `Simulated calculation` label inside the tile that owns the figure (rule P-1); a node activated in
+ * one lens is the node the other lens holds as selected, because the screen owns the one selection
+ * both lenses are handed (AAP §0.12.4); wall mode reports every request to the shell that owns the
+ * navigation and gives the drawing the whole row whether or not a shell is listening (rule P-8); the
+ * dock prints exactly the five events the audit read returned, in the order it returned them, over a
+ * series labelled a computed figure; each of the seven states specification §8 fixes renders for the
+ * outcome the screen derives it from, driven only by what the stubbed reads and their `Result.meta`
+ * report and never by a flag name (AAP §0.8, §0.12.1); the primary action exists only while the
+ * selection reaches an exception, and it navigates to that exception's own route; both themes draw
+ * the same surface; the whole control set is reachable and operable from the keyboard alone (rule
+ * B-3); the one control on the canvas that cannot act says why (rule P-8); and no case asks any origin
+ * for anything or finds a test hook in the output (rule B-1).
+ *
+ * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a
+ * screen may read through (rule P-2), so no seed module, no adapter, no HTTP client and nothing from
+ * `tests/fixtures/` is involved, and a case observes exactly the calls the screen makes. Everything
+ * else — `CanvasRibbon`, both lenses, `CanvasRightStack`, `TimelineDock`, `StateBoundary`,
+ * `ForbiddenCard`, `MetricTile`, `ActionButton` and the SVG surfaces under them — is the real
+ * component, because what a reader receives is the thing under test.
+ *
+ * THE FIXTURES ARE INPUT, NOT EXPECTED RESULTS (rule P-6). Every figure asserted below is the value
+ * the stub returned, compared as returned: no case recomputes one, no case types one as a currency
+ * string, and each amount is read back through the one formatter the interface uses. The identifiers
+ * are opaque placeholders (`node-plant`, `exception-gamma`, `event-alpha`) rather than
+ * domain-identifier shapes, so the figures scan that covers `src/features/**` reads this file without
+ * a collision, and the only literals a case states are structural: six tiles, five rows, one button.
+ * The wording this suite drives by name is imported from the module that owns it wherever the module
+ * exports it (`FILEMAP_CANVAS_TEXT`, `STATE_BOUNDARY_TEXT`, `DEPENDENCY_GRAPH_TEXT`,
+ * `TIMELINE_DOCK_TEXT`, `SOURCE_LABELS`, `SIM_LABELS`); `CanvasRibbon`'s group name is the one string
+ * kept private upstream and restated once in {@link UI}, so a reworded caption reaches one place here.
+ *
+ * NO SHELL IS SUPPLIED, ON PURPOSE. The screen documents that a shell hands it the scope, the
+ * selection and the wall-mode request, and that it may read none of the shell's stores
+ * (AAP §0.18.1). This suite therefore mounts it with no shell provider, no navigation and no store:
+ * what it proves is the screen's own behaviour — including the full-bleed layout it applies to what it
+ * owns — which is also the indirect evidence that the screen reaches nothing in `src/app`.
+ *
+ * Rules this suite is written to hold to:
+ * - B-1: the request spies prove the surface fetches nothing while it is drawn and operated, and the
+ *   attribute scan proves no element it renders addresses a host or embeds a remote resource.
+ * - B-3: every interaction is driven from the keyboard through `@testing-library/user-event`, the
+ *   canvas regions are found by their accessible names, and no assertion compares a colour value.
+ * - P-1: every label this suite names is read from `SIM_LABELS` and asserted inside the element that
+ *   carries the figure, never against a page-level badge.
+ * - P-2: only the provider module is mocked; the stub is typed against `SiteIntelligenceService`, so a
+ *   renamed port member fails the type check instead of widening the stub.
+ * - P-6: every expectation is derived from the inline payload or from a structural count.
+ * - P-7: the workspace is the FileMap canvas, and every place and party name arrives from the payload.
+ * - P-8: the disabled `Open part` control is asserted to explain itself on focus, and every control in
+ *   the canvas that reports itself unavailable is asserted to carry a reason.
+ *
+ * The suite runs in the jsdom environment `vite.config.ts` sets by default. Nothing here hashes, reads
+ * the system clock, touches the network or reaches outside the service boundary.
+ */
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, within } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useParams } from 'react-router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
+
+import { DEPENDENCY_GRAPH_TEXT } from '../../components/dependency-graph';
+import { formatMoney } from '../../components/mono-value';
+import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
+import { TIMELINE_DOCK_TEXT } from '../../components/timeline-dock';
+import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
+import {
+  APPROVAL_GATE_SOURCE,
+  DEMO_CLOCK,
+  SIM_LABELS,
+  SOURCE_IDS,
+  SOURCE_LABELS,
+} from '../../types';
+import type {
+  Atlas,
+  AuditEvent,
+  AuditResult,
+  Chokepoint,
+  Confidence,
+  DailyClosingStockPoint,
+  ExceptionDetail,
+  ExceptionRow,
+  Freshness,
+  FreshnessState,
+  IsoDate,
+  Meta,
+  Money,
+  Permission,
+  PinCounts,
+  PlantId,
+  Problem,
+  ProductId,
+  Result,
+  RibbonTile,
+  Role,
+  Scope,
+  Severity,
+  Timestamp,
+  Topology,
+} from '../../types';
+import { FILEMAP_CANVAS_TEXT, FilemapCanvasScreen } from './filemap-canvas-screen';
+import type { FilemapCanvasScreenProps } from './filemap-canvas-screen';
+
+/* ---------------------------------------------------------------------------------------------
+ * The port, replaced — rule P-2
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The members of the port this screen reads, and the only ones this suite stubs.
+ *
+ * Typed as a `Pick` of the port rather than as a shape of this file's own, so the stub cannot drift
+ * from the interface: a member the screen starts to call that the stub does not carry fails the type
+ * check here instead of arriving at run time as a call on `undefined`. The screen is the only reader
+ * of these six, and no other member of `SiteIntelligenceService` answers a surface this suite mounts.
+ */
+type CanvasPort = Pick<
+  SiteIntelligenceService,
+  | 'getTopology'
+  | 'getCanvasRibbon'
+  | 'listExceptions'
+  | 'listAuditEvents'
+  | 'getAtlas'
+  | 'getExceptionDetail'
+>;
+
+/**
+ * The stub every case drives: one mock per member, each typed by the port's own signature.
+ *
+ * `vi.hoisted` because `vi.mock`'s factory runs before this module's declarations exist, and the mocks
+ * a case arms afterwards have to be the same objects the screen calls.
+ */
+const port: { readonly [K in keyof CanvasPort]: Mock<CanvasPort[K]> } = vi.hoisted(() => ({
+  getTopology: vi.fn<SiteIntelligenceService['getTopology']>(),
+  getCanvasRibbon: vi.fn<SiteIntelligenceService['getCanvasRibbon']>(),
+  listExceptions: vi.fn<SiteIntelligenceService['listExceptions']>(),
+  listAuditEvents: vi.fn<SiteIntelligenceService['listAuditEvents']>(),
+  getAtlas: vi.fn<SiteIntelligenceService['getAtlas']>(),
+  getExceptionDetail: vi.fn<SiteIntelligenceService['getExceptionDetail']>(),
+}));
+
+/**
+ * Replaces the provider module: the one boundary a screen may read through (rule P-2).
+ *
+ * The screen reads `useService` alone, and the other two exports are answered with nothing so a
+ * component that asks for the demonstration controls or the active user finds an honest absence
+ * rather than a missing export.
+ */
+vi.mock('../../services/service-provider', () => ({
+  useService: () => port,
+  useDemonstration: () => null,
+  useActiveUser: () => null,
+}));
+
+/* ---------------------------------------------------------------------------------------------
+ * The one piece of wording this suite cannot import
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The strings no module exports.
+ *
+ * `canvas-ribbon.tsx` keeps the accessible name of the group it renders private, so it is restated
+ * once here rather than guessed at every assertion. It is not a specification string, and every other
+ * string this suite names — the screen's own captions, the boundary's sentences, the graph's strip
+ * caption, the dock's heading, the six source names and the seven §5.3 labels — is imported from the
+ * module that owns it.
+ */
+const UI = {
+  /** The accessible name the ribbon gives the row of tiles it renders. */
+  ribbon: 'Canvas ribbon',
+} as const;
+
+/** The route the screen is mounted at, and the route the primary action navigates to. */
+const CANVAS_ROUTE = '/canvas';
+const EXCEPTION_ROUTE = '/exceptions/:exceptionId';
+
+/** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
+const THEMES = ['command', 'paper'] as const;
+
+/** The correlation identifier every stubbed answer carries, as `Meta.traceId`. */
+const TRACE_ID = 'trace-canvas';
+
+/**
+ * The selection a shell that has not filtered yet holds: the empty plant and product arrays, which
+ * `Scope` documents as "all plants" and "all products" rather than as "none".
+ */
+const NO_SCOPE: Scope = { plants: [], products: [] };
+
+/**
+ * The two windows the screen hands the service: the four most urgent rows the stack shows and the five
+ * latest events the dock prints (AAP §0.12.4).
+ *
+ * They are windows rather than figures — nothing displays them — and they are stated here so a case
+ * can assert that the screen asked for them instead of applying them itself (rule P-6).
+ */
+const URGENT_WINDOW = 4;
+const AUDIT_WINDOW = 5;
+
+/**
+ * The greatest number of focus stops a keyboard case walks before it fails, which is generous enough
+ * for the controls of a lens this suite does not own and small enough that a missing control fails.
+ */
+const TAB_WALK_LIMIT = 24;
+
+/** The demonstration clock's own calendar date, read from its owner rather than typed (rule P-6). */
+const CLOCK_DATE: IsoDate = DEMO_CLOCK.slice(0, 10);
+
+/** The instant every fixture record is stamped with: the constant demonstration clock. */
+const AS_OF: Timestamp = DEMO_CLOCK;
+
+/** The persona every fixture record is owned by, as the payload spells it. */
+const OWNER_ID = 'user-alpha';
+
+/**
+ * The calendar date one day after a date, so the dock's two-point series is derived from the
+ * demonstration clock instead of being typed as a second literal (rule P-6).
+ *
+ * @param date - The calendar date to step past.
+ * @returns The next calendar date, `YYYY-MM-DD`.
+ */
+function dayAfter(date: IsoDate): IsoDate {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+
+  return next.toISOString().slice(0, 10);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The payload both lenses draw
+ * ------------------------------------------------------------------------------------------- */
+
+/** One empty count record: every one of the six states, zero included, as `PinCounts` requires. */
+const NO_PINS: PinCounts = { empty: 0, pending: 0, pass: 0, fail: 0, stale: 0, review: 0 };
+
+/**
+ * An eight-node network: two nodes of every family, one lane chain from a tier-2 origin through a
+ * supplier and a plant to a customer, and pin counts that between them cover each of the six
+ * `PinState` members.
+ *
+ * The coordinates sit across Europe, the Gulf of Mexico and Japan so every node lands inside the world
+ * view, and the plant the canvas opens on carries both a product and a stale pin, so the staged
+ * `Open part` control and a non-empty pin summary are both reachable. One plant carries counts of zero
+ * in every state and one supplier is absent from `pinsByNode` altogether, so both readings of "no
+ * evidence pins" are exercised by the real drawing rather than asserted from a shape.
+ */
+const TOPOLOGY: Topology = {
+  plants: [
+    {
+      id: 'node-plant',
+      kind: 'plant',
+      label: 'Northgate plant',
+      latitude: 49.02,
+      longitude: 12.1,
+      productIds: ['product-one'],
+    },
+    {
+      id: 'node-plant-second',
+      kind: 'plant',
+      label: 'Vltava plant',
+      latitude: 49.19,
+      longitude: 16.61,
+      productIds: ['product-two'],
+    },
+  ],
+  suppliers: [
+    {
+      id: 'node-supplier',
+      kind: 'supplier',
+      label: 'Halvard Components',
+      latitude: 48.14,
+      longitude: 11.58,
+      productIds: ['product-one'],
+    },
+    {
+      id: 'node-supplier-second',
+      kind: 'supplier',
+      label: 'Sundvik Parts',
+      latitude: 57.7,
+      longitude: 11.97,
+      productIds: ['product-two'],
+    },
+  ],
+  origins: [
+    {
+      id: 'node-origin',
+      kind: 'origin',
+      label: 'Ordival Metals',
+      latitude: 21.5,
+      longitude: -101.5,
+      productIds: [],
+    },
+    {
+      id: 'node-origin-second',
+      kind: 'origin',
+      label: 'Kazeyama Alloys',
+      latitude: 34.7,
+      longitude: 135.5,
+      productIds: ['product-two'],
+    },
+  ],
+  customers: [
+    {
+      id: 'node-customer',
+      kind: 'customer',
+      label: 'Harbourgate Fleetworks',
+      latitude: 53.55,
+      longitude: 9.99,
+      productIds: [],
+    },
+    {
+      id: 'node-customer-second',
+      kind: 'customer',
+      label: 'Alpenrand Haulage',
+      latitude: 45.46,
+      longitude: 9.19,
+      productIds: [],
+    },
+  ],
+  lanes: [
+    { fromId: 'node-origin', toId: 'node-supplier' },
+    { fromId: 'node-supplier', toId: 'node-plant' },
+    { fromId: 'node-plant', toId: 'node-customer' },
+  ],
+  pinsByNode: {
+    'node-supplier': { ...NO_PINS, fail: 1, pass: 2 },
+    'node-plant': { ...NO_PINS, stale: 1 },
+    'node-origin-second': { ...NO_PINS, pending: 1, review: 2, empty: 1 },
+    'node-plant-second': { ...NO_PINS },
+  },
+};
+
+/**
+ * The payload of a selection that holds nothing to draw: every family empty, so the screen's own
+ * emptiness check is what decides the state rather than a missing record.
+ */
+const EMPTY_TOPOLOGY: Topology = {
+  plants: [],
+  suppliers: [],
+  origins: [],
+  customers: [],
+  lanes: [],
+  pinsByNode: {},
+};
+
+/**
+ * The plant the canvas opens on: the first urgent row's plant, which is the node the screen resolves
+ * when the shell holds no selection.
+ */
+const OPENING_PLANT_ID = 'node-plant';
+
+/** The identifier of the first urgent row: the exception the canvas opens on. */
+const PRIMARY_EXCEPTION_ID = 'exception-gamma';
+
+/* ---------------------------------------------------------------------------------------------
+ * The urgent exceptions the stack prints, in a deliberate order
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One urgent exception, built from the fields a case needs to tell it apart.
+ *
+ * The severity, the amount and the two readings are the caller's, so the four rows below can be
+ * ordered neither by identifier nor by urgency and the suite can still assert the order it supplied.
+ * Every other member is a constant of this fixture, including the record's own state and the source it
+ * was read from, because no case asserts anything about them.
+ *
+ * @param id The record's identifier, as the payload spells it.
+ * @param plantId The plant the disruption lands on: what a plant node resolves to it through.
+ * @param productId The one product the row reaches.
+ * @param severity The urgency the record states.
+ * @param revenueAtRiskEur The amount the record's aggregate states, exactly as it arrived.
+ * @param daysToImpact The days the record states before the impact lands.
+ * @param ageHours How long the record has been open, as the record states it.
+ * @returns The row.
+ */
+function urgentRow(
+  id: string,
+  plantId: PlantId,
+  productId: ProductId,
+  severity: Severity,
+  revenueAtRiskEur: Money,
+  daysToImpact: number,
+  ageHours: number,
+): ExceptionRow {
+  return {
+    id,
+    type: 'supply-delay',
+    title: `Disruption recorded against ${id}`,
+    productIds: [productId],
+    plantId,
+    severity,
+    revenueAtRiskEur,
+    daysToImpact,
+    status: 'open',
+    ownerId: OWNER_ID,
+    ageHours,
+    freshness: { source: APPROVAL_GATE_SOURCE, asOf: AS_OF, state: 'fresh' },
+  };
+}
+
+/**
+ * The four most urgent exceptions, exactly as `listExceptions` returns them: a window of four the
+ * service ordered, in an order that is neither alphabetical nor by severity, so a screen that sorted
+ * or truncated them itself would fail the assertions below.
+ *
+ * The first row's plant is the node the canvas opens on, which is what makes the primary action
+ * available before any case touches the canvas, and the four rows reach both plants and both products
+ * so a selection of either plant resolves to an exception while a selection of a supplier resolves to
+ * none.
+ */
+const URGENT_ROWS: readonly ExceptionRow[] = [
+  urgentRow(PRIMARY_EXCEPTION_ID, OPENING_PLANT_ID, 'product-one', 'critical', 125000, 2, 6),
+  urgentRow('exception-beta', 'node-plant-second', 'product-two', 'medium', 48000, 5, 11),
+  urgentRow('exception-delta', OPENING_PLANT_ID, 'product-one', 'high', 21000, 9, 18),
+  urgentRow('exception-alpha', 'node-plant-second', 'product-two', 'low', 7500, 14, 26),
+];
+
+/* ---------------------------------------------------------------------------------------------
+ * The audit trail the dock prints
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The five events the audit read returns, newest first, in an order that is neither alphabetical nor
+ * grouped by outcome, so the dock is asserted to print the order it was handed.
+ *
+ * The outcome of each is stated here rather than derived, because a case asserts the record's own
+ * spelling beside its identifier and a derived value would let a mapping mistake pass.
+ */
+const AUDIT_EVENT_SPECS = [
+  { id: 'event-charlie', result: 'succeeded' },
+  { id: 'event-alpha', result: 'blocked' },
+  { id: 'event-echo', result: 'succeeded' },
+  { id: 'event-bravo', result: 'failed' },
+  { id: 'event-delta', result: 'allowed' },
+] as const satisfies readonly { readonly id: string; readonly result: AuditResult }[];
+
+/** The five events themselves: `AuditEvent` records whose sequence follows the order they arrived in. */
+const AUDIT_EVENTS: readonly AuditEvent[] = AUDIT_EVENT_SPECS.map((spec, position) => ({
+  sequence: position + 1,
+  id: spec.id,
+  timestamp: AS_OF,
+  actorType: 'user',
+  actorId: OWNER_ID,
+  action: 'exception.assigned',
+  objectRef: PRIMARY_EXCEPTION_ID,
+  result: spec.result,
+  before: null,
+  after: null,
+  payloadHash: `payload-${spec.id}`,
+  traceId: `trace-${spec.id}`,
+  previousHash: `previous-${spec.id}`,
+  eventHash: `event-${spec.id}`,
+}));
+
+/* ---------------------------------------------------------------------------------------------
+ * The ribbon's six figures
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The six tiles the canvas read returns, keyed by the aggregate keys the ribbon's presentation map
+ * answers. Every value is distinct, so a case can find the figure a tile shows without knowing where
+ * in the row the tile sits.
+ */
+const RIBBON_TILES: readonly RibbonTile[] = [
+  { id: 'open-exceptions', value: 7, provenance: 'computed' },
+  { id: 'critical-exceptions', value: 2, provenance: 'computed' },
+  { id: 'revenue-at-risk', value: 125000, provenance: 'computed' },
+  { id: 'customer-orders-at-risk', value: 5, provenance: 'computed' },
+  { id: 'median-hours-to-approved-plan', value: 11, provenance: 'computed' },
+  { id: 'plants-in-scope', value: 4, provenance: 'computed' },
+];
+
+/**
+ * The caption the screen gives each tile, read from the screen's own wording object so the two cannot
+ * drift: the ribbon is handed these captions as its presentation and this suite finds the tile by the
+ * same words a reader sees.
+ */
+const TILE_CAPTIONS: Readonly<Record<string, string>> = {
+  'open-exceptions': FILEMAP_CANVAS_TEXT.tileOpenExceptions,
+  'critical-exceptions': FILEMAP_CANVAS_TEXT.tileCriticalExceptions,
+  'revenue-at-risk': FILEMAP_CANVAS_TEXT.tileRevenueAtRisk,
+  'customer-orders-at-risk': FILEMAP_CANVAS_TEXT.tileCustomerOrdersAtRisk,
+  'median-hours-to-approved-plan': FILEMAP_CANVAS_TEXT.tileMedianHours,
+  'plants-in-scope': FILEMAP_CANVAS_TEXT.tilePlantsInScope,
+};
+
+/**
+ * The aggregate keys the screen formats as an amount, as its own presentation map states. Every other
+ * tile prints its figure exactly as the aggregate returned it, so a case reads a tile's text back
+ * through this set rather than guessing at a format.
+ */
+const MONEY_TILE_IDS = new Set<string>(['revenue-at-risk']);
+
+/* ---------------------------------------------------------------------------------------------
+ * The selected exception's own record
+ * ------------------------------------------------------------------------------------------- */
+
+/** The confidence the record states, in the one place this file writes it. */
+const CONFIDENCE: Confidence = { level: 'high', reason: 'A reason the record states' };
+
+/** The projected series the dock draws: two points derived from the demonstration clock. */
+const STOCK_SERIES: DailyClosingStockPoint[] = [
+  { date: CLOCK_DATE, units: 140 },
+  { date: dayAfter(CLOCK_DATE), units: 96 },
+];
+
+/**
+ * The detail the port resolves for whichever exception the selection reaches.
+ *
+ * The screen reads exactly two members of it — the record's own title and the projected series — so
+ * everything else is the smallest payload the type accepts: an empty impact chain, no affected orders
+ * and no activity, which is also what a record with nothing further to show would carry.
+ */
+const EXCEPTION_DETAIL: ExceptionDetail = {
+  exception: {
+    id: PRIMARY_EXCEPTION_ID,
+    title: 'A disruption the record states',
+    type: 'supply-delay',
+    severity: 'critical',
+    status: 'open',
+    plantId: OPENING_PLANT_ID,
+    alsoAffectsPlantIds: [],
+    materialId: 'material-one',
+    supplierId: 'supplier-one',
+    purchaseOrderId: 'order-one',
+    lineId: 'line-one',
+    ownerId: OWNER_ID,
+    daysToImpact: 2,
+    affectedLines: [],
+    missingInputs: [],
+    confidence: CONFIDENCE,
+    whatChanged: 'A sentence the record states',
+    detectedAt: AS_OF,
+  },
+  impactChain: [],
+  stockSeries: STOCK_SERIES,
+  affectedOrders: [],
+  missingInputs: [],
+  confidence: CONFIDENCE,
+  activity: [],
+};
+
+/* ---------------------------------------------------------------------------------------------
+ * The market-intelligence overlay the map lens draws, and the refusals a state case needs
+ * ------------------------------------------------------------------------------------------- */
+
+/** One shared crossing, stated with the market pack's own members and nothing else. */
+const CROSSING: Chokepoint = {
+  id: 'crossing-one',
+  label: 'Southern sea crossing',
+  overlap: 67,
+  competitorBufferDays: { 'competitor-one': 12 },
+  contentionNote: 'Three networks use the crossing and the buffer each holds differs.',
+  provenance: 'market_intelligence',
+};
+
+/**
+ * A market-intelligence payload: one competitor network of two sites whose lane names the crossing.
+ *
+ * The screen forwards this payload to the map lens unchanged and asserts nothing about it, so all this
+ * fixture has to do is satisfy the shape the lens draws and prove the surface still renders while the
+ * overlay is present (rules P-4, P-5).
+ */
+const ATLAS: Atlas = {
+  packLabel: 'Market-intelligence pack, simulated',
+  packVersion: 'pack-one',
+  productClasses: ['product-one'],
+  clientSites: [],
+  competitors: [
+    {
+      competitorId: 'competitor-one',
+      label: 'Aurelvik Drive Systems',
+      provenance: 'market_intelligence',
+      sites: [
+        {
+          id: 'site-alpha',
+          competitorId: 'competitor-one',
+          label: 'Ningbo drive plant',
+          latitude: 29.87,
+          longitude: 121.55,
+        },
+        {
+          id: 'site-beta',
+          competitorId: 'competitor-one',
+          label: 'Gdansk assembly',
+          latitude: 54.35,
+          longitude: 18.65,
+        },
+      ],
+      lanes: [{ fromId: 'site-alpha', toId: 'site-beta', chokepointId: CROSSING.id }],
+    },
+  ],
+  chokepoints: [CROSSING],
+  radarAxes: [],
+  radarSeries: [],
+};
+
+/** The permission a refused read names: one the acting role would have to hold. */
+const DENIED_PERMISSION: Permission = 'competitive.read';
+
+/** The role that holds it, as the refusal reports. */
+const HOLDING_ROLE: Role = 'head-of-supply-chain';
+
+/**
+ * A typed refusal that names its cause as a permission, member for member what the boundary's
+ * forbidden card explains.
+ */
+const DENIAL: Problem = {
+  type: 'permission',
+  message: 'The acting role does not hold the permission this read requires.',
+  traceId: 'trace-denial',
+  requiredPermission: DENIED_PERMISSION,
+  rolesWithPermission: [HOLDING_ROLE],
+};
+
+/**
+ * A typed refusal that names its cause as a validation, which is the state the screen reports as a
+ * conflict: the records moved under the reader rather than a source failing to answer.
+ */
+const CONFLICT: Problem = {
+  type: 'validation',
+  message: 'The record changed while it was being read.',
+  traceId: 'trace-conflict',
+};
+
+/** A rejection in no typed shape at all, which the screen reports as a source that did not answer. */
+const FAILURE = new Error('A source did not answer.');
+
+/* ---------------------------------------------------------------------------------------------
+ * The envelopes the stub answers with
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The six sources' report, with the approval-gating source moved to the state a case needs.
+ *
+ * `Result.meta.freshness` is the adapter's own account of what each source did, so the seven states
+ * are driven from this report rather than from a flag name (AAP §0.2.1, §0.8). ERP is the source moved,
+ * because it is the one the screen's stale banner prefers and the one the freshness rule gates
+ * approval on, so an assertion can name it without guessing.
+ *
+ * @param state - The state the gating source reports.
+ * @returns One record per source, in the order `SOURCE_IDS` fixes.
+ */
+function freshnessWith(state: FreshnessState): Freshness[] {
+  return SOURCE_IDS.map((source) => ({
+    source,
+    asOf: AS_OF,
+    state: source === APPROVAL_GATE_SOURCE ? state : 'fresh',
+  }));
+}
+
+/**
+ * The metadata every stubbed answer carries.
+ *
+ * @param state - The state the gating source reports in this answer.
+ * @returns The freshness report, the literal simulation marker and the correlation identifier.
+ */
+function metaWith(state: FreshnessState): Meta {
+  return { freshness: freshnessWith(state), simulated: true, traceId: TRACE_ID };
+}
+
+/**
+ * One successful answer, in the envelope the port resolves.
+ *
+ * @typeParam T - The payload.
+ * @param data - The payload exactly as the screen will read it.
+ * @param state - The state the gating source reports; current unless a case says otherwise.
+ * @returns The result.
+ */
+function envelope<T>(data: T, state: FreshnessState = 'fresh'): Result<T> {
+  return { data, meta: metaWith(state) };
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The harness
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The probe route the primary action lands on: it prints the identifier the route received, so a case
+ * asserts the navigation through the visible interface rather than through a router's internals.
+ *
+ * @returns The level-one heading holding the identifier.
+ */
+function ExceptionProbe() {
+  const { exceptionId } = useParams();
+
+  return <h1>{exceptionId}</h1>;
+}
+
+/**
+ * Renders the screen as the shell mounts it: at its own route, inside a cache of its own, with the
+ * exception the primary action names mounted beside it as the probe that navigation reaches.
+ *
+ * The cache is fresh per render, its retries are off and its entries are collected immediately, so a
+ * refusal fails the same way however often it is repeated and one case cannot read another's cached
+ * payload.
+ *
+ * @param props - The members of the screen's contract this case varies. All are optional upstream.
+ * @returns The render result, so a case can unmount before rendering again.
+ */
+function renderScreen(props: Partial<FilemapCanvasScreenProps> = {}): RenderResult {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: Infinity } },
+  });
+
+  return render(
+    <MemoryRouter initialEntries={[CANVAS_ROUTE]}>
+      <QueryClientProvider client={client}>
+        <Routes>
+          <Route path={CANVAS_ROUTE} element={<FilemapCanvasScreen {...props} />} />
+          <Route path={EXCEPTION_ROUTE} element={<ExceptionProbe />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The readings the cases take
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The canvas region: the section the screen names for whichever lens is drawn in it.
+ *
+ * @returns The element, once it exists.
+ */
+function canvasRegion(): HTMLElement {
+  return screen.getByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+}
+
+/**
+ * The stack region beside the canvas: the aside holding the urgent rows and the product cards.
+ *
+ * @returns The element, or `null` when wall mode has stood it down.
+ */
+function stackRegion(): HTMLElement | null {
+  return screen.queryByRole('complementary', { name: FILEMAP_CANVAS_TEXT.stackRegionLabel });
+}
+
+/**
+ * The ribbon: the group the six tiles sit in.
+ *
+ * @returns The element.
+ */
+function ribbonGroup(): HTMLElement {
+  return screen.getByRole('group', { name: UI.ribbon });
+}
+
+/**
+ * The dock: the section holding the projected series and the five audit events.
+ *
+ * @returns The element.
+ */
+function dockRegion(): HTMLElement {
+  return screen.getByRole('region', { name: TIMELINE_DOCK_TEXT.title });
+}
+
+/**
+ * The audit half of the dock: the panel the five events are listed in.
+ *
+ * Read as its own region rather than as the dock's whole list, because the projected series beside it
+ * describes its one series in a list of its own — the trail is the panel the screen names for the
+ * events, and a count taken over the whole dock would mix the two.
+ *
+ * @returns The panel.
+ */
+function auditTrail(): HTMLElement {
+  const dock = dockRegion();
+
+  return within(dock).getByRole('region', {
+    name: new RegExp(`^${TIMELINE_DOCK_TEXT.activityTitle}`, 'u'),
+  });
+}
+
+/**
+ * Whether a rendered string states the expected one, once both are collapsed the way the queries
+ * collapse them.
+ *
+ * The amount the interface prints separates its value from the currency code with a non-breaking
+ * space, which a plain string matcher would not match against the same formatter's output. Collapsing
+ * both sides compares what a reader sees without this suite writing the formatted value itself
+ * (rule P-6).
+ *
+ * @param content - The text the element states.
+ * @param expected - The value the read returned, as its formatter states it.
+ * @returns Whether the two state the same thing.
+ */
+function statesSameText(content: string, expected: string): boolean {
+  const collapse = (value: string): string => value.replace(/\s+/gu, ' ').trim();
+
+  return collapse(content) === collapse(expected);
+}
+
+/**
+ * Escapes the characters a label's own text could carry into a regular expression, so a node is
+ * matched by the words the payload states rather than by an accidentally special pattern.
+ *
+ * @param value - The literal text to escape.
+ * @returns The text, safe to interpolate into a pattern.
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+/**
+ * One canvas node's control, in whichever lens is in view, matched by the label its accessible name
+ * opens with. Both lenses open a node's name with the payload's own label, so one reading finds the
+ * node in either.
+ *
+ * @param label - The node's label, as the payload states it.
+ * @returns The focusable node control.
+ */
+function nodeControl(label: string): HTMLElement {
+  return screen.getByRole('button', { name: new RegExp(`^${escapeRegExp(label)},`, 'u') });
+}
+
+/**
+ * The caption the screen states beside the lens switch, which is how the active lens is read in words
+ * rather than from a colour (rule B-3).
+ *
+ * @param lensLabel - The label of the lens expected to be in view.
+ * @returns The sentence the screen renders.
+ */
+function lensCaption(lensLabel: string): string {
+  return `${FILEMAP_CANVAS_TEXT.lensCaptionPrefix} ${lensLabel}`;
+}
+
+/**
+ * The user-event harness the keyboard cases drive.
+ *
+ * Named so a helper that walks the tab order can take it as an argument without widening its parameter
+ * to `any`.
+ */
+type User = ReturnType<typeof userEvent.setup>;
+
+/**
+ * Activates a named control from the keyboard: focus it, then press the key a reader would.
+ *
+ * @param user - The user-event harness.
+ * @param name - The control's accessible name.
+ */
+async function activate(user: User, name: string): Promise<void> {
+  const control = screen.getByRole('button', { name });
+
+  control.focus();
+  await user.keyboard('{Enter}');
+}
+
+/**
+ * Walks the document's tab order until the focused element satisfies a predicate, so a case asserts
+ * reachability without numbering the focus stops of a surface it does not own.
+ *
+ * @param user - The user-event harness.
+ * @param matches - The predicate the focused element must satisfy.
+ * @param limit - The greatest number of stops to walk before the case fails.
+ * @returns The element the walk stopped on.
+ * @throws When the walk never reaches a matching element, which is the failure the case asserts.
+ */
+async function tabTo(
+  user: User,
+  matches: (element: Element) => boolean,
+  limit: number,
+): Promise<HTMLElement> {
+  for (let step = 0; step < limit; step += 1) {
+    await user.tab();
+
+    const active = document.activeElement;
+
+    if (active !== null && matches(active)) {
+      return active as HTMLElement;
+    }
+  }
+
+  throw new Error('The keyboard walk never reached the control the case needs.');
+}
+
+/**
+ * Arms every stub with the payloads a case starts from, so a case states only the read it changes.
+ */
+beforeEach(() => {
+  for (const member of Object.values(port)) {
+    member.mockReset();
+  }
+
+  port.getTopology.mockResolvedValue(envelope(TOPOLOGY));
+  port.getCanvasRibbon.mockResolvedValue(envelope([...RIBBON_TILES]));
+  port.listExceptions.mockResolvedValue(envelope([...URGENT_ROWS]));
+  port.listAuditEvents.mockResolvedValue(envelope([...AUDIT_EVENTS]));
+  port.getAtlas.mockResolvedValue(envelope(ATLAS));
+  port.getExceptionDetail.mockResolvedValue(envelope(EXCEPTION_DETAIL));
+});
+
+/** Leaves `<html>` on the theme of whichever suite runs next, and no case's attribute behind. */
+afterEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+});
+
+
+describe('FilemapCanvasScreen', () => {
+  it('reads the canvas through the port with the shell’s selection and reaches nothing else', async () => {
+    renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The empty plant and product arrays are `Scope`'s "all plants and all products", which is what a
+       shell that has not filtered yet holds and what this suite supplies by omitting the prop
+       (rule P-2: the screen owns no selection of its own to send). */
+    expect(port.getTopology).toHaveBeenCalledWith(NO_SCOPE);
+    expect(port.getCanvasRibbon).toHaveBeenCalledWith(NO_SCOPE);
+    /* Both windows are handed to the service rather than applied to its answer, so the ordering and
+       the limit are the port's and the screen neither sorts nor truncates (rule P-6). */
+    expect(port.listExceptions).toHaveBeenCalledWith({ limit: URGENT_WINDOW }, NO_SCOPE);
+    expect(port.listAuditEvents).toHaveBeenCalledWith({ limit: AUDIT_WINDOW });
+    /* The selected exception's own record is read once the selection resolves to it. */
+    expect(port.getExceptionDetail).toHaveBeenCalledWith(PRIMARY_EXCEPTION_ID);
+    expect(port.getAtlas).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the lens in a 65% canvas region beside the stack, stacked below the wide breakpoint', async () => {
+    renderScreen();
+
+    const canvas = await screen.findByRole('region', {
+      name: FILEMAP_CANVAS_TEXT.canvasRegionLabel,
+    });
+    const stack = stackRegion();
+
+    /* The proportion is the screen's own, stated as a fraction of the row so the lens keeps it at
+       every viewport above the breakpoint; below it the row stacks and the fraction takes no effect. */
+    expect(canvas.className).toContain('xl:basis-[65%]');
+
+    const row = canvas.parentElement;
+
+    expect(row).not.toBeNull();
+    expect(row?.className).toContain('flex-col');
+    expect(row?.className).toContain('xl:flex-row');
+
+    /* The stack is the other region of the same row, in its own named landmark. */
+    expect(stack).not.toBeNull();
+    expect(stack?.parentElement).toBe(row);
+    expect(stack?.className).toContain('xl:basis-[35%]');
+  });
+
+  it('shows six ribbon tiles, each labelling its own figure with the fixed computed-figure string', async () => {
+    renderScreen();
+
+    const ribbon = await screen.findByRole('group', { name: UI.ribbon });
+
+    /* One tile per aggregate the read returned, in the payload's order. */
+    expect(within(ribbon).getAllByRole('region')).toHaveLength(RIBBON_TILES.length);
+
+    for (const tile of RIBBON_TILES) {
+      const caption = TILE_CAPTIONS[tile.id];
+
+      expect(caption).toBeDefined();
+
+      if (caption === undefined) {
+        continue;
+      }
+
+      const region = within(ribbon).getByRole('region', { name: caption });
+
+      /* The label sits inside the tile that owns the figure, so the shell's page-level badge could
+         neither satisfy it nor stand in for a tile that forgot it (rule P-1). */
+      expect(within(region).getAllByText(SIM_LABELS[1])).toHaveLength(1);
+
+      /* The figure is the value the read returned, formatted only by the rule the screen stated for
+         that tile: an amount through the interface's one money formatter, a count as it arrived
+         (rule P-6). Neither expectation recomputes anything. */
+      const shown = MONEY_TILE_IDS.has(tile.id) ? formatMoney(tile.value) : String(tile.value);
+
+      expect(
+        within(region).getByText((content) => statesSameText(content, shown)),
+      ).toBeInTheDocument();
+    }
+  });
+
+  it('carries the node selected in the map lens into the graph lens', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The canvas opens on the plant of the most urgent exception, so the primary action is offered
+       before anything is touched. */
+    expect(
+      screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
+    ).toBeInTheDocument();
+
+    const supplier = nodeControl('Halvard Components');
+
+    supplier.focus();
+    await user.keyboard('{Enter}');
+
+    /* A supplier node answers no exception, so the action that investigates one is gone: the screen
+       derives that from the record rather than from a flag. */
+    expect(
+      screen.queryByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
+    ).not.toBeInTheDocument();
+
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
+
+    /* The graph lens marks the very node the map lens reported: one selection, two lenses, and the
+       strip states it in words rather than by colour (rule B-3). */
+    const strip = screen.getByText(DEPENDENCY_GRAPH_TEXT.selectedLabel).parentElement;
+
+    expect(strip).not.toBeNull();
+    expect(strip).toHaveTextContent('Halvard Components');
+  });
+
+  it('reports each wall-mode request to the shell that owns the navigation', async () => {
+    const user = userEvent.setup();
+    const requests: boolean[] = [];
+
+    renderScreen({
+      onWallModeChange: (wallMode) => {
+        requests.push(wallMode);
+      },
+    });
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    await activate(user, FILEMAP_CANVAS_TEXT.wallModeEnter);
+
+    expect(requests).toStrictEqual([true]);
+
+    /* The control relabels itself while the mode is on, so leaving it is the same control's second
+       act rather than a second, unannounced one. */
+    await activate(user, FILEMAP_CANVAS_TEXT.wallModeExit);
+
+    expect(requests).toStrictEqual([true, false]);
+  });
+
+  it('gives the drawing the whole row in wall mode with no shell listening', async () => {
+    const user = userEvent.setup();
+
+    /* No shell is supplied in this suite at all: no navigation, no store, no shell provider. The mode
+       therefore has to do what the screen owns by itself, which is the indirect evidence that the
+       screen reaches nothing in the shell's own modules. */
+    renderScreen();
+
+    const canvas = await screen.findByRole('region', {
+      name: FILEMAP_CANVAS_TEXT.canvasRegionLabel,
+    });
+
+    expect(canvas.className).toContain('xl:basis-[65%]');
+    expect(stackRegion()).not.toBeNull();
+
+    await activate(user, FILEMAP_CANVAS_TEXT.wallModeEnter);
+
+    expect(canvas.className).toContain('xl:basis-full');
+    expect(canvas.className).not.toContain('xl:basis-[65%]');
+    expect(stackRegion()).toBeNull();
+
+    await activate(user, FILEMAP_CANVAS_TEXT.wallModeExit);
+
+    expect(canvas.className).toContain('xl:basis-[65%]');
+    expect(stackRegion()).not.toBeNull();
+  });
+
+  it('prints exactly the five audit events the read returned, in the order it returned them', async () => {
+    renderScreen();
+
+    const dock = await screen.findByRole('region', { name: TIMELINE_DOCK_TEXT.title });
+    const rows = within(auditTrail()).getAllByRole('listitem');
+
+    /* The dock's window, not a count of the records that happen to exist. */
+    expect(rows).toHaveLength(AUDIT_WINDOW);
+
+    AUDIT_EVENTS.forEach((event, position) => {
+      const row = rows[position];
+
+      expect(row).toBeDefined();
+
+      if (row === undefined) {
+        return;
+      }
+
+      /* Each row states the record's own identifier and the outcome it recorded, so a re-ordered or
+         re-mapped trail fails here. */
+      expect(within(row).getByText(event.id)).toBeInTheDocument();
+      expect(within(row).getByText(event.result)).toBeInTheDocument();
+    });
+
+    /* The two half-dock labels the components own: the projected series is a computed figure and the
+       trail is a simulated control (rules P-1, P-4). */
+    const figure = dock.querySelector('figure');
+
+    expect(figure).not.toBeNull();
+
+    if (figure !== null) {
+      expect(within(figure).getByText(SIM_LABELS[1])).toBeInTheDocument();
+    }
+
+    expect(within(dock).getByText(SIM_LABELS[4])).toBeInTheDocument();
+  });
+
+  it('shows the loading state while the reads the canvas needs are pending', async () => {
+    /* A read that never settles: the surface has nothing to draw and says so. */
+    port.getTopology.mockReturnValue(new Promise<Result<Topology>>(() => undefined));
+
+    renderScreen();
+
+    const busy = screen.getByRole('status', { name: STATE_BOUNDARY_TEXT.loading });
+
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    /* Nothing stands in for the figures behind a read that has not answered. */
+    expect(screen.queryByRole('group', { name: UI.ribbon })).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state with the screen’s own sentence when the selection holds nothing', async () => {
+    port.getTopology.mockResolvedValue(envelope(EMPTY_TOPOLOGY));
+    port.listExceptions.mockResolvedValue(envelope([]));
+
+    renderScreen();
+
+    expect(await screen.findByText(FILEMAP_CANVAS_TEXT.empty)).toBeInTheDocument();
+    /* An empty selection is a real answer: it replaces the content rather than warning above it. */
+    expect(screen.queryByRole('group', { name: UI.ribbon })).not.toBeInTheDocument();
+  });
+
+  it('names the stale source and its as-of time above the figures that are still drawn', async () => {
+    port.getTopology.mockResolvedValue(envelope(TOPOLOGY, 'stale'));
+
+    renderScreen();
+
+    /* The banner names the source the read reported as stale, through the one owner of the six
+       display names, and prints the instant that source last answered. */
+    expect(
+      await screen.findByText(`${SOURCE_LABELS[APPROVAL_GATE_SOURCE]}${STATE_BOUNDARY_TEXT.staleSuffix}`),
+    ).toBeInTheDocument();
+    /* The instant is read inside the banner, because the same record value is stamped on the rows and
+       the trail beside it; what the state asserts is that the warning states it. */
+    expect(within(screen.getByRole('status')).getByText(AS_OF)).toBeInTheDocument();
+
+    /* A warning about the data does not withhold the data. */
+    expect(ribbonGroup()).toBeInTheDocument();
+  });
+
+  it('warns above the figures when a source answered incompletely', async () => {
+    port.getTopology.mockResolvedValue(envelope(TOPOLOGY, 'partial'));
+
+    renderScreen();
+
+    expect(await screen.findByText(STATE_BOUNDARY_TEXT.partialHeadline)).toBeInTheDocument();
+    expect(screen.getByText(FILEMAP_CANVAS_TEXT.partial)).toBeInTheDocument();
+    expect(ribbonGroup()).toBeInTheDocument();
+  });
+
+  it('offers a retry that reads the canvas again when no source answered', async () => {
+    const user = userEvent.setup();
+
+    port.getTopology.mockRejectedValueOnce(FAILURE);
+
+    renderScreen();
+
+    expect(await screen.findByText(STATE_BOUNDARY_TEXT.offlineHeadline)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: UI.ribbon })).not.toBeInTheDocument();
+
+    expect(port.getTopology).toHaveBeenCalledTimes(1);
+
+    await activate(user, STATE_BOUNDARY_TEXT.retryLabel);
+
+    /* The retry asks the port again rather than re-rendering what failed to arrive. */
+    expect(await screen.findByRole('group', { name: UI.ribbon })).toBeInTheDocument();
+    expect(port.getTopology).toHaveBeenCalledTimes(2);
+  });
+
+  it('explains a permission refusal with the permission, the roles that hold it and the trace id', async () => {
+    port.getTopology.mockRejectedValue(DENIAL);
+
+    renderScreen();
+
+    /* The card names the permission the acting role lacks, without this suite restating the wording
+       the card composes around it. */
+    expect(
+      await screen.findByRole('heading', { name: new RegExp(escapeRegExp(DENIED_PERMISSION), 'u') }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(HOLDING_ROLE)).toBeInTheDocument();
+    expect(screen.getByText(DENIAL.traceId)).toBeInTheDocument();
+
+    /* Repeating a call the role is not permitted to make would be refused again, so no retry is
+       offered (rules P-8). */
+    expect(
+      screen.queryByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reports records that moved under the reader as a conflict, with a control that re-reads them', async () => {
+    const user = userEvent.setup();
+
+    port.getTopology.mockRejectedValue(CONFLICT);
+
+    renderScreen();
+
+    expect(await screen.findByText(FILEMAP_CANVAS_TEXT.conflict)).toBeInTheDocument();
+
+    await activate(user, STATE_BOUNDARY_TEXT.reloadLabel);
+
+    expect(port.getTopology).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers the primary action only while the selection reaches an exception, and opens that one', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const action = await screen.findByRole('button', {
+      name: FILEMAP_CANVAS_TEXT.primaryAction,
+    });
+
+    action.focus();
+    await user.keyboard('{Enter}');
+
+    /* The action lands on the exception's own route, with the identifier the selection resolved to. */
+    expect(
+      await screen.findByRole('heading', { level: 1, name: PRIMARY_EXCEPTION_ID }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders no primary action while the selection reaches no exception', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    expect(
+      screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
+    ).toBeInTheDocument();
+
+    const origin = nodeControl('Ordival Metals');
+
+    origin.focus();
+    await user.keyboard('{Enter}');
+
+    /* The specification fixes no reason string for a control that could not act here, so the control
+       is not rendered at all rather than shown dead (rule P-8), and the dock explains the gap in the
+       projection instead of drawing empty axes. */
+    expect(
+      screen.queryByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(FILEMAP_CANVAS_TEXT.dockEmpty)).toBeInTheDocument();
+  });
+
+  it('holds under both themes', async () => {
+    const user = userEvent.setup();
+
+    for (const theme of THEMES) {
+      document.documentElement.dataset.theme = theme;
+
+      const rendered = renderScreen();
+
+      const canvas = await screen.findByRole('region', {
+        name: FILEMAP_CANVAS_TEXT.canvasRegionLabel,
+      });
+
+      /* The proportion, the ribbon's labels, both lenses, the action and the dock are the surface's
+         contract rather than its colouring, so each of them holds in both themes. No assertion here
+         reads a colour, which is why the same expectations run twice. */
+      expect(canvas.className).toContain('xl:basis-[65%]');
+      expect(stackRegion()).not.toBeNull();
+
+      const ribbon = ribbonGroup();
+
+      for (const tile of RIBBON_TILES) {
+        const caption = TILE_CAPTIONS[tile.id];
+
+        if (caption === undefined) {
+          continue;
+        }
+
+        expect(
+          within(within(ribbon).getByRole('region', { name: caption })).getAllByText(SIM_LABELS[1]),
+        ).toHaveLength(1);
+      }
+
+      expect(
+        screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
+      ).toBeInTheDocument();
+
+      await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+      expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
+
+      expect(within(auditTrail()).getAllByRole('listitem')).toHaveLength(AUDIT_WINDOW);
+
+      rendered.unmount();
+    }
+
+    expect(document.documentElement.dataset.theme).toBe(THEMES[THEMES.length - 1]);
+  });
+
+  it('reaches the lens switch, the wall-mode toggle and a canvas node from the keyboard alone', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The action this screen exists to take is the first stop the tab order reaches. */
+    const primary = await tabTo(
+      user,
+      (element) => element.textContent?.trim() === FILEMAP_CANVAS_TEXT.primaryAction,
+      TAB_WALK_LIMIT,
+    );
+
+    expect(primary.tagName).toBe('BUTTON');
+
+    /* The lens switch is reached and operated with no pointer at all, and the screen states the lens
+       it now draws in words. */
+    await tabTo(
+      user,
+      (element) => element.textContent?.trim() === FILEMAP_CANVAS_TEXT.graphLens,
+      TAB_WALK_LIMIT,
+    );
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
+
+    /* So is the wall-mode toggle, whose label states the mode it will leave. */
+    await tabTo(
+      user,
+      (element) => element.textContent?.trim() === FILEMAP_CANVAS_TEXT.wallModeEnter,
+      TAB_WALK_LIMIT,
+    );
+    await user.keyboard('{Enter}');
+
+    expect(
+      screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.wallModeExit }),
+    ).toBeInTheDocument();
+
+    /* And a node, whose activation moves the selection the dock follows. */
+    await tabTo(
+      user,
+      (element) => (element.getAttribute('aria-label') ?? '').startsWith('Ordival Metals,'),
+      TAB_WALK_LIMIT,
+    );
+    await user.keyboard('{Enter}');
+
+    const strip = screen.getByText(DEPENDENCY_GRAPH_TEXT.selectedLabel).parentElement;
+
+    expect(strip).not.toBeNull();
+    expect(strip).toHaveTextContent('Ordival Metals');
+  });
+
+  it('asks no origin for anything and carries no test hook (rule B-1)', async () => {
+    const user = userEvent.setup();
+    const fetched = vi.spyOn(globalThis, 'fetch');
+    const opened = vi.spyOn(XMLHttpRequest.prototype, 'open');
+    const sent = vi.spyOn(XMLHttpRequest.prototype, 'send');
+
+    const { container } = renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The surface is operated the way a reader would before the claim is made. */
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    const node = nodeControl('Northgate plant');
+
+    node.focus();
+    await user.keyboard('{Enter}');
+
+    await activate(user, FILEMAP_CANVAS_TEXT.mapLens);
+
+    expect(fetched).not.toHaveBeenCalled();
+    expect(opened).not.toHaveBeenCalled();
+    expect(sent).not.toHaveBeenCalled();
+
+    /* Nothing the surface renders addresses a host or embeds a resource that would. */
+    const addresses = [
+      ...container.querySelectorAll('[href],[xlink\\:href],[src],[srcset],[action]'),
+    ]
+      .map(
+        (element) =>
+          element.getAttribute('href') ??
+          element.getAttribute('xlink:href') ??
+          element.getAttribute('src') ??
+          element.getAttribute('srcset') ??
+          element.getAttribute('action') ??
+          '',
+      )
+      .filter((address) => address.trim() !== '');
+
+    expect(addresses).toStrictEqual([]);
+    expect(container.querySelectorAll('img, image, iframe, object, embed')).toHaveLength(0);
+    /* And no hook exists for a test to reach production behaviour through. */
+    expect(container.querySelectorAll('[data-testid]')).toHaveLength(0);
+  });
+
+  it('explains the one control on the canvas that cannot act, and leaves no silent dead control', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The graph lens is where the staged control lives, and the opening selection is a plant that
+       carries a product, which is the condition the drawing renders it under. */
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    const openPart = screen.getByRole('button', { name: DEPENDENCY_GRAPH_TEXT.openPartLabel });
+
+    expect(openPart).toHaveAttribute('aria-disabled', 'true');
+
+    /* It stays in the tab order and states why on focus, so the reason is reachable by keyboard and
+       announced rather than painted only on hover (rules B-3, P-8). */
+    openPart.focus();
+
+    expect(document.activeElement).toBe(openPart);
+    expect(openPart).toHaveAccessibleDescription(DEPENDENCY_GRAPH_TEXT.stageFourReason);
+
+    /* Activating it does nothing at all: the reader stays where they were rather than being taken to
+       a stage that does not exist. */
+    await user.keyboard('{Enter}');
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: FILEMAP_CANVAS_TEXT.title }),
+    ).toBeInTheDocument();
+
+    /* Every control in the canvas that reports itself unavailable carries a reason, so none of them
+       is focusable and silent. */
+    const unavailable = [
+      ...canvasRegion().querySelectorAll<HTMLButtonElement>('button[aria-disabled="true"]'),
+    ];
+
+    expect(unavailable.length).toBeGreaterThan(0);
+
+    for (const control of unavailable) {
+      expect(control).toHaveAccessibleDescription();
+    }
+  });
+});
+
