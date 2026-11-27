@@ -43,9 +43,10 @@
  *   arithmetic is small enough to follow in the comment that states it, an invariant over the
  *   result, or read from `tests/fixtures/solver-expected-results.ts`, which rule P-6 makes the one
  *   home of an expected figure.
- * - P-2: it imports the three sibling modules, the shared types, the seeded case and `vitest` — no
- *   service, no React — so the arithmetic is exercised exactly as the adapter exercises it. The one
- *   seed import is the documented exception the note above it states.
+ * - P-2: it imports the three sibling modules, the shared types, `vitest` and the mock adapter's
+ *   `loadSeed()` — so the arithmetic is exercised exactly as the adapter exercises it, and the seeded
+ *   case arrives through the one door rule P-2 leaves open. The note above the import states why the
+ *   case is reached that way.
  * - P-7: the probe identifiers are test-local and carry `PROBE`, and every other identifier is a
  *   seeded record's own; no real vendor, customer, carmaker or cloud product is named, and no filler
  *   prose appears.
@@ -72,18 +73,25 @@ import { solveSupplyDelay } from './solve-supply-delay';
 /*
  * The seeded case is reached here for one reason: AAP 0.7 success criterion 1 and T-25 compare this
  * function's output against the seed's expected-results table, and a comparison cannot exist without
- * the case the table is measured at. Rule P-2 bars components and screens from reaching records and
- * makes the mock adapter the one road to the data at runtime; this is a suite, and the boundary it
- * keeps is asserted by `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat
- * an import of a seed record by a test file as this documented exception rather than as a screen's
- * shortcut — the same exception `src/services/service-conformance.test.ts` records for the two seed
- * names it reads.
+ * the case the table is measured at.
+ *
+ * HOW IT IS REACHED, AND WHY THIS WAY. Rule P-2 lets one module read `src/seed/` — the mock adapter's
+ * loader — and `tests/source-checks/no-seed-import-outside-mock.test.ts` fails on every other import of
+ * the folder, a suite included. The case therefore arrives through `loadSeed()`, the same call the
+ * adapter's bootstrap makes, which returns a typed deep clone of the whole record set. That is a
+ * deliberate test-only dependency from this folder on `src/services/mock`: rule P-2 leaves no other
+ * door to a seeded record, and the four modules under test (`solve-supply-delay.ts`, `calendar.ts`,
+ * `rounding.ts` and the shared types) still import neither the service layer nor the seed, so the
+ * arithmetic is exercised exactly as the adapter exercises it.
  *
  * The fixture is imported rather than the figures typed here, because rule P-6 gives the expected
  * results exactly one home.
  */
-import { SOLVER_CASES } from '../../seed/solver-cases';
+import { loadSeed } from '../../services/mock/seed-loader';
 import { EXPECTED_SOLVER_ROWS, SOLVER_CASE_ID } from '../../../tests/fixtures/solver-expected-results';
+
+/** The seeded solver cases, as the adapter's loader hands them over: the case the table is measured at. */
+const SEEDED_SOLVER_CASES = loadSeed().solverCases;
 
 /* ---------------------------------------------------------------------------------------------
  * A. The probe cases
@@ -1015,17 +1023,17 @@ describe('the working calendar', () => {
 /**
  * Measures the seeded case under one fixture row's levers.
  *
- * The case is looked up from `src/seed/solver-cases.ts` by the fixture's own `SOLVER_CASE_ID`, so the
- * comparison is anchored on the case the table names rather than on whichever case the seed holds
- * first.
+ * The case is looked up from the record set `loadSeed()` returns, by the fixture's own
+ * `SOLVER_CASE_ID`, so the comparison is anchored on the case the table names rather than on whichever
+ * case the record set holds first.
  *
  * @param row The fixture row whose levers are set.
  * @returns The measurement of the seeded case under those levers.
- * @throws Error When the seed carries no case with that identifier, because a comparison with nothing
- *   to measure against must fail loudly instead of passing on an empty table.
+ * @throws Error When the record set carries no case with that identifier, because a comparison with
+ *   nothing to measure against must fail loudly instead of passing on an empty table.
  */
 function measureSeededRow(row: (typeof EXPECTED_SOLVER_ROWS)[number]): SolverResult {
-  const caseRecord = SOLVER_CASES.find((entry) => entry.id === SOLVER_CASE_ID);
+  const caseRecord = SEEDED_SOLVER_CASES.find((entry) => entry.id === SOLVER_CASE_ID);
 
   if (caseRecord === undefined) {
     throw new Error(

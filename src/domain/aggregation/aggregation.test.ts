@@ -135,29 +135,19 @@ import { computeRibbonTiles, sortUrgent } from './urgency';
  * baseline solves the adapter takes with `solveSupplyDelay` at the do-nothing levers, because the
  * affected-lines rule reads a measurement rather than a stored figure.
  *
- * Rule P-2 bars components and screens from reaching records and makes the mock adapter the one road to
- * the data at runtime; this is a suite, and the boundary it keeps is asserted by
- * `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat an import of a seed
- * record by a test file as this documented exception rather than as a screen's shortcut — the same
- * exception `src/services/service-conformance.test.ts` records for the seed names it reads. The audit
- * chain is imported for the ledger comparison alone: `computeLedger` counts linked events, so the
- * drafts are linked here the way the adapter's bootstrap links them, with real hashes rather than
- * placeholders.
+ * HOW THE RECORDS ARE REACHED, AND WHY THIS WAY. Rule P-2 lets one module read `src/seed/` — the mock
+ * adapter's loader — and `tests/source-checks/no-seed-import-outside-mock.test.ts` fails on every other
+ * import of the folder, a suite included. The records therefore arrive through `loadSeed()`, the call
+ * the adapter's bootstrap makes, and the bindings after the imports name the members it returns. That
+ * is a deliberate test-only dependency from this folder on `src/services/mock`: rule P-2 leaves no
+ * other door to a seeded record, and the modules under test still import neither the service layer nor
+ * the seed. The audit chain is imported for the ledger comparison alone: `computeLedger` counts linked
+ * events, so the drafts are linked here the way the adapter's bootstrap links them, with real hashes
+ * rather than placeholders.
  */
 import { appendEvent } from '../audit/chain';
 import { solveSupplyDelay } from '../solver/solve-supply-delay';
-import { APPROVALS } from '../../seed/approvals';
-import { SEEDED_AUDIT_EVENTS } from '../../seed/audit-events';
-import { CUSTOMER_ORDERS } from '../../seed/customer-orders';
-import { EXCEPTION_HISTORY } from '../../seed/exception-history';
-import { EXCEPTIONS } from '../../seed/exceptions';
-import { MATERIALS as SEEDED_MATERIALS } from '../../seed/materials';
-import { PPAP_PACKAGES } from '../../seed/packages';
-import { PLANTS as SEEDED_PLANTS } from '../../seed/plants';
-import { PRODUCTS } from '../../seed/products';
-import { SOLVER_CASES } from '../../seed/solver-cases';
-import { SOURCES } from '../../seed/sources';
-import { SOVEREIGNTY } from '../../seed/sovereignty';
+import { loadSeed } from '../../services/mock/seed-loader';
 import {
   EXPECTED_AFFECTED_LINES_BY_EXCEPTION,
   EXPECTED_BY_PLANT,
@@ -168,6 +158,57 @@ import {
   EXPECTED_REVENUE_AT_RISK_BY_EXCEPTION,
   EXPECTED_URGENT_ORDER,
 } from '../../../tests/fixtures/aggregates-expected';
+
+/* ---------------------------------------------------------------------------------------------
+ * The seeded record set, as the mock adapter loads it (rule P-2, AAP 0.9)
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One deep clone of every seeded record, taken through the adapter's loader.
+ *
+ * Rule P-2 leaves exactly one door to `src/seed/`, and `loadSeed()` is the suite's way through it: the
+ * same call the adapter's bootstrap makes, returning records typed by the barrel. Nothing here writes
+ * to the clone, and each binding below names the member the comparisons read, so a renamed record set
+ * fails the type check here rather than leaving a comparison against an empty collection.
+ */
+const SEEDED_RECORD_SET = loadSeed();
+
+/** The exception records the queue, the overview and the ribbon are computed over. */
+const EXCEPTIONS = SEEDED_RECORD_SET.exceptions;
+
+/** The product records the affected lines are valued at. */
+const PRODUCTS = SEEDED_RECORD_SET.products;
+
+/** The order book the affected lines name their customer orders in. */
+const CUSTOMER_ORDERS = SEEDED_RECORD_SET.customerOrders;
+
+/** The solver cases the exception records measure their options against. */
+const SOLVER_CASES = SEEDED_RECORD_SET.solverCases;
+
+/** The plant master, in canonical order, that the by-plant rows and the scope read. */
+const SEEDED_PLANTS = SEEDED_RECORD_SET.plants;
+
+/** The material master the alternate-source readiness tile reads. */
+const SEEDED_MATERIALS = SEEDED_RECORD_SET.materials;
+
+/** The resolved history the median tile and the fourteen-day series count from. */
+const EXCEPTION_HISTORY = SEEDED_RECORD_SET.exceptionHistory;
+
+/** The approval records the median tile reads. */
+const APPROVALS = SEEDED_RECORD_SET.approvals;
+
+/** The audit drafts the ledger comparison links into a chain. */
+const SEEDED_AUDIT_EVENTS = SEEDED_RECORD_SET.auditEvents;
+
+/** The package records the readiness comparison reads. */
+const PPAP_PACKAGES = SEEDED_RECORD_SET.ppapPackages;
+
+/** The source catalogue the queue's freshness is stated from. */
+const SOURCES = SEEDED_RECORD_SET.sources;
+
+/** The sovereignty record the outbound ledger is counted against. */
+const SOVEREIGNTY = SEEDED_RECORD_SET.sovereignty;
+
 
 /* ---------------------------------------------------------------------------------------------
  * A. The demonstration clock and the probe instants
