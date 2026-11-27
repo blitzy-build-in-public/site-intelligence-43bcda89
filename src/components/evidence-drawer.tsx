@@ -509,7 +509,15 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
     dialogRef.current?.focus();
 
     return () => {
-      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+      /* An SVGElement is accepted as well as an HTMLElement, because a chart's mark is an `<g
+         role="button" tabindex="0">` — the element that opened the drawer in a line, grouped-bar or
+         radar surface — and a guard against `HTMLElement` alone left those marks' readers on `<body>`
+         after the dialog closed, against WCAG 2.2 SC 2.4.3. Both interfaces carry `focus()`. */
+      if (
+        (previouslyFocused instanceof HTMLElement ||
+          previouslyFocused instanceof SVGElement) &&
+        previouslyFocused.isConnected
+      ) {
         previouslyFocused.focus();
       }
     };
