@@ -24,12 +24,14 @@
  * would then be asserting against an address the browser never used.
  *
  * WHERE THE LANGUAGE LITERALS COME FROM. Every route is reached through the shell's own navigation
- * and every parameterised route by activating a row of the table that lists it, so no exception,
+ * and every parameterised screen by activating a row of the table that lists it, so no exception,
  * approval or policy identifier is ever typed into an address — the identifiers this sweep opens are
- * the ones the page's own controls carry. The label literals below are the accessible names those
- * controls render, each with the module that owns it named in a comment, the way
- * `e2e/helpers/theme.ts` treats the theme switch's name: rule B-3 makes an accessible name a
- * contract, so the test asserts the contract rather than a class or a coordinate.
+ * the ones the page's own controls carry. The stage-notice set is the one exception: its navigation
+ * entries are disabled, so those paths are opened by address, with a segment that is not a record
+ * identifier at all. The label literals below are the accessible names those controls render, each
+ * with the module that owns it named in a comment, the way `e2e/helpers/theme.ts` treats the theme
+ * switch's name: rule B-3 makes an accessible name a contract, so the test asserts the contract
+ * rather than a class or a coordinate.
  *
  * WHAT IT DOES NOT DO. It mocks nothing (`page.route` would hide precisely the traffic this test
  * exists to see), it skips nothing, and it widens the ignore list no further than the `data:` and
@@ -131,6 +133,35 @@ const CANVAS_PATH = '/canvas';
  * exactly how this test asks for it.
  */
 const UNKNOWN_PATH = '/an-address-that-matches-no-route';
+
+/**
+ * The six stage-notice paths no navigation entry can be followed to, in the navigation table's order.
+ *
+ * Four are the routes of the disabled entries, which `src/app/nav-items.ts` renders as a control that
+ * explains itself rather than as a link (rule P-8), and two are the profile paths the navigation never
+ * lists. An address is therefore the only way in, for a reader and for this sweep. Three are
+ * parameterised, and each carries a segment that is plainly not a record identifier: the notice page
+ * reads no path parameter — it derives the workspace's name from the route table instead — so any
+ * segment reaches the same page, and rule P-6 keeps a record's identifier out of an address.
+ */
+const STAGE_NOTICE_PATHS: readonly string[] = [
+  '/suppliers',
+  '/suppliers/any-supplier',
+  '/materials/any-material',
+  '/plants/any-plant/plan',
+  '/admin/sources',
+  '/admin/models',
+];
+
+/**
+ * The one sentence a stage-notice page states, built by `stageNoticeSentence` in
+ * `src/app/stage-notice-page.tsx` as "The <workspace> workspace arrives in stage S<stage>.".
+ *
+ * Nothing else on that page tells it apart from the not-found page: both render inside the shell and
+ * both carry a level-one heading and the badge. Asserting this sentence is what proves the address
+ * reached the notice rather than the catch-all, so it is held here as a literal of this suite's own.
+ */
+const STAGE_NOTICE_ARRIVAL = /arrives in stage S\d/i;
 
 /* ---------------------------------------------------------------------------------------------
  * Anything read back from the page
@@ -538,6 +569,36 @@ async function visitPolicyDetail(page: Page): Promise<string> {
   return detailPath;
 }
 
+/**
+ * Opens every stage-notice route by address and asserts the notice each one renders.
+ *
+ * The addresses and the sentence they must state are this file's own literals, like the accessible
+ * names above: a browser test that read them from the page's module would compare the application with
+ * itself. Each address is loaded, so the listener on the context sees another document, another
+ * stylesheet and another set of fonts — which is exactly the traffic a stage-notice route has to be
+ * cleared of.
+ *
+ * @param page The Playwright page showing the application.
+ * @returns The path of every stage-notice route visited, in the table's order.
+ */
+async function visitStageNoticeRoutes(page: Page): Promise<readonly string[]> {
+  const visited: string[] = [];
+
+  for (const path of STAGE_NOTICE_PATHS) {
+    await page.goto(path);
+    await expectRouteRendered(page, `The stage-notice route ${path}`);
+
+    await expect(
+      page.getByRole('heading', { level: 1, name: STAGE_NOTICE_ARRIVAL }),
+      `The stage-notice route ${path} rendered no stage notice: its level-one heading does not state the stage its workspace arrives in, so another page answered the address.`,
+    ).toBeVisible();
+
+    visited.push(path);
+  }
+
+  return visited;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The test
  * ------------------------------------------------------------------------------------------- */
@@ -614,6 +675,13 @@ test('T-20 no request leaves the application origin on any route, in either them
     await switchRole(page, personaIdFor('external-supplier-engineer'));
     await expectRouteRendered(page, 'The evidence workspace stage notice');
     visited.push(new URL(page.url()).pathname);
+
+    /*
+     * The six stage-notice routes no navigation entry can be followed to, opened by address in this
+     * theme too. They are visited before the unknown-route load below, which has to stay last in the
+     * pass because it leaves the document on an address no route declares.
+     */
+    visited.push(...(await visitStageNoticeRoutes(page)));
 
     /*
      * An address no route declares. The not-found page is inside the shell, so the badge and the

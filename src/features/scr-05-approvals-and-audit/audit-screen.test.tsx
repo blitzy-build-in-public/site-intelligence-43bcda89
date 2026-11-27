@@ -27,19 +27,24 @@
  * constant rather than written out, and digests are built by repetition rather than held as literal
  * hex, so no long credential-shaped string sits in this file either (rule B-2 and its scan).
  *
- * THE NOTE, AND THE COLLISION THIS SUITE REPORTS RATHER THAN RESOLVES. {@link AUDIT_CHAIN_NOTE} is
- * the sentence AAP §0.12.4 and rule P-4 fix for this screen, and it names the condition it denies —
- * that what the chain shows is not the resistance of a production store — while
- * `tests/source-checks/forbidden-strings.test.ts` rejects the vocabulary of an unimplemented claim
- * across `src/**`. A scan whose pattern reaches the noun form as well as the adjective would
- * therefore match both the screen and this suite. The collision is *reported, not resolved*: the note
- * is a fixed string of two higher-ranked inputs, it is imported here rather than re-spelled, and it is
- * neither paraphrased to satisfy a check nor accompanied by a weakened scan. To keep this file from
- * compounding the collision, the claim vocabulary the verification must *not* use is assembled from
- * fragments — the same device `tests/source-checks/no-secrets.test.ts` uses for its own samples — so
- * this suite can assert that vocabulary's absence without carrying it. The scan then runs over the
- * rendered text with the fixed note removed, because the note is the one place the words legitimately
- * appear and it is the sentence denying the claim rather than making it.
+ * THE NOTE, AND WHY THIS SUITE AND THE CLAIM SCAN HOLD TOGETHER. {@link AUDIT_CHAIN_NOTE} is the
+ * sentence the "Verify chain" row of AAP §0.10 and the SCR-05 row of AAP §0.12.4 fix for this screen,
+ * and rule P-4 requires the chain to carry it; it is imported here rather than re-spelled, so a reworded
+ * note fails a case instead of passing silently. The claim patterns reject exactly the five adjectival
+ * forms AAP §0.10 names — one for a proof against tampering, one for a resistance to it, one for a
+ * trusting-nothing posture, one for a guarantee and one for a certification — and stop deliberately
+ * short of the noun phrase the note carries, because the note *denies* the claim rather than making it,
+ * and a pattern that reached the noun would forbid the very sentence rule P-4 requires. Both halves of
+ * the rule prove it: `tests/source-checks/forbidden-strings.test.ts` lists the note among the interface
+ * text its scan must leave alone (`REQUIRED_INTERFACE_TEXT`), and `e2e/bundle-checks.spec.ts` does the
+ * same over the built `dist/` (`SAMPLES_THAT_MUST_NOT_MATCH`).
+ *
+ * Two habits here follow from that and stay. The claim vocabulary the verification must *not* use is
+ * assembled from fragments — the same device `tests/source-checks/no-secrets.test.ts` uses for its own
+ * samples — so this suite can assert that vocabulary's absence without carrying it. And the
+ * whole-document scan runs over the rendered text with the fixed note removed, because the note is the
+ * one place the words legitimately appear and it is the sentence denying the claim rather than making
+ * it.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or reaches outside the service boundary.
@@ -801,7 +806,8 @@ describe('a chain that does not verify', () => {
     expect(report.textContent ?? '').not.toMatch(CLAIM_PATTERN);
 
     /* The same over every character on screen except the fixed note, which names the condition it
-       denies rather than making the claim. See this file's header for the reported collision. */
+       denies rather than making the claim: note and scan pass together, and this file's header records
+       both halves of the rule that let them. */
     const withoutFixedNote = (document.body.textContent ?? '').split(AUDIT_CHAIN_NOTE).join('');
 
     expect(withoutFixedNote).not.toMatch(CLAIM_PATTERN);

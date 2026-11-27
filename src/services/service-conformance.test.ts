@@ -369,8 +369,8 @@ async function adapters(): Promise<{ mockBackend: MockBackend; apiClient: ApiCli
   return { mockBackend, apiClient: new ApiClient() };
 }
 
-describe('SiteIntelligenceService, implemented by the mock backend and the API client', () => {
-  it('carries a function under every port member on both adapters', async () => {
+describe('T-18 SiteIntelligenceService, implemented by the mock backend and the API client', () => {
+  it('T-18 carries a function under every port member on both adapters', async () => {
     const { mockBackend, apiClient } = await adapters();
 
     for (const method of PORT_METHODS) {
@@ -379,7 +379,7 @@ describe('SiteIntelligenceService, implemented by the mock backend and the API c
     }
   });
 
-  it('answers both demonstration members on the API client without addressing a host', async () => {
+  it('T-18 answers both demonstration members on the API client without addressing a host', async () => {
     const { mockBackend, apiClient } = await adapters();
 
     expect(typeof mockBackend.setSimulation).toBe('function');
@@ -396,8 +396,8 @@ describe('SiteIntelligenceService, implemented by the mock backend and the API c
   });
 });
 
-describe('the demonstration capability beside the port', () => {
-  it('offers the role switch and the acting-persona read on the mock backend and not on the API client', async () => {
+describe('T-18 the demonstration capability beside the port', () => {
+  it('T-18 offers the role switch and the acting-persona read on the mock backend and not on the API client', async () => {
     const { mockBackend, apiClient } = await adapters();
 
     expect(typeof mockBackend.switchRole).toBe('function');
@@ -409,7 +409,7 @@ describe('the demonstration capability beside the port', () => {
     expect('getActiveUser' in apiClient).toBe(false);
   });
 
-  it('is ready once its bootstrap settles, with the whole seeded trail in the chain', async () => {
+  it('T-18 is ready once its bootstrap settles, with the whole seeded trail in the chain', async () => {
     const mockBackend = new MockBackend();
 
     // The resolution itself is the subject here, so this case asserts it instead of building through

@@ -657,8 +657,8 @@ describe('the scan covers the sources it judges (rule P-2, AAP 0.9)', () => {
   });
 });
 
-describe('no seed import outside the mock adapter (rule P-2)', () => {
-  it('imports seed records only from the mock adapter and from the seed folder itself', () => {
+describe('T-18 no seed import outside the mock adapter (rule P-2)', () => {
+  it('T-18 imports seed records only from the mock adapter and from the seed folder itself', () => {
     expect(
       violationsInTree(),
       'rule P-2 and AAP 0.9: seed records are read only through src/services/mock/seed-loader.ts, ' +

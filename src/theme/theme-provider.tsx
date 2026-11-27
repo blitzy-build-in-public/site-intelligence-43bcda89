@@ -6,12 +6,15 @@
  * §1 (state lives in memory, with theme and density the only values written to browser storage),
  * AAP 0.5.3 (Command is the default theme) and AAP 0.12.4 (the density each persona starts on).
  *
- * Both attributes are applied while this module is first evaluated, before any component renders:
- * `index.html` and `src/main.tsx` set nothing, and `src/theme/command.css`, `paper.css` and
- * `tokens.css` select on `[data-theme="command"|"paper"]` and
- * `[data-density="compact"|"comfortable"]`. Applying them here means the first painted frame
- * already carries a theme and a density, so no screen renders unthemed and a reload with a
- * persisted choice shows no flash of the other theme.
+ * Both attributes are applied while this module is first evaluated, before any component renders, and
+ * this module stays their only writer: `index.html` and `src/main.tsx` set nothing, and
+ * `src/theme/command.css`, `paper.css` and `tokens.css` select on `[data-theme="command"|"paper"]`
+ * and `[data-density="compact"|"comfortable"]`. A module script is deferred until its bundle has been
+ * fetched and parsed, so the first painted frame is the stylesheet's doing rather than this module's:
+ * `command.css` declares the Command palette on `:root` and `tokens.css` declares `--row-height`
+ * there, which is why that frame already carries a theme and a density. A session that persisted
+ * Paper repaints to Paper when this module is evaluated, so a stored choice lands at the first repaint
+ * rather than at the first frame.
  *
  * The `data-theme` and `data-density` vocabularies are declared once, in `src/types/primitives.ts`,
  * as `ThemeName` and `Density`. This module imports them and re-exports them under the names the
@@ -51,8 +54,8 @@ import type { Density, ThemeName as Theme } from '../types/primitives';
  * print use (AAP 0.5.3).
  *
  * `src/theme/command.css` and `src/theme/paper.css` each select on one of these exact values, so a
- * value added to the vocabulary without a matching block would leave the page with neither palette
- * applied.
+ * value added to the vocabulary without a matching block would leave the page on the Command palette
+ * `command.css` declares for the document instead of the theme the value names.
  */
 export type { Theme };
 
@@ -210,8 +213,8 @@ function applyPreferences(theme: Theme, density: Density): void {
 
 /*
  * Module initialisation, before the first component renders: the persisted preference when it is
- * valid, the defaults otherwise. Importing this module is what themes the page, so no entry point
- * has to remember to do it.
+ * valid, the defaults otherwise. Importing this module is what puts the chosen preference on the page
+ * over the stylesheet's document default, so no entry point has to remember to do it.
  */
 applyPreferences(readStoredTheme() ?? DEFAULT_THEME, readStoredDensity() ?? DEFAULT_DENSITY);
 

@@ -39,17 +39,21 @@
  * absent by omission: nothing here states that the chain resists tampering, prevents copying or
  * establishes anything about the store behind a browser page (rule P-4).
  *
- * THE FIXED NOTE, AND THE COLLISION IT REPORTS RATHER THAN RESOLVES. {@link AUDIT_CHAIN_NOTE} is the
- * sentence AAP 0.12.4 and rule P-4 fix for this screen, and it is rendered character for character.
- * It names the condition it denies by name — that what it shows is not the resistance of a production
- * store — while `tests/source-checks/forbidden-strings.test.ts` rejects the vocabulary of an
- * unimplemented claim across `src/**`, the adjectives of resistance, certainty and certification
- * included. A scan whose pattern reaches the noun form as well as the adjective would therefore match
- * this file. That collision is *reported, not resolved*: the note is a fixed string of two
- * higher-ranked inputs, it is the wording that *denies* the claim rather than making it, and it is
- * neither paraphrased to satisfy a check nor accompanied by a weakened scan — the check belongs to
- * another folder. If the scan flags it, the note stays and the collision is recorded here and in this
- * file's completion note.
+ * THE FIXED NOTE, AND WHY IT AND THE CLAIM SCAN HOLD TOGETHER. {@link AUDIT_CHAIN_NOTE} is the
+ * sentence the "Verify chain" row of AAP §0.10 and the SCR-05 row of AAP §0.12.4 fix for this screen,
+ * and rule P-4 requires the chain to carry it. It is rendered character for character: it names the
+ * condition it denies — that what it shows is not the resistance of a production store — and that
+ * denial is the whole point of the sentence.
+ *
+ * Neither side moves for the scan to pass. The claim patterns reject exactly the five adjectival forms
+ * AAP §0.10 names — one for a proof against tampering, one for a resistance to it, one for a
+ * trusting-nothing posture, one for a guarantee and one for a certification — and stop deliberately
+ * short of the noun phrase this note carries, because the note *denies* the claim rather than making
+ * it, and a pattern that reached the noun would forbid the very sentence rule P-4 requires. Both
+ * halves of the rule prove it: `tests/source-checks/forbidden-strings.test.ts` lists the note among
+ * the interface text its scan must leave alone (`REQUIRED_INTERFACE_TEXT`), and
+ * `e2e/bundle-checks.spec.ts` does the same over the built `dist/` (`SAMPLES_THAT_MUST_NOT_MATCH`).
+ * No file is exempt on either side, this one included.
  *
  * LABELLING (rules P-1 and P-4). The chain and its verification carry the exact `Simulated control`
  * string of specification §5.3 next to the instant of the check, and the persistent `Simulated data`
@@ -144,13 +148,15 @@ import type {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The note every surface of the audit chain carries, character for character as the SCR-05 row of
- * AAP 0.12.4 and rule P-4 fix it.
+ * The note every surface of the audit chain carries, character for character as the "Verify chain" row
+ * of AAP §0.10 and the SCR-05 row of AAP §0.12.4 fix it, and as rule P-4 requires the chain to carry
+ * it.
  *
  * Exported so the colocated suite imports it rather than re-spelling it: a reworded note then fails a
  * test instead of being silently accepted. It is the sentence that *denies* the claim the application
- * may never make, which is why it is rendered exactly — see the module documentation for the collision
- * it reports with the forbidden-strings source check rather than resolving.
+ * may never make, which is why it is rendered exactly — see the module documentation for the two halves
+ * of the rule that let the note and the claim scan pass together: the source check lists the note among
+ * the text its scan must leave alone, and the bundle scan does the same over `dist/`.
  */
 export const AUDIT_CHAIN_NOTE =
   'Simulated control: this shows the mechanism, not production tamper resistance.';

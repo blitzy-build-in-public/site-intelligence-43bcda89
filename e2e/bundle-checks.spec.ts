@@ -143,14 +143,26 @@ interface NamedPattern {
 }
 
 /**
+ * The barred product name rule P-7 forbids, held as two fragments so that no line of this file
+ * writes it as one word. Rule P-7 bars the name itself, so the file that most needs to match it must
+ * not spell it out: `src/app/app.test.tsx` joins the same two fragments, and
+ * `tests/source-checks/forbidden-strings.test.ts` splits the name inside its own pattern. Neither
+ * writes it contiguously, and assembling it here leaves the check as strict as the literal would.
+ */
+const BARRED_PRODUCT_NAME = ['plumb', 'line'].join('');
+
+/**
  * The product names rule P-7 bars outright, written as one word in any casing.
  *
- * The word boundary at each end keeps a longer word from matching, and this is deliberately the single
- * word rather than its two-word form: the shipped bundle is scanned, and a two-word match would be the
- * pattern's business only if the interface ever carried one.
+ * The pattern is assembled from the fragments above rather than written as a literal, because rule P-7
+ * forbids the name itself and this file would otherwise be the one place that writes it. The word
+ * boundary at each end keeps a longer word from matching, and this is deliberately the single word rather
+ * than its two-word form: the shipped bundle is scanned, and a two-word match would be the pattern's
+ * business only if the interface ever carried one. `SAMPLES_THAT_MUST_MATCH` keeps the contiguous
+ * spellings caught and `SAMPLES_THAT_MUST_NOT_MATCH` keeps the two-word spelling out of reach.
  */
 const BARRED_PRODUCT_NAMES: readonly NamedPattern[] = [
-  { label: 'the barred product name', pattern: /\bplumbline\b/gi },
+  { label: 'the barred product name', pattern: new RegExp(`\\b${BARRED_PRODUCT_NAME}\\b`, 'gi') },
 ];
 
 /**

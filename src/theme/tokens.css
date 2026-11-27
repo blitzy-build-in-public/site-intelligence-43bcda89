@@ -80,14 +80,20 @@
 }
 
 /* Row density, specification §4.3: plain custom properties, so both the
-   density rules below and the data table read the same values. */
+   density rules below and the data table read the same values. --row-height is
+   declared here as the document default as well, because theme-provider.tsx
+   writes data-density from module code a deferred module script delays: a frame
+   painted before that happens already sizes its rows from the comfortable row.
+   The two [data-density] rules below carry the same specificity and follow this
+   rule, so the attribute still chooses 32 px or 44 px once it is present. */
 :root {
   --row-compact: 32px;
   --row-comfortable: 44px;
+  --row-height: var(--row-comfortable);
 }
 
-/* theme-provider.tsx sets data-density on <html> before the first paint, and
-   the data table sizes its rows from --row-height. */
+/* theme-provider.tsx writes data-density on <html> before any component renders,
+   and the data table sizes its rows from --row-height. */
 [data-density="compact"] {
   --row-height: var(--row-compact);
 }

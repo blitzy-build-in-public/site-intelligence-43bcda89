@@ -22,7 +22,8 @@
  * into the parameterised screens from the records they list — a queue row, a plan row, a policy row —
  * recording each pathname the browser reaches, so no exception, approval or policy identifier is ever
  * typed into a URL. The stage-notice page is reached the way a persona reaches it, by switching to the
- * external supplier engineer whose home route is the evidence workspace, and the unknown route is the
+ * external supplier engineer whose home route is the evidence workspace, and the six stage-notice paths
+ * no entry can be followed to are opened by address, which is the only way in; the unknown route is the
  * one path no visible control offers, which is what the not-found page exists for. The count of distinct
  * routes is then asserted against the list this suite expects, so a route added to the shell without the
  * badge cannot pass unnoticed.
@@ -206,15 +207,41 @@ const DISABLED_ENTRIES: readonly DisabledEntry[] = [
 ];
 
 /**
+ * The stage-notice paths no navigation entry can be followed to, in the table's own order.
+ *
+ * Four are the routes of the disabled entries in `DISABLED_ENTRIES`, which rule P-8 renders as a
+ * control that explains itself rather than as a link, and two are the profile paths the navigation
+ * never lists. A person reaches one of them by typing its address, so that is how this sweep opens
+ * them: no control leads there, and activating a disabled entry would assert the opposite of what the
+ * rule requires. The seventh stage-notice path, `/evidence`, is not repeated here — it is the external
+ * supplier engineer's home route, so the role switcher reaches it below.
+ *
+ * Three of the six are parameterised, and each carries a segment that is plainly not a record
+ * identifier: the stage-notice page reads no path parameter — it derives the workspace's name from the
+ * route table (`workspaceNameFor` in `src/app/stage-notice-page.tsx`) — so any segment reaches the same
+ * page, and rule P-6 keeps a record's identifier out of an address.
+ */
+const STAGE_NOTICE_PATHS: readonly string[] = [
+  '/suppliers',
+  '/suppliers/any-supplier',
+  '/materials/any-material',
+  '/plants/any-plant/plan',
+  '/admin/sources',
+  '/admin/models',
+];
+
+/**
  * How many distinct routes the T-15 sweep must cover.
  *
  * The eight entries that navigate, the four parameterised screens they lead to (one exception, its
- * option set, one approval and one policy), the stage-notice page the external supplier engineer lands
- * on and the one unknown route the not-found page answers: fourteen. Asserting the number is what turns
- * "the badge was on the routes I happened to visit" into "the badge was on every route this build
- * declares" — a route added without the badge changes the count and fails.
+ * option set, one approval and one policy), the seven stage-notice paths — the evidence workspace the
+ * external supplier engineer lands on, the four routes of the disabled entries and the two profile
+ * paths the navigation never lists — and the one unknown route the not-found page answers: twenty.
+ * Asserting the number is what turns "the badge was on the routes I happened to visit" into "the badge
+ * was on every route this build declares" — a route added without the badge changes the count and
+ * fails.
  */
-const EXPECTED_ROUTE_COUNT = 14;
+const EXPECTED_ROUTE_COUNT = 20;
 
 /* ---------------------------------------------------------------------------------------------
  * Locators and assertions shared by the tests — role and accessible name only (rule B-3)
@@ -377,6 +404,33 @@ async function clickNavEntry(page: Page, label: string, path: string): Promise<v
 }
 
 /**
+ * Opens one stage-notice route by address and asserts what that page must render.
+ *
+ * The badge is waited for rather than the `main` landmark, for the reason {@link enterDemonstration}
+ * gives: the provider's startup skeleton draws a `main` of its own while the adapter hashes the seeded
+ * chain, and the shell arrives with the badge. The arrival sentence is what proves the address rendered
+ * the stage notice instead of falling through to the not-found page, which the shell frames identically.
+ *
+ * @param page The Playwright page showing the application.
+ * @param path The stage-notice path to open, one of {@link STAGE_NOTICE_PATHS}.
+ * @param visited The set of distinct pathnames this sweep has covered.
+ * @returns The pathname recorded.
+ */
+async function openStageNotice(page: Page, path: string, visited: Set<string>): Promise<string> {
+  await page.goto(path);
+  await expect(
+    simulatorBadge(page),
+    `The shell never rendered the badge on the stage-notice route ${path}.`,
+  ).toBeVisible();
+  await expect(
+    screen(page),
+    `The stage-notice route ${path} does not state the stage its workspace arrives in, so the address did not render the notice.`,
+  ).toContainText(STAGE_NOTICE_ARRIVAL);
+
+  return recordRoute(page, visited);
+}
+
+/**
  * Waits until a table holds several records and returns its first data row.
  *
  * The mock adapter injects 150-400 ms of latency, and a table with nothing to show renders its header row
@@ -508,6 +562,14 @@ test('T-15 the Simulated data badge labels every route the shell renders', async
   );
   await recordRoute(page, visited);
 
+  /* The six stage-notice paths no entry can be followed to, opened by address. Nothing this test has
+     arranged lives in the adapter's memory by this point — every step so far has only read — so the
+     document load each address causes re-seeds nothing the sweep depends on, and the persona is chosen
+     again below. */
+  for (const path of STAGE_NOTICE_PATHS) {
+    await openStageNotice(page, path, visited);
+  }
+
   /* The two routes no screen of the material planner's scope lists: one policy, reached by the persona
      that may read the declared configuration, and the stage notice the external supplier engineer lands
      on. Both are reached by the role switcher, which is a product feature rather than a test hook. */
@@ -546,6 +608,10 @@ test('T-15 the Simulated data badge labels every route the shell renders', async
     expect(visited.has(entry.path), `The sweep never reached ${entry.path}.`).toBe(true);
   }
 
+  for (const path of STAGE_NOTICE_PATHS) {
+    expect(visited.has(path), `The sweep never reached the stage-notice route ${path}.`).toBe(true);
+  }
+
   test.info().annotations.push({
     type: 'routes covered',
     description: [...visited].sort().join(' '),
@@ -553,7 +619,7 @@ test('T-15 the Simulated data badge labels every route the shell renders', async
 
   expect(
     visited.size,
-    `The sweep covered ${visited.size} distinct routes and this build declares ${EXPECTED_ROUTE_COUNT}: eight navigation entries, four parameterised screens, the stage notice and the not-found route. A route added without the badge, or one that stopped being reachable, changes this count.`,
+    `The sweep covered ${visited.size} distinct routes and this build declares ${EXPECTED_ROUTE_COUNT}: eight navigation entries, four parameterised screens, seven stage-notice paths and the not-found route. A route added without the badge, or one that stopped being reachable, changes this count.`,
   ).toBe(EXPECTED_ROUTE_COUNT);
 });
 

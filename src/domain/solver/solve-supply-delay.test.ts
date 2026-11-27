@@ -1044,15 +1044,15 @@ function measureSeededRow(row: (typeof EXPECTED_SOLVER_ROWS)[number]): SolverRes
   return solveSupplyDelay(caseRecord, row.levers);
 }
 
-describe('the expected results of the seeded case', () => {
-  it('holds four named scenarios and the two sandbox checks, each with its own identifier', () => {
+describe('T-25 the expected results of the seeded case', () => {
+  it('T-25 holds four named scenarios and the two sandbox checks, each with its own identifier', () => {
     expect(EXPECTED_SOLVER_ROWS).toHaveLength(6);
     expect(EXPECTED_SOLVER_ROWS.filter((row) => row.id.startsWith('SB-'))).toHaveLength(2);
     expect(new Set(EXPECTED_SOLVER_ROWS.map((row) => row.id)).size).toBe(EXPECTED_SOLVER_ROWS.length);
   });
 
   for (const row of EXPECTED_SOLVER_ROWS) {
-    it(`reproduces ${row.id}: ${row.label}`, () => {
+    it(`T-25 reproduces ${row.id}: ${row.label}`, () => {
       const measured = measureSeededRow(row);
 
       expect(measured.constraintCheck, `${row.id}'s constraint check`).toBe(row.constraintCheck);

@@ -206,10 +206,10 @@ Every addition was checked for needing no network at runtime and holding no secr
 
 ## Configuration
 
-The application needs no configuration to run, test or build: there is no server address, no model endpoint and no identity provider to point at, so no variable is defined.
+The application needs no configuration to run, test or build: there is no server address, no model endpoint and no identity provider to point at, so it defines no variable.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| None defined | — | No configuration is read, so no variable has a name, a default or a purpose to state. |
+| None for the application | — | No configuration is read by the application, so no variable it uses has a name, a default or a purpose to state. The only variables read anywhere are `CLONE_INDEX` and `PREVIEW_PORT`, by the Playwright configuration, for loopback port selection — `## Test` states their effect. |
 
-Nothing in `src/` reads `import.meta.env` or `process.env`, no `.env` file is committed, and a source check fails the suite on either. Should a later stage introduce a variable, it enters the table above with an empty default and no value in the repository; that is how configuration is documented here, and it is the only way a name may enter the build.
+Nothing in `src/` reads `import.meta.env` or `process.env`, no `.env` file is committed, and a source check fails the suite on either. The two harness variables never reach the application: they choose the port that the preview server the browser suite starts listens on, and with neither set that port is 4173. Should a later stage introduce a variable for the application, it enters the table above with an empty default and no value in the repository; that is how configuration is documented here, and it is the only way a name may enter the build.

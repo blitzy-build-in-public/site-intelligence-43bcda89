@@ -4,9 +4,11 @@
  * never disagree about transforms.
  *
  * The suite runs under jsdom by default because component tests assert focus, labelling and DOM
- * semantics. A suite that needs Node's own realm — one that hashes through `crypto.subtle`, which
- * rejects jsdom's `ArrayBuffer`, or one that drives a stubbed `fetch` — opts out on its own first
- * line with `// @vitest-environment node`.
+ * semantics. A suite that needs a platform digest rather than a DOM — one that hashes through
+ * `crypto.subtle`, or one that drives a stubbed `fetch` — declares that environment itself, on
+ * its own first line, with `// @vitest-environment node`: jsdom 31 exposes no `crypto.subtle` of
+ * its own, so the digest resolves to the platform's implementation, and the declaration keeps that
+ * requirement with the module that has it rather than leaving it to this default.
  *
  * This file reads no environment variable, defines none and points at no other origin: the
  * application needs no configuration to run, test or build (rules B-1 and B-2).
@@ -18,10 +20,10 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  preview: {
-    port: 4173,
-    strictPort: true,
-  },
+  // No `preview` block, so the port belongs to whoever starts the server: the browser suite passes
+  // the per-checkout port it derives (see playwright.config.ts), and a bare `npm run preview` takes
+  // Vite's own 4173 default. Writing the port here would state it twice and make a second
+  // checkout's preview fail on a port another checkout already holds.
   build: {
     target: 'es2022',
   },

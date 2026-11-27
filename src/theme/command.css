@@ -1,6 +1,13 @@
 /*
- * Command theme: the default theme, set as data-theme="command" on <html> by
- * theme-provider.tsx before the first paint, so no screen ever renders unthemed.
+ * Command theme: the default theme. Its palette is declared on :root as well as
+ * on [data-theme="command"], so a frame painted before theme-provider.tsx's
+ * module code has run — a deferred module script waits for its bundle to be
+ * fetched and parsed — already carries the Command colours and no screen
+ * renders unthemed; the attribute half of that selector keeps the same palette
+ * applying once the provider writes the attribute. src/styles/index.css imports
+ * this file before paper.css, whose [data-theme="paper"] rule carries the same
+ * specificity, so Paper overrides these values whenever the attribute reads
+ * paper.
  *
  * Every value below is the raw palette of the specification's colour tables,
  * copied verbatim: the contrast of these roles is measured against these exact
@@ -13,7 +20,7 @@
  * theme's surface.
  */
 
-[data-theme="command"] {
+:root, [data-theme="command"] {
   color-scheme: dark; /* native scrollbars and form controls follow the dark ground */
 
   /* Surfaces */

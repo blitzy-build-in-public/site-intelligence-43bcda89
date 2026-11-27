@@ -43,8 +43,10 @@
  * - B-2: no environment read, no credential and no configuration value; nothing in this file is
  *   configurable.
  * - B-3: the providers render no control and add no focus stop. `data-theme` and `data-density` stay
- *   with `src/theme/theme-provider.tsx`, which applies both before the first paint, so the first
- *   frame a reader receives already carries a theme and a density.
+ *   with `src/theme/theme-provider.tsx`, which applies both before any component renders, and the
+ *   stylesheet carries the Command palette and the comfortable row as the document default for the
+ *   frame painted before that module executes, so the first frame a reader receives already carries a
+ *   theme and a density.
  * - P-4: no statement here claims that the application establishes a configuration, prevents a copy
  *   or resists an edit.
  * - P-7: the product's own vocabulary only — Site Intelligence and the FileMap canvas — and no

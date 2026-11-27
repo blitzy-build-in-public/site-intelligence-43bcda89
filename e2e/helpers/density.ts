@@ -5,11 +5,13 @@
  *
  * `data-density` is the contract asserted here. `src/theme/theme-provider.tsx` owns the attribute,
  * writes it together with the persisted preference (theme and density are the only two values the
- * application stores, contracts §1) and applies it before the first paint at module initialisation,
- * while `src/theme/tokens.css` derives `--row-height` from it: the attribute is what selects rows
- * 32 px tall or rows 44 px tall in every table of the application. The helper asserts the attribute
- * and never a measured pixel height, because the stylesheet owns that value and a computed height
- * would restate it a second time.
+ * application stores, contracts §1) and applies it at module initialisation, before any component
+ * renders, while `src/theme/tokens.css` derives `--row-height` from it: the attribute is what
+ * selects rows 32 px tall or rows 44 px tall in every table of the application. A frame painted
+ * before that module executes carries the comfortable row instead, because `tokens.css` declares
+ * `--row-height` on `:root` as the document default. The helper asserts the attribute and never a
+ * measured pixel height, because the stylesheet owns that value and a computed height would restate
+ * it a second time.
  *
  * The switch's accessible name is `Switch row density: <the density it offers>`, which the component
  * fixes. The prefix is restated in this module rather than read from the provider's label table:
