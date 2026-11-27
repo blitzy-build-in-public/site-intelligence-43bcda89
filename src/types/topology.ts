@@ -134,9 +134,11 @@ export type PinCounts = Record<PinState, number>;
  * The topology one canvas surface renders: the four node families, the lanes joining them and the
  * pin counts of each node.
  *
- * Each array holds one node per record of its family, and `lanes` joins nodes across those arrays by
- * `id`. `pinsByNode` is keyed by the same node id the nodes carry, so a node absent from that map
- * has no pins and the canvas renders it with no badge rather than with a badge of zeros.
+ * Each array holds one node per record of its family that the read's resolved scope retains, so a family
+ * is a subset of the records the seed holds and `lanes` joins nodes across those arrays by `id`; no lane
+ * names a node its own payload omits. `pinsByNode` is keyed by the same node id the nodes carry, so a
+ * node absent from that map has no pins and the canvas renders it with no badge rather than with a badge
+ * of zeros.
  */
 export interface Topology {
   /** The plant nodes. */

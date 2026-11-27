@@ -71,7 +71,9 @@ const STATES: readonly ScreenState[] = [
 
 /**
  * The two states that warn about the content instead of replacing it, and therefore the only two whose
- * content must still render when the state's own record was not supplied.
+ * content must still render when the state's own record was not supplied. Keeping the content is all
+ * they share: a stale state handed no record also renders its neutral notice, where partial shows its
+ * headline whatever it was handed.
  */
 const CONTENT_KEPT_STATES: readonly ScreenState[] = ['stale', 'partial'];
 
@@ -215,9 +217,10 @@ describe('StateBoundary', () => {
         </StateBoundary>,
       );
 
-      /* A missing record degrades instead of being invented: the two warning states fall back to the
-         content alone, and the five that replace it render their own notice with no source, no
-         permission and no instant named. */
+      /* A missing record is stated instead of invented: the two warning states keep their content, the
+         record-less stale state warns above it with no source and no instant named, and the five that
+         replace the content render their own notice with no source, no permission and no instant
+         named. */
       if (CONTENT_KEPT_STATES.includes(state)) {
         expect(screen.getByText(CONTENT)).toBeVisible();
       } else {
@@ -238,10 +241,23 @@ describe('StateBoundary', () => {
       </StateBoundary>,
     );
 
-    /* Nothing is rendered beyond the content it was given: a banner that could not name the source and
-       its as-of time would assert a record the caller never supplied. */
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    /* The content stays readable and is never presented as current: a stale state handed no record
+       warns through the neutral notice, which says what it can rather than asserting a record the
+       caller never supplied (AAP §0.2.1, T-13). */
+    const staleRegion = screen.getByRole('status');
+
+    expect(staleRegion).toHaveTextContent(STATE_BOUNDARY_TEXT.staleHeadline);
+    expect(staleRegion).toHaveTextContent(STATE_BOUNDARY_TEXT.staleDetail);
+    expect(screen.getByText(STATE_BOUNDARY_TEXT.staleDetail)).toBeVisible();
     expect(screen.getByText(CONTENT)).toBeVisible();
+
+    /* Neither the label the record would have carried, nor the instant it would have printed, nor the
+       prefix that introduces one appears anywhere in the rendering (rules P-6 and P-4). */
+    const rendered = document.body.textContent ?? '';
+
+    expect(rendered).not.toContain(STALE.label);
+    expect(rendered).not.toContain(STALE.asOf);
+    expect(rendered).not.toContain(STATE_BOUNDARY_TEXT.staleAsOfPrefix);
 
     staleRender.unmount();
 

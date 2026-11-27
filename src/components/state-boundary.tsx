@@ -48,10 +48,10 @@
  * OPEN ITEM — the records two states need. A banner or a card that named a source, a time, a
  * permission or a role would be inventing the facts that make the state actionable, so `stale` and
  * `forbidden` are required by contract whenever those two states are passed and are documented as
- * such. Without them this component degrades instead of guessing: the stale state renders the content
- * it was given with no banner, because a banner that cannot name the source and its as-of time would
- * assert a record the caller never supplied, and the forbidden state renders a neutral notice naming
- * no permission, no role and no trace id.
+ * such. Without them this component states the condition in neutral words instead of guessing or
+ * going silent: the stale state renders a warning that names no source and prints no instant, because
+ * a banner that could name neither would assert a record the caller never supplied, and the forbidden
+ * state renders a neutral notice naming no permission, no role and no trace id.
  */
 import type { ReactElement, ReactNode } from 'react';
 
@@ -138,6 +138,15 @@ export const STATE_BOUNDARY_TEXT = {
 
   /** Introduces the instant the stale source last answered. */
   staleAsOfPrefix: 'As of',
+
+  /**
+   * The headline of the notice shown when a stale state arrived without its record. It is this
+   * component's own wording, so it names no source, no instant and no figure (rules P-6, P-4).
+   */
+  staleHeadline: 'This view is not current',
+
+  /** The detail of that notice, saying only which facts went unnamed (rules P-6, P-4). */
+  staleDetail: 'The source behind it was not named, so its as-of time is not shown.',
 
   /** The partial notice's headline; the caller's `partialMessage` says which inputs are missing. */
   partialHeadline: 'Some inputs are missing',
@@ -246,10 +255,13 @@ export interface StateBoundaryProps {
    * The source behind a stale screen, with the display name to print and the instant it last
    * answered.
    *
-   * Required whenever `state` is `'stale'`, and absent for every other state. This is the visible half
-   * of the freshness rule (AAP §0.2.1, T-13): the source name and the instant the disabled approval
-   * controls carry in their `disabledReason` come from this same record, so the banner and the controls
-   * cannot describe the staleness differently.
+   * Required whenever `state` is `'stale'`, and absent for every other state. With it supplied, this is
+   * the visible half of the freshness rule (AAP §0.2.1, T-13): the source name and the instant the
+   * disabled approval controls carry in their `disabledReason` come from this same record, so the banner
+   * and the controls cannot describe the staleness differently. Absent, the boundary still warns that
+   * the content is not current, through a neutral notice naming no source and printing no instant,
+   * because a stale view must never be presented as a current one and a notice that named a source
+   * nobody supplied would assert a record that does not exist.
    */
   readonly stale?: StateBoundaryStale | undefined;
 
@@ -399,10 +411,22 @@ export function StateBoundary({
 
     /* A source behind the content is out of date. The banner names it and prints the instant it last
        answered; the content stays on screen, because the figures are readable and the warning is about
-       their currency rather than their presence. */
+       their currency rather than their presence. Out-of-date content must never be presented as current
+       (AAP §0.2.1, T-13), so a stale state handed no record still warns: because the caller supplied no
+       source, that notice names none and prints no instant rather than asserting a record the caller
+       never supplied (rules P-6, P-4), and it holds no control, because repeating the read is not what
+       makes an aged source current again (rule P-8). */
     case 'stale':
       if (stale === undefined) {
-        return <>{children}</>;
+        return (
+          <div className={STACK_CLASSES}>
+            <div role="status" className={NOTICE_CLASSES}>
+              <StatusIndicator meaning="warning" label={STATE_BOUNDARY_TEXT.staleHeadline} />
+              <p className={DETAIL_CLASSES}>{STATE_BOUNDARY_TEXT.staleDetail}</p>
+            </div>
+            {children}
+          </div>
+        );
       }
 
       return (

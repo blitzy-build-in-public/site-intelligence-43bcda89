@@ -130,12 +130,13 @@
  *   the permission with the roles that hold it, so the control a reader meets is an explained one rather
  *   than a silent disabled button.
  *
- * OPEN ITEM — the product selection is not part of `ExceptionQuery`. `src/types/service.ts` gives that
- * query the plant, type, severity, status, owner and supplier filters and no product member, while the
- * shell's product selection reaches the service as a `Scope` member. This handler therefore reads the
- * plant the query names and leaves the product selection at "all products", which `resolveScope`
- * documents as the meaning of an empty `products` member; a product narrowed read arrives through the
- * aggregate's own scope filter when the adapter passes one.
+ * WHY THE PRODUCT SELECTION TRAVELS BESIDE THE QUERY RATHER THAN INSIDE IT. `src/types/service.ts` gives
+ * `ExceptionQuery` the plant, type, severity, status, owner and supplier filters and no product member,
+ * because AAP 0.12.2 fixes that query as the queue's own filters. The shell's product selection reaches
+ * the service as a member of `Scope` instead, so each read of this family takes the shell's selection as
+ * a `ScopeFilterInput` of its own beside the query and resolves it once through `resolveScope`. A product
+ * chosen in the top bar therefore narrows the queue and the overview through the same aggregate
+ * predicate (`admitsProducts`) both already apply, and neither read is narrowed by a plant alone.
  *
  * OPEN ITEM — the cursor is a row identifier. `ListQuery.cursor` is opaque by contracts §9 and the
  * method returns rows rather than a paged envelope, so the position this module accepts is the
@@ -402,33 +403,20 @@ function requireWork(ctx: HandlerContext, exception: OperationalException): void
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The selection an exception query describes, in the shape `resolveScope` reads.
- *
- * `ExceptionQuery` carries the queue's filters, and the only one of them that is part of the scope is
- * the plant: the shell's product selection is not a member of that query (see the module header's
- * first OPEN ITEM), so the product member stays absent and `resolveScope` reads it as "all products".
- * A query that names no plant is the top bar's "All plants" selection.
- *
- * @param query - The query the call was served with.
- * @returns The scope filter input, with its plant member present only when the query names one.
- */
-function scopeFilterFor(query: ExceptionQuery): ScopeFilterInput {
-  return query.plantId === undefined ? {} : { plantId: query.plantId };
-}
-
-/**
  * Resolves the one scope a call is served under.
  *
- * The top bar's selection is intersected with the acting role's plant scope here, once, and the answer
- * is handed to the aggregate unchanged: a filtered queue and a filtered overview then describe the same
- * population (AAP 0.2.1). Nothing in this module re-derives a scope, reads a store or looks at a URL.
+ * The top bar's plant and product selection is intersected with the acting role's plant scope here,
+ * once, by the one resolver, and the answer is handed to the aggregate unchanged: a filtered queue and a
+ * filtered overview then describe the same population, and a product chosen in the top bar narrows both
+ * (AAP 0.2.1). Nothing in this module re-derives a scope, reads a store or looks at a URL.
  *
  * @param ctx - The call's context, whose persona the role is read from.
- * @param query - The query the call was served with.
+ * @param selection - The shell's selection, as the adapter carried it: one plant and one product, each
+ *   absent for "all".
  * @returns The resolved scope; its `plants` member empty means nothing is in scope.
  */
-function scopeOf(ctx: HandlerContext, query: ExceptionQuery): Scope {
-  return resolveScope(scopeFilterFor(query), ctx.actor.role);
+function scopeOf(ctx: HandlerContext, selection: ScopeFilterInput): Scope {
+  return resolveScope(selection, ctx.actor.role);
 }
 
 /**
@@ -1172,15 +1160,19 @@ function activityOf(state: MockState, id: ExceptionId): AuditEvent[] {
  * what makes the tiles report nothing rather than counting exceptions the queue no longer lists.
  *
  * @param ctx - The session and the persona the call acts as.
- * @param query - The query the call was served with; its plant is the scope's plant filter.
+ * @param selection - The shell's plant and product selection, which the one resolver intersects with
+ *   the role's plant scope before the aggregate runs.
  * @returns The computed overview, freshly built.
  * @throws Problem - A `'permission'` failure when the role may not read the family or the forbidden
  *   trigger is on, or a `'validation'` failure when a figure's record cannot be resolved.
  */
-export async function getOverview(ctx: HandlerContext, query: ExceptionQuery): Promise<Overview> {
+export async function getOverview(
+  ctx: HandlerContext,
+  selection: ScopeFilterInput,
+): Promise<Overview> {
   requireRead(ctx);
 
-  return computeOverview(aggregateBundle(ctx, exceptionsFor(ctx.state)), scopeOf(ctx, query));
+  return computeOverview(aggregateBundle(ctx, exceptionsFor(ctx.state)), scopeOf(ctx, selection));
 }
 
 /**
@@ -1195,6 +1187,9 @@ export async function getOverview(ctx: HandlerContext, query: ExceptionQuery): P
  *
  * @param ctx - The session and the persona the call acts as.
  * @param query - The filters, order and page the queue read asked for.
+ * @param selection - The shell's plant and product selection, resolved here once with the role's plant
+ *   scope; the queue's own plant filter arrives in the query beside it and is applied to each row by
+ *   `admitsQuery`.
  * @returns The page's rows, in the requested order.
  * @throws Problem - A `'permission'` failure when the role may not read the family or the forbidden
  *   trigger is on, or a `'validation'` failure when a figure's record cannot be resolved.
@@ -1202,11 +1197,12 @@ export async function getOverview(ctx: HandlerContext, query: ExceptionQuery): P
 export async function listExceptions(
   ctx: HandlerContext,
   query: ExceptionQuery,
+  selection: ScopeFilterInput,
 ): Promise<ExceptionRow[]> {
   requireRead(ctx);
 
   const exceptions = exceptionsFor(ctx.state);
-  const rows = computeExceptionRows(aggregateBundle(ctx, exceptions), scopeOf(ctx, query));
+  const rows = computeExceptionRows(aggregateBundle(ctx, exceptions), scopeOf(ctx, selection));
   const byId = indexById(exceptions);
 
   const filtered = rows.filter((row) => {

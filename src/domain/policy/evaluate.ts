@@ -13,15 +13,21 @@
  *   plain words.
  * - AAP 0.6.3 and AAP 0.10 fix POL-001's empty allowed list, so every outbound endpoint is refused by
  *   a list the records declare rather than by a constant in this file.
- * - AAP 0.6.3, AAP 0.8 and AAP 0.12.4 (SCR-06) fix the block an external model meets, together with
- *   the in-boundary model as the permitted alternative the block card offers as a one-click switch.
+ * - AAP 0.6.3, AAP 0.8 and AAP 0.12.4 (SCR-06) fix the block POL-007 places on an external model when
+ *   the context carries material classified `customer-confidential` or material whose residency is
+ *   `eu-only`, together with the in-boundary model as the permitted alternative the block card offers
+ *   as a one-click switch.
  * - AAP 0.12.2 fixes POL-003's fact: an approval's requester is never eligible to decide it.
+ * - AAP F7 and AAP 0.12.1 fix that POL-005 is evaluated too, and the policy record
+ *   `src/seed/policies.ts` fixes its subject: a response option whose constraint check reports a
+ *   breach is not sent for approval (AAP 0.12.2's validation rules, AAP 0.12.4 SCR-04).
  *
  * Pure, total and deterministic (AAP 0.2.1, AAP 0.18.2). The decision is a function of the three
  * arguments: no clock, no random source, no I/O, no mutable module state, no `throw` for an ordinary
- * input, and no write to `records`, which is read-only throughout. The rules are evaluated in numeric
- * order — POL-001, then POL-003, then POL-005, then POL-007 — and the first condition that fires
- * decides, so the same arguments always yield the same decision, reason text included.
+ * input, and no write to `records`, which is read-only throughout. Each action is answered by the one
+ * rule that governs it — POL-001 for an outbound endpoint, POL-003 for an approval decision, POL-005
+ * for an approval request and POL-007 for an assistant question — so the same arguments always yield
+ * the same decision, reason text included.
  *
  * A demonstration control, not production authorisation (rule P-3). These verdicts are computed in
  * the browser of a build with no backend, no sign-in and no session, exactly as `./permissions.ts`
@@ -43,32 +49,28 @@
  * - P-6: no figure, measure, currency value or threshold is typed here, and no record identifier of a
  *   plant, product, order, exception, approval or model: the engine compares identifiers it was handed
  *   with ones a record holds, and performs no arithmetic. The only literals it holds are the five policy
- *   identifiers contracts §7.2 fixes and the three record values its two model rules compare, each
- *   declared once so that no comparison and no consumer repeats one.
+ *   identifiers contracts §7.2 fixes and the four record values its rules compare — the blocking
+ *   classification and residency, the boundary of a model, and the constraint check a response option
+ *   reports — each declared once so that no comparison and no consumer repeats one.
  * - P-5: nothing is summed or aggregated, so no verdict can blend a market-intelligence figure with a
  *   first-party one.
  * - P-7: every reason is user-visible prose built only from interpolated identifiers and record facts.
  * - P-8: a denial always carries both the rule and a non-empty reason, and carries the alternative
- *   where contracts §7.2 defines one, which is what lets a control explain itself instead of merely
- *   refusing.
+ *   where the rule that refused names one, which is what lets a control explain itself instead of
+ *   merely refusing.
  * - B-1, B-2 and B-3: the module contacts nothing, holds no configuration and no credential, and
  *   writes reasons a screen can show as plain self-contained prose.
  *
- * OPEN ITEM: AAP 0.6.3 attributes both blocking conditions — material classified
- * `customer-confidential` and material whose residency is `eu-only` — to POL-007, while the assigned
- * brief for this file binds POL-005 and POL-007 to the same external-model block. The split
- * implemented below is confidentiality to POL-005 and residency to POL-007. It is chosen so that a
- * context carrying either condition is always denied, so that neither rule is left unimplemented, and
- * so that the first condition to fire is the lower-numbered rule; a context carrying both is denied by
- * POL-005. `platform-contracts.md` §7.2 overrides this split the moment it is readable.
- * OPEN ITEM: `src/seed/policies.ts` records POL-005's subject as response-option constraint
- * validation before approval, which is a different subject from the confidential-context block this
- * module implements under that identifier. The seed's record cannot be read from here (rule P-2) and
- * cannot be consulted as a rule table, so the identifier's meaning for the engine is the one fixed by
- * this file; a supplied contracts §7.2 settles which subject POL-005 carries, and the seed and this
- * module are then corrected together.
+ * RULE IDENTITY, RESOLVED. AAP 0.6.3 assigns both blocking conditions — material classified
+ * `customer-confidential` and material whose residency is `eu-only` — to POL-007, and AAP 0.12.4
+ * names the DOC-0031 block card as the POL-007 card, so this module denies a blocked question under
+ * that one identifier rather than splitting the two conditions between rules. `platform-contracts.md`
+ * §7.2 is not readable in this run and would be the only input able to move a condition to another
+ * rule. POL-005 carries instead the response-option validation gate the policy record
+ * `src/seed/policies.ts` states and AAP F7 evaluates: an option whose constraint check fails is not
+ * sent for approval, and `decideApprovalRequest` below is that rule's one call site.
  * OPEN ITEM: AAP 0.12.1 lists `./permissions.ts` as this module's dependency, and it is not imported.
- * The four predicates need no permission lookup: who may request or decide, and who may ask the
+ * No predicate needs a permission lookup: who may request or decide, and who may ask the
  * assistant, are matrix cells the adapter evaluates through `hasPermission`, and
  * `Approval.eligibleApproverRoles` is that same matrix read from a record. Importing the matrix here
  * would create a second enforcement point for a question the adapter already owns — the reasoning
@@ -79,13 +81,14 @@
  * the function signature. `PolicyDecision`, `PolicyOutcome` and the entity types they compose come
  * from `src/types` unchanged; nothing here renames, widens or restates one of them.
  * OPEN ITEM: `Classification` and `Residency` are `string` aliases in `src/types`, so this module
- * cannot be exhaustive over their values. It names the two values POL-005 and POL-007 read as module
- * constants and interprets no other value of either alias: a classification it does not name is not a
- * blocking condition here, which is why `contracts` §3's full member lists matter when they arrive.
+ * cannot be exhaustive over their values. It names the two values POL-007 reads as module constants
+ * and interprets no other value of either alias: a classification it does not name is not a blocking
+ * condition here, which is why `contracts` §3's full member lists matter when they arrive.
  * OPEN ITEM: `PolicyDecision.policyId` is filled on an allow only where a rule's own condition is what
- * permitted the action — an endpoint on the allowed list, or a persona that is not the requester. An
- * assistant query is permitted by the absence of a blocking condition rather than by one rule's
- * permission, so its allow cites no rule and the member is omitted under `exactOptionalPropertyTypes`.
+ * permitted the action — an endpoint on the allowed list, a persona that is not the requester, or a
+ * response option whose constraint check passes. An assistant query is permitted by the absence of a
+ * blocking condition rather than by one rule's permission, so its allow cites no rule and the member
+ * is omitted under `exactOptionalPropertyTypes`.
  */
 
 import type {
@@ -93,12 +96,14 @@ import type {
   Approval,
   ApprovalId,
   Classification,
+  ConstraintCheck,
   ModelBoundary,
   ModelCatalogue,
   ModelEntry,
   PolicyDecision,
   PolicyId,
   Residency,
+  ScenarioId,
 } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
@@ -115,12 +120,23 @@ const POL_OUTBOUND_EGRESS: PolicyId = 'POL-001';
 const POL_SEGREGATION_OF_DUTIES: PolicyId = 'POL-003';
 
 /**
- * POL-005: material classified `customer-confidential` never reaches an external model — contracts §7.2.
+ * POL-005: a response option whose constraint check reports a breach is not sent for approval.
+ *
+ * AAP F7 and AAP 0.12.1 fix that this rule is evaluated, and the policy record `src/seed/policies.ts`
+ * states its subject in the same terms — the check the solver runs before a plan is put forward
+ * (AAP 0.12.2's validation rules, AAP 0.12.4 SCR-04). `decideApprovalRequest` below is that rule's
+ * one call site, and the identifier is written once so no consumer repeats it.
  */
-const POL_CONFIDENTIAL_CONTEXT: PolicyId = 'POL-005';
+const POL_RESPONSE_OPTION_VALIDATION: PolicyId = 'POL-005';
 
-/** POL-007: material whose residency confines it never reaches an external model. */
-const POL_EXTERNAL_MODEL_RESIDENCY: PolicyId = 'POL-007';
+/**
+ * POL-007: material classified `customer-confidential`, or material whose residency is `eu-only`,
+ * never reaches an external model — AAP 0.6.3, AAP 0.12.4 (SCR-06).
+ *
+ * One rule owns both blocking conditions, so a context carrying both is denied once under this
+ * identifier rather than once under each of them.
+ */
+const POL_EXTERNAL_MODEL_BOUNDARY: PolicyId = 'POL-007';
 
 /**
  * POL-009: key custody is declared to sit with the customer.
@@ -133,13 +149,13 @@ const POL_EXTERNAL_MODEL_RESIDENCY: PolicyId = 'POL-007';
 const POL_CUSTOMER_HELD_KEYS: PolicyId = 'POL-009';
 
 /* ---------------------------------------------------------------------------------------------
- * The record values the two model rules compare — contracts §3, §7.2
+ * The record values the rules compare — contracts §3, §7.2, AAP 0.12.2
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * The classification that keeps material from an external model — contracts §3 and §7.2.
  *
- * Held as one constant because `Classification` is a `string` alias: the value POL-005 reads exists
+ * Held as one constant because `Classification` is a `string` alias: the value POL-007 reads exists
  * once here rather than in each comparison, and no other classification is interpreted.
  */
 const CUSTOMER_CONFIDENTIAL: Classification = 'customer-confidential';
@@ -150,10 +166,20 @@ const EU_ONLY_RESIDENCY: Residency = 'eu-only';
 /**
  * The boundary of a model that processes inside the EU boundary — contracts §3, AAP 0.6.3.
  *
- * An `'external'` model is the one POL-005 and POL-007 can block, and an `'in-boundary'` one is the
- * permitted alternative a blocked question is offered instead.
+ * An `'external'` model is the one POL-007 can block, and an `'in-boundary'` one is the permitted
+ * alternative a blocked question is offered instead.
  */
 const IN_BOUNDARY: ModelBoundary = 'in-boundary';
+
+/**
+ * The constraint check a response option reports when the solver found no breach — `ConstraintCheck`
+ * in `src/types`, read by POL-005.
+ *
+ * The option's check is a fact the caller states, so the engine reads which of the two values it
+ * holds rather than measuring the option itself; the passing value is declared once here so no
+ * comparison repeats it.
+ */
+const CONSTRAINT_PASSED: ConstraintCheck = 'pass';
 
 /* ---------------------------------------------------------------------------------------------
  * The facts the rules read — AAP 0.12.1
@@ -186,7 +212,7 @@ export interface PolicyRecords {
   readonly approvals: readonly Approval[];
 
   /**
-   * The model catalogue of POL-005 and POL-007, each entry carrying the boundary those rules read.
+   * The model catalogue of POL-007, each entry carrying the boundary that rule reads.
    *
    * It also supplies the permitted alternative a denial offers: the catalogue's own in-boundary model,
    * never an identifier written into this module.
@@ -221,7 +247,30 @@ export interface ApprovalDecisionAction {
 }
 
 /**
- * The material context a question carries, as POL-005 and POL-007 read it — contracts §3, §7.2.
+ * A request to send one response option for approval, the action POL-005 governs — AAP F7,
+ * `src/seed/policies.ts`.
+ *
+ * The constraint check and the breaches it reports are facts the caller states, exactly as
+ * `AssistantQueryContext` states the material a question carries: the engine reads the option's own
+ * verdict rather than measuring the option, so it reaches for no scenario record and computes no
+ * figure of its own.
+ */
+export interface ApprovalRequestAction {
+  /** Which policy question the action asks. */
+  readonly action: 'approval.request';
+
+  /** The response option the request would send. */
+  readonly scenarioId: ScenarioId;
+
+  /** The option's constraint check, as the solver reported it. */
+  readonly constraintCheck: ConstraintCheck;
+
+  /** The breach messages that check reported, empty when it reported none. */
+  readonly constraintMessages: readonly string[];
+}
+
+/**
+ * The material context a question carries, as POL-007 reads it — contracts §3, §7.2.
  *
  * A `null` member means the context carries nothing of that kind, which is a fact the caller states
  * rather than one the engine infers from an absent member.
@@ -235,7 +284,7 @@ export interface AssistantQueryContext {
 }
 
 /**
- * A question put to the assistant, the action POL-005 and POL-007 govern — contracts §7.2, AAP 0.12.3.
+ * A question put to the assistant, the action POL-007 governs — contracts §7.2, AAP 0.12.3.
  *
  * The model is named by identifier rather than passed as an entry, so the engine reads the boundary
  * from the catalogue at evaluation time and a caller cannot hand it a boundary the catalogue does not
@@ -279,6 +328,7 @@ export interface PolicyLookupAction {
 export type PolicyAction =
   | OutboundEndpointAction
   | ApprovalDecisionAction
+  | ApprovalRequestAction
   | AssistantQueryAction
   | PolicyLookupAction;
 
@@ -444,7 +494,59 @@ function decideApprovalDecision(
 }
 
 /* ---------------------------------------------------------------------------------------------
- * POL-005 and POL-007 — the external model — contracts §7.2, AAP 0.6.3 and 0.12.4
+ * POL-005 — response-option validation before approval — AAP F7, AAP 0.12.2, src/seed/policies.ts
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The reason POL-005 gives for refusing to send a response option for approval — AAP F7, rule B-3.
+ *
+ * The breach is the solver's own message, joined where the check reports more than one, so the
+ * refusal names the constraint the option breached rather than composing one here (rule P-6). A
+ * check that failed without stating a breach says exactly that and names none: a constraint invented
+ * for the sentence would be a fact nothing computed.
+ *
+ * @param action The option the request would send and the check it reports.
+ * @returns Two sentences naming the rule, the option and the breach, and stating that the option is
+ *   not approved.
+ */
+function responseOptionValidationReason(action: ApprovalRequestAction): string {
+  const breaches = action.constraintMessages.join(' ');
+  const failure =
+    breaches === ''
+      ? 'its constraint check fails, and the check states no breach of its own.'
+      : `its constraint check fails: ${breaches}`;
+
+  return (
+    `${POL_RESPONSE_OPTION_VALIDATION}: response option ${action.scenarioId} is not sent for ` +
+    `approval, because ${failure} An option whose constraint check fails is not approved.`
+  );
+}
+
+/**
+ * Decides whether a response option may be sent for approval — AAP F7, `src/seed/policies.ts`.
+ *
+ * The option's own constraint check decides it: a check that passes permits the request under
+ * POL-005 and a check that fails denies it. The check and its messages are the caller's facts, read
+ * exactly as the engine reads the material context a question carries, so this predicate reaches for
+ * no scenario record and measures nothing.
+ *
+ * The rule names no alternative. An option that breached a constraint is corrected rather than
+ * replaced, so the denial carries no `permittedAlternative` (rule P-8), and a caller that received
+ * one would be offering a switch the rule does not make.
+ *
+ * @param action The option the request would send and the check it reports.
+ * @returns An allow under POL-005 when the check passes, or a denial naming it when it fails.
+ */
+function decideApprovalRequest(action: ApprovalRequestAction): PolicyDecision {
+  if (action.constraintCheck === CONSTRAINT_PASSED) {
+    return permitUnder(POL_RESPONSE_OPTION_VALIDATION);
+  }
+
+  return denyUnder(POL_RESPONSE_OPTION_VALIDATION, responseOptionValidationReason(action));
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * POL-007 — the model boundary — AAP 0.6.3, AAP 0.12.4 (SCR-06)
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -471,42 +573,60 @@ function inBoundaryModel(catalogue: ModelCatalogue): ModelEntry | undefined {
 }
 
 /**
- * The reason POL-005 gives for keeping classified material from an external model —
- * contracts §7.2, rule B-3.
+ * The blocking conditions a question's context carries, in plain words, or `undefined` for none.
  *
- * @param model The external model the question named.
- * @param alternative The in-boundary model the rule permits, when the catalogue declares one.
- * @returns The reason in plain words, naming the rule, the classification and the model, and stating
- *   what the reader can do instead.
+ * Both are facts the caller states on the context: the highest classification among the documents
+ * the question carries and the strictest of their residencies. A context carrying both is described
+ * as one condition list so the denial reports it once, under the single rule that blocks both
+ * (AAP 0.6.3). `Classification` and `Residency` are `string` aliases, so a value this module does not
+ * name is not a blocking condition here.
+ *
+ * @param context The material context the question carries.
+ * @returns The conditions in plain words, joined where the context carries both, or `undefined` when
+ *   it carries neither.
  */
-function confidentialContextReason(model: ModelEntry, alternative: ModelEntry | undefined): string {
-  const block =
-    `${POL_CONFIDENTIAL_CONTEXT}: the context of this question carries material classified ` +
-    `${CUSTOMER_CONFIDENTIAL}, so the external model ${model.id} cannot answer it.`;
+function blockingContextOf(context: AssistantQueryContext): string | undefined {
+  const carriesClassification = context.classification === CUSTOMER_CONFIDENTIAL;
+  const carriesResidency = context.residency === EU_ONLY_RESIDENCY;
 
-  if (alternative === undefined) {
-    return `${block} The model catalogue declares no in-boundary model to offer instead.`;
+  if (carriesClassification && carriesResidency) {
+    return (
+      `material classified ${CUSTOMER_CONFIDENTIAL} and material whose residency is ` +
+      `${EU_ONLY_RESIDENCY}`
+    );
   }
 
-  return `${block} The in-boundary model ${alternative.id} is the alternative this rule permits.`;
+  if (carriesClassification) {
+    return `material classified ${CUSTOMER_CONFIDENTIAL}`;
+  }
+
+  if (carriesResidency) {
+    return `material whose residency is ${EU_ONLY_RESIDENCY}`;
+  }
+
+  return undefined;
 }
 
 /**
- * The reason POL-007 gives for keeping confined material from an external model — contracts §7.2,
- * rule B-3.
+ * The reason POL-007 gives for keeping a blocked context from an external model — AAP 0.6.3, rule B-3.
  *
+ * The reason names the rule, the conditions the context actually carries and the model that cannot
+ * answer it, and then states what the reader can do instead: the in-boundary model the catalogue
+ * declares, or the fact that it declares none.
+ *
+ * @param carried The blocking conditions the context carries, as `blockingContextOf` words them.
  * @param model The external model the question named.
  * @param alternative The in-boundary model the rule permits, when the catalogue declares one.
- * @returns The reason in plain words, naming the rule, the residency and the model, and stating what
- *   the reader can do instead.
+ * @returns The reason in plain words, in two sentences.
  */
-function externalModelResidencyReason(
+function externalModelBoundaryReason(
+  carried: string,
   model: ModelEntry,
   alternative: ModelEntry | undefined,
 ): string {
   const block =
-    `${POL_EXTERNAL_MODEL_RESIDENCY}: the context of this question carries material whose residency ` +
-    `is ${EU_ONLY_RESIDENCY}, so the external model ${model.id} cannot answer it.`;
+    `${POL_EXTERNAL_MODEL_BOUNDARY}: the context of this question carries ${carried}, so the ` +
+    `external model ${model.id} cannot answer it.`;
 
   if (alternative === undefined) {
     return `${block} The model catalogue declares no in-boundary model to offer instead.`;
@@ -516,21 +636,21 @@ function externalModelResidencyReason(
 }
 
 /**
- * Decides whether a question may be sent to the model it names — contracts §7.2 POL-005 and POL-007.
+ * Decides whether a question may be sent to the model it names — AAP 0.6.3, AAP 0.12.4 POL-007.
  *
  * The boundary comes from the catalogue, so a caller cannot declare one for a model. A model the
  * catalogue does not hold yields `notApplicable`, because an unknown model is a not-found the service
- * reports. An in-boundary model is allowed: the question never leaves the boundary, so no rule's
- * condition fires. An external model is denied by POL-005 when the context carries material
- * classified `customer-confidential`, and otherwise by POL-007 when the context carries material
- * whose residency is `eu-only`; the two conditions are tested in that order, so a context carrying
- * both is denied by the lower-numbered rule. Both denials carry the catalogue's in-boundary model as
- * the permitted alternative, which is the one-click switch AAP 0.12.4 gives the block card.
+ * reports. An in-boundary model is allowed: the question never leaves the boundary, so the rule's
+ * condition cannot fire. An external model is denied by POL-007 when the context carries material
+ * classified `customer-confidential`, material whose residency is `eu-only`, or both — one rule, so a
+ * context carrying both is denied once and the reason names the conditions it actually carries. The
+ * denial carries the catalogue's in-boundary model as the permitted alternative, which is the
+ * one-click switch AAP 0.12.4 gives the block card.
  *
  * @param action The model the question would be sent to and the material it carries.
  * @param records The records holding the model catalogue.
- * @returns An allow, a denial naming POL-005 or POL-007 with the alternative it permits, or
- *   `notApplicable` when the catalogue does not hold the model.
+ * @returns An allow, a denial naming POL-007 with the alternative it permits, or `notApplicable` when
+ *   the catalogue does not hold the model.
  */
 function decideAssistantQuery(
   action: AssistantQueryAction,
@@ -548,25 +668,19 @@ function decideAssistantQuery(
     return permitWithoutRule();
   }
 
-  if (action.context.classification === CUSTOMER_CONFIDENTIAL) {
-    const alternative = inBoundaryModel(records.modelCatalogue);
-    return denyUnder(
-      POL_CONFIDENTIAL_CONTEXT,
-      confidentialContextReason(model, alternative),
-      alternative?.id,
-    );
+  const carried = blockingContextOf(action.context);
+
+  if (carried === undefined) {
+    return permitWithoutRule();
   }
 
-  if (action.context.residency === EU_ONLY_RESIDENCY) {
-    const alternative = inBoundaryModel(records.modelCatalogue);
-    return denyUnder(
-      POL_EXTERNAL_MODEL_RESIDENCY,
-      externalModelResidencyReason(model, alternative),
-      alternative?.id,
-    );
-  }
+  const alternative = inBoundaryModel(records.modelCatalogue);
 
-  return permitWithoutRule();
+  return denyUnder(
+    POL_EXTERNAL_MODEL_BOUNDARY,
+    externalModelBoundaryReason(carried, model, alternative),
+    alternative?.id,
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -605,11 +719,12 @@ function decidePolicyLookup(action: PolicyLookupAction): PolicyDecision {
  * Evaluates every rule that governs an action and returns the first decision it reaches —
  * contracts §7.2, AAP F7, AAP 0.12.1.
  *
- * The rules are tried in numeric order: POL-001 for an outbound endpoint, POL-003 for an approval
- * decision, then POL-005 and POL-007 for an assistant question. POL-009 is declared configuration and
- * is never evaluated (rule P-4). An action no evaluated rule governs yields `notApplicable` rather
- * than a permission, and only a rule whose condition actually fires returns a denial, so a caller can
- * treat `notApplicable` as "ask the service" and `deny` as "refuse with this rule and this reason".
+ * Each action is answered by the rule that governs it: POL-001 for an outbound endpoint, POL-003 for
+ * an approval decision, POL-005 for an approval request and POL-007 for an assistant question.
+ * POL-009 is declared configuration and is never evaluated (rule P-4). An action no evaluated rule
+ * governs yields `notApplicable` rather than a permission, and only a rule whose condition actually
+ * fires returns a denial, so a caller can treat `notApplicable` as "ask the service" and `deny` as
+ * "refuse with this rule and this reason".
  *
  * The arguments are read and never modified, and the result is a fresh object, so a denial can be
  * stored, logged or shown without reaching the records behind it.
@@ -630,6 +745,8 @@ export function evaluate(
       return decideOutboundEndpoint(action, records);
     case 'approval.decide':
       return decideApprovalDecision(action, actor, records);
+    case 'approval.request':
+      return decideApprovalRequest(action);
     case 'assistant.query':
       return decideAssistantQuery(action, records);
     case 'policy-lookup':

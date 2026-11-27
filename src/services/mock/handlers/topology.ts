@@ -10,6 +10,17 @@
  * the core types, and `src/types/topology.ts` is its declaration; this module fills that shape from the
  * session's records and computes nothing of its own.
  *
+ * WHAT THE READ IS NARROWED BY (AAP 0.2.1, AAP 0.12.3). `getTopology` and `getCanvasRibbon` take the
+ * shell's selection as one `ScopeFilterInput` and resolve it once through `resolveScope`, so the canvas
+ * describes the same scope the queue and the overview beside it do. The plant half of that scope decides
+ * which nodes and lanes the payload holds: the plant nodes are the plants in scope; a supplier-to-plant
+ * lane survives when it lands on one of them; a plant-to-customer lane survives when it leaves one of
+ * them; and an origin-to-supplier lane survives when it reaches a retained supplier. A supplier, origin
+ * or customer node survives when a retained lane touches it or when the records place it at no plant at
+ * all, and `pinsByNode` carries a count only for a node the payload still holds. An empty `scope.plants`
+ * narrows the plant-anchored part of the network away entirely — it means nothing is in scope, never
+ * "all plants" — which is the reading `src/domain/aggregation/scope.ts` fixes for that member.
+ *
  * WHY THE PIN COUNTS TRAVEL WITH THE TOPOLOGY. AAP 0.2.1 requires "supplier-to-product reach in the
  * seed, and pin counts per node, because the graph lens and the canvas node badges in S2 need both
  * before the pin screens exist in S4", and AAP 0.12.3 makes `GET /topology` an S2 read whose response
@@ -47,7 +58,8 @@
  * market-intelligence figure blended into it.
  *
  * THE RIBBON IS AN AGGREGATION'S OUTPUT, NOT THIS MODULE'S ARITHMETIC. `getCanvasRibbon` resolves the
- * scope once through `resolveScope`, assembles the record bundle the aggregates read, and returns
+ * scope once through `resolveScope`, from the same shell selection the topology read is narrowed by, and
+ * assembles the record bundle the aggregates read; it then returns
  * `computeRibbonTiles(computeOverview(...), computeExceptionRows(...))` unchanged — six tiles whose
  * every value is a computed aggregate's own output or a count of the rows handed in (rule P-6). The
  * empty-queue trigger empties the exception collection the ribbon is computed from, which is what keeps
@@ -90,12 +102,14 @@
  * - B-1, B-2: it contacts no host, addresses none, holds no credential-shaped literal and reads no
  *   configuration.
  *
- * OPEN ITEM — the customer node set and the lane coverage, reported rather than completed. Every seeded
- * customer record becomes a node, because the evidence-pin tally carries entries for customers whose
- * orders are not in the loaded order book and dropping one of those nodes would strand its counts. The
- * loaded book is the fifteen named customer orders, so a customer whose orders only the deterministic
- * filler generates appears as a node with no lane, which is what the records state. No lane is invented
- * to connect such a node, and a plant-to-customer lane is emitted only for an order the book holds.
+ * OPEN ITEM — the customer node set and the lane coverage, reported rather than completed. The family is
+ * built for every seeded customer record, because the evidence-pin tally carries entries for customers
+ * whose orders are not in the loaded order book; the read then narrows that family to the customers a
+ * retained plant-to-customer lane reaches and keeps every customer no lane reaches at all, which is how a
+ * customer with no lane keeps its node and its seeded counts (see `getTopology`). The loaded book is the
+ * fifteen named customer orders, so a customer whose orders only the deterministic filler generates
+ * appears as a node with no lane, which is what the records state. No lane is invented to connect such a
+ * node, and a plant-to-customer lane is emitted only for an order the book holds.
  *
  * OPEN ITEM — the do-nothing levers. The two lever values below are the baseline of AAP 0.8,
  * `solveSupplyDelay(CASE-1184, { airSets: 0, transferSets: 0 })`, which is the measurement an exception's
@@ -109,7 +123,6 @@
 
 import { DEMO_CLOCK } from '../../../types';
 import type {
-  ExceptionQuery,
   Freshness,
   Levers,
   OperationalException,
@@ -119,6 +132,7 @@ import type {
   PlantId,
   Problem,
   ProductId,
+  Scope,
   SourceId,
   SupplierId,
   Topology,
@@ -428,9 +442,10 @@ function originNodes(records: SeedRecordSet): TopologyNode[] {
  * the order book here, because that would state the customer's demand as a property of the customer and
  * give a second reading of the same orders a second home.
  *
- * Every seeded customer record becomes a node, including one whose orders only the deterministic filler
- * generates (see the module header's first OPEN ITEM): the evidence-pin tally carries counts for such a
- * customer, and a node dropped here would strand them.
+ * One node per customer record, including one whose orders only the deterministic filler generates (see
+ * the module header's first OPEN ITEM): the evidence-pin tally carries counts for such a customer, so the
+ * family is built whole here and `getTopology` keeps a customer no lane reaches rather than dropping its
+ * node and stranding those counts.
  *
  * @param records The loaded record set, read and not modified.
  * @returns One node per customer record, in record order.
@@ -614,23 +629,100 @@ function pinCountsOf(nodeId: string, seeded: PinCounts): PinCounts {
 }
 
 /**
- * Copies the session's per-node pin counts into the payload's map.
+ * Copies the session's per-node pin counts into the payload's map, for the nodes the payload holds.
  *
  * A node the seeded tally does not list has no pins at all and is left out of the map rather than entered
  * with six zeros, which is the reading `src/types/topology.ts` fixes: "a node missing from this map has no
- * pins", so the canvas renders it with no badge instead of a badge of nothing.
+ * pins", so the canvas renders it with no badge instead of a badge of nothing. A node the narrowed
+ * network no longer holds is left out for the same reason: a count beside nothing would badge a node the
+ * payload does not carry, so the map describes exactly the nodes returned beside it.
  *
  * @param seeded The per-node tally the session holds.
- * @returns A fresh map, one entry per counted node, in the order the tally states them.
+ * @param retained The node identifiers the payload holds, read in any order and not modified.
+ * @returns A fresh map, one entry per retained and counted node, in the order the tally states them.
  */
-function copyPinCounts(seeded: Readonly<Record<string, PinCounts>>): Record<string, PinCounts> {
+function copyPinCounts(
+  seeded: Readonly<Record<string, PinCounts>>,
+  retained: readonly string[],
+): Record<string, PinCounts> {
   const counts: Record<string, PinCounts> = {};
 
   for (const [nodeId, seededCounts] of Object.entries(seeded)) {
-    counts[nodeId] = pinCountsOf(nodeId, seededCounts);
+    if (retained.includes(nodeId)) {
+      counts[nodeId] = pinCountsOf(nodeId, seededCounts);
+    }
   }
 
   return counts;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The scope a read is narrowed by — AAP 0.2.1, AAP 0.12.1 "Scope resolution"
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The one scope a read of the canvas is served under.
+ *
+ * The shell's plant and product selection is resolved against the acting role's plant scope here, once,
+ * by the one resolver, and the answer narrows the payload and the ribbon alike: the canvas then describes
+ * the same scope the queue and the overview beside it do (AAP 0.2.1). Nothing in this module re-derives a
+ * scope, reads a store or looks at a URL.
+ *
+ * @param ctx The session and the persona the call acts as, whose role caps the selection.
+ * @param selection The shell's selection as the adapter carried it: one plant and one product, each
+ *   absent for "all".
+ * @returns The resolved scope; its `plants` member empty means nothing is in scope.
+ */
+function scopeOf(ctx: HandlerContext, selection: ScopeFilterInput): Scope {
+  return resolveScope(selection, ctx.actor.role);
+}
+
+/**
+ * Whether one of the scope's plants is the node a plant-anchored lane endpoint names.
+ *
+ * A lane endpoint is a node identifier rather than a `PlantId`, so the comparison is made here once and
+ * the narrowing below states no plant identifier of its own (rule P-6). An empty `scope.plants` matches
+ * nothing, which is the "nothing is in scope" reading `src/domain/aggregation/scope.ts` fixes.
+ *
+ * @param scope The resolved scope.
+ * @param nodeId The node identifier a lane endpoint carries.
+ * @returns `true` when the scope names that plant.
+ */
+function withinScope(scope: Scope, nodeId: string): boolean {
+  return scope.plants.some((plantId) => plantId === nodeId);
+}
+
+/**
+ * The nodes of one family the narrowed network keeps.
+ *
+ * A node is kept when a retained lane touches it. A node no lane touches anywhere in the whole network is
+ * kept as well: the records place it at no plant, so no plant can narrow it, and dropping it would strand
+ * the evidence-pin counts its record carries (the first OPEN ITEM in this module's header). An anchored
+ * node whose lanes were all narrowed away is dropped, because the records do place it at a plant outside
+ * the scope.
+ *
+ * @param nodes The family as the records state it, in record order.
+ * @param retainedLanes The lanes the scope keeps, read and not modified.
+ * @param anchoredIds The identifiers of the family's nodes the whole network places at a plant, read from
+ *   every lane of that family's own kind before narrowing.
+ * @returns The retained nodes, in the family's own order.
+ */
+function retainedNodes(
+  nodes: readonly TopologyNode[],
+  retainedLanes: readonly TopologyLane[],
+  anchoredIds: readonly string[],
+): TopologyNode[] {
+  const reached: string[] = [];
+
+  for (const lane of retainedLanes) {
+    for (const endpoint of [lane.fromId, lane.toId]) {
+      if (!reached.includes(endpoint)) {
+        reached.push(endpoint);
+      }
+    }
+  }
+
+  return nodes.filter((node) => reached.includes(node.id) || !anchoredIds.includes(node.id));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -639,56 +731,77 @@ function copyPinCounts(seeded: Readonly<Record<string, PinCounts>>): Record<stri
 
 /**
  * Reads the FileMap canvas's topology: the four node families, the lanes joining them and each node's
- * evidence-pin counts.
+ * evidence-pin counts, narrowed to the one resolved scope.
  *
  * The whole payload is a reading of the session's records through the permission matrix; nothing is
  * computed and no figure is stated. Both lenses of the canvas draw from this one value, so a selection and
  * a scope cannot be described differently by the map and by the graph (AAP 0.12.4, SCR-12).
  *
+ * The narrowing is the scope's, and it is the rule the module header states: the plant nodes are the
+ * plants in scope, a lane survives when it is anchored on an in-scope plant or reaches a retained
+ * supplier, and a supplier, origin or customer node survives when a retained lane touches it or when no
+ * lane places it at a plant at all. `pinsByNode` carries a count only for a node the payload still holds,
+ * so a badge can never outlive its node. An empty `scope.plants` therefore narrows the plant-anchored part
+ * of the network away, which is the "nothing is in scope" reading rather than "all plants".
+ *
  * @param ctx The session and the persona the call acts as.
+ * @param selection The shell's plant and product selection, which the one resolver intersects with the
+ *   role's plant scope before the payload is narrowed.
  * @returns The topology, freshly built on every call so a caller cannot alter the session through it.
  * @throws Problem - A `'permission'` failure when the role may not read the canvas or the forbidden trigger
  *   is on, or a `'validation'` failure when a lane or a pin tally references a record the set does not
  *   hold.
  */
-export async function getTopology(ctx: HandlerContext): Promise<Topology> {
+export async function getTopology(
+  ctx: HandlerContext,
+  selection: ScopeFilterInput,
+): Promise<Topology> {
   assertCanvasReadable(ctx);
 
   const { records } = ctx.state;
+  const scope = scopeOf(ctx, selection);
+
+  const supplierLanes = supplierToPlantLanes(records);
+  const retainedSupplierLanes = supplierLanes.filter((lane) => withinScope(scope, lane.toId));
+  const suppliers = retainedNodes(
+    supplierNodes(records),
+    retainedSupplierLanes,
+    supplierLanes.map((lane) => lane.fromId),
+  );
+  const supplierIds = suppliers.map((node) => node.id);
+
+  const originLanes = originToSupplierLanes(records);
+  const retainedOriginLanes = originLanes.filter((lane) => supplierIds.includes(lane.toId));
+  const origins = retainedNodes(
+    originNodes(records),
+    retainedOriginLanes,
+    originLanes.map((lane) => lane.fromId),
+  );
+
+  const customerLanes = plantToCustomerLanes(records);
+  const retainedCustomerLanes = customerLanes.filter((lane) => withinScope(scope, lane.fromId));
+  const customers = retainedNodes(
+    customerNodes(records),
+    retainedCustomerLanes,
+    customerLanes.map((lane) => lane.toId),
+  );
+
+  const plants = plantNodes(records).filter((node) => withinScope(scope, node.id));
+  const nodeIds = [...plants, ...suppliers, ...origins, ...customers].map((node) => node.id);
 
   return {
-    plants: plantNodes(records),
-    suppliers: supplierNodes(records),
-    origins: originNodes(records),
-    customers: customerNodes(records),
-    lanes: [
-      ...originToSupplierLanes(records),
-      ...supplierToPlantLanes(records),
-      ...plantToCustomerLanes(records),
-    ],
-    pinsByNode: copyPinCounts(records.pinsByNode),
+    plants,
+    suppliers,
+    origins,
+    customers,
+    lanes: [...retainedOriginLanes, ...retainedSupplierLanes, ...retainedCustomerLanes],
+    pinsByNode: copyPinCounts(records.pinsByNode, nodeIds),
   };
 }
 
 /* ---------------------------------------------------------------------------------------------
  * The ribbon — SCR-12, AAP 0.12.1, AAP 0.12.4
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * The scope filter a canvas query describes.
- *
- * `src/types/service.ts` gives `ExceptionQuery` the queue's filters, and the only one that is part of the
- * scope is the plant: the shell's product selection is not a member of that query, so the ribbon reads
- * the plant the call names and leaves the product selection at "all products", which `resolveScope` then
- * intersects with the role's plant scope (AAP 0.12.1). A call that names no plant is the "All plants"
- * selection.
- *
- * @param query The canvas query the call was served with.
- * @returns The scope filter input, with its plant member present only when the query names one.
- */
-function scopeFilterFor(query: ExceptionQuery): ScopeFilterInput {
-  return query.plantId === undefined ? {} : { plantId: query.plantId };
-}
 
 /**
  * The freshness record a read of the canvas reports.
@@ -814,18 +927,19 @@ function aggregateBundle(
  * itself is untouched by that trigger, which is why this behaviour lives here and not in `getTopology`.
  *
  * @param ctx The session and the persona the call acts as.
- * @param query The canvas query the call was served with; its plant is the scope's plant filter.
+ * @param selection The shell's plant and product selection, resolved here by the same one resolver the
+ *   topology read uses, so the tiles count the rows the queue shows under the same filters.
  * @returns Six tiles, in the order `src/domain/aggregation/urgency.ts` states.
  * @throws Problem - A `'permission'` failure when the role may not read the canvas or the forbidden
  *   trigger is on, or a `'validation'` failure when the records a figure is drawn from do not resolve.
  */
 export async function getCanvasRibbon(
   ctx: HandlerContext,
-  query: ExceptionQuery,
+  selection: ScopeFilterInput,
 ): Promise<RibbonTile[]> {
   assertCanvasReadable(ctx);
 
-  const scope = resolveScope(scopeFilterFor(query), ctx.actor.role);
+  const scope = scopeOf(ctx, selection);
   const emptied = isSimulationOn(ctx.state, 'empty-queue');
   const bundle = aggregateBundle(ctx.state, emptied ? [] : ctx.state.records.exceptions);
 

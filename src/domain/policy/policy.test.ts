@@ -42,6 +42,7 @@ import type {
   ActiveUser,
   Approval,
   ApprovalId,
+  ConstraintCheck,
   ModelCatalogue,
   ModelEntry,
   Permission,
@@ -49,6 +50,7 @@ import type {
   PolicyDecision,
   PolicyId,
   Role,
+  ScenarioId,
   UserId,
 } from '../../types';
 import { PERMISSIONS } from '../../types';
@@ -189,7 +191,7 @@ function approvalRequestedBy(requestedBy: UserId, id: ApprovalId): Approval {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The model catalogue POL-005 and POL-007 read — contracts §3, AAP 0.6.3
+ * The model catalogue POL-007 reads — contracts §3, AAP 0.6.3
  * ------------------------------------------------------------------------------------------- */
 
 /** The in-boundary model: the entry the catalogue selects first and the alternative a denial names. */
@@ -252,16 +254,16 @@ const BASE_RECORDS: PolicyRecords = {
 /** A context carrying nothing that either model rule blocks. */
 const NEUTRAL_CONTEXT: AssistantQueryContext = { classification: null, residency: null };
 
-/** A context carrying material classified customer-confidential, the condition POL-005 reads. */
+/** A context carrying material classified customer-confidential, one of the conditions POL-007 reads. */
 const CONFIDENTIAL_CONTEXT: AssistantQueryContext = {
   classification: 'customer-confidential',
   residency: null,
 };
 
-/** A context carrying material whose residency is eu-only, the condition POL-007 reads. */
+/** A context carrying material whose residency is eu-only, the other condition POL-007 reads. */
 const EU_ONLY_CONTEXT: AssistantQueryContext = { classification: null, residency: 'eu-only' };
 
-/** A context carrying both conditions, which the lower-numbered rule denies. */
+/** A context carrying both conditions, which POL-007 denies once, as the one context it is. */
 const CONFIDENTIAL_AND_EU_ONLY_CONTEXT: AssistantQueryContext = {
   classification: 'customer-confidential',
   residency: 'eu-only',
@@ -290,6 +292,20 @@ const APPROVAL_ID = 'APR-2026-101';
 /** The persona who requested `APPROVAL_ID`, and therefore may not decide it. */
 const APPROVAL_REQUESTER = PERSONA_IDS['material-planner'];
 
+/**
+ * The response option the approval-request cases put forward — the seeded option the plans recommend.
+ *
+ * Only its identifier and its own check matter to POL-005, so no measure of the option is restated
+ * here and no figure of it is compared (rule P-6).
+ */
+const REQUESTED_OPTION_ID: ScenarioId = 'SCN-1184-C';
+
+/**
+ * The breach a failed constraint check reports, in the plain words the solver returns rather than a
+ * quantity this suite invents: POL-005 quotes the message it is handed and computes nothing.
+ */
+const CONSTRAINT_BREACH = 'The transfer quantity is above the maximum the transfer lever allows.';
+
 /* ---------------------------------------------------------------------------------------------
  * Helpers over a decision
  * ------------------------------------------------------------------------------------------- */
@@ -316,6 +332,25 @@ function reasonLength(decision: PolicyDecision): number {
  */
 function assistantQuery(modelId: string, context: AssistantQueryContext): PolicyAction {
   return { action: 'assistant.query', modelId, context };
+}
+
+/**
+ * A request to send one response option for approval.
+ *
+ * @param constraintCheck The option's own constraint check, as the solver reported it.
+ * @param constraintMessages The breach messages that check reported, empty when it reported none.
+ * @returns The action to evaluate.
+ */
+function approvalRequest(
+  constraintCheck: ConstraintCheck,
+  constraintMessages: readonly string[],
+): PolicyAction {
+  return {
+    action: 'approval.request',
+    scenarioId: REQUESTED_OPTION_ID,
+    constraintCheck,
+    constraintMessages,
+  };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -419,6 +454,18 @@ const ACTION_SAMPLES: readonly ActionSample[] = [
     action: { action: 'approval.decide', approvalId: 'APR-2026-999' },
     actor: actorFor('plant-manager'),
     records: APPROVAL_RECORDS,
+  },
+  {
+    label: 'an approval request for an option whose constraint check passes',
+    action: approvalRequest('pass', []),
+    actor: actorFor('material-planner'),
+    records: BASE_RECORDS,
+  },
+  {
+    label: 'an approval request for an option whose constraint check fails',
+    action: approvalRequest('fail', [CONSTRAINT_BREACH]),
+    actor: actorFor('material-planner'),
+    records: BASE_RECORDS,
   },
   {
     label: 'a question carrying customer-confidential material sent to the external model',
@@ -711,13 +758,53 @@ describe('POL-003', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * POL-005 and POL-007 — the external model — contracts §7.2, AAP 0.6.3 and 0.12.4
+ * POL-005 — response-option validation before approval — AAP F7, src/seed/policies.ts
  * ------------------------------------------------------------------------------------------- */
 
-describe('POL-005 and POL-007', () => {
+describe('POL-005', () => {
+  const actor = actorFor('material-planner');
+
+  it('denies a request for an option whose constraint check fails, quoting the breach', () => {
+    const decision = evaluate(approvalRequest('fail', [CONSTRAINT_BREACH]), actor, BASE_RECORDS);
+
+    expect(decision.outcome).toBe('deny');
+    expect(decision.policyId).toBe('POL-005');
+    // The breach is the solver's own message, carried into the reason rather than restated.
+    expect(decision.reason).toContain(CONSTRAINT_BREACH);
+    // The rule names no alternative: a breached option is corrected, not replaced, so the denial
+    // offers no switch and leaves the member out entirely.
+    expect('permittedAlternative' in decision).toBe(false);
+  });
+
+  it('denies a failing check that states no breach, without inventing one', () => {
+    const decision = evaluate(approvalRequest('fail', []), actor, BASE_RECORDS);
+
+    expect(decision.outcome).toBe('deny');
+    expect(decision.policyId).toBe('POL-005');
+    expect(reasonLength(decision)).toBeGreaterThan(0);
+    // The premise closes as its own sentence before the verdict follows, so the reason reads as two
+    // sentences rather than running the rule's verdict into the sentence that states the breach.
+    expect(decision.reason).toContain('no breach of its own.');
+    expect('permittedAlternative' in decision).toBe(false);
+  });
+
+  it('permits a request for an option whose constraint check passes, citing the rule', () => {
+    const decision = evaluate(approvalRequest('pass', []), actor, BASE_RECORDS);
+
+    expect(decision.outcome).toBe('allow');
+    // The passing check is this rule's own condition, so the allow names it.
+    expect(decision.policyId).toBe('POL-005');
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * POL-007 — the external model — AAP 0.6.3, AAP 0.12.4 (SCR-06)
+ * ------------------------------------------------------------------------------------------- */
+
+describe('POL-007', () => {
   const actor = actorFor('plant-manager');
 
-  it('denies the external model for customer-confidential material under POL-005', () => {
+  it('denies the external model for customer-confidential material under POL-007', () => {
     const decision = evaluate(
       assistantQuery(EXTERNAL_ENTRY.id, CONFIDENTIAL_CONTEXT),
       actor,
@@ -725,7 +812,9 @@ describe('POL-005 and POL-007', () => {
     );
 
     expect(decision.outcome).toBe('deny');
-    expect(decision.policyId).toBe('POL-005');
+    // AAP 0.6.3 and AAP 0.12.4 put this condition under POL-007, and name the DOC-0031 block card as
+    // the POL-007 card, so the rule that reports it is POL-007 rather than a second rule.
+    expect(decision.policyId).toBe('POL-007');
     expect(reasonLength(decision)).toBeGreaterThan(0);
     // The alternative is the catalogue's own in-boundary model — the one-click switch the block card
     // offers — so a blocked question has somewhere to go instead of a dead end.
@@ -745,9 +834,9 @@ describe('POL-005 and POL-007', () => {
     expect(decision.permittedAlternative).toBe(IN_BOUNDARY_ENTRY.id);
   });
 
-  it('denies a context carrying both conditions under the lower-numbered rule', () => {
-    // The two conditions are tested in numeric order, so a context carrying both is reported once, by
-    // POL-005, rather than twice or by whichever predicate a caller happened to read first.
+  it('denies a context carrying both conditions once, under POL-007', () => {
+    // One rule owns both blocking conditions, so a context carrying both is reported once, by POL-007,
+    // rather than twice or by whichever predicate a caller happened to read first.
     const decision = evaluate(
       assistantQuery(EXTERNAL_ENTRY.id, CONFIDENTIAL_AND_EU_ONLY_CONTEXT),
       actor,
@@ -755,7 +844,11 @@ describe('POL-005 and POL-007', () => {
     );
 
     expect(decision.outcome).toBe('deny');
-    expect(decision.policyId).toBe('POL-005');
+    expect(decision.policyId).toBe('POL-007');
+    // The reason names the conditions the context actually carries, so a reader is not told of one
+    // while the record states both.
+    expect(decision.reason).toContain('customer-confidential');
+    expect(decision.reason).toContain('eu-only');
   });
 
   it('allows the external model when the context carries neither condition', () => {
@@ -769,7 +862,7 @@ describe('POL-005 and POL-007', () => {
   it.each([...BLOCKING_CONTEXTS])(
     'allows the in-boundary model for a context carrying %s',
     (_label, context) => {
-      // The question never leaves the boundary, so neither model rule has anything to refuse.
+      // The question never leaves the boundary, so the rule that blocks it has nothing to refuse.
       const decision = evaluate(assistantQuery(IN_BOUNDARY_ENTRY.id, context), actor, BASE_RECORDS);
 
       expect(decision.outcome).toBe('allow');
@@ -800,7 +893,7 @@ describe('POL-005 and POL-007', () => {
     );
 
     expect(decision.outcome).toBe('deny');
-    expect(decision.policyId).toBe('POL-005');
+    expect(decision.policyId).toBe('POL-007');
     expect(reasonLength(decision)).toBeGreaterThan(0);
     // Omitted rather than set to `undefined`: a denial that offers nothing says so by leaving the
     // member out, and the reason states that the catalogue declares no such model.

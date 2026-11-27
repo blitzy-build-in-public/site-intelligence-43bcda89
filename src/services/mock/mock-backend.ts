@@ -79,17 +79,19 @@
  * its cause, with the permission and the roles that hold it), B-1 (no request leaves for any host) and
  * B-2 (no configuration, no credential).
  *
- * OPEN ITEM — the port's `Scope` against the families'. Five port members take a scope: `getOverview`
- * and `listExceptions` carry a single selected plant into the exception family's query, `listApprovals`
- * and `searchIdentifiers` apply the selection here on the records the family returned or the index
- * this adapter built, and `getTopology` cannot apply it at all, because the canvas family's read takes
- * no selection. A selection naming no plant, or more than one, resolves to the acting role's whole
- * scope, which is the only reading a single-plant query can express: the shell's filter is one plant
- * and one product (AAP 0.12.2 `Scope`, specification §5.1), so a multi-plant selection cannot arise
- * from the interface — it can arise from a caller, and it is widened rather than refused. The product
- * selection narrows nothing yet: `ExceptionQuery` has no product member and no family read accepts one.
- * Closing either gap is a change to a family's own contract, and both are recorded here rather than
- * hidden.
+ * HOW THE PORT'S `Scope` REACHES THE FAMILIES (AAP 0.2.1). Five port members take a scope. Three of them
+ * narrow by both halves: `getOverview`, `listExceptions` and `getTopology` carry the selection into the
+ * family that owns the read as one `ScopeFilterInput` — the single selected plant and the single selected
+ * product, each absent when the top bar names none — which that family resolves once through
+ * `resolveScope`, so a filtered queue, a filtered overview and a narrowed canvas describe one
+ * population instead of three. `listApprovals` and `searchIdentifiers` apply the plant half here, on the
+ * page the approval family returned and on the index this adapter built, because neither an approval nor
+ * a search hit carries a product to narrow by. A selection naming no plant,
+ * or more than one, states nothing a single-plant filter can express and resolves to the acting role's
+ * whole scope: the shell's filter is one plant and one product (AAP 0.12.2 `Scope`, specification §5.1),
+ * so a multi-plant selection can only come from a caller, and it is widened rather than refused. The
+ * product half travels the same way and is passed through the resolver unchanged, because no role
+ * narrows a product; a selection naming no product means "all products".
  * OPEN ITEM — `listApprovals` narrows the page the approval family returned, because the family's
  * read takes the bare list parameters. The status and the shell's plant selection therefore filter a
  * page rather than the population it was cut from, so a page may return fewer rows than its limit
@@ -116,6 +118,7 @@
  * `whenReady`, and that file owns the comparison.
  */
 
+import type { ScopeFilterInput } from '../../domain/aggregation/scope';
 import { hasPermission, plantScopeFor, rolesWith } from '../../domain/policy/permissions';
 import { PERMISSIONS } from '../../types';
 import type {
@@ -493,9 +496,10 @@ const PIN_KIND = 'Evidence pin';
  * The one plant the shell's selection names, or `undefined` when it names none.
  *
  * The port carries the shell's selection as two lists because the resolved scope has two, while the
- * interface the top bar offers is one plant and one product. A single plant is therefore the selection
- * a family read can be narrowed by, and an empty or multi-plant list is left to the acting role's own
- * scope — the first OPEN ITEM in this module's header records that reading.
+ * interface the top bar offers is one plant and one product (specification §5.1). A single plant is
+ * therefore what the selection states, and an empty or multi-plant list states nothing a single-plant
+ * input member can express, so `selectionOf` leaves that case to the acting role's own scope — the
+ * paragraph on the port's `Scope` in this module's header records that reading.
  *
  * @param scope - The shell's selection as the caller passed it. Not modified.
  * @returns The selected plant, or `undefined` when the selection names none or several.
@@ -526,39 +530,43 @@ function scopedPlants(scope: Scope, role: Role): PlantId[] {
 }
 
 /**
- * The exception queue's query, built from the shell's selection alone.
+ * The one product the shell's selection names, or `undefined` when it names none.
  *
- * A single selected plant is carried through as the query's plant filter; a selection naming none or
- * several is carried as no filter, which leaves the acting role's scope to narrow the read.
+ * The product half of `selectedPlantOf`, read the same way and for the same reason: the top bar offers
+ * one product (specification §5.1), so a single product is what the selection states, and an empty or
+ * multi-product list states nothing the resolver's single input member can carry.
  *
- * @param scope - The shell's selection as the caller passed it.
- * @returns The query `GET /overview` and the queue read are served with.
+ * @param scope - The shell's selection as the caller passed it. Not modified.
+ * @returns The selected product, or `undefined` when the selection names none or several.
  */
-function exceptionQueryFor(scope: Scope): ExceptionQuery {
-  const plantId = selectedPlantOf(scope);
+function selectedProductOf(scope: Scope): Scope['products'][number] | undefined {
+  const [only] = scope.products;
 
-  return plantId === undefined ? {} : { plantId };
+  return scope.products.length === 1 ? only : undefined;
 }
 
 /**
- * The exception queue's query, with the caller's own filters kept and the shell's selection added.
+ * The shell's two-member selection as the one scope resolver reads it: one plant and one product.
  *
- * The queue's own plant filter wins where it is present, because it is the narrower statement of the
- * same fact and the reader who set it is looking at that filter; the shell's selection fills the
- * member only when the queue's filter is absent.
+ * This is the adapter's whole reading of a `Scope`, and it exists so no family read can be handed half
+ * of the top bar's selection: both members travel to `resolveScope` in
+ * `src/domain/aggregation/scope.ts`, which intersects the plant with the acting role's scope and passes
+ * the product through, so a filtered queue, a filtered overview and a narrowed canvas resolve the same
+ * scope from the same filters (AAP 0.2.1, AAP 0.12.1 "Scope resolution"). A member the selection names
+ * none of is left out of the input rather than carried as `undefined`, which is the shape
+ * `exactOptionalPropertyTypes` reads as "All plants" or "All products".
  *
- * @param query - The filters, order and page the queue read asked for. Not modified.
- * @param scope - The shell's selection as the caller passed it.
- * @returns The query the family is served with.
+ * @param scope - The shell's selection as the caller passed it. Not modified.
+ * @returns The resolver's input, with each member present only when the selection names one.
  */
-function exceptionQueryWith(query: ExceptionQuery, scope: Scope): ExceptionQuery {
-  if (query.plantId !== undefined) {
-    return { ...query };
-  }
-
+function selectionOf(scope: Scope): ScopeFilterInput {
   const plantId = selectedPlantOf(scope);
+  const productId = selectedProductOf(scope);
 
-  return plantId === undefined ? { ...query } : { ...query, plantId };
+  return {
+    ...(plantId === undefined ? {} : { plantId }),
+    ...(productId === undefined ? {} : { productId }),
+  };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -842,7 +850,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'permission'` failure when the role may not read the exception family.
    */
   async getOverview(scope: Scope): Promise<Result<Overview>> {
-    return this.dispatch((ctx) => exceptions.getOverview(ctx, exceptionQueryFor(scope)));
+    return this.dispatch((ctx) => exceptions.getOverview(ctx, selectionOf(scope)));
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -851,6 +859,12 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
 
   /**
    * Reads the exception queue, narrowed by the caller's filters and the shell's selection.
+   *
+   * The queue's own plant filter wins over the shell's selected plant where it is present, because it
+   * is the narrower statement of the same fact and the reader who set it is looking at that filter;
+   * the shell's selection fills the plant only when the queue's filter is absent. Both members of the
+   * shell's selection otherwise reach the one resolver, so a product chosen in the top bar narrows
+   * these rows exactly as it narrows the overview beside them (AAP 0.2.1).
    *
    * @param query - SCR-02's own filters, order and page.
    * @param scope - The shell's plant and product selection.
@@ -862,7 +876,15 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
     query: ExceptionQuery,
     scope: Scope,
   ): Promise<Result<ExceptionRow[]>> {
-    return this.dispatch((ctx) => exceptions.listExceptions(ctx, exceptionQueryWith(query, scope)));
+    const selection = selectionOf(scope);
+
+    return this.dispatch((ctx) =>
+      exceptions.listExceptions(
+        ctx,
+        query,
+        query.plantId === undefined ? selection : { ...selection, plantId: query.plantId },
+      ),
+    );
   }
 
   /**
@@ -1446,22 +1468,19 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
 
   /**
    * Reads the topology both lenses of the FileMap canvas draw: the four node families, the lanes
-   * between them and the evidence-pin counts of each node.
+   * between them and the evidence-pin counts of each node, narrowed to the shell's selection.
    *
-   * The canvas family owns the payload and applies the role's reach; its read takes no selection, so
-   * the shell's plant and product filters do not narrow this payload (the first OPEN ITEM in this
-   * module's header). The pin counts travel here, so a node badge needs no second call.
+   * The canvas family owns the payload, applies the role's reach and narrows the network to the scope
+   * `resolveScope` returns, so a plant chosen in the top bar narrows the graph exactly as it narrows the
+   * queue (AAP 0.2.1, AAP 0.12.3 "`exception.read` in scope"). The pin counts travel here, so a node
+   * badge needs no second call.
    *
    * @param scope - The shell's plant and product selection.
-   * @returns The nodes, the lanes and the per-node pin counts.
+   * @returns The nodes, the lanes and the per-node pin counts the resolved scope retains.
    * @throws Problem - A `'permission'` failure when the role may not read the canvas.
    */
   async getTopology(scope: Scope): Promise<Result<Topology>> {
-    // The canvas family's read takes no selection, so the shell's filter cannot narrow this payload;
-    // the parameter is kept because the port declares it, and the OPEN ITEM above records the gap.
-    void scope;
-
-    return this.dispatch((ctx) => topology.getTopology(ctx));
+    return this.dispatch((ctx) => topology.getTopology(ctx, selectionOf(scope)));
   }
 
   /* -------------------------------------------------------------------------------------------

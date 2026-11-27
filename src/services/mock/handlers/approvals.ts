@@ -5,9 +5,9 @@
  *
  * Implements the "Handlers" row of AAP 0.12.1 and the `handlers/` line of AAP 0.13.1, over
  * `platform-contracts.md` §3 (`Approval`, `ApprovalStatus`, `WriteBack`, `WriteBackState`,
- * `Decision`), §6 (the audited actions), §7.1 (the permission matrix) and §7.2 (POL-003). Two
+ * `Decision`), §6 (the audited actions), §7.1 (the permission matrix) and §7.2 (POL-003). Three
  * invariants of this family are enforced here rather than only displayed, so no caller can bypass
- * either one:
+ * any of them:
  *
  * - A STALE OR UNAVAILABLE ORDER BOOK REFUSES BOTH APPROVAL WRITES (AAP 0.2.1, AAP 0.12.3).
  *   `requestApproval` and `decideApproval` — and the write-back writes that continue a decision —
@@ -16,6 +16,11 @@
  *   `unavailable`. A refused call creates no approval, no write-back state change and no audit
  *   record, and the same instant reaches the screen's stale banner and the disabled control's
  *   explanation from the one source, so the tooltip and the refusal cannot disagree (T-13).
+ * - A RESPONSE OPTION THAT FAILS ITS CONSTRAINT CHECK IS NOT SENT FOR APPROVAL (AAP F7, POL-005).
+ *   `requestApproval` asks the policy engine before it writes anything, and an option whose check
+ *   reports a breach is refused with the rule and the solver's own message rather than recorded: the
+ *   refusal appends a policy-actor event, no approval record is created, and the rule's subject is
+ *   the one `src/seed/policies.ts` states.
  * - A SIMULATED WRITE-BACK IS ALL-OR-NOTHING (AAP 0.2.1). The steps advance in the record's own
  *   array order, each transition is recorded on the step and in the trail, and a step that fails
  *   stops the run: no later step runs, the change is not applied, and the failure is thrown as a
@@ -110,6 +115,7 @@ import type {
   ApprovalId,
   ApprovalStatus,
   AuditAction,
+  AuditPayload,
   AuditResult,
   Decision,
   ExceptionId,
@@ -289,9 +295,9 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
  *
  * It carries the causes this family reports as validation: a stale or unavailable order book (see
  * decision 1 in the module header), a record that moved under the reader (decision 2), a blank
- * decision comment, a request for an option whose constraint check failed, an approval whose plan
- * cannot be measured because the records carry no case for its exception, a retry of a step that
- * already succeeded, and a page cursor that names no position of the ordered page.
+ * decision comment, an approval whose plan cannot be measured because the records carry no case for
+ * its exception, a retry of a step that already succeeded, and a page cursor that names no position
+ * of the ordered page.
  *
  * @param ctx - The call's context, whose state supplies the correlation identifier.
  * @param message - The reason in plain words.
@@ -618,7 +624,8 @@ function requireFreshOrderBook(ctx: HandlerContext): void {
  * The record facts the policy engine is handed, read from the session's own records.
  *
  * `PolicyRecords` requires three members and POL-003 reads one of them: the approvals, so the rule
- * can name the requester it refuses. The outbound allowed list is the declared configuration of the
+ * can name the requester it refuses. POL-005 reads none of them, because the option's own constraint
+ * check is the fact its caller states. The outbound allowed list is the declared configuration of the
  * sovereignty ledger, computed from records rather than asserted (AAP 0.10), and the catalogue is
  * the seeded one, so no fact here is this module's own.
  *
@@ -645,9 +652,15 @@ function policyRecordsFor(records: SeedRecordSet): PolicyRecords {
  * disabled control cannot disagree with the verdict that was taken (rule P-8). No approval, no
  * write-back state and no success record is created by a refused decision.
  *
+ * What the event is about is the caller's: a decision POL-003 refuses points at the approval it would
+ * have decided, and a request POL-005 refuses points at the exception whose option it would have sent,
+ * because no approval exists yet for that one to name. Each caller states the reference and the
+ * `after` payload the trail records for its own action, so one conversion serves both rules and the
+ * two blocks cannot diverge in shape.
+ *
  * @param ctx - The call's context, whose chain is extended in place.
  * @param decision - The engine's denial.
- * @param approval - The approval the decision was about.
+ * @param audit - The record the event is about and the values the refused action would have changed.
  * @returns The `'policy'` failure to throw.
  * @throws Error - The denial named no rule, which the engine never does; the refusal could not be
  *   reported without inventing the rule that caused it.
@@ -655,7 +668,7 @@ function policyRecordsFor(records: SeedRecordSet): PolicyRecords {
 async function policyDenialProblem(
   ctx: HandlerContext,
   decision: PolicyDecision,
-  approval: Approval,
+  audit: { readonly objectRef: string; readonly after: AuditPayload },
 ): Promise<Problem> {
   const rule: PolicyId | undefined = decision.policyId;
 
@@ -668,23 +681,18 @@ async function policyDenialProblem(
 
   const event = await appendAuditEvent(ctx, {
     action: POLICY_BLOCK_ACTION,
-    objectRef: approval.id,
+    objectRef: audit.objectRef,
     result: BLOCKED_RESULT,
     policyId: rule,
     actorType: 'policy',
     actorId: rule,
     before: null,
-    after: {
-      approvalId: approval.id,
-      exceptionId: approval.exceptionId,
-      requestedBy: approval.requestedBy,
-      status: approval.status,
-    },
+    after: audit.after,
   });
 
   return {
     type: 'policy',
-    message: decision.reason ?? `${rule} refused this decision without stating a further reason.`,
+    message: decision.reason ?? `${rule} refused this action without stating a further reason.`,
     traceId: traceIdFor(ctx.state),
     policyId: rule,
     ...(decision.permittedAlternative === undefined
@@ -715,7 +723,59 @@ async function requireDecidableByPolicy(ctx: HandlerContext, approval: Approval)
   );
 
   if (decision.outcome === 'deny') {
-    throw await policyDenialProblem(ctx, decision, approval);
+    throw await policyDenialProblem(ctx, decision, {
+      objectRef: approval.id,
+      after: {
+        approvalId: approval.id,
+        exceptionId: approval.exceptionId,
+        requestedBy: approval.requestedBy,
+        status: approval.status,
+      },
+    });
+  }
+}
+
+/**
+ * Refuses a request to send an option whose constraint check fails — POL-005, AAP F7.
+ *
+ * The gate is the policy engine's, not this module's: `requestApproval` hands it the option's own
+ * check and the breaches that check reported, exactly as it would hand a question's material
+ * context, and a failing check comes back as a denial under POL-005 whose reason states the solver's
+ * message (AAP 0.12.2, and the rule `src/seed/policies.ts` records). The refusal appends a
+ * policy-actor event about the exception — the record the request was made against, because no
+ * approval exists yet for it to name — and the failure carries that event's identifier (AAP 0.8).
+ *
+ * @param ctx - The call's context: the persona asking and the chain a denial extends.
+ * @param exceptionId - The exception the option answers.
+ * @param scenario - The option the request would send.
+ * @throws Problem - A `'policy'` failure carrying POL-005, its reason and the event it appended.
+ */
+async function requireRequestableByPolicy(
+  ctx: HandlerContext,
+  exceptionId: ExceptionId,
+  scenario: Scenario,
+): Promise<void> {
+  const decision = evaluate(
+    {
+      action: 'approval.request',
+      scenarioId: scenario.id,
+      constraintCheck: scenario.constraintCheck,
+      constraintMessages: scenario.constraintMessages,
+    },
+    ctx.actor,
+    policyRecordsFor(ctx.state.records),
+  );
+
+  if (decision.outcome === 'deny') {
+    throw await policyDenialProblem(ctx, decision, {
+      objectRef: exceptionId,
+      after: {
+        exceptionId,
+        scenarioId: scenario.id,
+        constraintCheck: scenario.constraintCheck,
+        constraintMessages: [...scenario.constraintMessages],
+      },
+    });
   }
 }
 
@@ -1394,9 +1454,10 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * The order the checks run in is the order the rules are stated in, and nothing is written before
  * the last of them passes: the forbidden trigger, the exception's existence and the actor's
  * permission over it, the order-book gate (AAP 0.2.1 — a stale or unavailable source refuses the
- * request and creates no record), the option's own constraint check (an option that cannot be
- * measured is not put forward, and the failure names the breach rather than a plan), and only then
- * the record and its event.
+ * request and creates no record), the option's own constraint check, which the policy engine decides
+ * as POL-005 (an option that cannot be measured is refused with the rule and the breach rather than
+ * put forward, and the refusal appends its policy-actor event), and only then the record and its
+ * event.
  *
  * What the record carries. The requester is the acting persona, never a caller's claim. The
  * audience is the roles the matrix lets decide, less the requester's own role, so POL-003 reads as
@@ -1413,8 +1474,9 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * @returns The created approval, as a copy.
  * @throws Problem - A `'permission'` failure when the role may not request or while the forbidden
  *   trigger is on, a `'not-found'` failure for an exception or an option the records do not answer, a
- *   `'validation'` failure when the order book is stale or unavailable or the option's constraint
- *   check fails.
+ *   `'validation'` failure when the order book is stale or unavailable, or a `'policy'` failure when
+ *   POL-005 refuses the option's constraint check, carrying the rule, its reason and the event it
+ *   appended.
  */
 export async function requestApproval(
   ctx: HandlerContext,
@@ -1443,18 +1505,7 @@ export async function requestApproval(
 
   const scenario = await scenarioOrThrow(ctx, exceptionId, scenarioId);
 
-  if (scenario.constraintCheck === 'fail') {
-    const blocking =
-      scenario.constraintMessages.length === 0
-        ? 'its constraint check failed without stating a breach'
-        : scenario.constraintMessages.join(' ');
-
-    throw validationProblem(
-      ctx,
-      `${scenario.id} cannot be put forward for approval, because its constraint check fails: ` +
-        `${blocking} A plan that cannot be measured is not approved.`,
-    );
-  }
+  await requireRequestableByPolicy(ctx, exceptionId, scenario);
 
   const approvals = approvalsFor(ctx.state);
   const figures = plannedFiguresFor(scenario);

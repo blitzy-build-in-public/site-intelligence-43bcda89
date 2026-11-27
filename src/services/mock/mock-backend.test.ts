@@ -19,7 +19,9 @@
  * 8. the reset that puts the session back to the seeded state;
  * 9. the tamper control, whose edit a verification reports and repairs nothing of;
  * 10. the assistant's cited answer and its fixed notice;
- * 11. determinism: the same call twice returns the same business figures.
+ * 11. determinism: the same call twice returns the same business figures;
+ * 12. the shell's selection: the plant and product the top bar names, resolved once and applied to every
+ *     read it narrows.
  *
  * WHY THE NODE ENVIRONMENT, MANDATORY ON THE FIRST LINE ABOVE. The bootstrap hashes the 200 seeded
  * events through `crypto.subtle.digest`, and under Vitest's jsdom default that call rejects jsdom's
@@ -46,13 +48,18 @@ import { describe, expect, it } from 'vitest';
 import type {
   ActiveUser,
   DocumentBody,
+  ExceptionId,
   ExceptionRow,
+  ExceptionStatus,
   Freshness,
   Levers,
   Problem,
+  ProductId,
   Scenario,
+  ScenarioId,
   Scope,
   SourceId,
+  Topology,
   UserId,
 } from '../../types';
 import { DEMO_CLOCK, PERMISSIONS, SIM_LABELS, SOURCE_IDS, SOURCE_LABELS } from '../../types';
@@ -95,6 +102,12 @@ const CONFIDENTIAL_CLASSIFICATION = 'customer-confidential';
 const NOTE_ACTION = 'note';
 const DECISION_ACTION = 'decision';
 const ROLE_SWITCH_ACTION = 'role switch';
+
+/**
+ * The status the overview's open-exception tile counts, which is the one `src/domain/aggregation` reads
+ * as open. Restated here so a case can count the same rows the aggregate counted.
+ */
+const OPEN_STATUS: ExceptionStatus = 'open';
 
 /* ---------------------------------------------------------------------------------------------
  * The personas the cases act as — `src/seed/users.ts`, addressed by identifier
@@ -308,6 +321,48 @@ async function queueOf(backend: MockBackend): Promise<ExceptionRow[]> {
 }
 
 /**
+ * The products the queue rows name, in first-appearance order.
+ *
+ * The selection cases choose their subjects from this list rather than naming one, so no identifier of
+ * the seeded record set is typed here (rule P-6) and every product the demonstration publishes is
+ * exercised by the same case.
+ *
+ * @param rows - The queue as the acting persona sees it.
+ * @returns The distinct product identifiers the rows name, in the order the rows state them.
+ */
+function productsOf(rows: readonly ExceptionRow[]): ProductId[] {
+  const productIds: ProductId[] = [];
+
+  for (const row of rows) {
+    for (const productId of row.productIds) {
+      if (!productIds.includes(productId)) {
+        productIds.push(productId);
+      }
+    }
+  }
+
+  return productIds;
+}
+
+/**
+ * Every node identifier a topology payload carries, across its four families.
+ *
+ * The narrowing a case asserts on is stated over the payload's own node set, which is what a lane
+ * endpoint and a pin-count key are drawn against.
+ *
+ * @param topology - The canvas payload read.
+ * @returns The identifiers of the plants, suppliers, origins and customers it holds.
+ */
+function nodeIdsOf(topology: Topology): string[] {
+  return [
+    ...topology.plants,
+    ...topology.suppliers,
+    ...topology.origins,
+    ...topology.customers,
+  ].map((node) => node.id);
+}
+
+/**
  * One source's freshness as a result's metadata reports it.
  *
  * Read through the overview's envelope, which is the same report a screen raises its stale banner
@@ -354,6 +409,33 @@ async function confidentialDocumentOf(backend: MockBackend): Promise<DocumentBod
   throw new Error(
     'The seeded documents hold none classified customer-confidential, so the case cannot run.',
   );
+}
+
+/**
+ * The first option the records measure whose own constraint check reports a breach.
+ *
+ * Found through the port rather than by naming a record: every exception the acting persona may read
+ * is asked for its option set, and the first option that states a failed check is returned with the
+ * exception it belongs to. A seed that ships no breaching option fails the case on the message below
+ * instead of asserting against a subject it never found.
+ *
+ * @param backend - The session to read.
+ * @returns The exception the option belongs to and the option's identifier.
+ * @throws Error - No option in scope reports a failed constraint check.
+ */
+async function firstFailedOptionOf(
+  backend: MockBackend,
+): Promise<{ readonly exceptionId: ExceptionId; readonly scenarioId: ScenarioId }> {
+  for (const row of await queueOf(backend)) {
+    const set = (await backend.getScenarioSet(row.id)).data;
+    const failed = set.scenarios.find((option) => option.constraintCheck === 'fail');
+
+    if (failed !== undefined) {
+      return { exceptionId: row.id, scenarioId: failed.id };
+    }
+  }
+
+  throw new Error('No option in scope reports a failed constraint check, so the case cannot run.');
 }
 
 /**
@@ -671,6 +753,11 @@ describe('policy enforcement', () => {
     expect(problem.type).toBe('policy');
     expect(problem.policyId).toMatch(POLICY_ID_PATTERN);
     expect(problem.message.trim().length).toBeGreaterThan(0);
+    // The document the helper resolves is DOC-0031, which is classified customer-confidential and
+    // carries eu-only residency, so both blocking conditions are present — and AAP 0.6.3 and AAP
+    // 0.12.4 put both of them, and the DOC-0031 block card, under POL-007.
+    expect(confidential.id).toBe('DOC-0031');
+    expect(problem.policyId).toBe('POL-007');
 
     if (
       problem.policyId === undefined ||
@@ -698,6 +785,46 @@ describe('policy enforcement', () => {
 
     expect(appended?.actorType).toBe('policy');
     expect(appended?.policyId).toBe(rule);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a request for an option whose constraint check fails and points at the event it appended', async () => {
+    const backend = await readyBackend();
+
+    // The option is found through the port rather than named: the queue as a persona holding
+    // `approval.request` across every plant, then the first option whose own check reports a breach.
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const failed = await firstFailedOptionOf(backend);
+    const approvalsBefore = (await backend.listApprovals({}, NO_SCOPE)).data;
+
+    const problem = await refusalOf(() =>
+      backend.requestApproval({ exceptionId: failed.exceptionId, scenarioId: failed.scenarioId }),
+    );
+
+    // POL-005 owns the gate — the rule src/seed/policies.ts records and AAP F7 evaluates — so the
+    // refusal is a policy block naming it, with the solver's breach stated in the message.
+    expect(problem.type).toBe('policy');
+    expect(problem.policyId).toBe('POL-005');
+    expect(problem.message.trim().length).toBeGreaterThan(0);
+    // The rule names no alternative, so the member is absent rather than filled with one.
+    expect(problem.permittedAlternative).toBeUndefined();
+
+    if (problem.auditEventId === undefined) {
+      throw new Error('A policy failure carries the event it wrote.');
+    }
+
+    // Nothing was written: no approval exists for the refused request.
+    expect((await backend.listApprovals({}, NO_SCOPE)).data).toEqual(approvalsBefore);
+
+    // The event the failure names exists, records the policy as its actor, and is about the exception
+    // the request was made against, since no approval record was created for it to point at.
+    await actAs(backend, AUDITOR);
+
+    const aboutException = (await backend.listAuditEvents({ objectRef: failed.exceptionId })).data;
+    const appended = aboutException.find((event) => event.id === problem.auditEventId);
+
+    expect(appended?.actorType).toBe('policy');
+    expect(appended?.policyId).toBe('POL-005');
   }, CASE_TIMEOUT_MS);
 });
 
@@ -1102,6 +1229,95 @@ describe('determinism', () => {
     expect(second.orders).toEqual(first.orders);
     expect(second.sideEffects).toEqual(first.sideEffects);
     expect(second.writeBacks).toEqual(first.writeBacks);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 12. The shell's selection — one resolver, applied to every read it narrows
+ * ------------------------------------------------------------------------------------------- */
+
+describe("the shell's selection", () => {
+  it('narrows the queue and the overview to every product the top bar can name', async () => {
+    const backend = await readyBackend();
+    const unrestrictedRows = await queueOf(backend);
+    const unrestrictedOverview = (await backend.getOverview(NO_SCOPE)).data;
+    const productIds = productsOf(unrestrictedRows);
+
+    // The case narrows by each product in turn, which needs more than one to be a narrowing at all.
+    expect(productIds.length).toBeGreaterThan(1);
+
+    for (const productId of productIds) {
+      const scope: Scope = { plants: [], products: [productId] };
+      const rows = (await backend.listExceptions({}, scope)).data;
+      const overview = (await backend.getOverview(scope)).data;
+
+      // The product reaches the family read: every row names it, and the selection drops the rest.
+      expect(rows.length, `the queue holds no row for ${productId}`).toBeGreaterThan(0);
+      expect(rows.length).toBeLessThan(unrestrictedRows.length);
+
+      for (const row of rows) {
+        expect(row.productIds, `${row.id} is outside the ${productId} selection`).toContain(
+          productId,
+        );
+      }
+
+      // The tile counts the rows the queue lists under the same selection, and it shrinks with them.
+      const openRows = rows.filter((row) => row.status === OPEN_STATUS);
+
+      expect(overview.openExceptions).toBe(openRows.length);
+      expect(overview.openExceptions).toBeLessThan(unrestrictedOverview.openExceptions);
+    }
+  }, CASE_TIMEOUT_MS);
+
+  it('narrows the canvas network to every plant the top bar can name', async () => {
+    const backend = await readyBackend();
+    const network = (await backend.getTopology(NO_SCOPE)).data;
+    const plantIds = network.plants.map((node) => node.id);
+
+    // One plant per node the unrestricted read returns, and a network wide enough to see it narrow.
+    expect(plantIds.length).toBeGreaterThan(1);
+    expect(network.lanes.length).toBeGreaterThan(0);
+
+    // A customer no lane reaches is one the records place at no plant, so no plant may drop it: its
+    // node carries seeded pin counts that a narrower payload would otherwise strand.
+    const laneLessCustomers = network.customers
+      .filter(
+        (node) =>
+          !network.lanes.some((lane) => lane.fromId === node.id || lane.toId === node.id),
+      )
+      .map((node) => node.id);
+
+    expect(laneLessCustomers.length).toBeGreaterThan(0);
+
+    for (const plantId of plantIds) {
+      const narrowed = (await backend.getTopology({ plants: [plantId], products: [] })).data;
+      const nodeIds = nodeIdsOf(narrowed);
+      const otherPlantIds = plantIds.filter((candidate) => candidate !== plantId);
+
+      // The plant family is exactly the selection, and the network is narrower than the whole.
+      expect(narrowed.plants.map((node) => node.id)).toEqual([plantId]);
+      expect(narrowed.lanes.length).toBeLessThan(network.lanes.length);
+
+      // No lane points at a node the payload dropped, and no badge outlives its node.
+      for (const lane of narrowed.lanes) {
+        expect(nodeIds, `the lane from ${lane.fromId} leaves the payload`).toContain(lane.fromId);
+        expect(nodeIds, `the lane to ${lane.toId} leaves the payload`).toContain(lane.toId);
+        expect(otherPlantIds, `a lane reaches ${lane.toId}, which the selection excludes`).not.toContain(
+          lane.toId,
+        );
+      }
+
+      for (const nodeId of Object.keys(narrowed.pinsByNode)) {
+        expect(nodeIds, `the pin count for ${nodeId} outlives its node`).toContain(nodeId);
+      }
+
+      // The selected plant is still fed, so the narrowing narrowed rather than emptied the network.
+      expect(narrowed.lanes.some((lane) => lane.toId === plantId)).toBe(true);
+
+      for (const customerId of laneLessCustomers) {
+        expect(nodeIds, `the lane-less customer ${customerId} was dropped`).toContain(customerId);
+      }
+    }
   }, CASE_TIMEOUT_MS);
 });
 
