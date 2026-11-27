@@ -23,14 +23,35 @@
  * product selection is "all products" rather than "no product" (`./scope` states the reading), which
  * is why the alternate-source readiness share is measured over the whole material master.
  *
- * THE DERIVATION — why every figure is stated with its arithmetic. `platform-seed-data.md` is not part
- * of this repository, so this module holds the aggregates the plan fixes, derived from the seeded
- * records by the contracts' rules. Each export states below how its figures are produced, so a reader
- * can follow one to the records without running anything, and a disagreement between this table and
- * the modules is a defect to report rather than a number to adjust: a fixture written to match what
- * the modules return would prove nothing. Two of the figures are named in the inputs — AAP 0.8's
- * 1,512,800 for `EXC-2026-1184`'s delayed revenue, which is also that exception's revenue at risk,
- * and PPAP-0219's 78 per cent readiness — and both are reproduced below.
+ * THE DERIVATION — why every figure is stated with its arithmetic rather than transcribed.
+ * AAP 0.8 fixes this file to hold the expected aggregates of `platform-seed-data.md` §13, and
+ * that document is a rank-5 input of this run (AAP 0.1). It is absent from the run: the working
+ * tree and its whole history carry no such file, the plan directory mounted for the run carries
+ * only the plan, the pre-staged asset set carries only the bundled fonts, boundary file and
+ * manifest, and no environment-file drop supplied one. Every figure below is therefore derived
+ * from the seeded records by the contracts' rules rather than transcribed from it — the route
+ * AAP 0.1 allows where a value cannot be traced to that document, and the derivation is
+ * reported here rather than hidden.
+ *
+ * THE CHAIN OF CUSTODY. The records these aggregates are computed over — the seeded exceptions, the
+ * order book, the products, the materials and the packages — are themselves derivations for the same
+ * absent document, as each of their modules states in its own header, so the chain carries two derived
+ * links: those records, and these aggregates. Those records plus the `platform-contracts.md` rules —
+ * §5's ten aggregates and the whole-percent rule applied to both readiness figures — produce every
+ * value below, and each export states how its figures are produced, so a reader can follow one to the
+ * records without running anything; a disagreement between this table and the modules is then a defect
+ * to report rather than a number to adjust, because a fixture written to match what the modules return
+ * would prove nothing. What pins the records rather than the implementation are the figures the
+ * inputs fix from outside these modules, both reproduced below: PPAP-0219's 78 per cent readiness,
+ * which AAP 0.8 quotes and which is the 14 passing elements of its 18; and the 1,512,800 delayed
+ * revenue of `EXC-2026-1184`, which is also that exception's revenue at risk and which the AAP does
+ * not state itself but which follows from the two late quantities it does quote — 580 and 640 units
+ * for `CO-770233` and `CO-770251` — at the order book's own 1,240 price, the same derivation this
+ * file sets out below.
+ *
+ * THE REVERSAL. When `platform-seed-data.md` is supplied, its §13 aggregates are transcribed over the
+ * values below and these arithmetic notes become commentary on them; the reversal changes no export,
+ * type, value, import or consumer of this module.
  *
  * Rules this module is built to satisfy:
  * - P-6: an expected figure has exactly one home and this is it. Nothing under `src/` imports this
@@ -40,8 +61,9 @@
  *   import's reason where it makes it.
  * - P-5: every figure here is a first-party one computed from first-party records. No competitor or
  *   market-intelligence value appears, and no row below mixes the two provenances.
- * - P-7: every identifier is a seeded record's own `EXC-`, `CO-`, `PPAP-` or endpoint key, and no
- *   company, person, vendor or product of the real world is named.
+ * - P-7: every identifier is a seeded record's own `EXC-`, `CO-`, `PPAP-`, `PLT-` or `PRD-` key, or
+ *   one of the four endpoints the sovereignty record declares, and no company, person, vendor or
+ *   product of the real world is named.
  * - B-1, B-2: no address that is contacted, no request, no credential-shaped member and no
  *   configuration read. The four ledger endpoints are the declared strings the sovereignty record
  *   itself carries, compared as record keys and never resolved.

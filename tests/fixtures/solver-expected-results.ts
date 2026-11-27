@@ -17,15 +17,32 @@
  *   promise dates, and the projection window.
  *
  * THE DERIVATION — why every figure below is stated with its arithmetic rather than transcribed.
- * `platform-seed-data.md` is not part of this repository, so this module holds the table the plan
- * fixes, derived from the seeded case by the contracts' rules. Each row's block below states the
- * arithmetic that produces it, so a reader can follow a figure to the record and the rule without
- * running anything, and a disagreement between this table and the module is a defect to report rather
- * than a number to adjust: a fixture written to match what the solver returns would prove nothing.
- * The values a reader can check against are the two the AAP quotes from the same table — the do-nothing
- * baseline's 580 and 640 units late for `CO-770233` and `CO-770251` (AAP 0.8, the assistant's first
- * answer) and the recommended option's EUR 21,300 spend (AAP 0.8, the recommendation's sentence) —
- * and both are reproduced below.
+ * AAP 0.8 fixes this file to hold the expected-results table of `platform-seed-data.md` §4, and
+ * that document is a rank-5 input of this run (AAP 0.1). It is absent from the run: the working
+ * tree and its whole history carry no such file, the plan directory mounted for the run carries
+ * only the plan, the pre-staged asset set carries only the bundled fonts, boundary file and
+ * manifest, and no environment-file drop supplied one. Every figure below is therefore derived
+ * from the seeded case by the contracts' rules rather than transcribed from it — the route AAP
+ * 0.1 allows where a value cannot be traced to that document, and the derivation is reported
+ * here rather than hidden.
+ *
+ * THE CHAIN OF CUSTODY. The record this file is measured at, `src/seed/solver-cases.ts`, is itself a
+ * derivation for the same absent document and says so in its own header, so the chain carries two
+ * derived links: that seeded case, and these rows. Its inputs plus the `platform-contracts.md` rules —
+ * §4 rules 1 to 11 in order, and §4 rule 5's half-up rounding for line idle days — produce every value
+ * below, and each row's block states the arithmetic that produces it, so a reader can follow a figure
+ * to the record's own fields and the rule without running anything; a disagreement between this table
+ * and the module is then a defect to report rather than a number to adjust, because a fixture written
+ * to match what the solver returns would prove nothing. What pins the record rather than the
+ * implementation are the figures the AAP quotes from that same table, both reproduced below: the
+ * do-nothing baseline's 580 and 640 units late for `CO-770233` and `CO-770251`, 1,220 in total, and the
+ * recommended option's EUR 21,300 spend of 600 × 31 by air plus 900 × 3 by transfer. The case record
+ * itself is pinned the same way, by that option's side effect — 900 kits worth EUR 108,000 deferred by
+ * 10 days — which is what fixes its two lever rates, the transferred product's price and its lead time.
+ *
+ * THE REVERSAL. When `platform-seed-data.md` is supplied, its §4 figures are transcribed over the
+ * values below and these arithmetic notes become commentary on them; the reversal changes no export,
+ * type, value, import or consumer of this module.
  *
  * The case this table is measured at, as `src/seed/solver-cases.ts` states it: opening stock 0 and
  * finished goods 0 (the delayed purchase order is the whole supply behind the two orders), a build
@@ -42,8 +59,10 @@
  * - P-2: it imports one type from `src/types` and no seed record at all, so the expectation it holds
  *   cannot become a second data boundary. The suite that pairs it with the seeded case states that
  *   import's reason where it makes it.
- * - P-7: every identifier here is one of the records' own `CASE-`, `CO-`, `SCN-` or `SB-` keys, and no
- *   company, person, vendor or product of the real world is named.
+ * - P-7: the row keys that come from the records — `CASE-1184`, the `SCN-1184-A` to `SCN-1184-D`
+ *   scenarios and the two `CO-` orders — are the records' own; the sandbox rows' `SB-1184-n`
+ *   designations and the row labels are authored here, as the derivation above states, which only
+ *   the absent §4 would name; and no company, person, vendor or product of the real world is named.
  * - B-1, B-2: no address, no request, no credential-shaped member and no configuration read.
  */
 
@@ -69,7 +88,10 @@ export const SOLVER_CASE_ID = 'CASE-1184';
  * row of numbers (AAP 0.8, AAP 0.12.2).
  */
 export interface ExpectedSolverRow {
-  /** The row's identifier: `SCN-1184-A` to `SCN-1184-D` for the named scenarios, `SB-1184-n` for the sandbox checks. */
+  /**
+   * The row's identifier: `SCN-1184-A` to `SCN-1184-D` for the named scenarios and `SB-1184-n` for the
+   * sandbox checks, a designation this file makes itself, the absent §4 being what would name them.
+   */
   readonly id: string;
 
   /** What the row measures, in the words the comparison matrix reads. */
