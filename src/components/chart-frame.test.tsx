@@ -1,14 +1,16 @@
 /**
  * Component suite for `chart-frame.tsx`, the frame every chart, map and graph is composed inside.
  *
- * Success criterion 9 and rule B-3 make the table view a pass condition rather than a nicety, so
- * each case below asserts one clause of the frame's own contract: the figure named by its
- * `<figcaption>` where the title and the description sit, the surface rendered while the chart view
- * is up, the table view that replaces it with the caller's caption, columns and cells, the return
- * trip back to the surface, keyboard-only operation of the control, the simulation label rendered
- * for the surface it belongs to and never invented when the caller omits it, the ordering control
- * that exists only when the caller can honour it, the sentence that explains a table view with no
- * rows, and the toggle that stays enabled and single.
+ * Success criterion 9 and rule B-3 make the table view a pass condition rather than a nicety, and
+ * rule P-1 makes the simulation label one in the same way, so each case below asserts one clause of
+ * the frame's own contract: the figure named by its `<figcaption>` where the title and the
+ * description sit, the surface rendered while the chart view is up, the table view that replaces it
+ * with the caller's caption, columns and cells, the return trip back to the surface, keyboard-only
+ * operation of the control, the label a first-party surface carries and paints, the
+ * market-intelligence surface that carries none because its series are tagged in its legend, the
+ * ordering control that exists only when the caller can honour it, the sentence that explains a table
+ * view with no rows, the toggle that stays enabled and single, and the compile-time proof that a
+ * first-party frame without its label is not a frame at all.
  *
  * The cells hold plain words because the frame computes nothing (rule P-6): what the table shows is
  * entirely the caller's `tableRows`, so the values below are the caller's own labels rather than a
@@ -19,12 +21,18 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import type { SimLabel } from '../types';
 import { SIM_LABELS } from '../types';
 import { ChartFrame } from './chart-frame';
-import type { ChartFrameProps, ChartTableSpec } from './chart-frame';
+import type {
+  ChartFrameBaseProps,
+  ChartFrameProps,
+  ChartTableSpec,
+  FirstPartyChartFrameProps,
+  MarketIntelligenceChartFrameProps,
+} from './chart-frame';
 import type { TableColumn, TableSort } from './data-table';
 import { VIEW_AS_TABLE_LABELS } from './view-as-table-toggle';
 
@@ -145,6 +153,14 @@ function cellTexts(row: HTMLTableRowElement): readonly (string | null)[] {
 }
 
 interface FrameOptions {
+  /**
+   * Asks for the market-intelligence variant: the one surface that carries no frame-level label,
+   * because its every series states its own provenance in the `Legend` beside it (rule P-5).
+   *
+   * Absent, the frame is the first-party one, which carries a simulation label by contract (rule P-1).
+   */
+  readonly marketIntelligence?: true;
+  /** The §5.3 label a first-party frame paints; this suite's own choice, defaulting to `SIM_LABEL`. */
   readonly simLabel?: SimLabel;
   readonly description?: string;
   readonly rows?: readonly Row[];
@@ -154,8 +170,14 @@ interface FrameOptions {
 }
 
 /**
- * The frame this suite's caller renders, with the props a case does not vary left out rather than
- * set to `undefined`, because the component distinguishes an absent optional prop from a present one.
+ * The frame this suite's caller renders, in the variant the case asks for: the first-party frame,
+ * which always carries a simulation label (rule P-1), or the market-intelligence frame, which carries
+ * none and declares that provenance instead (rule P-5).
+ *
+ * The props a case does not vary are left out rather than set to `undefined`, because the component
+ * distinguishes an absent optional prop from a present one. The two variants are built as two
+ * separate elements rather than by spreading a conditional object, so this helper cannot hand the
+ * frame a props object the contract refuses and quietly test a frame no caller could construct.
  */
 function frameElement(options: FrameOptions = {}): ReactElement<ChartFrameProps<Row>> {
   const tableRows: ChartTableSpec<Row> = {
@@ -166,15 +188,31 @@ function frameElement(options: FrameOptions = {}): ReactElement<ChartFrameProps<
     sort: options.sort ?? null,
     ...(options.onSort === undefined ? {} : { onSort: options.onSort }),
   };
+  const description =
+    options.description === undefined ? {} : { description: options.description };
+  const surface = <div data-testid={CHART_SURFACE} />;
+
+  if (options.marketIntelligence === true) {
+    return (
+      <ChartFrame<Row>
+        title={TITLE}
+        tableRows={tableRows}
+        provenance="market_intelligence"
+        {...description}
+      >
+        {surface}
+      </ChartFrame>
+    );
+  }
 
   return (
     <ChartFrame<Row>
       title={TITLE}
       tableRows={tableRows}
-      {...(options.description === undefined ? {} : { description: options.description })}
-      {...(options.simLabel === undefined ? {} : { simLabel: options.simLabel })}
+      simLabel={options.simLabel ?? SIM_LABEL}
+      {...description}
     >
-      <div data-testid={CHART_SURFACE} />
+      {surface}
     </ChartFrame>
   );
 }
@@ -272,12 +310,39 @@ describe('ChartFrame', () => {
     expect(within(captionElement()).getByText(SIM_LABEL)).toBeVisible();
   });
 
-  it('invents no simulation label when the caller supplies none', () => {
-    render(frameElement());
+  it('leaves a market-intelligence surface unlabelled, its series tagged in the legend', () => {
+    // A market-intelligence surface states each series' provenance in the `Legend` beside it — the
+    // competitor series carry `Simulated market intelligence` there — so it holds no single
+    // frame-level label and the frame paints none, rather than one label over series of two
+    // provenances (rule P-5). No §5.3 label of any kind reaches the caption of such a frame.
+    render(frameElement({ marketIntelligence: true }));
 
     for (const label of SIM_LABELS) {
       expect(screen.queryByText(label)).toBeNull();
     }
+  });
+
+  /* The proof that the label cannot be omitted, held in the type checker rather than in a runtime
+     assertion, because the finding it answers is that the omission compiled. `expectTypeOf`
+     assertions are checked by `tsc --noEmit`, so they fail the type check if the contract is
+     widened: were `simLabel` optional on the first-party branch again, `ChartFrameBaseProps<Row>` —
+     the common props with no label at all — would become assignable to `ChartFrameProps<Row>`, the
+     first assertion below would report that it extends the union it must not extend, and the suite
+     would stop compiling. A `not.toMatchTypeOf` assertion is the safe direction for that reason: it
+     passes only while the omission is a real type error, so it cannot rot into a vacuous pass. */
+  it('refuses a first-party frame that carries no simulation label', () => {
+    expectTypeOf<ChartFrameBaseProps<Row>>().not.toMatchTypeOf<ChartFrameProps<Row>>();
+    expectTypeOf<
+      Omit<FirstPartyChartFrameProps<Row>, 'simLabel'>
+    >().not.toMatchTypeOf<ChartFrameProps<Row>>();
+  });
+
+  it('accepts the labelled first-party frame and the unlabelled market-intelligence one', () => {
+    expectTypeOf<FirstPartyChartFrameProps<Row>>().toMatchTypeOf<ChartFrameProps<Row>>();
+    expectTypeOf<MarketIntelligenceChartFrameProps<Row>>().toMatchTypeOf<ChartFrameProps<Row>>();
+    // The market-intelligence branch declares `simLabel` as `never`, so that variant has no label to
+    // paint even if a caller reaches for one (rule P-5).
+    expectTypeOf<MarketIntelligenceChartFrameProps<Row>['simLabel']>().toEqualTypeOf<undefined>();
   });
 
   it('renders a single toggle that is never disabled', () => {

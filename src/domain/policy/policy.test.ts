@@ -18,11 +18,20 @@
  * - AAP 0.7 and AAP 0.13.1 place the suite beside its subject; AAP 0.15.1 lists it as a
  *   High-priority row.
  *
- * What it proves: the matrix for every role and every permission, the plant scope in both
- * directions, the holder list `rolesWith` returns for every permission, the allow and the deny path
- * of every evaluated rule, POL-009's `notApplicable`, and the invariants every decision keeps — a
- * defined outcome, a rule and a non-empty reason on each denial, no denial attributed to the declared
- * policy, and determinism.
+ * What it proves: the whole matrix, cell by cell. All 8 roles x 14 permissions = 112 cells are
+ * compared with `MATRIX`, a literal transcribed from the table `permissions.ts` implements, because
+ * `platform-contracts.md` §7.1 is not readable in this run: without an expectation held apart from
+ * the module, a flipped cell flips the answer and the expectation together and passes. The 11 cells
+ * an AAP fact attests are named one by one beside it, in `HELD_CELLS` and `WITHHELD_CELLS`. It also
+ * proves the plant scope in both directions, the holder list `rolesWith` returns for every
+ * permission, the allow and the deny path of every evaluated rule, POL-009's `notApplicable`, and the
+ * invariants every decision keeps — a defined outcome, a rule and a non-empty reason on each denial,
+ * no denial attributed to the declared policy, and determinism.
+ *
+ * A demonstration of authority, not authority itself (rule P-3): every check here runs in the
+ * browser of a build with no backend, no sign-in and no session, so what the matrix proves is that
+ * this build's own table is the one it documents — never that a deployed system would authorise the
+ * same way.
  *
  * What it does not assert: no presentation, no rounding, no formatting and no business figure. Every
  * record below is built here from typed local values (rule P-6), never read from a record module and
@@ -354,6 +363,81 @@ function approvalRequest(
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The whole matrix, pinned as a literal — contracts §7.1, AAP 0.12.1
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The whole contracts §7.1 matrix pinned as a literal: all 8 roles x 14 permissions = 112 cells.
+ *
+ * Every other matrix expectation in this suite is read back out of `hasPermission` or `rolesWith`,
+ * so a cell flipped in `src/domain/policy/permissions.ts` moves the answer and the expectation built
+ * from it together, and the suite passes. Transcribed here, each cell has an expectation that is
+ * independent of the functions under test, so a cell granted where this table withholds it — or
+ * withheld where this table grants it — fails whichever way the table moved.
+ *
+ * Authored from the table the module implements rather than from the contracts themselves:
+ * `platform-contracts.md` §7.1 is not readable in this run, so this literal pins the implementation's
+ * documented derivation, the OPEN ITEM at `permissions.ts:27-31`, and reproduces its arithmetic — 42
+ * cells granted and therefore 70 denied. The permissions of each role appear in the order that file
+ * lists them, so the two tables can be diffed line by line. A supplied §7.1 supersedes that table and
+ * this literal together. The 11 cells an AAP fact attests are named separately in `HELD_CELLS` and
+ * `WITHHELD_CELLS` below; the other 101 are pinned here and nowhere else.
+ *
+ * Annotated rather than written `as const satisfies`, so `MATRIX[role]` reads as `readonly
+ * Permission[]` and a value of type `Role` indexes it directly. The annotation keeps the proof the
+ * narrower spelling would: `Record<Role, …>` makes a missing or renamed role a compile error and
+ * rejects an excess key, and every row member is checked against `Permission`, so a mistyped cell
+ * cannot be transcribed at all.
+ */
+const MATRIX: Readonly<Record<Role, readonly Permission[]>> = {
+  'material-planner': [
+    'exception.read',
+    'exception.work',
+    'scenario.create',
+    'approval.request',
+    'document.confidential.read',
+    'evidence.read',
+  ],
+  'plant-manager': [
+    'exception.read',
+    'exception.work',
+    'scenario.create',
+    'approval.decide',
+    'document.confidential.read',
+    'evidence.read',
+    'competitive.read',
+  ],
+  'head-of-supply-chain': [
+    'exception.read',
+    'scenario.create',
+    'approval.request',
+    'approval.decide',
+    'document.confidential.read',
+    'evidence.read',
+    'competitive.read',
+  ],
+  'platform-administrator': [
+    'sovereignty.read',
+    'policy.read',
+    'policy.exception.request',
+    'admin.read',
+    'audit.read',
+    'evidence.read',
+    'competitive.read',
+  ],
+  'production-planner': [
+    'exception.read',
+    'exception.work',
+    'scenario.create',
+    'approval.request',
+    'evidence.read',
+  ],
+  auditor: ['exception.read', 'audit.read', 'sovereignty.read', 'policy.read', 'evidence.read'],
+  'supplier-quality-engineer': ['exception.read', 'exception.work', 'evidence.read', 'evidence.review'],
+  'external-supplier-engineer': ['evidence.read'],
+};
+
+/* ---------------------------------------------------------------------------------------------
  * The matrix cells the inputs name, and the samples the invariant sweep evaluates
  * ------------------------------------------------------------------------------------------- */
 
@@ -367,6 +451,9 @@ function approvalRequest(
  * home screen's "Export evidence pack" carry the chain's verification; and `exception.read` for the
  * material planner, the head of supply chain, the production planner and the supplier quality engineer
  * is what lets those four personas reach the queue from the canvas (AAP 0.12.4).
+ *
+ * These nine cells and the two withheld cells below are the 11 cells an AAP fact attests by name;
+ * `MATRIX` above pins the remaining 101 of the 112, so nothing here is the whole of the coverage.
  */
 const HELD_CELLS: Array<[role: Role, permission: Permission]> = [
   ['plant-manager', 'approval.decide'],
@@ -553,6 +640,33 @@ describe('permissions', () => {
     expect(pairs).toBe(112);
   });
 
+  it('agrees with the matrix literal in all 112 cells', () => {
+    let grantedCells = 0;
+
+    for (const role of ROLES) {
+      const actor = actorFor(role);
+      const granted = MATRIX[role];
+
+      for (const permission of ALL_PERMISSIONS) {
+        const expected = granted.includes(permission);
+        // Named per cell, so a flipped cell reports the role and the permission that moved rather
+        // than only that one of the 112 disagrees.
+        const cell = `${role} / ${permission}`;
+
+        expect(hasPermission(role, permission, null, actor), cell).toBe(expected);
+
+        if (expected) {
+          grantedCells += 1;
+        }
+      }
+    }
+
+    // The literal's own arithmetic, restated from `permissions.ts:29-31`: 42 cells granted and
+    // therefore 70 denied. A transcription that mirrored one role's list into another or dropped a
+    // cell fails here even where the module under test agrees with what was written.
+    expect(grantedCells).toBe(42);
+  });
+
   it.each(HELD_CELLS)('grants %s the %s permission', (role, permission) => {
     expect(hasPermission(role, permission, null, actorFor(role))).toBe(true);
   });
@@ -640,16 +754,16 @@ describe('permissions', () => {
     }
   });
 
-  it.each([...ALL_PERMISSIONS])('names exactly the roles that hold %s', (permission) => {
+  it.each([...ALL_PERMISSIONS])('names exactly the roles the matrix literal grants %s', (permission) => {
     const holders = rolesWith(permission);
 
     // Rule P-8: the list is what a disabled control's explanation names, so it is never empty.
     expect(holders.length).toBeGreaterThan(0);
 
-    // Both directions at once: every holder holds it, and every role left out does not.
-    for (const role of ROLES) {
-      expect(holders.includes(role)).toBe(hasPermission(role, permission, null, actorFor(role)));
-    }
+    // Both directions at once, against the literal rather than against `hasPermission`, which reads
+    // the same table `rolesWith` reads: a role this table grants is named, in persona order, and
+    // every role it does not grant is left out.
+    expect(holders).toEqual(ROLES.filter((role) => MATRIX[role].includes(permission)));
   });
 
   it('lists the holders of every permission in persona order on every call', () => {

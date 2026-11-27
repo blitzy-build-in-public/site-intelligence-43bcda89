@@ -18,11 +18,21 @@
  * chart draws, supplied by the caller from the service's response, and the frame only decides which
  * representation is on screen. Every value it paints comes from a role token of specification §4, so
  * Command and Paper each supply their own measured pairing.
+ *
+ * The simulation label is structural for the same reason the table view is (rule P-1). Every computed
+ * figure carries its exact specification §5.3 label, and a page-level badge does not stand in for the
+ * label of an individual figure, so a first-party frame — one whose figures are computed here —
+ * requires its `simLabel`: a chart of computed figures that omits it does not compile rather than
+ * shipping unlabelled. The one surface that legitimately carries no frame-level label is a
+ * market-intelligence one, whose series state their own provenance in the `Legend` beside the chart
+ * (rule P-5) and which therefore has no single label that would be true of all of it. That variant is
+ * opted into by name through its `provenance`, and it cannot carry a first-party label at all, so the
+ * frame can neither omit a label it owes nor paint one it does not.
  */
 import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
-import type { SimLabel } from '../types';
+import type { Provenance, SimLabel } from '../types';
 import { DataTable } from './data-table';
 import type { TableColumn, TableSort } from './data-table';
 import { StatusIndicator } from './status-indicator';
@@ -59,8 +69,11 @@ export interface ChartTableSpec<Row> {
   readonly onSort?: (columnId: string) => void;
 }
 
-/** Props of {@link ChartFrame}. */
-export interface ChartFrameProps<Row> {
+/**
+ * The props every variant of {@link ChartFrame} accepts: the parts of the figure itself, which do not
+ * depend on where the surface's figures came from.
+ */
+export interface ChartFrameBaseProps<Row> {
   /**
    * The frame's title, rendered in the `<figcaption>`.
    *
@@ -71,15 +84,6 @@ export interface ChartFrameProps<Row> {
   /** A one-line summary of what the surface shows, rendered under the title in the secondary role. */
   readonly description?: string;
   /**
-   * The simulation label the surface carries, when the whole surface is one computed series.
-   *
-   * It is a `SimLabel`, never free text (rule P-1), and it is optional on purpose: a chart whose
-   * legend labels each series with its own provenance — the competitive atlas radar, whose competitor
-   * series are market intelligence and whose client series is a self-assessment — omits it here, so
-   * the frame can never paint a first-party label over a market-intelligence series (rule P-5).
-   */
-  readonly simLabel?: SimLabel;
-  /**
    * The data of the table view. Required, and the reason this frame exists: a chart cannot be given a
    * frame without the rows that let a reader take the same values as a table (success criterion 9,
    * rule B-3), because the prop is required and a chart that omits it does not compile.
@@ -88,6 +92,51 @@ export interface ChartFrameProps<Row> {
   /** The chart, map or graph surface itself. Unmounted, not hidden, while the table view is up. */
   readonly children: ReactNode;
 }
+
+/**
+ * Props of a first-party {@link ChartFrame}: a surface whose figures are computed here, and which is
+ * therefore labelled as simulated on the surface itself.
+ */
+export interface FirstPartyChartFrameProps<Row> extends ChartFrameBaseProps<Row> {
+  /**
+   * The simulation label the surface carries, because the whole surface is one computed series.
+   *
+   * It is a `SimLabel`, never free text (rule P-1), and it is required on purpose: rule P-1 gives
+   * every computed figure its exact specification §5.3 label, and the page's own badge does not
+   * label an individual figure for it. A chart of computed figures that omits this prop therefore
+   * does not compile, exactly as a chart that omits its `tableRows` does not.
+   */
+  readonly simLabel: SimLabel;
+}
+
+/**
+ * Props of a market-intelligence {@link ChartFrame}: the one surface that carries no frame-level
+ * label, because its series state their own provenance in the `Legend` beside it.
+ *
+ * Rule P-5 keeps market intelligence and first-party records out of the same number, and a blended
+ * surface — the competitive atlas radar, whose competitor series are market intelligence and whose
+ * client series is a self-assessment — has no single label that would be true of all of it. A caller
+ * opts into this variant by declaring that provenance, and `simLabel` is declared `never` here, so
+ * this branch can never paint a first-party label over a market-intelligence series.
+ */
+export interface MarketIntelligenceChartFrameProps<Row> extends ChartFrameBaseProps<Row> {
+  /** The provenance that selects this variant: market intelligence, and no other. */
+  readonly provenance: Extract<Provenance, 'market_intelligence'>;
+  /** Forbidden here: such a surface is labelled per series in the `Legend` (rule P-5), not once. */
+  readonly simLabel?: never;
+}
+
+/**
+ * Props of {@link ChartFrame}: a first-party surface, which must carry its simulation label, or a
+ * market-intelligence one, which must carry none.
+ *
+ * The union is what makes the label a requirement rather than a habit (rule P-1): an object holding
+ * neither `simLabel` nor the market-intelligence `provenance` satisfies neither branch, so a chart of
+ * computed figures cannot ship unlabelled.
+ */
+export type ChartFrameProps<Row> =
+  | FirstPartyChartFrameProps<Row>
+  | MarketIntelligenceChartFrameProps<Row>;
 
 /** The frame's layout only: it adds no surface, boundary or elevation of its own. */
 const FIGURE_CLASS = 'flex min-w-0 flex-col gap-3';
@@ -131,8 +180,14 @@ function withoutSorting<Row>(
 }
 
 /**
- * Frames one chart, map or graph: its title, its optional description and simulation label, the
- * "View as table" control, and the body that is either the surface itself or its table view.
+ * Frames one chart, map or graph: its title, its optional description, the simulation label its
+ * surface requires, the "View as table" control, and the body that is either the surface itself or
+ * its table view.
+ *
+ * The label is painted as a `StatusIndicator`, so the icon, the label and the status colour arrive
+ * together and the meaning never rests on colour alone (rule B-3). A market-intelligence frame is
+ * given no label to paint, and paints none: its series carry their own tag in the `Legend` (rule
+ * P-5), which is where a reader learns that each of them is simulated.
  *
  * The `<figure>` takes its accessible name from the `<figcaption>`, and the control's name carries
  * the title, so both the graphic and the switch between its two representations are announced

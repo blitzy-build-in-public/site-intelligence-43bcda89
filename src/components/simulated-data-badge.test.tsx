@@ -21,7 +21,10 @@
  * The labels and strings here are this suite's caller-level text: the component authors none of them,
  * because a simulation label is the exact specification §5.3 string its caller supplies and the clock
  * is the constant `src/types` owns. Both are therefore read from `SIM_LABELS` and `DEMO_CLOCK` rather
- * than retyped here, so no assertion can outlive the constant it means to check (rule P-6). The
+ * than retyped, so no case carries its own copy of a label the interface has since left behind (rule
+ * P-6). That leaves the vocabulary itself to pin, which is the one thing this suite states as literals:
+ * the case below asserts `SIM_LABELS` equals the seven §5.3 strings, in order, so the constant cannot
+ * be reworded while every suite that reads it stays green (rule P-1, AAP §0.10). The
  * presence-and-label case carries the `T-15` identifier, because T-15 is the labelling acceptance test;
  * every other title states the behaviour it checks. Nothing here hashes or reads the system clock, so
  * the jsdom environment `vite.config.ts` sets by default applies.
@@ -126,6 +129,25 @@ describe('SimulatedDataBadge', () => {
 
     expect(screen.getByText(LABEL)).toBeVisible();
     expect(screen.getByText(DEMO_CLOCK)).toBeVisible();
+  });
+
+  /* Rule P-1, specification §5.3 and AAP §0.10: the seven labels are fixed text, never paraphrased and
+     never abbreviated. Every case in this file and in the sibling suites that carry a label reads
+     `SIM_LABELS` rather than retyping one, which keeps them consistent with the constant but can never
+     tell whether the constant itself still says what §5.3 fixes. This is the one place the vocabulary
+     is pinned: the whole tuple, in order, so a member that were reworded, re-cased or dropped — or an
+     eighth label slipped into the union — fails here instead of propagating silently through every
+     component that reads the constant. */
+  it('pins the seven simulation labels to the exact specification §5.3 strings, in order', () => {
+    expect(SIM_LABELS).toEqual([
+      'Simulated data',
+      'Simulated calculation',
+      'Simulated recommendation',
+      'Simulated write-back',
+      'Simulated control',
+      'Simulated market intelligence',
+      'Declared, not verified',
+    ]);
   });
 
   /* Rule P-1: a label is the caller's exact §5.3 string, painted as visible text. Asserted for all

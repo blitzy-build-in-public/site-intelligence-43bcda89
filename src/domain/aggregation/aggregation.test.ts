@@ -136,7 +136,7 @@ import { computeRibbonTiles, sortUrgent } from './urgency';
  * affected-lines rule reads a measurement rather than a stored figure.
  *
  * Rule P-2 bars components and screens from reaching records and makes the mock adapter the one road to
- * the data at runtime; this is a suite, and the boundary it draws is asserted by
+ * the data at runtime; this is a suite, and the boundary it keeps is asserted by
  * `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat an import of a seed
  * record by a test file as this documented exception rather than as a screen's shortcut — the same
  * exception `src/services/service-conformance.test.ts` records for the seed names it reads. The audit

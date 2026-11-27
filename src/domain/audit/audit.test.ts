@@ -188,6 +188,62 @@ describe('payloadHash', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
+ * The event hash — the eleven positions contracts §6 fixes, in their order and joined by one `|`
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * SHA-256 of a UTF-8 string, as lowercase hex: the reference the definition below is measured
+ * against.
+ *
+ * Written here rather than imported from `./hash` on purpose. `appendEvent` and `verifyChain` both
+ * hash through that module's own `eventHash`, so their digests can only ever agree with each other:
+ * reorder two of the eleven positions and every stored hash still matches every recomputation. A
+ * digest computed by an implementation the module under test cannot alter is what makes a reordered
+ * position, a changed separator or a dropped empty policy position disagree with the record. The
+ * three calls are the platform's own, so this reference hashes the same text the module does, over
+ * the order `platform-contracts.md` §6 fixes.
+ *
+ * @param input The ordered text of contracts §6, already joined.
+ * @returns The digest as 64 lowercase hex characters, two per byte of the SHA-256 output.
+ */
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+describe('eventHash', () => {
+  it('hashes the eleven positions of contracts §6 in their fixed order, joined by one pipe', async () => {
+    const policyFree = await appendEvent([], draftFor(1));
+    const withPolicy = await appendEvent([policyFree], { ...draftFor(2), policyId: 'POL-007' });
+
+    // The eleven positions of `platform-contracts.md` §6, stated once in the order the contracts fix
+    // and joined by a single `|`: sequence, id, timestamp, actorType, actorId, action, objectRef,
+    // result, policyId, payloadHash, previousHash. An event whose draft declares no policy
+    // contributes an empty string where `policyId` sits, which is what leaves the two pipes around
+    // it adjacent.
+    const policyFreeOrdered =
+      `1|${identifierFor(1)}|${DEMO_CLOCK}|user|USR-01|note|EXC-2026-1184|succeeded||` +
+      `${policyFree.payloadHash}|${GENESIS_PREVIOUS_HASH}`;
+
+    // The same eleven positions for an event whose draft declares a policy: the value enters the
+    // ninth position and displaces nothing, so the predecessor's hash still closes the string.
+    const policyOrdered =
+      `2|${identifierFor(2)}|${DEMO_CLOCK}|user|USR-01|note|EXC-2026-1184|succeeded|POL-007|` +
+      `${withPolicy.payloadHash}|${withPolicy.previousHash}`;
+
+    // Both digests the mechanism produces for each event — the one `eventHash` computes on demand
+    // and the one the append stored — are the SHA-256 of the ordered text stated above. Nothing here
+    // records a digest from a run (rule P-6): the expected value is derived from the concatenation
+    // the contracts fix, which is what a reordered definition cannot match.
+    expect(await eventHash(policyFree)).toBe(await sha256Hex(policyFreeOrdered));
+    expect(policyFree.eventHash).toBe(await sha256Hex(policyFreeOrdered));
+    expect(await eventHash(withPolicy)).toBe(await sha256Hex(policyOrdered));
+    expect(withPolicy.eventHash).toBe(await sha256Hex(policyOrdered));
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
  * The append path — genesis, linkage, digest shape, identity and the two payload-free rules
  * ------------------------------------------------------------------------------------------- */
 
@@ -249,7 +305,7 @@ describe('appendEvent', () => {
 
 /* ---------------------------------------------------------------------------------------------
  * Verification — the empty chain, a clean chain, an edited record, a changed link, a renumbered
- * event and a chain cut in the middle
+ * event, a chain cut in the middle, and two independent breaks reported in one report
  * ------------------------------------------------------------------------------------------- */
 
 describe('verifyChain', () => {
@@ -349,6 +405,48 @@ describe('verifyChain', () => {
 
     expect(report.eventsChecked).toBe(CHAIN_LENGTH);
     expect(report.breaks).toEqual([{ sequence: survivor.sequence, id: survivor.id }]);
+  });
+
+  it('reports every independent break, in sequence order, and repairs none of them', async () => {
+    // Two positions damaged the way the demonstration's single editable record is: a stored value
+    // copied to another result, with the payload hash and the event hash left exactly as the chain
+    // computed them. Each edit is its own content mismatch at its own position — neither inherits
+    // the other — so this is the case a verification that returned only the first break cannot
+    // answer: AAP 0.8 and contracts §6 require the report to name every break, not the earliest one.
+    const events = await chainOf(CHAIN_LENGTH + 2);
+    const firstEdited = 2;
+    const secondEdited = 4;
+
+    const editedFirst: AuditEvent = { ...eventAt(events, firstEdited), result: 'blocked' };
+    const editedSecond: AuditEvent = { ...eventAt(events, secondEdited), result: 'blocked' };
+    const presented = events.map((event) => {
+      if (event.sequence === firstEdited) {
+        return editedFirst;
+      }
+      if (event.sequence === secondEdited) {
+        return editedSecond;
+      }
+      return event;
+    });
+
+    const report = await verifyChain(presented);
+
+    expect(report.eventsChecked).toBe(CHAIN_LENGTH + 2);
+    expect(report.breaks.map((entry) => entry.sequence)).toEqual([firstEdited, secondEdited]);
+    expect(report.breaks.map((entry) => entry.id)).toEqual([
+      identifierFor(firstEdited),
+      identifierFor(secondEdited),
+    ]);
+
+    // Nothing is repaired: the presented chain still holds the two edited copies, each carrying the
+    // event hash the chain recorded for content it no longer matches, and the chain they were
+    // copied from still holds the result both events were appended with.
+    expect(eventAt(presented, firstEdited)).toBe(editedFirst);
+    expect(eventAt(presented, secondEdited)).toBe(editedSecond);
+    expect(editedFirst.eventHash).toBe(eventAt(events, firstEdited).eventHash);
+    expect(editedSecond.eventHash).toBe(eventAt(events, secondEdited).eventHash);
+    expect(eventAt(events, firstEdited).result).toBe('succeeded');
+    expect(eventAt(events, secondEdited).result).toBe('succeeded');
   });
 });
 

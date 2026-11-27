@@ -74,7 +74,7 @@ import { solveSupplyDelay } from './solve-supply-delay';
  * function's output against the seed's expected-results table, and a comparison cannot exist without
  * the case the table is measured at. Rule P-2 bars components and screens from reaching records and
  * makes the mock adapter the one road to the data at runtime; this is a suite, and the boundary it
- * draws is asserted by `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat
+ * keeps is asserted by `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat
  * an import of a seed record by a test file as this documented exception rather than as a screen's
  * shortcut — the same exception `src/services/service-conformance.test.ts` records for the two seed
  * names it reads.
@@ -473,7 +473,7 @@ describe('solveSupplyDelay — the projection', () => {
     );
   });
 
-  it('draws the stock down by what the line builds on the first day', () => {
+  it('lowers the stock by what the line builds on the first day', () => {
     const result = solveSupplyDelay(PROBE_CASE, NO_LEVERS);
     const firstDay = firstOf(result.dailyClosingStock, 'closing-stock point');
 
