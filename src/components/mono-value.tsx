@@ -109,13 +109,22 @@ const MONEY_FORMAT = new Intl.NumberFormat('de-DE', {
 /**
  * Formats one amount, or hands back the input's own text when it has no formatted form.
  *
+ * Exported so the surfaces that cannot host this component's `<span>` print the same text: an SVG
+ * `<text>` has no children of another namespace, so a chart's displayed value label is this string
+ * rather than the component, and a screen that passed its own rendering would put two money formats
+ * of one amount in one view. Formatting still has one owner — this function — and no caller applies a
+ * second rule to what it returns.
+ *
  * Only a finite number is formatted. A string is returned untouched rather than parsed, because
  * parsing would silently reinterpret a caller's mistake — one dotted digit group is twenty-one and
  * three tenths to a number parser and twenty-one thousand to the reader — and a number that is not
  * finite has no formatted form at all. Both cases leave the raw input on screen as the marker of the
  * defect, which is what rule P-6 asks for: never a formatted `NaN` and never a substituted zero.
+ *
+ * @param value - The amount exactly as the record states it.
+ * @returns The amount with the currency code and at most two decimals, or the input as text.
  */
-function formatMoney(value: number | string): string {
+export function formatMoney(value: number | string): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return MONEY_FORMAT.format(value);
   }

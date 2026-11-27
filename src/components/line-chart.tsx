@@ -229,6 +229,12 @@ const REFERENCE_LABEL_LIFT = 4;
 const Y_AXIS_LABEL_OFFSET = 14;
 const MARKER_TICK_LENGTH = 5;
 
+/**
+ * The band at the plot's end inside which a date label is anchored to its own end rather than centred
+ * on its tick, so the label never draws half of itself outside the surface and gets clipped.
+ */
+const X_LABEL_EDGE_MARGIN = 8;
+
 /** How many x labels and y ticks the axis aims for before it starts thinning them out. */
 const MAX_X_LABELS = 7;
 const Y_TICK_TARGET = 5;
@@ -495,6 +501,11 @@ function yTickValues(domain: YDomain): number[] {
  * The dates the x axis labels: every nth date of the calendar, plus the last one, so a dense series
  * carries readable labels rather than an unreadable run of them and the axis still ends where the
  * data ends.
+ *
+ * The last date always takes a label, and the one the interval would have placed immediately before
+ * it gives way when the two would land closer than one interval apart: two dates drawn a single step
+ * from each other overlap into unreadable text at the end of the axis, and a run whose length is not
+ * a multiple of the interval is exactly the case that produces them.
  */
 function xLabelValues(values: readonly IsoDate[]): IsoDate[] {
   if (values.length === 0) {
@@ -502,14 +513,42 @@ function xLabelValues(values: readonly IsoDate[]): IsoDate[] {
   }
 
   const interval = Math.max(1, Math.ceil(values.length / MAX_X_LABELS));
-  const labels = values.filter((_, index) => index % interval === 0);
-  const last = values[values.length - 1];
+  const lastIndex = values.length - 1;
+  const indices: number[] = [];
 
-  if (last !== undefined && !labels.includes(last)) {
-    labels.push(last);
+  for (let index = 0; index <= lastIndex; index += interval) {
+    indices.push(index);
   }
 
-  return labels;
+  if (indices[indices.length - 1] !== lastIndex) {
+    if (lastIndex - (indices[indices.length - 1] ?? 0) < interval) {
+      indices.pop();
+    }
+
+    indices.push(lastIndex);
+  }
+
+  return indices
+    .map((index) => values[index])
+    .filter((value): value is IsoDate => value !== undefined);
+}
+
+/**
+ * How a date label is anchored to the tick it sits on: to its own end on the plot's last tick, and
+ * centred on every other tick.
+ *
+ * A date label is wider than the gap between two ticks, and the plot reserves its y-label column at
+ * the start, so a centred label on the first tick already sits inside the surface — but the plot
+ * reserves nothing at its end, and a centred label there draws half of itself outside the surface,
+ * where the SVG's own clipping cuts it: the reader then sees the year and month of the final date and
+ * never its day. Anchoring the last label to its end keeps every character of the date on screen
+ * without moving it into the label before it.
+ *
+ * @param position - The tick's horizontal position in viewBox units.
+ * @returns The `text-anchor` the label draws with.
+ */
+function xLabelAnchor(position: number): 'middle' | 'end' {
+  return position >= PLOT_RIGHT_EDGE - X_LABEL_EDGE_MARGIN ? 'end' : 'middle';
 }
 
 /** A coordinate rounded to two decimals, so a path's data is written once rather than repeated. */
@@ -829,7 +868,7 @@ export function LineChart({
               key={`x-label-${value}`}
               x={roundCoordinate(x.positionOf(value))}
               y={X_LABEL_BASELINE}
-              textAnchor="middle"
+              textAnchor={xLabelAnchor(x.positionOf(value))}
               fill="currentColor"
               className={AXIS_LABEL_CLASSES}
             >
