@@ -16,7 +16,8 @@
  * below, and the material records of `src/seed/materials.ts` name one of them in their `originId`.
  * The supplier keys `supplierIds` names are the seven tier-1 suppliers declared in
  * `src/seed/suppliers.ts`, each derived as the primary supplier of every material that names the
- * site, and every one of those suppliers is reachable from at least one origin below:
+ * site — the one exception, `ORG-CO`, is stated below — and every one of those suppliers is
+ * reachable from at least one origin below:
  *
  * | Supplier key                | Supplier's role                            | Country              | Fed by                                   |
  * | --------------------------- | ------------------------------------------ | -------------------- | ---------------------------------------- |
@@ -81,8 +82,11 @@ export interface Origin {
    * The tier-1 suppliers this origin feeds, by their keys in `src/seed/suppliers.ts`. One entry per
    * origin-to-supplier lane the topology payload emits; never empty, because an origin that feeds
    * nothing would be an unreachable node in the graph lens. The set holds the `primarySupplierId` of
-   * every material whose `originId` is this origin, so a lane exists for each material bought through
-   * a supplier that draws on this site.
+   * every material whose `originId` is this origin, so a lane exists for each material bought
+   * through a supplier that carries this site's output, and it also names, for the one site whose
+   * substance reaches the network through a component rather than through a material of its own,
+   * the supplier that builds that component: `ORG-CO` names `SUP-RHEINSTERN-ELEKTRONIK`, which
+   * builds the brushless motor whose permanent magnets carry the site's cobalt.
    */
   supplierIds: readonly SupplierId[];
 }
