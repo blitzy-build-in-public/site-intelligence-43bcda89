@@ -6,10 +6,12 @@
  * that says which series it draws, one path per series, the dashed path that tells a baseline from a
  * selected option without relying on colour, the zero reference and the band and marker labels the
  * caller supplies, a domain whose bottom never rises above zero while a negative value is still drawn
- * truthfully below the zero line, one focusable and named evidence mark per point, activation of that
- * mark from the keyboard and from a pointer opening exactly that point's drawer, the series' own
- * simulation label read out and never invented, both themes, and the fact that the surface emits no
- * frame, table or control of its own.
+ * truthfully below the zero line (the `T-03` cases — the acceptance test's "never below zero" reading,
+ * asserted here on the chart's own geometry because the solver's series is asserted in the solver's
+ * suite), one focusable and named evidence mark per point, activation of that mark from the keyboard
+ * and from a pointer opening exactly that point's drawer, the series' own simulation label read out
+ * and never invented, both themes, and the fact that the surface emits no frame, table or control of
+ * its own.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `EvidenceDrawer` reads through
  * (rule P-2), so no adapter, seed module or network is involved and the suite observes exactly the
@@ -66,16 +68,19 @@ function dayStamp(day: string): IsoDate {
   return `${DAY_PREFIX}${day}`;
 }
 
-/** The four days the series below cover. */
+/** The five days the two series below cover between them. */
 const FIRST_DAY = dayStamp('05');
 const SECOND_DAY = dayStamp('06');
 const THIRD_DAY = dayStamp('07');
 const FOURTH_DAY = dayStamp('08');
+const FIFTH_DAY = dayStamp('09');
 
 /** The labels the caller's own formatter produced, kept as plain words for the reason above. */
 const AHEAD_OF_PLAN = 'ahead of plan';
 const AT_PLAN = 'at plan';
 const BELOW_PLAN = 'below plan';
+const RECOVERING = 'recovering';
+const RESTOCKED = 'restocked';
 
 /** The baseline series' name, its evidence references and its points. */
 const BASELINE_LABEL = 'Baseline projection';
@@ -84,6 +89,8 @@ const BASELINE_POINTS: readonly LinePoint[] = [
   { x: FIRST_DAY, y: 12, yLabel: AHEAD_OF_PLAN, evidenceRef: 'evidence-baseline-one' },
   { x: SECOND_DAY, y: 9, yLabel: AT_PLAN, evidenceRef: 'evidence-baseline-two' },
   { x: THIRD_DAY, y: 6, yLabel: BELOW_PLAN, evidenceRef: 'evidence-baseline-three' },
+  { x: FOURTH_DAY, y: 4, yLabel: RECOVERING, evidenceRef: 'evidence-baseline-four' },
+  { x: FIFTH_DAY, y: 7, yLabel: RESTOCKED, evidenceRef: 'evidence-baseline-five' },
 ];
 
 /** The selected option's name and its points: two of the same days, drawn over a narrower span. */
@@ -289,37 +296,86 @@ describe('LineChart', () => {
     expect(Number(band?.getAttribute('height'))).toBeGreaterThan(0);
   });
 
-  it('keeps zero inside the drawn domain when no yMin is supplied', () => {
-    const AT_ZERO: LinePoint = {
+  it('T-03 keeps zero inside the drawn domain, with no mark below the zero line, where no yMin is given', () => {
+    const HIGH: LinePoint = {
       x: FIRST_DAY,
-      y: 0,
-      yLabel: AT_PLAN,
-      evidenceRef: 'evidence-at-zero',
+      y: 12,
+      yLabel: AHEAD_OF_PLAN,
+      evidenceRef: 'evidence-high',
     };
     const ABOVE: LinePoint = {
       x: SECOND_DAY,
       y: 10,
-      yLabel: AHEAD_OF_PLAN,
-      evidenceRef: 'evidence-above-zero',
+      yLabel: AT_PLAN,
+      evidenceRef: 'evidence-above',
+    };
+    const LOWER: LinePoint = {
+      x: THIRD_DAY,
+      y: 6,
+      yLabel: BELOW_PLAN,
+      evidenceRef: 'evidence-lower',
     };
     const series: LineSeriesSpec = {
       id: 'stock',
       label: BASELINE_LABEL,
       tone: 'accent',
-      points: [AT_ZERO, ABOVE],
+      points: [HIGH, ABOVE, LOWER],
     };
 
-    const container = renderChart({ series: [series] });
+    const container = renderChart({ series: [series], references: REFERENCES });
     const svg = surfaceOf(container);
 
+    /* Every plotted value is above zero, and zero is still one of the axis' own readings. */
     expect(yAxisReadings(svg)).toContain('0');
-    /* The domain's bottom is zero, so the zero-valued point is the lowest mark drawn. */
-    const centres = pointMarks(svg).map(markCentre);
-    expect(centres).toHaveLength(2);
-    expect(Math.max(...centres)).toBe(centres[0]);
+
+    /* The zero line falls inside the surface's drawing box rather than at or past its edge. */
+    const zeroY = zeroLineY(container);
+    const boxHeight = Number(svg.getAttribute('viewBox')?.split(' ')[3]);
+    expect(Number.isFinite(boxHeight)).toBe(true);
+    expect(zeroY).toBeGreaterThan(0);
+    expect(zeroY).toBeLessThan(boxHeight);
+
+    /* No drawn mark places a point below it, so the floor never rose to the data's own minimum. */
+    const marks = pointMarks(svg);
+    expect(marks).toHaveLength(3);
+    for (const mark of marks) {
+      expect(markCentre(mark)).toBeLessThan(zeroY);
+    }
   });
 
-  it('honours a negative yMin only where it is negative, never lifting the floor above zero', () => {
+  it('T-03 clamps a positive yMin so the floor never rises above zero', () => {
+    const LOWER: LinePoint = {
+      x: FIRST_DAY,
+      y: 40,
+      yLabel: AHEAD_OF_PLAN,
+      evidenceRef: 'evidence-lower',
+    };
+    const HIGHEST: LinePoint = {
+      x: SECOND_DAY,
+      y: 90,
+      yLabel: AT_PLAN,
+      evidenceRef: 'evidence-highest',
+    };
+    const series: LineSeriesSpec = {
+      id: 'stock',
+      label: BASELINE_LABEL,
+      tone: 'accent',
+      points: [LOWER, HIGHEST],
+    };
+
+    const container = renderChart({ series: [series], references: REFERENCES, yMin: 500 });
+    const svg = surfaceOf(container);
+
+    /* The supplied floor is above zero and every value is above it, yet zero is still drawn. */
+    expect(yAxisReadings(svg)).toContain('0');
+
+    const zeroY = zeroLineY(container);
+    for (const mark of pointMarks(svg)) {
+      expect(markCentre(mark)).toBeLessThan(zeroY);
+    }
+  });
+
+  it('T-03 draws a point below zero truthfully and names it rather than clipping it', () => {
     const ABOVE: LinePoint = {
       x: FIRST_DAY,
       y: 10,
@@ -339,26 +395,29 @@ describe('LineChart', () => {
       points: [ABOVE, BELOW_ZERO],
     };
 
-    const container = renderChart({ series: [series], references: REFERENCES, yMin: 500 });
+    const container = renderChart({ series: [series], references: REFERENCES });
     const svg = surfaceOf(container);
-    const readings = yAxisReadings(svg);
-
-    /* A positive yMin is clamped away: zero is still a labelled reading, not the axis' bottom. */
-    expect(readings).toContain('0');
+    const zeroY = zeroLineY(container);
 
     const marks = pointMarks(svg);
-    const negative = marks[1];
-    const positive = marks[0];
-    expect(negative).toBeDefined();
+    expect(marks).toHaveLength(2);
+
+    const [positive, negative] = marks;
     expect(positive).toBeDefined();
-    if (negative === undefined || positive === undefined) {
+    expect(negative).toBeDefined();
+    if (positive === undefined || negative === undefined) {
       return;
     }
 
     /* The negative value is drawn truthfully below the zero line rather than clipped to it. */
-    const zeroY = zeroLineY(container);
     expect(markCentre(positive)).toBeLessThan(zeroY);
     expect(markCentre(negative)).toBeGreaterThan(zeroY);
+
+    /* And it is still a named mark, so a chart that clamped the value could not pass by moving it. */
+    expect(negative.getAttribute('aria-label')).toBe(
+      `${BASELINE_LABEL}, ${SECOND_DAY}: ${BELOW_PLAN}`,
+    );
+    expect(yAxisReadings(svg)).toContain('0');
   });
 
   it('gives every point a focusable mark named with its series, date and formatted value', () => {

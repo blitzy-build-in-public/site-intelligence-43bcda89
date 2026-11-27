@@ -7,8 +7,10 @@
  * cell's own evidence, the same for a cluster's own evidence, the group index and series id reported to
  * `onActivate`, a zero value that keeps its label on screen, a series shorter than the group list that
  * draws no invented mark, the focus ring the surface holds in state, the accent ring every mark reveals
- * under a hover or a press, the tone each series is painted in, and both themes of specification §4.1
- * rendering the same controls.
+ * under a hover or a press, the tone each series is painted in, an axis whose ticks follow the caller's
+ * maximum rather than the largest bar, a market-intelligence series compared beside a first-party one
+ * with no figure summing the two, the drawer showing the activated cell's own record rather than one
+ * shared reference, and both themes of specification §4.1 rendering the same controls.
  *
  * The cells hold plain words because the chart formats nothing (rule P-6): `valueLabel` arrives ready to
  * paint, so the values below are the caller's own labels rather than a currency amount or a
@@ -78,11 +80,28 @@ const EVIDENCE: Evidence = {
   documents: [],
 };
 
-/** What the port hands back for any reference this suite opens. */
-const RESULT: Result<Evidence> = { data: EVIDENCE, meta: META };
+/**
+ * What the port hands back for one evidence reference.
+ *
+ * The record's value echoes the reference it was fetched for, so a drawer's content can be traced to
+ * the cell that opened it: a chart whose bars all opened one shared reference would be handed one
+ * shared record here, which none of the reference assertions below could distinguish on its own.
+ */
+function evidenceFor(evidenceRef: string): Result<Evidence> {
+  return { data: { ...EVIDENCE, value: evidenceRef }, meta: META };
+}
 
 /** The axis maximum the fixtures are drawn against. */
 const AXIS_MAX = 8;
+
+/**
+ * A second maximum, deliberately larger than any value in the fixtures.
+ *
+ * The axis-scale cases render the same data twice, once at each maximum: a surface that scaled itself
+ * from the largest value it was handed would draw identical ticks both times, so only the case that
+ * changes the maximum can tell a caller-supplied scale from a derived one.
+ */
+const LARGE_AXIS_MAX = 20;
 
 /** The axis label the caller supplies, which is also the graphic's accessible name. */
 const AXIS_LABEL = 'Units late';
@@ -120,6 +139,25 @@ const SERIES = [
     ],
   },
 ] as const satisfies readonly BarSeries[];
+
+/**
+ * A market-intelligence series: one series painted in a competitor role, compared beside a
+ * first-party one in the provenance cases below (rule P-5).
+ *
+ * It is drawn only in a `--color-competitor-*` role, so a competitor reading cannot take a
+ * first-party hue, and no figure on the surface may be the sum of one of its cells with a
+ * first-party cell.
+ */
+const COMPETITOR_SERIES = {
+  id: 'competitor-one',
+  label: 'Competitor one',
+  tone: 'competitor-1',
+  values: [
+    { value: 5, valueLabel: 'five', evidenceRef: 'evidence-competitor-one-alpha' },
+    { value: 7, valueLabel: 'seven', evidenceRef: 'evidence-competitor-one-beta' },
+    { value: 6, valueLabel: 'six', evidenceRef: 'evidence-competitor-one-gamma' },
+  ],
+} as const satisfies BarSeries;
 
 /**
  * The six names the cells must carry, stated here as their own literals rather than derived from the
@@ -208,8 +246,62 @@ function pointerStates(classList: string): readonly string[] {
     .filter((utility) => utility.startsWith('group-hover:') || utility.startsWith('group-active:'));
 }
 
+/**
+ * The axis-guide labels the surface draws: the only text inside the guides' hidden group, which is
+ * why the axis-scale cases below render without a `yAxisLabel` — its own text lives in that group too.
+ */
+function axisGuides(container: HTMLElement): readonly Element[] {
+  const guides = container.querySelector('svg > g[aria-hidden="true"]');
+
+  return guides === null ? [] : Array.from(guides.querySelectorAll('text'));
+}
+
+/** The axis-guide labels as the strings painted, in the order they are drawn. */
+function tickLabels(container: HTMLElement): readonly string[] {
+  return axisGuides(container).map((node) => node.textContent ?? '');
+}
+
+/** The `y` a drawn `<text>` is baselined at, or NaN when it declares none. */
+function baselineOf(node: Element): number {
+  return Number(node.getAttribute('y'));
+}
+
+/** The one `<text>` element painting a given string, so a case can assert where it sits. */
+function svgText(container: HTMLElement, painted: string): Element {
+  const found = Array.from(container.querySelectorAll('svg text')).find(
+    (node) => node.textContent === painted,
+  );
+
+  if (found === undefined) {
+    throw new Error(`no svg text paints ${painted}`);
+  }
+
+  return found;
+}
+
+/**
+ * Asserts that the open drawer is showing the record behind the cell that was activated.
+ *
+ * The reference is painted in the drawer's own record line, so a chart whose bars all opened one
+ * shared reference — which would look entirely correct on screen — fails here; and because the mock
+ * echoes the requested reference into the record's value, a drawer that displayed one reference while
+ * fetching another is caught too. The other cells' references must not appear at all, so the evidence
+ * on screen belongs to the activated cell and to nothing else.
+ */
+function expectDrawerShows(
+  dialog: HTMLElement,
+  evidenceRef: string,
+  otherRefs: readonly string[],
+): void {
+  expect(dialog.textContent).toContain(evidenceRef);
+
+  for (const other of otherRefs) {
+    expect(dialog.textContent).not.toContain(other);
+  }
+}
+
 beforeEach(() => {
-  getEvidence.mockResolvedValue(RESULT);
+  getEvidence.mockImplementation((evidenceRef: string) => Promise.resolve(evidenceFor(evidenceRef)));
 });
 
 afterEach(() => {
@@ -233,6 +325,13 @@ describe('GroupedBarChart', () => {
     expect(names).toEqual([...EXPECTED_CELL_NAMES]);
     for (const name of EXPECTED_CLUSTER_NAMES) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+
+    /* Each supplied label is painted as the caller wrote it, because the chart owns no format. */
+    for (const series of SERIES) {
+      for (const cell of series.values) {
+        expect(screen.getAllByText(cell.valueLabel).length).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -260,7 +359,11 @@ describe('GroupedBarChart', () => {
     fireEvent.focus(control);
     fireEvent.keyDown(control, { key: 'Enter' });
 
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog');
+    expectDrawerShows(dialog, 'evidence-plan-one-alpha', [
+      'evidence-plan-one-beta',
+      'evidence-plan-two-alpha',
+    ]);
     expect(getEvidence).toHaveBeenCalledWith('evidence-plan-one-alpha');
     expect(onActivate).toHaveBeenCalledWith(0, 'plan-one');
   });
@@ -300,7 +403,14 @@ describe('GroupedBarChart', () => {
     const notPrevented = fireEvent.keyDown(control, { key: ' ' });
 
     expect(notPrevented).toBe(false);
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    /* Not merely that a dialog opened: the record on screen is the one behind this cell, and the
+       other cells' records are nowhere in it. */
+    const dialog = await screen.findByRole('dialog');
+    expectDrawerShows(dialog, 'evidence-plan-two-beta', [
+      'evidence-plan-one-alpha',
+      'evidence-plan-two-alpha',
+    ]);
     expect(getEvidence).toHaveBeenCalledWith('evidence-plan-two-beta');
   });
 
@@ -420,24 +530,54 @@ describe('GroupedBarChart', () => {
   });
 
   it('paints a market-intelligence series in a competitor role', () => {
-    const competitorSeries = [
-      {
-        id: 'competitor-one',
-        label: 'Competitor one',
-        tone: 'competitor-1',
-        values: [
-          { value: 5, valueLabel: 'five', evidenceRef: 'evidence-competitor-one-alpha' },
-          { value: 7, valueLabel: 'seven', evidenceRef: 'evidence-competitor-one-beta' },
-          { value: 6, valueLabel: 'six', evidenceRef: 'evidence-competitor-one-gamma' },
-        ],
-      },
-    ] as const satisfies readonly BarSeries[];
-
-    renderChart(<GroupedBarChart groups={GROUPS} series={competitorSeries} max={AXIS_MAX} />);
+    renderChart(<GroupedBarChart groups={GROUPS} series={[COMPETITOR_SERIES]} max={AXIS_MAX} />);
 
     expect(
       cellControl('Order alpha, Competitor one: five').querySelector('.fill-competitor-1'),
     ).not.toBeNull();
+  });
+
+  it('compares a competitor series beside a first-party one and paints no combined total', () => {
+    const firstParty = SERIES[0];
+
+    const { container } = renderChart(
+      <GroupedBarChart groups={GROUPS} series={[firstParty, COMPETITOR_SERIES]} max={LARGE_AXIS_MAX} />,
+    );
+
+    /* Both series are drawn, each in the role its tone names, and no mark is lost to the mixing. */
+    expect(cellControls()).toHaveLength(GROUPS.length * 2);
+    expect(cellControl('Order alpha, Plan one: four').querySelector('.fill-accent')).not.toBeNull();
+    expect(
+      cellControl('Order alpha, Competitor one: five').querySelector('.fill-competitor-1'),
+    ).not.toBeNull();
+
+    /* Nothing on the surface is a total across series: every painted string is a label the caller
+       supplied or an axis guide, so a figure blending the two provenances would have to be one of
+       those, and it is neither (rule P-5). */
+    const supplied = new Set<string>([
+      ...GROUPS.map((group) => group.label),
+      ...firstParty.values.map((cell) => cell.valueLabel),
+      ...COMPETITOR_SERIES.values.map((cell) => cell.valueLabel),
+      ...tickLabels(container),
+    ]);
+    const painted = Array.from(container.querySelectorAll('svg text')).map(
+      (node) => node.textContent ?? '',
+    );
+
+    expect(painted.length).toBeGreaterThan(0);
+    for (const text of painted) {
+      expect(supplied.has(text)).toBe(true);
+    }
+
+    /* Stated directly as well: a cluster's two readings never appear added together. */
+    GROUPS.forEach((group, index) => {
+      const total = String(
+        (firstParty.values[index]?.value ?? 0) + (COMPETITOR_SERIES.values[index]?.value ?? 0),
+      );
+
+      expect(painted).not.toContain(total);
+      expect(painted).not.toContain(`${group.label}: ${total}`);
+    });
   });
 
   it('renders the same controls under both themes', () => {
@@ -472,5 +612,36 @@ describe('GroupedBarChart', () => {
     const axis = document.querySelector('svg > g[aria-hidden="true"]');
     expect(axis).not.toBeNull();
     expect(axis?.textContent).toContain(AXIS_LABEL);
+  });
+
+  it('scales the value axis from the supplied maximum, not from the data', () => {
+    const small = renderChart(<GroupedBarChart groups={GROUPS} series={SERIES} max={AXIS_MAX} />);
+    const smallTicks = tickLabels(small.container);
+    small.unmount();
+
+    const large = renderChart(
+      <GroupedBarChart groups={GROUPS} series={SERIES} max={LARGE_AXIS_MAX} />,
+    );
+    const largeTicks = tickLabels(large.container);
+
+    /* Identical fixtures both times, so a scale read from the largest value would repeat itself; the
+       second maximum is larger than any cell, so only the prop can produce the second set of ticks. */
+    expect(smallTicks).toEqual(['0', '4', '8']);
+    expect(largeTicks).toEqual(['0', '10', '20']);
+    expect(largeTicks).not.toEqual(smallTicks);
+  });
+
+  it('prints the group labels under the value axis', () => {
+    const { container } = renderChart(chart());
+
+    const guides = axisGuides(container);
+    expect(guides.length).toBeGreaterThan(0);
+
+    const deepestGuide = Math.max(...guides.map(baselineOf));
+
+    for (const group of GROUPS) {
+      /* Deeper in the view box than every guide: below the axis, where a category label belongs. */
+      expect(baselineOf(svgText(container, group.label))).toBeGreaterThan(deepestGuide);
+    }
   });
 });

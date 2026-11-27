@@ -5,16 +5,19 @@
  * Each case asserts a clause of the surface's contract rather than its markup: the accessible name
  * of the graphic with and without the caller's axis label; one operable mark per datum and no
  * figure element, no table element and no toggle of its own, because `chart-frame.tsx` owns those;
- * an accessible name that states the category and the value every mark draws; keyboard reachability
- * by `Tab` and activation by `Enter` and by `Space`; a pointer activation; the evidence drawer
- * opening on the datum's own reference — outside the graphic, where HTML belongs — beside the
- * `onActivate` report a screen filters its queue with; a zero value drawn at zero length with its
- * labels intact; a value beyond the caller's axis held inside the track; the bar and its focus ring
- * rounded from the control radius token rather than a literal radius (AAP §0.5.3); the one tone table
- * in which every chart surface resolves a role token and its four utilities (AAP §0.5.3); the mark's
- * simulation label spoken rather than spelled by the chart (rule P-1); a long category label
- * shortened in the drawing while its accessible name keeps it whole; the selected datum marked by
- * something other than colour alone; and an empty set drawing nothing at all.
+ * a name and a drawn value that state the category and carry the caller's pre-formatted string
+ * untouched; keyboard reachability by `Tab` and activation by `Enter` and by `Space` on any mark; a
+ * pointer activation; the evidence drawer opening on the datum's own reference — outside the
+ * graphic, where HTML belongs — beside the `onActivate` report a screen filters its queue with; a
+ * zero value drawn at zero length with its mark still focusable and its labels intact; a value
+ * beyond the caller's axis held inside the track; the bar and its focus ring rounded from the
+ * control radius token rather than a literal radius (AAP §0.5.3); the focus ring drawn on the mark
+ * that holds keyboard focus and hidden on the rest (rule B-3); the one tone table in which every
+ * chart surface resolves a role token and its four utilities, drawn one datum per tone with no
+ * literal colour anywhere in the graphic (AAP §0.5.3); the mark's simulation label spoken rather
+ * than spelled by the chart (rule P-1); a long category label shortened in the drawing while its
+ * accessible name keeps it whole; the selected datum marked by something other than colour alone;
+ * and an empty set drawing nothing at all.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary the drawer is allowed to read
  * through (rule P-2), so no adapter and no query cache beyond the suite's own client are involved,
@@ -87,7 +90,7 @@ const META: Meta = { freshness: [], simulated: true, traceId: TRACE_ID };
 /** The result the mocked port resolves for every reference this suite opens. */
 const RESULT: Result<Evidence> = { data: EVIDENCE, meta: META };
 
-/** The bar that fills the track on this suite's axis, and the one that draws at half of it. */
+/** The bar that fills the track on this suite's axis. */
 const ALPHA: HorizontalBarDatum = {
   id: 'mark-alpha',
   label: 'Alpha plant',
@@ -105,16 +108,26 @@ const BETA: HorizontalBarDatum = {
   evidenceRef: 'evidence-beta',
 };
 
-/**
- * Two bars on one axis of forty: the first fills the track, the second draws at half of it, so the
- * proportionality of the drawing is observable without the component exposing its own geometry.
- */
-const BARS: readonly HorizontalBarDatum[] = [ALPHA, BETA];
+/** The third bar: a quarter of {@link ALPHA}'s value, so a third mark cannot be an accident of pairing. */
+const GAMMA: HorizontalBarDatum = {
+  id: 'mark-gamma',
+  label: 'Gamma plant',
+  value: 10,
+  valueLabel: 'ten units',
+  evidenceRef: 'evidence-gamma',
+};
 
-/** The axis maximum both {@link BARS} are drawn against. */
+/**
+ * Three bars on one axis of forty: the first fills the track, the second draws at half of it and the
+ * third at a quarter, so the proportionality of the drawing is observable without the component
+ * exposing its own geometry.
+ */
+const BARS: readonly HorizontalBarDatum[] = [ALPHA, BETA, GAMMA];
+
+/** The axis maximum every {@link BARS} entry is drawn against. */
 const MAX = 40;
 
-/** The accessible names the two {@link BARS} must carry: the category, then the value. */
+/** The accessible names {@link BARS} must carry: the category, then the value the caller formatted. */
 const ALPHA_NAME = 'Alpha plant: forty units';
 const BETA_NAME = 'Beta plant: twenty units';
 
@@ -186,9 +199,39 @@ function barWidthOf(mark: HTMLElement): number {
   return Number(barOf(mark).getAttribute('width'));
 }
 
+/**
+ * The focus ring a mark draws: the one rect in it carrying the focus-ring stroke. It is found here
+ * so a case observes the ring the component actually drew rather than a class name retyped.
+ */
+function focusRingOf(mark: HTMLElement): Element {
+  const ring = mark.querySelector('.stroke-focus-ring');
+
+  if (ring === null) {
+    throw new Error('the mark drew no focus ring');
+  }
+
+  return ring;
+}
+
 /** The text the mark draws for its category, as opposed to the text it speaks. */
 function drawnLabelOf(mark: HTMLElement): string {
   return mark.querySelector('text')?.textContent ?? '';
+}
+
+/**
+ * The value text the mark draws: its second text element, the first being the category.
+ *
+ * Read back verbatim so a chart that re-formatted, rounded or re-labelled the caller's string fails
+ * here — formatting has one owner, and it is not this surface (rule P-6).
+ */
+function drawnValueOf(mark: HTMLElement): string {
+  const value = Array.from(mark.querySelectorAll('text')).at(1);
+
+  if (value === undefined) {
+    throw new Error('the mark drew no value text');
+  }
+
+  return value.textContent ?? '';
 }
 
 beforeEach(() => {
@@ -219,18 +262,40 @@ describe('HorizontalBarChart', () => {
 
   it('renders one operable mark per datum and no figure, table or toggle of its own', () => {
     const { container } = renderBars();
+    const svg = container.querySelector('svg');
 
+    if (svg === null) {
+      throw new Error('the chart drew no graphic');
+    }
+
+    expect(svg.querySelectorAll('[role="button"]')).toHaveLength(BARS.length);
     expect(screen.getAllByRole('button')).toHaveLength(BARS.length);
     expect(container.querySelector('figure')).toBeNull();
     expect(container.querySelector('table')).toBeNull();
     expect(container.querySelector('figcaption')).toBeNull();
   });
 
-  it('states each mark’s category and value in its accessible name', () => {
+  it('names each mark with its category and its pre-formatted value, drawn verbatim', () => {
     renderBars();
 
-    expect(screen.getByRole('button', { name: ALPHA_NAME })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: BETA_NAME })).toBeInTheDocument();
+    const marks = screen.getAllByRole('button');
+
+    expect(marks).toHaveLength(BARS.length);
+
+    BARS.forEach((datum, index) => {
+      const mark = marks[index];
+
+      if (mark === undefined) {
+        throw new Error(`no mark drawn for ${datum.id}`);
+      }
+
+      const name = mark.getAttribute('aria-label') ?? '';
+
+      expect(name).toContain(datum.label);
+      expect(name).toContain(datum.valueLabel);
+      expect(drawnLabelOf(mark)).toBe(datum.label);
+      expect(drawnValueOf(mark)).toBe(datum.valueLabel);
+    });
   });
 
   it('draws each bar in proportion to its value against the caller’s maximum', () => {
@@ -247,13 +312,7 @@ describe('HorizontalBarChart', () => {
     renderBars();
 
     for (const mark of screen.getAllByRole('button')) {
-      const ring = mark.querySelector('.stroke-focus-ring');
-
-      if (ring === null) {
-        throw new Error('the mark drew no focus ring');
-      }
-
-      for (const rect of [barOf(mark), ring]) {
+      for (const rect of [barOf(mark), focusRingOf(mark)]) {
         expect(rect.getAttribute('class')).toContain(CONTROL_RADIUS_CLASSES);
         expect(rect.hasAttribute('rx')).toBe(false);
       }
@@ -280,16 +339,47 @@ describe('HorizontalBarChart', () => {
     expect(onActivate).toHaveBeenCalledWith('mark-alpha');
   });
 
-  it('opens a mark’s evidence with Space as well as with Enter', async () => {
+  it('reaches a second mark with Tab and opens its evidence with Space as well as with Enter', async () => {
     const user = userEvent.setup();
 
     renderBars();
 
+    const second = screen.getByRole('button', { name: BETA_NAME });
+
     await user.tab();
+    await user.tab();
+
+    expect(document.activeElement).toBe(second);
+
     await user.keyboard(' ');
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(getEvidence).toHaveBeenCalledWith('evidence-alpha');
+    expect(getEvidence).toHaveBeenCalledWith('evidence-beta');
+  });
+
+  it('draws a focus indicator on the mark that holds keyboard focus, and only on that one', async () => {
+    const user = userEvent.setup();
+
+    renderBars();
+
+    const first = screen.getByRole('button', { name: ALPHA_NAME });
+    const second = screen.getByRole('button', { name: BETA_NAME });
+
+    await user.tab();
+
+    expect(document.activeElement).toBe(first);
+    // An SVG group is given no focus ring by the browser, so the mark draws its own in the
+    // focus-ring role and carries the outline utilities for the engines that paint the group.
+    expect(first.getAttribute('class')).toContain('focus-visible:outline-focus-ring');
+    expect(focusRingOf(first).getAttribute('class')).toContain('group-focus-visible:opacity-100');
+    // The rest keep their ring hidden until they are focused themselves, so the indication follows
+    // focus instead of being painted on every bar (rule B-3).
+    expect(focusRingOf(second).getAttribute('class')).toContain('opacity-0');
+
+    await user.tab();
+
+    expect(document.activeElement).toBe(second);
+    expect(second.getAttribute('class')).toContain('focus-visible:outline-focus-ring');
   });
 
   it('opens a mark’s evidence on a pointer activation and reports the datum it activated', async () => {
@@ -325,21 +415,28 @@ describe('HorizontalBarChart', () => {
     expect(container.querySelector('svg')?.contains(dialog)).toBe(false);
   });
 
-  it('draws a zero value at zero length and keeps its category and value on screen', () => {
+  it('draws a zero value at zero length and keeps its mark focusable, named and labelled', async () => {
+    const user = userEvent.setup();
     const zero: HorizontalBarDatum = {
       id: 'mark-zero',
-      label: 'Gamma plant',
+      label: 'Epsilon plant',
       value: 0,
       valueLabel: 'no units',
-      evidenceRef: 'evidence-gamma',
+      evidenceRef: 'evidence-epsilon',
     };
 
     renderChart(<HorizontalBarChart bars={[zero]} max={MAX} />);
 
-    const mark = screen.getByRole('button', { name: 'Gamma plant: no units' });
+    const mark = screen.getByRole('button', { name: 'Epsilon plant: no units' });
+
     expect(barWidthOf(mark)).toBe(0);
-    expect(drawnLabelOf(mark)).toBe('Gamma plant');
-    expect(mark.textContent).toContain('no units');
+    expect(drawnLabelOf(mark)).toBe('Epsilon plant');
+    expect(drawnValueOf(mark)).toBe('no units');
+    expect(mark).toHaveAttribute('tabindex', '0');
+
+    await user.tab();
+
+    expect(document.activeElement).toBe(mark);
   });
 
   it('holds a value beyond the caller’s maximum inside the track', () => {
@@ -450,6 +547,41 @@ describe('HorizontalBarChart', () => {
 
       for (const utility of [entry.fill, entry.stroke, entry.text, entry.swatch]) {
         expect(utility).not.toBe('');
+      }
+    }
+  });
+
+  it('draws every permitted tone from its role token, with no literal colour in the drawing', () => {
+    const bars: readonly HorizontalBarDatum[] = TONES.map((tone) => ({
+      id: `mark-${tone}`,
+      label: tone,
+      value: 1,
+      valueLabel: tone,
+      evidenceRef: `evidence-${tone}`,
+      tone,
+    }));
+
+    const { container } = renderChart(<HorizontalBarChart bars={bars} max={1} />);
+    const svg = container.querySelector('svg');
+
+    if (svg === null) {
+      throw new Error('the chart drew no graphic');
+    }
+
+    expect(svg.querySelectorAll('[role="button"]')).toHaveLength(TONES.length);
+
+    for (const tone of TONES) {
+      const mark = screen.getByRole('button', { name: `${tone}: ${tone}` });
+
+      expect(barOf(mark).getAttribute('class')).toContain(CHART_TONE_CLASSES[tone].fill);
+    }
+
+    // A role token, never a palette value: nothing in the graphic may carry a hex, functional or
+    // named colour in an inline style or a paint attribute, because that would be a colour chosen by
+    // this surface instead of by the active theme (AAP §0.5.3).
+    for (const element of Array.from(svg.querySelectorAll('*'))) {
+      for (const attribute of ['style', 'fill', 'stroke', 'color']) {
+        expect(element.getAttribute(attribute) ?? '').not.toMatch(/#|[a-z]+\(/i);
       }
     }
   });
