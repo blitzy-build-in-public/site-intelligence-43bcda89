@@ -130,7 +130,7 @@ import { evaluate } from '../../../domain/policy/evaluate';
 import type { PolicyRecords } from '../../../domain/policy/evaluate';
 import { hasPermission, plantScopeFor, rolesWith } from '../../../domain/policy/permissions';
 import { solveSupplyDelay } from '../../../domain/solver/solve-supply-delay';
-import { DEMO_CLOCK, SOURCE_LABELS } from '../../../types';
+import { APPROVAL_GATE_SOURCE, DEMO_CLOCK, SOURCE_LABELS } from '../../../types';
 import type {
   Approval,
   ApprovalId,
@@ -155,7 +155,6 @@ import type {
   ScenarioId,
   ScenarioSet,
   SimulationFlag,
-  SourceId,
   SolverCase,
   WriteBack,
   WriteBackState,
@@ -178,14 +177,6 @@ const APPROVAL_REQUEST: Permission = 'approval.request';
 
 /** The permission a decision, a write-back retry and an outcome review require — contracts §7.1. */
 const APPROVAL_DECIDE: Permission = 'approval.decide';
-
-/**
- * The one source whose freshness gates approval — contracts §3, AAP 0.2.1, T-13.
- *
- * `src/services/mock/simulation.ts` marks this same source stale for the stale trigger, so the state
- * a pill reports, the state the banner names and the state this family refuses on are one answer.
- */
-const ORDER_BOOK_SOURCE: SourceId = 'erp';
 
 /**
  * The sets a lever recovers in the do-nothing measurement.
@@ -582,7 +573,11 @@ function approvalOrThrow(ctx: HandlerContext, id: ApprovalId): Approval {
  * The order-book source's freshness as the popover's triggers leave it.
  *
  * One record, read from `freshnessFor(state)` and never rebuilt here, so the banner a screen raises,
- * the instant a tooltip prints and the refusal below quote one answer rather than two.
+ * the instant a tooltip prints and the refusal below quote one answer rather than two. The source is
+ * `APPROVAL_GATE_SOURCE`, the one constant `src/types/sources.ts` declares, which
+ * `src/services/mock/simulation.ts` marks for the stale trigger and the audit trail's banner names:
+ * the state a pill reports, the state the banner names and the state this family refuses on are
+ * therefore one answer rather than three that agree until one of them moves (AAP 0.2.1, T-13).
  *
  * @param ctx - The call's context, whose triggers and seeded source health are read.
  * @returns The order-book source's freshness record.
@@ -591,7 +586,7 @@ function approvalOrThrow(ctx: HandlerContext, id: ApprovalId): Approval {
  */
 function orderBookFreshness(ctx: HandlerContext): Freshness {
   const report = freshnessFor(ctx.state);
-  const orderBook = report.find((entry) => entry.source === ORDER_BOOK_SOURCE);
+  const orderBook = report.find((entry) => entry.source === APPROVAL_GATE_SOURCE);
 
   if (orderBook !== undefined) {
     return orderBook;
@@ -599,8 +594,8 @@ function orderBookFreshness(ctx: HandlerContext): Freshness {
 
   throw validationProblem(
     ctx,
-    `The source catalogue reports no health for ${SOURCE_LABELS[ORDER_BOOK_SOURCE]}, so an approval ` +
-      'cannot be written against it.',
+    `The source catalogue reports no health for ${SOURCE_LABELS[APPROVAL_GATE_SOURCE]}, so an ` +
+      'approval cannot be written against it.',
   );
 }
 

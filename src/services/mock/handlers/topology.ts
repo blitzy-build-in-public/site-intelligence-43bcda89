@@ -196,9 +196,9 @@ const DO_NOTHING_LEVERS: Levers = { airSets: 0, transferSets: 0 };
  *
  * The correlation identifier is the empty string because this handler does not form the call's `Meta`:
  * the adapter that dispatches to it owns the request counter the identifier is spelled from, so that
- * value belongs to the envelope the adapter serves and not to a failure built here. An empty identifier
- * is the same value the API client's own locally detected failures carry, and it is honest: this module
- * knows no identifier to state.
+ * value belongs to the envelope the adapter serves and not to a failure built here. The adapter fills
+ * the empty member with that call's identifier before the failure reaches a caller, so this module
+ * states nothing it does not know and no reader is left without an identifier to quote.
  *
  * @returns A fresh permission failure, built per call so the role list is the matrix's current answer.
  */

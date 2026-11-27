@@ -12,10 +12,11 @@
  *
  * Every step carries the fixed specification §5.3 label `Simulated write-back` (AAP 0.10), rendered
  * through `StatusIndicator` with `meaning="simulated"` so the icon, the word and the colour arrive
- * together. The string is declared once, in {@link WRITE_BACK_SIM_LABEL}, and nothing here
- * paraphrases, shortens or localises it (rule P-1). The label states what the step is; it never
- * claims that a write executed, and no wording in this file asserts that an approval's side effects
- * reached a live system (rule P-4).
+ * together. The string is read from `SIM_LABELS`, the tuple that holds the seven labels once, at
+ * {@link WRITE_BACK_SIM_LABEL}'s position in §5.3, and nothing here paraphrases, shortens or
+ * localises it (rule P-1). The label states what the step is; it never claims that a write executed,
+ * and no wording in this file asserts that an approval's side effects reached a live system
+ * (rule P-4).
  *
  * The component is presentational and reusable from props alone: it imports no service, reads no
  * seed record, holds no state and publishes no action (rule P-2). That is what lets the approval
@@ -41,7 +42,7 @@ import { MonoValue } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
-import { SOURCE_LABELS } from '../../types';
+import { SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type { SimLabel, WriteBack, WriteBackState } from '../../types';
 
 /** Props of {@link WriteBackPreview}. */
@@ -57,16 +58,18 @@ export interface WriteBackPreviewProps {
 }
 
 /**
- * The one simulation label this component carries, character for character as specification §5.3
- * fixes it and as AAP 0.10 assigns it to the write-back preview, the post-approval tracker and each
- * write-back row of the approval detail.
+ * The one simulation label this component carries, read from `SIM_LABELS` at the index §5.3 gives it:
+ * `Simulated write-back`, the label AAP 0.10 assigns to the write-back preview, the post-approval
+ * tracker and each write-back row of the approval detail.
  *
- * Typed `SimLabel` rather than `string` so the union rejects a paraphrase at compile time, and
- * declared once so the two steps that render it cannot drift apart. It is deliberately not exported:
- * the label has one owner, and a second module that needs it declares its own copy of this exact
- * string from the type (rule P-1).
+ * The tuple is the one owner of the seven fixed strings, so no component retypes one: this constant is
+ * a read of that tuple at the label's own position, which is what keeps the string from drifting from
+ * the one every other write-back surface prints (rule P-1). Typed `SimLabel` so the union rejects a
+ * paraphrase at compile time, and declared once so the two steps that render it cannot drift apart. It
+ * is deliberately not exported: a second module that needs the label reads the same tuple rather than
+ * this file.
  */
-const WRITE_BACK_SIM_LABEL: SimLabel = 'Simulated write-back';
+const WRITE_BACK_SIM_LABEL: SimLabel = SIM_LABELS[3];
 
 /**
  * How one write-back state is presented: the shared status meaning it is drawn as, the word shown

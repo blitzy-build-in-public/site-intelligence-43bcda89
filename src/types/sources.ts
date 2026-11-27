@@ -19,7 +19,8 @@
  * (`src/app/freshness-strip.tsx`), and ERP's state gates `requestApproval` and `decideApproval`: the
  * service refuses both with a `Problem` naming the source and its as-of time, and every screen
  * offering those controls renders the stale banner and disables them with the same reason
- * (AAP 0.2.1, T-13). The S5 data-source screen is outside this run's scope (AAP 0.14.2) and its
+ * (AAP 0.2.1, T-13). That one source is named once, by `APPROVAL_GATE_SOURCE` below, so the refusal,
+ * the stale trigger and the banner read one value. The S5 data-source screen is outside this run's scope (AAP 0.14.2) and its
  * route renders the stage notice, so nothing here describes a screen.
  *
  * `SourceHealth` and `Freshness` in `./entities` report the same three facts, and only one of them
@@ -72,6 +73,18 @@ export const SOURCE_LABELS: Record<SourceId, string> = {
   transport: 'Transport',
   'market-pack': 'Market pack',
 };
+
+/**
+ * The one source the freshness rule gates approval on — `platform-contracts.md` §3, AAP 0.2.1, T-13.
+ *
+ * ERP is the order book behind every plan: `requireFreshOrderBook` refuses `requestApproval` and
+ * `decideApproval` while this source reports `stale` or `unavailable`, the stale trigger of
+ * `src/services/mock/simulation.ts` marks this same source, and the audit trail's stale banner names
+ * it. Declared here because `src/types` is the one vocabulary every consuming module may import
+ * (rule P-2): the refusal and the visible half of the rule read one value, so the source the service
+ * refuses on and the source a banner names cannot drift apart if the gate ever moves.
+ */
+export const APPROVAL_GATE_SOURCE: SourceId = 'erp';
 
 /**
  * One source's contribution as the six freshness pills report it: which source it is, the name to

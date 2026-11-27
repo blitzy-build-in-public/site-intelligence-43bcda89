@@ -22,9 +22,15 @@
  * own: the seven fixed strings live in `src/types/primitives.ts` and belong to the components that
  * render them.
  *
- * The correlation identifier is received, never produced. `traceId` comes from the response body,
- * else from the response header, else it is the empty string; nothing here reads the clock or a
- * random source, so the same response yields the same failure on every run (AAP 0.2.1).
+ * The correlation identifier is the response body's, else the response header's, else the one this
+ * module mints for the call. AAP 0.18.1 makes `traceId` the demonstration's diagnostic — every
+ * `Problem` carries it and every card shows it so a user can quote it — so the failures no response
+ * can name are named too: a refused target, a call that never reached the service and one abandoned
+ * at its deadline each carry the identifier minted for their own call. Nothing here reads the clock
+ * or a random source, so the same failure carries the same identifier on every run (AAP 0.2.1); the
+ * minted value stays in this browser and is never sent, because nothing here identifies a caller
+ * (rule B-2); and its prefix is this end's own, so it cannot collide with an identifier the service
+ * issues beside it.
  *
  * IT TAKES THE SAME TIME THE DEMONSTRATION ADAPTER TAKES. AAP 0.12.3 requires both adapters to share
  * the observable behaviour that makes the swap invisible, and names the delay among it; AAP 0.12.1
@@ -91,7 +97,10 @@ export class ProblemError extends Error implements Problem {
   /** Which cause the failure names, one of the five the contracts fix. */
   readonly type: ProblemType;
 
-  /** The correlation identifier of the call that failed, as the service reported it. */
+  /**
+   * The correlation identifier of the call that failed: the one the service reported, or the one this
+   * module minted for the call when no answer carried one.
+   */
   readonly traceId: string;
 
   /** The permission the acting role lacked, present on a `'permission'` failure. */
@@ -233,6 +242,51 @@ function wait(milliseconds: number): Promise<void> {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The identifier a call is named by — AAP 0.18.1 "Trace and diagnostics", rules B-1, B-2 and P-6
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The prefix of an identifier this module mints, which keeps it clear of the identifiers the service
+ * issues beside it: the demonstration adapter answers `TRC-` and its own counter
+ * (`src/services/mock/handlers/audit.ts`). A protocol constant rather than a figure of the domain
+ * (rule P-6): it names this end of a call and is never rendered as a value of a record.
+ */
+const MINTED_TRACE_PREFIX = 'CLT-';
+
+/** Digits in the counter a minted identifier carries, so the form is the same width every time. */
+const MINTED_TRACE_DIGITS = 6;
+
+/**
+ * How many identifiers this module has minted.
+ *
+ * Held for the module rather than for a call, and advanced once per request, so the first call of a run
+ * is named by the first value of the sequence and the call after it by the second. A counter rather
+ * than a clock or a random source, because either of those would make the same failure of the same call
+ * print a different identifier on every run (AAP 0.2.1, AAP 0.18.2).
+ */
+let mintedTraceCount = 0;
+
+/**
+ * The correlation identifier this module mints for one call whose failure no answer can name.
+ *
+ * contracts §1 fixes a pattern for every record it names and none for a trace identifier — the
+ * demonstration adapter records that same gap where it builds one — so the form is derived here: this
+ * end's own prefix, then the counter zero-padded to a fixed width. The prefix is what makes the
+ * identifier unmistakable for one the service issued, and the counter is what makes two failures of one
+ * session tell a reader that they were two calls. The value names this end of the call and nothing else:
+ * it is never sent (rule B-2), it holds no host, scheme, port or address (rule B-1), and it is a
+ * protocol constant rather than a figure of the domain (rule P-6).
+ *
+ * @returns The identifier of the call this function is asked about, distinct from the one before it.
+ */
+function traceIdForCall(): string {
+  const counter = String(mintedTraceCount).padStart(MINTED_TRACE_DIGITS, '0');
+  mintedTraceCount += 1;
+
+  return `${MINTED_TRACE_PREFIX}${counter}`;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The deadline — rules P-6 and B-2
  * ------------------------------------------------------------------------------------------- */
 
@@ -257,7 +311,8 @@ const REQUEST_DEADLINE_MS = 10_000;
  * kept when there is one, so a stack still shows where the wait ended.
  *
  * @param path - The target the abandoned call named.
- * @param traceId - The correlation identifier the answer carried, or the empty string when none did.
+ * @param traceId - The correlation identifier of the abandoned call: the one its answer carried, or the
+ * one minted for the call when none did.
  * @param cause - What the abandoned call rejected with, when there was such a value.
  * @returns The typed failure to throw.
  */
@@ -283,9 +338,11 @@ function deadlineFailure(path: string, traceId: string, cause?: unknown): Proble
  *
  * The steps, in the order this function performs them:
  *
- * 1. Refuse a target that is not rooted at the application origin (rule B-1). Only a path beginning
- *    with a single slash is sent, so a caller cannot make this transport address another host by
- *    handing it an address where a path belongs.
+ * 1. Mint the identifier this call's failures are named by, so that a target refused here and a call
+ *    that never reached the service are named as well as one the service answered (AAP 0.18.1 "Trace
+ *    and diagnostics", rules B-1, B-2 and P-6). Then refuse a target that is not rooted at the
+ *    application origin (rule B-1): only a path beginning with a single slash is sent, so a caller
+ *    cannot make this transport address another host by handing it an address where a path belongs.
  * 2. Serialise the query: every own enumerable member whose value is a string — the empty string
  *    included, which is a value a caller may ask the service to match and which therefore travels
  *    as a parameter with an empty value — a finite number or a boolean, with the name and the value
@@ -319,9 +376,12 @@ function deadlineFailure(path: string, traceId: string, cause?: unknown): Proble
  *    the service failing to answer the call — so a server fault never reads as a fault in the call
  *    the reader made. The five causes contracts §2 fixes are the whole vocabulary, so no sixth is
  *    invented for a status the set does not describe.
- * 6. Report the correlation identifier it received: the response body's, else the response
- *    header's, else the empty string. Nothing here mints one, so a failure names a call the service
- *    can find rather than a value invented at this end.
+ * 6. Report the correlation identifier of the call: the response body's, else the response header's,
+ *    else the one step 1 minted for this call. The body's own identifier always wins, so a value the
+ *    service reported is never replaced by one from here; the mint is the last resort that keeps a
+ *    `Problem` from being blank, which matters because the member is the diagnostic a card shows so a
+ *    user can quote it (AAP 0.18.1). It is derived from a counter rather than from a clock or a random
+ *    source, so the same failure names the same call on every run (AAP 0.2.1).
  *
  * A call that outlasts its deadline is abandoned: the timer aborts the signal the call was sent
  * with, and the call becomes a `'validation'` failure — again the nearest of the five causes, since
@@ -345,11 +405,15 @@ export async function request<T, Q extends object = Record<string, never>>(
   path: string,
   options?: RequestOptions<Q>,
 ): Promise<Result<T>> {
+  // The identifier every failure of this call is named by, minted before the target is even checked,
+  // so a refusal names the call it refused (AAP 0.18.1 "Trace and diagnostics").
+  const mintedTrace = traceIdForCall();
+
   if (!isRelativePath(path)) {
     throw new ProblemError({
       type: 'validation',
       message: 'The request target is not a path relative to the application origin.',
-      traceId: '',
+      traceId: mintedTrace,
     });
   }
 
@@ -384,13 +448,13 @@ export async function request<T, Q extends object = Record<string, never>>(
     body = await readBody(response);
   } catch (cause) {
     if (deadlineReached) {
-      throw deadlineFailure(path, '', cause);
+      throw deadlineFailure(path, mintedTrace, cause);
     }
     throw new ProblemError(
       {
         type: 'validation',
         message: `The request to ${path} did not reach the service.`,
-        traceId: '',
+        traceId: mintedTrace,
       },
       cause,
     );
@@ -398,14 +462,19 @@ export async function request<T, Q extends object = Record<string, never>>(
     clearTimeout(deadline);
   }
 
-  const headerTraceId = response.headers.get(TRACE_ID_HEADER) ?? '';
+  // The identifier of this call: the header's when the response carried one, and the minted one
+  // otherwise. An empty header is no identifier — the same reading `problemFromBody` applies to an
+  // empty member of a body — so it takes the minted value as well.
+  const reportedTrace = response.headers.get(TRACE_ID_HEADER);
+  const callTraceId =
+    reportedTrace === null || reportedTrace === '' ? mintedTrace : reportedTrace;
 
   if (deadlineReached && !body.readable) {
-    throw deadlineFailure(path, headerTraceId);
+    throw deadlineFailure(path, callTraceId);
   }
 
   if (!response.ok) {
-    throw failure(path, response.status, body, headerTraceId);
+    throw failure(path, response.status, body, callTraceId);
   }
 
   if (!body.readable) {
@@ -414,7 +483,7 @@ export async function request<T, Q extends object = Record<string, never>>(
       message:
         `The service answered ${response.status} for ${path} ` +
         'with a body that could not be read as JSON.',
-      traceId: headerTraceId,
+      traceId: callTraceId,
     });
   }
 
@@ -426,7 +495,7 @@ export async function request<T, Q extends object = Record<string, never>>(
         `The service answered ${response.status} for ${path} without the data ` +
         'and meta envelope a result carries, or with a payload that is neither ' +
         'a record nor a list.',
-      traceId: headerTraceId,
+      traceId: callTraceId,
     });
   }
 
@@ -680,14 +749,17 @@ function asRoles(value: unknown): Role[] | undefined {
  * is accepted, so a body of another shape falls through to the status mapping below instead of
  * inventing a cause. Every cause member the body carries is preserved, because a permission denial
  * and a policy block each reach a screen that explains them from those members (rule P-8). A
- * missing reason is replaced with this module's sentence, and a missing correlation identifier with
- * the one the response header carried.
+ * missing reason is replaced with this module's sentence, and a correlation identifier the body does
+ * not state — absent or empty, which are the same absence here — with the identifier of the call: the
+ * one its response header carried, or the one minted for it when the answer carried none. A body that
+ * states a non-empty identifier always wins, so the service's own value is never replaced by one from
+ * this end.
  */
 function problemFromBody(
   body: unknown,
   path: string,
   status: number,
-  headerTraceId: string,
+  callTraceId: string,
 ): Problem | undefined {
   if (!isRecord(body)) {
     return undefined;
@@ -700,7 +772,7 @@ function problemFromBody(
   const reportedMessage = body['message'];
   const reportedTrace = body['traceId'];
   const traceId =
-    typeof reportedTrace === 'string' && reportedTrace !== '' ? reportedTrace : headerTraceId;
+    typeof reportedTrace === 'string' && reportedTrace !== '' ? reportedTrace : callTraceId;
   const problem: Problem = {
     type,
     message:
@@ -795,10 +867,10 @@ function failure(
   path: string,
   status: number,
   body: BodyRead,
-  headerTraceId: string,
+  callTraceId: string,
 ): ProblemError {
   const reported = body.readable
-    ? problemFromBody(body.value, path, status, headerTraceId)
+    ? problemFromBody(body.value, path, status, callTraceId)
     : undefined;
   if (reported !== undefined) {
     return new ProblemError(reported);
@@ -806,6 +878,6 @@ function failure(
   return new ProblemError({
     type: typeForStatus(status),
     message: diagnostic(path, status),
-    traceId: headerTraceId,
+    traceId: callTraceId,
   });
 }

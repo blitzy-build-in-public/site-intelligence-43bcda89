@@ -6,9 +6,10 @@
  * WHY THIS SUITE EXISTS. `src/services/service-conformance.test.ts` proves that both adapters satisfy the
  * port, and `src/services/mock/mock-backend.test.ts` proves what the demonstration adapter does; nothing
  * exercised the client's own members, so a member that threw, sent nothing or sent the wrong read
- * survived every gate (AAP 0.12.3). The cases here cover the two duties AAP 0.12.3 puts on both adapters
- * and that only a call can show: the three browser-built exports resolve a download payload rather than
- * reporting an absence, and a call takes at least the floor of the band both adapters share.
+ * survived every gate (AAP 0.12.3). The cases here cover the duties AAP 0.12.3 and AAP 0.18.1 put on a
+ * call and that only a call can show: the three browser-built exports resolve a download payload rather
+ * than reporting an absence, a call takes at least the floor of the band both adapters share, and a failed
+ * call names itself with a correlation identifier even when no answer carried one.
  *
  * HOW THE SERVICE IS SIMULATED. `globalThis.fetch` is replaced by a stub that answers a valid
  * `{ data, meta }` envelope per path — the transport refuses anything else (rule P-1) — and records the
@@ -29,6 +30,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClient } from './api-client';
+import type { Problem } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
  * The stub service
@@ -195,6 +197,23 @@ function documentOf(content: string): unknown {
   return JSON.parse(content);
 }
 
+/**
+ * The failure a call throws, so a case can assert the members a card renders rather than the call.
+ *
+ * @param call - The promise a client member already started; the stub has to be in place before it is
+ * made, so the case starts the call and hands the promise here.
+ * @returns The typed failure the call threw.
+ */
+async function failureOf(call: Promise<unknown>): Promise<Problem> {
+  try {
+    await call;
+  } catch (error) {
+    return error as Problem;
+  }
+
+  throw new Error('the call resolved where the case expected it to fail');
+}
+
 /** Undoes the stub and forgets the paths one case recorded, so no case sees another's calls. */
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -358,5 +377,37 @@ describe('the list parameters of the collection reads', () => {
         sort: LIST_SORT,
       });
     }
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The identifier a failed call carries — AAP 0.18.1 "Trace and diagnostics", rule P-8
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the correlation identifier of a failed call', () => {
+  it('names each failed call when the answer carries no identifier', async () => {
+    const client = new ApiClient();
+
+    // A call the service never answers: with no response there is no header and no body to take an
+    // identifier from, which is the one case the transport has to name itself.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('the stub answered nothing'))),
+    );
+    const unreached = await failureOf(client.getSovereigntyStatus());
+
+    // A refusal that carries none either: a non-2xx answer without the correlation header.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('', { status: 500 }))),
+    );
+    const refused = await failureOf(client.getSovereigntyStatus());
+
+    // AAP 0.18.1: the member is the diagnostic every `Problem` carries and every card renders, so an
+    // empty one leaves a reader nothing to quote. Two failures of one run are two calls, so each names
+    // itself and neither answers with the other's identifier.
+    expect(unreached.traceId).not.toBe('');
+    expect(refused.traceId).not.toBe('');
+    expect(unreached.traceId).not.toBe(refused.traceId);
   });
 });

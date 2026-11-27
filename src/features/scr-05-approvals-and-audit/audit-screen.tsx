@@ -59,11 +59,13 @@
  * this file (rule P-6, and `tests/source-checks/no-typed-figures.test.ts` scans this folder).
  *
  * THE SEVEN STATES. Every read-driven screen renders inside `StateBoundary` (AAP 0.12.4) and the state
- * is derived once, in {@link deriveScreenState}, from what the query settled to: a permission refusal
- * is `forbidden`, any other rejection is `offline`, a validation refusal is `conflict`, a stale order
- * book is `stale`, a pending read is `loading`, an empty result is `empty` and a resolved record
- * missing a member the table cannot render without is `partial`. `StateBoundary` owns what each state
- * looks like, so no banner, skeleton or denial card is composed here.
+ * is derived once, in {@link deriveScreenState}, from what the query settled to and from the freshness
+ * report the result carries: a permission refusal is `forbidden`, a validation refusal is `conflict`,
+ * any other rejection is `offline`, a pending read is `loading`, a source that did not answer is
+ * `offline`, an order book reported `stale` is `stale`, a source that answered incompletely is
+ * `partial`, and an empty result is `empty`. Each state therefore describes what a source did, and
+ * none is inferred from the shape of a record the table happens to hold. `StateBoundary` owns what
+ * each state looks like, so no banner, skeleton or denial card is composed here.
  *
  * REPORTED GAPS AND DECISIONS.
  * - No drawer primitive for arbitrary payloads exists in `src/components` — `EvidenceDrawer` is bound
@@ -119,7 +121,7 @@ import { StateBoundary } from '../../components/state-boundary';
 import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
-import { SOURCE_LABELS } from '../../types';
+import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type {
   AuditEvent,
   AuditPayload,
@@ -128,13 +130,13 @@ import type {
   ChainBreak,
   ChainReport,
   Freshness,
+  FreshnessState,
   Problem,
   ProblemType,
   Result,
   Scope,
   ScreenState,
   SimLabel,
-  SourceId,
 } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
@@ -154,21 +156,15 @@ export const AUDIT_CHAIN_NOTE =
   'Simulated control: this shows the mechanism, not production tamper resistance.';
 
 /**
- * The `Simulated control` label of specification §5.3, typed from the shared union so the fixed string
- * lives in one place and this file's use of it fails to compile if the label is ever reworded (rule
- * P-1).
- */
-const CHAIN_LABEL: SimLabel = 'Simulated control';
-
-/**
- * The source whose staleness gates the workspace, and therefore the one the stale banner names.
+ * The `Simulated control` label of specification §5.3, read from `SIM_LABELS` at the index §5.3 gives
+ * it.
  *
- * ERP is the order book behind every plan and the source `requestApproval` and `decideApproval` gate
- * on (AAP 0.2.1, T-13), so it is the record this screen looks for in `Meta.freshness`. Typed as a
- * `SourceId`, so a renamed source key fails this file's compilation rather than silently matching
- * nothing.
+ * The tuple holds the seven fixed strings once (AAP 0.10), so this screen carries the label rather
+ * than a copy of it: the string the chain and its verification print is the same one the sovereignty
+ * pill and the simulation popover print, and a reworded label reaches every surface at once. Typed
+ * `SimLabel`, so a member the union gains or loses fails this file's compilation (rule P-1).
  */
-const ORDER_BOOK_SOURCE: SourceId = 'erp';
+const CHAIN_LABEL: SimLabel = SIM_LABELS[4];
 
 /* ---------------------------------------------------------------------------------------------
  * The screen's own wording — no input fixes these sentences
@@ -220,6 +216,13 @@ const SCREEN_TEXT = {
   /** The option that leaves the outcome unfiltered. */
   anyOutcome: 'Any outcome',
 
+  /**
+   * What the action filter accepts: the trail keeps the events whose action is this exact token, which
+   * `src/services/mock/handlers/audit.ts` decides, so a reader is told the word has to be spelled the
+   * way the record states it rather than guessed at.
+   */
+  actionHint: 'The trail matches the action exactly, so spell it the way the record states it.',
+
   /** What the earliest-instant filter accepts, since the field takes an instant rather than a date. */
   fromHint: 'Earliest instant, with its offset.',
 
@@ -238,9 +241,9 @@ const SCREEN_TEXT = {
   /** The sentence shown in the table and the empty state when no event matches the filters. */
   empty: 'No audit events match these filters.',
 
-  /** The partial state's sentence, naming what a resolved record was missing. */
+  /** The partial state's sentence, naming the incomplete answer behind the trail. */
   partial:
-    'Some events in the trail arrived without the identifier or the instant this table renders, so they are listed with the values the records hold.',
+    'A source behind this trail answered incompletely, so the events listed are the ones the records could report.',
 
   /** The conflict state's sentence. */
   conflict: 'The trail was read against records that changed while this view was open.',
@@ -461,17 +464,26 @@ function isProblem(error: unknown): error is Problem {
 }
 
 /**
- * The stale record the boundary's banner names, or `undefined` while the order book is current.
+ * The stale record the boundary's banner names, or `undefined` unless the order book itself reports
+ * `stale`.
  *
  * The banner and the disabled controls of a screen that writes on ERP's freshness quote the same
  * record (AAP 0.2.1, T-13), so the record is handed over whole: the source key, the display name the
- * freshness strip prints for it from `SOURCE_LABELS`, and the instant it last answered. Nothing is
- * derived from that instant here — no age and no duration (rule P-6).
+ * freshness strip prints for it from `SOURCE_LABELS`, and the instant it last answered. The source is
+ * `APPROVAL_GATE_SOURCE`, declared once in `src/types/sources.ts`, so this banner and the service's
+ * refusal name one source rather than two literals that agree only until the gate moves.
+ *
+ * Only `stale` raises this banner. A source that did not answer at all is the `unavailable` condition
+ * {@link reportsState} reports and {@link deriveScreenState} renders as `offline`, and an incomplete
+ * answer is its `partial`, so neither is described here as an order book that is merely out of date.
+ * Nothing is derived from the instant — no age and no duration (rule P-6).
  */
 function staleOrderBookOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const orderBook = freshness.find((entry) => entry.source === ORDER_BOOK_SOURCE);
+  const orderBook = freshness.find(
+    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
+  );
 
-  if (orderBook === undefined || orderBook.state === 'fresh') {
+  if (orderBook === undefined) {
     return undefined;
   }
 
@@ -510,15 +522,15 @@ function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
 }
 
 /**
- * Whether a resolved event is missing a member this screen cannot render without.
+ * Whether a source in the read's freshness report answered in the state asked about.
  *
- * The table prints each event's position, identifier and instant, and the drawer prints its content;
- * a record that arrived without an identifier or an instant would leave a cell stating nothing, which
- * is the condition the partial state exists to report. Nothing is repaired or blanked here — the
- * record is listed as it arrived and the boundary says why (rule P-6).
+ * The report is the adapter's own account of what each of the six sources did — `Result.meta.freshness`
+ * — so `unavailable` there means a source did not answer and `partial` means one answered
+ * incompletely. Reading the states from that report, rather than from the shape of a record the table
+ * happened to receive, is what keeps each state describing a source (AAP 0.2.1).
  */
-function isIncomplete(event: AuditEvent): boolean {
-  return event.id === '' || event.timestamp === '';
+function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
+  return freshness.some((entry) => entry.state === state);
 }
 
 /** What {@link deriveScreenState} reads: what the query settled to. */
@@ -536,11 +548,17 @@ interface ScreenStateInput {
 /**
  * The one place this screen decides which of the seven states its records are in.
  *
- * The precedence is fixed and total: a permission refusal is `forbidden`, any other rejection is
- * `offline`, a validation refusal is `conflict`, a stale order book is `stale`, a pending read is
- * `loading`, an empty trail is `empty`, and a resolved record missing a member is `partial`. Every
- * other case returns `undefined`, which is the boundary's documented "no exceptional state holds" —
- * the content renders exactly as handed in.
+ * The failure side comes first and is fixed: a permission refusal is `forbidden`, a validation refusal
+ * is `conflict`, any other rejection is `offline`, and a pending read is `loading`. The record side
+ * then reads the freshness report the result itself carries, in this order: a source reported
+ * `unavailable` is `offline`, because nothing answered for the content on screen; the order book
+ * reported exactly `stale` is `stale`; a source reported `partial` is `partial`, an answer that
+ * arrived incomplete; and an empty trail is `empty`. Every other case returns `undefined`, which is
+ * the boundary's documented "no exceptional state holds" — the content renders exactly as handed in.
+ *
+ * Nothing here reads the shape of a record. A state describes what a source did, so an event that
+ * arrived without a member is listed as the record holds it rather than re-labelling the whole trail
+ * `partial`.
  *
  * Its input is the query's own settled facts rather than a flag of this screen's, so the state cannot
  * disagree with the read it describes and no effect is needed to keep the two in step.
@@ -566,15 +584,21 @@ function deriveScreenState({
     return 'loading';
   }
 
-  if (staleOrderBookOf(result.meta.freshness) !== undefined) {
+  const freshness = result.meta.freshness;
+
+  if (reportsState(freshness, 'unavailable')) {
+    return 'offline';
+  }
+
+  if (staleOrderBookOf(freshness) !== undefined) {
     return 'stale';
   }
 
-  if (result.data.length === 0) {
-    return 'empty';
+  if (reportsState(freshness, 'partial')) {
+    return 'partial';
   }
 
-  return result.data.some(isIncomplete) ? 'partial' : undefined;
+  return result.data.length === 0 ? 'empty' : undefined;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1587,6 +1611,7 @@ export function AuditScreen({ scope }: AuditScreenProps): ReactElement {
             label={SCREEN_TEXT.action}
             value={filters.action}
             onChange={setAction}
+            hint={SCREEN_TEXT.actionHint}
           />
           <FilterTextField
             label={SCREEN_TEXT.objectRef}

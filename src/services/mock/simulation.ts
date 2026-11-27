@@ -36,10 +36,12 @@
  * WHY THE STALE TRIGGER NAMES ERP. ERP is the source whose state gates approval: `requestApproval` and
  * `decideApproval` refuse with a `Problem` naming the source and its as-of time when ERP is stale or
  * unavailable, and every screen offering those controls renders the banner and disables them with that
- * same reason (AAP 0.2.1, T-13). The banner quotes the as-of instant this module reports, so that
- * instant is the seed's own value: recomputing it would name a time the records never recorded and
- * would make the two halves of the rule disagree (contracts §1 forbids reading the system clock for
- * business logic).
+ * same reason (AAP 0.2.1, T-13). That source is named once, by `APPROVAL_GATE_SOURCE` in
+ * `src/types/sources.ts`, so the source this trigger marks, the source the refusal quotes and the
+ * source a banner prints are one value rather than three literals that agree until one of them moves.
+ * The banner quotes the as-of instant this module reports, so that instant is the seed's own value:
+ * recomputing it would name a time the records never recorded and would make the two halves of the
+ * rule disagree (contracts §1 forbids reading the system clock for business logic).
  *
  * WHAT THIS MODULE DOES NOT DO. It owns no label: the simulation path is labelled `Simulated control`
  * by the popover that triggers it, from the one vocabulary `src/types/primitives.ts` holds, and no
@@ -58,8 +60,9 @@
  *
  * Rules this module is built to satisfy:
  * - P-1: it types no label. The label lives on the control that triggers the behaviour.
- * - P-2: it imports the sibling `seed-loader.ts` rather than `src/seed/`, and `src/types` for types
- *   only, so it cannot become a second path to a record.
+ * - P-2: it imports the sibling `seed-loader.ts` rather than `src/seed/`, and reaches `src/types` for
+ *   its types and for the one source constant `APPROVAL_GATE_SOURCE`, so it cannot become a second
+ *   path to a record.
  * - P-4: the tamper path demonstrates a mechanism. The chain is labelled `Simulated control` wherever
  *   it surfaces, and a verification establishes nothing beyond the arithmetic it recomputes.
  * - P-6, P-7, B-1, B-2: no figure or identifier literal, synthetic naming only, no request, no
@@ -68,6 +71,7 @@
  *   the state is the only input.
  */
 
+import { APPROVAL_GATE_SOURCE } from '../../types';
 import type {
   AuditResult,
   Freshness,
@@ -79,17 +83,8 @@ import type { MockState } from './mock-state';
 import { TAMPER_TARGET_ID } from './seed-loader';
 
 /* ---------------------------------------------------------------------------------------------
- * The two record values this module addresses — AAP 0.2.1, AAP 0.10
+ * The one record value this module addresses — AAP 0.10
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * The one source whose freshness gates approval (AAP 0.2.1, T-13).
- *
- * Named once so the stale trigger marks the source the refusal and the disabled controls name, and so
- * a reader sees that exactly one source carries that gate. The key is the seeded `SourceId`; the
- * display name a pill prints comes from `SOURCE_LABELS`, never from here.
- */
-const APPROVAL_GATE_SOURCE: SourceId = 'erp';
 
 /**
  * The result the tamper control records in place of the one the seeded event carries.

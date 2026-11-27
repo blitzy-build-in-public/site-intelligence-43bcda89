@@ -1552,9 +1552,10 @@ function plantsServedBy(records: SeedRecordSet, supplierId: SupplierId): PlantId
  * A plant node is its own plant. A supplier reaches the plants of the products its materials go into
  * and of the plants its orders deliver to. A tier-2 origin reaches the plants of the suppliers it feeds,
  * which is the lane the origin's own record declares. A customer reaches the plants its orders ship
- * from. A node no record places returns nothing, which the filter treats as "no plant to narrow by"
- * rather than as "out of scope": a record the workspace has not placed is not another plant's record,
- * and hiding it would lose evidence the canvas badges.
+ * from. A node no record places returns nothing, and the pin filter treats that as "no plant to narrow
+ * this pin by" rather than as "in scope": a pin the records place nowhere is released only to a persona
+ * whose own records attribute its vendor to it, because withholding another party's evidence is
+ * recoverable and releasing it is not.
  *
  * @param records - The session's record set.
  * @param nodeRef - The node a pin is attached to.
@@ -1619,27 +1620,32 @@ function vendorsFor(records: SeedRecordSet, actor: ActiveUser): SupplierId[] {
 /**
  * Whether one pin is inside what the acting persona may see.
  *
- * Two different narrowings, one per role family. An external supplier engineer sees only the pins its
- * own vendor's evidence carries, which is the vendor-scoped read AAP 0.2.1 names and the reason a pin on
- * a supplier node records that supplier. Every other role sees the pins of the plants its scope admits,
- * decided by the same matrix and the same persona scope every scoped read uses, so a pin on a node the
- * records place in no plant is admitted rather than hidden.
+ * Two narrowings, decided against one persona. The suppliers the records attribute to the acting
+ * persona are resolved once, here, and both halves read that one set. An external supplier engineer
+ * sees only the pins its own vendor's evidence carries, which is the vendor-scoped read AAP 0.2.1
+ * names and the reason a pin on a supplier node records that supplier. Every other role sees the pins
+ * of the plants its scope admits, decided by the same matrix and the same persona scope every scoped
+ * read uses; a pin on a node the records place in no plant has no plant to narrow it by, so it is
+ * released only when it names a vendor that set holds, and withheld otherwise. Both halves therefore
+ * close on the same empty set, because withholding another party's evidence is recoverable and
+ * releasing it is not.
  *
  * @param ctx - The call's context: the persona and the records its reach is resolved from.
  * @param pin - The pin under consideration.
  * @returns `true` when the pin may be released to this persona.
  */
 function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin): boolean {
-  if (ctx.actor.role === EXTERNAL_SUPPLIER_ROLE) {
-    const vendors = vendorsFor(ctx.state.records, ctx.actor);
+  const vendors = vendorsFor(ctx.state.records, ctx.actor);
+  const namesOwnVendor = pin.vendorId !== undefined && vendors.includes(pin.vendorId);
 
-    return pin.vendorId !== undefined && vendors.includes(pin.vendorId);
+  if (ctx.actor.role === EXTERNAL_SUPPLIER_ROLE) {
+    return namesOwnVendor;
   }
 
   const plants = plantsOfNode(ctx.state.records, pin.nodeRef);
 
   if (plants.length === 0) {
-    return true;
+    return namesOwnVendor;
   }
 
   return plants.some((plantId) =>
@@ -1653,7 +1659,10 @@ function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin): boolean {
  *
  * The filter runs here, over the records the session holds, before any pin crosses the service
  * boundary: an external supplier engineer receives its own vendor's pins and no other, which is the
- * vendor-scoped read AAP 0.2.1 requires, and every other role receives the pins its plant scope admits.
+ * vendor-scoped read AAP 0.2.1 requires, and every other role receives the pins its plant scope admits
+ * and, for a pin the records place in no plant, only a pin naming a vendor the persona's own records
+ * attribute to it.
+ *
  * The per-node counts travel with the topology, so the canvas badges a node without this call; the pin
  * records themselves belong to the stage that opens them, and this read exists for interface
  * conformance (AAP 0.12.2, AAP 0.12.3).
