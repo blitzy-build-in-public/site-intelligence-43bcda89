@@ -1,7 +1,7 @@
 /**
  * The demonstration's mutable state: the seeded record set the mock adapter edits, the hashed audit
- * chain it appends to, the persona it acts as, the simulation triggers in effect, and the
- * deterministic counter behind `Meta.traceId`.
+ * chain it appends to, the persona it acts as, the simulation triggers in effect, the time-boxed
+ * policy exceptions the session has requested, and the deterministic counter behind `Meta.traceId`.
  *
  * Implements the "Mock state" row of AAP 0.12.1 — "Seeded mutable state, the async bootstrap that
  * hashes the 200 seeded events, the simulation flags, and the reset that restores the seed" — at the
@@ -85,7 +85,14 @@
  */
 
 import { appendEvent } from '../../domain/audit/chain';
-import type { ActiveUser, AuditEvent, AuditEventDraft, SimulationFlag, UserId } from '../../types';
+import type {
+  ActiveUser,
+  AuditEvent,
+  AuditEventDraft,
+  PolicyException,
+  SimulationFlag,
+  UserId,
+} from '../../types';
 import { loadSeed } from './seed-loader';
 import type { SeedRecordSet } from './seed-loader';
 
@@ -99,8 +106,9 @@ import type { SeedRecordSet } from './seed-loader';
  *
  * One of these is created by `createMockState()` and held by the mock adapter for the session's
  * lifetime. Every member is mutable because the session is meant to change: a handler edits the
- * records, appends an event, switches the persona, flips a trigger, and increments the counter, and
- * `restoreSeed` puts all five back to what a fresh state holds.
+ * records, appends an event, switches the persona, flips a trigger, records a pending policy
+ * exception, and increments the counter, and `restoreSeed` puts all six back to what a fresh state
+ * holds.
  */
 export interface MockState {
   /**
@@ -142,6 +150,21 @@ export interface MockState {
    * `setSimulation` and is cleared by the reset, so a session cannot start with a trigger on.
    */
   flags: Set<SimulationFlag>;
+
+  /**
+   * The time-boxed policy exceptions the session has requested, in the order they were requested.
+   *
+   * A request is a record of the session rather than of the seeded record set: nothing in the
+   * demonstration grants or decides one, so it enters here as `status: 'pending'` and leaves only
+   * when the reset empties it. It is held beside the records rather than inside them because
+   * `src/seed/` publishes a fixed record set and a reset must restore that set exactly.
+   *
+   * The governance family reads and appends this array; nothing else writes it. No policy verdict
+   * consults it, which is what keeps a pending request from acting as a permission: the policy
+   * engine evaluates the policy records and the acting persona, and a request that awaited a second
+   * approver changes neither.
+   */
+  policyExceptions: PolicyException[];
 
   /**
    * How many calls the adapter has served, from which `Meta.traceId` is derived.
@@ -305,6 +328,7 @@ export async function createMockState(): Promise<MockState> {
     auditEvents: session.auditEvents,
     activeUserId: session.activeUserId,
     flags: new Set<SimulationFlag>(),
+    policyExceptions: [],
     requestCount: INITIAL_REQUEST_COUNT,
   };
 }
@@ -315,12 +339,14 @@ export async function createMockState(): Promise<MockState> {
  * It mutates the state object it is given rather than returning a new one, so the adapter that holds
  * the reference — and every handler built from it — sees the reset without being handed anything. The
  * records and the chain are installed together once the hash pass resolves, so a reader never meets a
- * cloned record set beside the chain of the session being replaced. The trigger set is cleared rather
- * than swapped, so whoever holds it sees it emptied, and the counter returns to the value a fresh
- * session starts from so a reset session's identifiers restart with it.
+ * cloned record set beside the chain of the session being replaced. The trigger set and the pending
+ * policy exceptions are cleared rather than swapped, so whoever holds either sees it emptied, and the
+ * counter returns to the value a fresh session starts from so a reset session's identifiers restart
+ * with it.
  *
  * After this resolves, the state holds what `createMockState()` returns for a fresh session: the same
- * records, the same hashed chain, the same acting persona, no trigger and the same counter value.
+ * records, the same hashed chain, the same acting persona, no trigger, no pending policy exception
+ * and the same counter value.
  *
  * @param state The session to restore. It is modified in place.
  */
@@ -331,6 +357,7 @@ export async function restoreSeed(state: MockState): Promise<void> {
   state.auditEvents = session.auditEvents;
   state.activeUserId = session.activeUserId;
   state.flags.clear();
+  state.policyExceptions.length = 0;
   state.requestCount = INITIAL_REQUEST_COUNT;
 }
 
