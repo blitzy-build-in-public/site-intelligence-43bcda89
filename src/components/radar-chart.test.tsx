@@ -2,15 +2,16 @@
  * Component suite for `radar-chart.tsx`, the competitive atlas's five-axis resilience radar.
  *
  * Every case asserts a contract the drawing is relied on for rather than its markup: one axis drawn
- * and named per entry in `axes`; exactly one polygon per series, with one vertex per axis and no two
- * series sharing a shape; each series painted from its provenance role token; every competitor's name
- * followed by the imported competitor tag and its market-intelligence label; the client's series
- * followed by the imported self-assessment tag and by no other label; no element carrying a combined
- * reading; vertex marks keyboard operable with a name that states axis, series and score, opening the
- * evidence the caller's required mapper resolved and reporting the series it picked; a vertex the
- * mapper cannot resolve left a plain mark rather than a control (rule P-8); the ordinal a colour is
- * selected by; a polygon's fill and stroke read from the one chart tone table the other surfaces
- * resolve too; and both themes.
+ * and named per entry in `axes`; exactly one polygon per series, with one vertex per axis, no two
+ * series sharing a shape, and every vertex placed by its own series' reading alone so an outline
+ * averaged with another series is caught; each series painted from its provenance role token; every
+ * competitor's name followed by the imported competitor tag and its market-intelligence label; the
+ * client's series followed by the imported self-assessment tag and by no other label; no element
+ * carrying a combined reading; vertex marks keyboard operable with a name that states axis, series
+ * and score, opening the evidence the caller's required mapper resolved and reporting the series it
+ * picked; a vertex the mapper cannot resolve left a plain mark rather than a control (rule P-8); the
+ * ordinal a colour is selected by; a polygon's fill and stroke read from the one chart tone table the
+ * other surfaces resolve too; and both themes.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `./evidence-drawer.tsx` reads
  * through (rule P-2), so no seed module, adapter or hash chain is involved and the suite observes
@@ -52,8 +53,9 @@ const THEMES = ['command', 'paper'] as const;
 
 /**
  * The market-intelligence label, read from the fixed vocabulary by position rather than retyped: the
- * six fixed section 5.3 strings are ordered, and the sixth is the one a competitor's figures carry
- * (rule P-1). Held here so a case can assert the label the drawing prints is that exact string.
+ * seven fixed section 5.3 strings are ordered as that section lists them, and the sixth is the one a
+ * competitor's figures carry (rule P-1). Held here so a case can assert the label the drawing prints
+ * is that exact string.
  */
 const MARKET_INTELLIGENCE_LABEL = SIM_LABELS[5];
 
@@ -239,6 +241,43 @@ function classTokensOf(polygon: SVGPolygonElement): readonly string[] {
 }
 
 /**
+ * The drawing's own scale: the centre its spokes radiate from, and the radius of its outer ring.
+ *
+ * Both are geometry the component keeps to itself and neither is exported, so a case that asserts
+ * where a reading was placed reads them back from the decorative rings instead of restating numbers
+ * that belong to the component. The rings are the circles inside the drawing's `aria-hidden` scale
+ * group — a vertex's visible dot, its pointer target and its focus ring all sit in a series layer —
+ * so anchoring the read to that group is what keeps a mark from being mistaken for the scale.
+ */
+function scaleOf(): { readonly centre: PolygonPoint; readonly outerRadius: number } {
+  const scaleGroup = svgElement().querySelector('g[aria-hidden="true"]');
+
+  if (scaleGroup === null) {
+    throw new Error('the radar drew no scale group to read its centre from');
+  }
+
+  const rings = Array.from(scaleGroup.querySelectorAll('circle')).filter(
+    (circle) => circle.getAttribute('fill') === 'none',
+  );
+  const [firstRing] = rings;
+
+  if (firstRing === undefined) {
+    throw new Error('the radar drew no scale ring');
+  }
+
+  return {
+    centre: {
+      x: Number(firstRing.getAttribute('cx')),
+      y: Number(firstRing.getAttribute('cy')),
+    },
+    outerRadius: rings.reduce(
+      (widest, ring) => Math.max(widest, Number(ring.getAttribute('r'))),
+      0,
+    ),
+  };
+}
+
+/**
  * The group that carries one series' name and companion label.
  *
  * The drawing prints a series' two lines as two `<text>` elements inside one group, so finding the
@@ -345,6 +384,65 @@ describe('RadarChart', () => {
 
       expect(vertical).toBeGreaterThan(topScoringVertical);
     });
+  });
+
+  it('draws each outline from one series’ readings and never from a blend of two', () => {
+    renderChart();
+
+    const { centre, outerRadius } = scaleOf();
+    const shapes = polygons();
+
+    expect(outerRadius).toBeGreaterThan(0);
+
+    /*
+     * One ratio per vertex: how far the vertex sits from the centre, divided by the score its own
+     * series states for that axis. The drawing places a reading by the scale and nothing else, so
+     * every vertex of every series shares one ratio. A vertex taken from another series' record, or
+     * an outline averaged with one, moves its own ratio and is caught here — the case the drawing
+     * still looks plausible under, because the shape exists, the tags are right and only the reading
+     * it was built from is wrong.
+     */
+    const ratios: { readonly series: string; readonly axis: string; readonly ratio: number }[] = [];
+
+    shapes.forEach((polygon, seriesIndex) => {
+      const one = SERIES[seriesIndex];
+
+      if (one === undefined) {
+        throw new Error(`no series is defined at index ${seriesIndex}`);
+      }
+
+      const points = pointsOf(polygon);
+
+      expect(points).toHaveLength(one.values.length);
+
+      points.forEach((point, axisIndex) => {
+        const score = one.values[axisIndex];
+        const axis = AXES[axisIndex];
+
+        if (score === undefined || axis === undefined) {
+          throw new Error(`no score is stated at index ${axisIndex} of ${one.id}`);
+        }
+
+        const distance = Math.hypot(point.x - centre.x, point.y - centre.y);
+
+        ratios.push({ series: one.id, axis: axis.id, ratio: distance / score });
+      });
+    });
+
+    expect(ratios).toHaveLength(SERIES.length * AXES.length);
+
+    const [reference] = ratios;
+
+    if (reference === undefined) {
+      throw new Error('the chart drew no vertex to read the scale from');
+    }
+
+    /* A ratio of zero would pass every comparison below while every reading sat at the centre. */
+    expect(reference.ratio).toBeGreaterThan(0);
+
+    for (const entry of ratios) {
+      expect(entry.ratio, `${entry.series} on ${entry.axis}`).toBeCloseTo(reference.ratio, 2);
+    }
   });
 
   it('paints each series from its provenance role token, the client last in the accent role', () => {

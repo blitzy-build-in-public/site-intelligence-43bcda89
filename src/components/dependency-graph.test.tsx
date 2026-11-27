@@ -8,7 +8,10 @@
  * the "Open part" control disabled with the specification's stage tooltip (rule P-8). Rule B-3's
  * clauses are asserted where they can fail: the accessible name of every node, keyboard activation
  * through `Enter` and through `Space`, dimming that never rests on colour alone, and the 24x24 px
- * target of the tooltip's own control lists.
+ * target of the tooltip's own control lists. Two further properties are asserted because a reader
+ * depends on them: the drawing redraws identically from one render to the next, and every control
+ * the lens offers is reachable and operable by keyboard alone — the preview switch, a node that
+ * opens its evidence, and the disabled control whose reason has to arrive with focus.
  *
  * THE FIXTURE IS SYNTHETIC AND DELIBERATELY PLAIN. Its identifiers carry no domain prefix, because
  * rule P-6 keeps domain identifiers out of `src/components` — tests included — and the suite only
@@ -187,6 +190,64 @@ function lanePaths(container: HTMLElement): readonly string[] {
   );
 }
 
+/**
+ * The transform of every node, in the order the lanes place them.
+ *
+ * The attribute is what holds a node's position, so comparing these lists across two renders is what
+ * proves the layout is a function of the payload alone.
+ */
+function nodeTransforms(container: HTMLElement): readonly string[] {
+  return Array.from(container.querySelectorAll('g[role="button"]')).map(
+    (node) => node.getAttribute('transform') ?? '',
+  );
+}
+
+/** The geometry of every lane and arrowhead, which the fixed layout derives from one placement list. */
+function laneGeometry(container: HTMLElement): readonly string[] {
+  return Array.from(drawing(container).querySelectorAll('path')).map(
+    (path) => path.getAttribute('d') ?? '',
+  );
+}
+
+/** The classes one node's label carries, as tokens, so a weight can be read without a style pass. */
+function nodeLabelTokens(nameFragment: string): readonly string[] {
+  const label = nodeButton(nameFragment).querySelector('text');
+
+  if (label === null) {
+    throw new Error(`The node named ${nameFragment} draws no label.`);
+  }
+
+  return (label.getAttribute('class') ?? '').split(' ');
+}
+
+/**
+ * Tabs from wherever focus is until it reaches `target`.
+ *
+ * A case that asserts a keyboard path has to arrive at the control the way a keyboard user does, so
+ * the target is found by pressing Tab rather than by focusing it programmatically. The limit turns a
+ * control that has left the tab order — the defect rule B-3 forbids — into a failure naming it,
+ * instead of a loop that never ends.
+ */
+async function tabUntilFocused(
+  user: ReturnType<typeof userEvent.setup>,
+  target: HTMLElement,
+  limit = 16,
+): Promise<void> {
+  for (let step = 0; step < limit; step += 1) {
+    await user.tab();
+
+    if (document.activeElement === target) {
+      return;
+    }
+  }
+
+  throw new Error(
+    `The keyboard did not reach ${
+      target.getAttribute('aria-label') ?? target.textContent ?? target.tagName
+    }.`,
+  );
+}
+
 /** Leaves `<html>` on the default theme for whichever suite runs next. */
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
@@ -223,6 +284,34 @@ describe('DependencyGraph lanes', () => {
     // One path per lane, plus one arrowhead per lane; the lane naming a node outside the payload
     // draws neither.
     expect(lanePaths(container)).toHaveLength((TOPOLOGY.lanes.length - 1) * 2);
+  });
+
+  it('places every node at the same coordinates on a second render of the same topology', () => {
+    const first = renderGraph();
+    const firstTransforms = nodeTransforms(first.container);
+    const firstGeometry = laneGeometry(first.container);
+
+    first.unmount();
+
+    const second = renderGraph();
+
+    /* The layout is a pure function of the payload: a hand-laid grid, with no random jitter, no
+       physics pass and no measuring of the rendered box. Two renders of one topology therefore draw
+       one picture, which is what lets this suite and a browser test assert the same geometry. */
+    expect(firstTransforms).toHaveLength(NODE_COUNT);
+    expect(nodeTransforms(second.container)).toEqual(firstTransforms);
+    expect(laneGeometry(second.container)).toEqual(firstGeometry);
+  });
+
+  it('gives every node its own slot on the grid rather than stacking two nodes in one place', () => {
+    const { container } = renderGraph();
+    const transforms = nodeTransforms(container);
+
+    for (const transform of transforms) {
+      expect(transform).toMatch(/^translate\(-?\d+ -?\d+\)$/u);
+    }
+
+    expect(new Set(transforms).size).toBe(NODE_COUNT);
   });
 });
 
@@ -424,6 +513,24 @@ describe('DependencyGraph activation', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('opens the evidence dialog from the keyboard, not only from the pointer', async () => {
+    const user = userEvent.setup();
+
+    renderGraph({ evidenceRefForNode: (node) => `reference-${node.id}` });
+
+    const plant = nodeButton('Main assembly site');
+
+    await tabUntilFocused(user, plant);
+
+    expect(plant).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('dialog', { name: 'Evidence' })).toHaveTextContent(
+      'Evidence for reference-plant-main',
+    );
+  });
+
   it('rounds a node box from the control radius token, not a literal radius', () => {
     renderGraph({});
 
@@ -520,6 +627,34 @@ describe('DependencyGraph overlays', () => {
       expect(group).toContain('motion-safe:transition-colors');
     },
   );
+
+  it('marks the selected node with a heavier boundary and a heavier label, not colour alone', async () => {
+    const user = userEvent.setup();
+    const onSelectNode = vi.fn();
+
+    renderGraph({ selectedNodeId: 'supplier-one', onSelectNode });
+
+    const selected = nodeBoxTokens('First tier partner');
+    const plain = nodeBoxTokens('Harbour works');
+
+    /* A reader who cannot tell the two theme colours apart still sees a heavier boundary and a
+       heavier label on the node the screen has selected (rule B-3). */
+    expect(selected).toContain('stroke-2');
+    expect(selected).not.toContain('stroke-1');
+    expect(plain).toContain('stroke-1');
+    expect(plain).not.toContain('stroke-2');
+
+    expect(nodeLabelTokens('First tier partner')).toContain('font-semibold');
+    expect(nodeLabelTokens('Harbour works')).toContain('font-medium');
+
+    /* The selection belongs to the screen: activating another node reports it and leaves the node
+       the caller selected marked as it was, because this component keeps no selection of its own. */
+    await user.click(nodeButton('Harbour works'));
+
+    expect(onSelectNode).toHaveBeenCalledWith('customer-harbour');
+    expect(nodeBoxTokens('First tier partner')).toContain('stroke-2');
+    expect(nodeBoxTokens('Harbour works')).toContain('stroke-1');
+  });
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -562,6 +697,30 @@ describe('DependencyGraph preview switch', () => {
     await user.click(toggle);
 
     expect(onPreviewScenarioChange).not.toHaveBeenCalled();
+  });
+
+  it('turns the preview on and off from the keyboard alone', async () => {
+    const user = userEvent.setup();
+    const onPreviewScenarioChange = vi.fn();
+
+    renderGraph({ previewScenarioId: 'scenario-alternate', onPreviewScenarioChange });
+
+    const toggle = screen.getByRole('switch', { name: 'Preview scenario scenario-alternate' });
+
+    await tabUntilFocused(user, toggle);
+
+    expect(toggle).toHaveFocus();
+    expect(toggle).not.toHaveAttribute('aria-disabled');
+
+    await user.keyboard(' ');
+
+    expect(onPreviewScenarioChange).toHaveBeenLastCalledWith('scenario-alternate');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    await user.keyboard('{Enter}');
+
+    expect(onPreviewScenarioChange).toHaveBeenLastCalledWith(null);
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
   });
 
   it('renders no switch at all when the screen reports the preview to nobody', () => {
@@ -613,6 +772,33 @@ describe('DependencyGraph open part', () => {
 
     expect(screen.queryByText(DEPENDENCY_GRAPH_TEXT.selectedLabel)).toBeNull();
     expect(screen.queryByRole('button', { name: DEPENDENCY_GRAPH_TEXT.openPartLabel })).toBeNull();
+  });
+
+  it('reaches the staged reason by keyboard and associates it with the disabled control', async () => {
+    const user = userEvent.setup();
+
+    renderGraph({ selectedNodeId: 'plant-main' });
+
+    const openPart = screen.getByRole('button', { name: DEPENDENCY_GRAPH_TEXT.openPartLabel });
+
+    /* A disabled control keeps its place in the tab order and hides its reason until it is reached,
+       so the explanation is only worth anything if focus can arrive at it (rules B-3 and P-8). */
+    expect(openPart).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    await tabUntilFocused(user, openPart);
+
+    expect(openPart).toHaveFocus();
+
+    const hint = screen.getByRole('tooltip');
+
+    /* The specification fixes this sentence, so it is asserted character for character. */
+    expect(hint.textContent).toBe('Arrives in stage S4');
+
+    const describedBy = openPart.getAttribute('aria-describedby');
+
+    expect(describedBy).not.toBeNull();
+    expect(document.getElementById(describedBy ?? '')).toBe(hint);
   });
 });
 

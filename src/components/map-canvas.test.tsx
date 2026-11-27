@@ -16,9 +16,12 @@
  *
  * The fixtures hold plain words for the record names and neutral keys for the identifiers, so this
  * suite borrows no value from a seed record and names no domain identifier shape: what the map draws
- * is entirely the caller's props, and the lens formats no figure of its own (rule P-6). The service is
- * mocked because the evidence drawer reads through it; nothing here hashes, reads the clock or touches
- * the network.
+ * is entirely the caller's props, and the lens formats no figure of its own (rule P-6). The topology
+ * carries two nodes of every family and pin counts that between them cover all six `PinState`
+ * members, so a lens that drew only the first node of each array, or that printed one state and
+ * dropped the rest, fails here rather than passing on a one-node fixture. The service is mocked
+ * because the evidence drawer reads through it; nothing here hashes, reads the clock or touches the
+ * network.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -57,10 +60,13 @@ function pinCounts(stated: Partial<PinCounts>): PinCounts {
 }
 
 /**
- * A four-family network: one node of each family, three lanes and pin counts for two of the nodes.
+ * An eight-node network: two nodes of every family, the two lanes of the client's own chain, and pin
+ * counts that between them cover each of the six `PinState` members.
  *
- * The coordinates sit in Europe and the Atlantic so every node lands inside the world view at every
- * zoom level, which keeps a projection assertion about scale rather than about clipping.
+ * The coordinates sit across Europe, the Gulf of Mexico and Japan so every node lands inside the world
+ * view at every zoom level, which keeps a projection assertion about scale rather than about clipping.
+ * A node absent from `pinsByNode` carries no pins, which is the case the accessible name states as
+ * "No evidence pins".
  */
 const TOPOLOGY: Topology = {
   plants: [
@@ -72,6 +78,14 @@ const TOPOLOGY: Topology = {
       longitude: 12.1,
       productIds: ['product-one'],
     },
+    {
+      id: 'node-plant-second',
+      kind: 'plant',
+      label: 'Brno plant',
+      latitude: 49.19,
+      longitude: 16.61,
+      productIds: ['product-two'],
+    },
   ],
   suppliers: [
     {
@@ -81,6 +95,14 @@ const TOPOLOGY: Topology = {
       latitude: 48.14,
       longitude: 11.58,
       productIds: ['product-one'],
+    },
+    {
+      id: 'node-supplier-second',
+      kind: 'supplier',
+      label: 'Fjordvik Components',
+      latitude: 57.7,
+      longitude: 11.97,
+      productIds: ['product-two'],
     },
   ],
   origins: [
@@ -92,6 +114,14 @@ const TOPOLOGY: Topology = {
       longitude: -101.5,
       productIds: [],
     },
+    {
+      id: 'node-origin-second',
+      kind: 'origin',
+      label: 'Kansai alloys origin',
+      latitude: 34.7,
+      longitude: 135.5,
+      productIds: ['product-two'],
+    },
   ],
   customers: [
     {
@@ -102,17 +132,35 @@ const TOPOLOGY: Topology = {
       longitude: 9.99,
       productIds: [],
     },
+    {
+      id: 'node-customer-second',
+      kind: 'customer',
+      label: 'Hochwald Fleetworks',
+      latitude: 45.46,
+      longitude: 9.19,
+      productIds: [],
+    },
   ],
   lanes: [
     { fromId: 'node-origin', toId: 'node-supplier' },
     { fromId: 'node-supplier', toId: 'node-plant' },
-    { fromId: 'node-plant', toId: 'node-customer' },
   ],
   pinsByNode: {
     'node-supplier': pinCounts({ pass: 2, fail: 1 }),
     'node-plant': pinCounts({ stale: 1 }),
+    'node-origin-second': pinCounts({ pending: 1, review: 2, empty: 1 }),
   },
 };
+
+/** Every node of the payload, counted across the four families rather than restated as a literal. */
+const NODE_COUNT =
+  TOPOLOGY.plants.length +
+  TOPOLOGY.suppliers.length +
+  TOPOLOGY.origins.length +
+  TOPOLOGY.customers.length;
+
+/** The seven controls beside the map: the two zoom steps and the five view presets. */
+const CONTROL_COUNT = 2 + MAP_VIEW_PRESETS.length;
 
 /** One shared crossing, stated with the shared shape's own members and nothing else. */
 const CROSSING: Chokepoint = {
@@ -239,6 +287,24 @@ describe('MapCanvas', () => {
     requested.mockRestore();
   });
 
+  it('links nothing outside the document and embeds no foreign image', () => {
+    const { container } = renderLens({ overlay: ATLAS });
+
+    /* Every graphic in the lens is drawn inline: no element addresses anything at all. */
+    const addresses = [...container.querySelectorAll('[href], [xlink\\:href], [src], [srcset]')].map(
+      (element) =>
+        element.getAttribute('href') ??
+        element.getAttribute('xlink:href') ??
+        element.getAttribute('src') ??
+        element.getAttribute('srcset') ??
+        '',
+    );
+
+    expect(addresses.filter((address) => address.trim() !== '')).toStrictEqual([]);
+    /* And nothing that could load a resource on its own: no raster, no sprite reference, no frame. */
+    expect(container.querySelectorAll('img, image, use, iframe, object, embed')).toHaveLength(0);
+  });
+
   it('draws one arc per lane whose two endpoints the projection places', () => {
     const { container } = renderLens();
 
@@ -293,6 +359,27 @@ describe('MapCanvas', () => {
     expect(worldPaths.length).toBeGreaterThan(1000);
   });
 
+  it('draws every node of the payload, whichever family it belongs to', () => {
+    const { container } = renderLens();
+
+    const nodes = nodeMarks(container);
+
+    expect(nodes).toHaveLength(NODE_COUNT);
+
+    const labels = [
+      ...TOPOLOGY.plants,
+      ...TOPOLOGY.suppliers,
+      ...TOPOLOGY.origins,
+      ...TOPOLOGY.customers,
+    ].map((node) => node.label);
+
+    for (const label of labels) {
+      const named = nodes.some((node) => (node.getAttribute('aria-label') ?? '').startsWith(`${label},`));
+
+      expect(named).toBe(true);
+    }
+  });
+
   it('names every node with its label, its family and the pin counts per state', () => {
     renderLens();
 
@@ -305,6 +392,12 @@ describe('MapCanvas', () => {
     expect(
       screen.getByRole('button', { name: /Bajio metals origin/ }),
     ).toHaveAccessibleName('Bajio metals origin, Tier-2 origin. No evidence pins.');
+    /* The remaining states reach a reader through the same name, in the lens's own fixed order. */
+    expect(
+      screen.getByRole('button', { name: /Kansai alloys origin/ }),
+    ).toHaveAccessibleName(
+      'Kansai alloys origin, Tier-2 origin. Evidence pins: 1 awaiting review, 2 needing review, 1 with no record.',
+    );
   });
 
   it('prints a badge for each state a node carries a pin in', () => {
@@ -353,13 +446,14 @@ describe('MapCanvas', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
-  it('activates a node from the keyboard with Enter and with Space', async () => {
+  it('activates a node from the keyboard with Enter and with Space, opening its evidence', async () => {
     const user = userEvent.setup();
     const selected: string[] = [];
     renderLens({
       onSelectNode: (nodeId) => {
         selected.push(nodeId);
       },
+      evidenceRefForNode: (node) => `evidence-for-${node.id}`,
     });
 
     const plant = screen.getByRole('button', { name: /Regensburg plant/ });
@@ -368,9 +462,16 @@ describe('MapCanvas', () => {
     expect(document.activeElement).toBe(plant);
 
     await user.keyboard('{Enter}');
+
+    expect(selected).toStrictEqual(['node-plant']);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    /* The second key reports the selection again and leaves the same evidence open behind it. */
+    plant.focus();
     await user.keyboard(' ');
 
     expect(selected).toStrictEqual(['node-plant', 'node-plant']);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
   it('opens nothing for a node the mapper resolves no record for, and declares no drawer', async () => {
@@ -476,35 +577,99 @@ describe('MapCanvas', () => {
     expect(screen.getByText(MAP_CANVAS_TEXT.zoomAtWidestReason)).toBeInTheDocument();
   });
 
-  it('steps the zoom level with each control', async () => {
+  it('reports the level each zoom control asks for without drawing it', async () => {
     const user = userEvent.setup();
     const levels: string[] = [];
-    renderLens({
+    const { container } = renderLens({
       zoomLevel: 2,
       onZoomLevelChange: (level) => {
         levels.push(String(level));
       },
     });
 
+    const drawn = countryPathsOf(container);
+
     await user.click(screen.getByRole('button', { name: MAP_CANVAS_TEXT.zoomInLabel }));
     await user.click(screen.getByRole('button', { name: MAP_CANVAS_TEXT.zoomOutLabel }));
 
     expect(levels).toStrictEqual(['3', '1']);
+    /* The level is the screen's to hold: a control reports the step and leaves the drawing where it was. */
+    expect(countryPathsOf(container)).toBe(drawn);
   });
 
-  it('draws no competitor mark and no halo until the atlas payload arrives', () => {
+  it('renders its controls as native buttons a keyboard reaches in order', async () => {
+    const user = userEvent.setup();
     renderLens();
+
+    const controls = [
+      screen.getByRole('button', { name: MAP_CANVAS_TEXT.zoomOutLabel }),
+      screen.getByRole('button', { name: MAP_CANVAS_TEXT.zoomInLabel }),
+      ...MAP_VIEW_PRESETS.map((preset) =>
+        screen.getByRole('button', { name: MAP_VIEW_PRESET_LABELS[preset] }),
+      ),
+    ];
+
+    for (const control of controls) {
+      expect(control.tagName).toBe('BUTTON');
+      expect(control).toHaveAccessibleName();
+    }
+
+    /* The node marks carry the button role on their SVG groups; the controls beside them are native. */
+    for (const name of [MAP_CANVAS_TEXT.zoomGroupLabel, MAP_CANVAS_TEXT.presetGroupLabel]) {
+      const group = screen.getByRole('group', { name });
+
+      expect(group.querySelectorAll('[role="button"]:not(button)')).toHaveLength(0);
+      expect(
+        within(group).getAllByRole('button').every((control) => control.tagName === 'BUTTON'),
+      ).toBe(true);
+    }
+
+    /* Every control is a keyboard stop, reached by Tab alone and in the order it is drawn in. */
+    const reached: Element[] = [];
+
+    for (let step = 0; step < CONTROL_COUNT; step += 1) {
+      await user.tab();
+
+      if (document.activeElement !== null) {
+        reached.push(document.activeElement);
+      }
+    }
+
+    expect(reached).toStrictEqual(controls);
+  });
+
+  it('draws no competitor element at all until the atlas payload arrives', () => {
+    const { container } = renderLens();
 
     expect(screen.queryByText(MARKET_INTELLIGENCE_LABEL)).not.toBeInTheDocument();
     expect(screen.queryByText(CROSSING.label)).not.toBeInTheDocument();
+    /* Neither group the overlay contributes exists, and no competitor mark or halo is in the document. */
+    expect(
+      screen.queryByRole('group', { name: new RegExp(MARKET_INTELLIGENCE_LABEL, 'u') }),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelectorAll('[class*="stroke-competitor"], circle[stroke-dasharray]'),
+    ).toHaveLength(0);
   });
 
   it('draws the competitor marks, the halos and a legend when the atlas payload arrives', () => {
-    renderLens({ overlay: ATLAS });
+    const { container } = renderLens({ overlay: ATLAS });
 
-    /* The halo captions and the legend row both carry the imported label; each element carries it. */
-    expect(screen.getAllByText(MARKET_INTELLIGENCE_LABEL).length).toBeGreaterThan(0);
-    expect(screen.getByText(CROSSING.label)).toBeInTheDocument();
+    expect(container.querySelectorAll('[class*="stroke-competitor"]').length).toBeGreaterThan(0);
+
+    /* The marks are named as market intelligence, and every halo prints the imported label itself. */
+    expect(
+      screen.getByRole('group', {
+        name: `${MARKET_INTELLIGENCE_LABEL}: ${MAP_CANVAS_TEXT.competitorGroupSuffix}`,
+      }),
+    ).toBeInTheDocument();
+
+    const halos = screen.getByRole('group', { name: MARKET_INTELLIGENCE_LABEL });
+
+    expect(within(halos).getAllByText(MARKET_INTELLIGENCE_LABEL)).toHaveLength(
+      ATLAS.chokepoints.length,
+    );
+    expect(within(halos).getByText(CROSSING.label)).toBeInTheDocument();
     /* The legend's own row adds the competitor name tag the shared legend owns. */
     expect(screen.getByText('Aurelvik Drive Systems')).toBeInTheDocument();
   });
