@@ -366,7 +366,16 @@ export function StateBoundary({
        withheld so a half-read screen cannot be mistaken for a complete one. */
     case 'loading':
       return (
-        <div role="status" aria-busy="true" className={LOADING_CLASSES}>
+        <div
+          role="status"
+          aria-busy="true"
+          /* The caption below is the region's visible text, and this attribute is the same string
+             exposed as the region's accessible name: without it the busy region reaches assistive
+             technology unnamed, so its arrival is not announced (rule B-3). The visible caption stays
+             in the accessibility tree, so the name is never the only place the words appear. */
+          aria-label={STATE_BOUNDARY_TEXT.loading}
+          className={LOADING_CLASSES}
+        >
           <span className={LOADING_CAPTION_CLASSES}>{STATE_BOUNDARY_TEXT.loading}</span>
           <span aria-hidden="true" className={NOTICE_STACK_CLASSES}>
             {SKELETON_BAR_WIDTHS.map((width) => (

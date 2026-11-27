@@ -7,10 +7,15 @@
  * replace it withhold the content, so a reader is never shown a half-read screen as a complete one.
  * The stale banner names the source it was handed and the instant that source last answered, in the
  * tabular mono face, which is the visible half of the freshness rule the service's own refusal is the
- * other half of (AAP §0.2.1). Every control the boundary can render exists only when a handler was
- * supplied (rule P-8), is reachable by keyboard and announces its own name (rule B-3), and no state
- * spells a simulation label of its own, because `Simulated data` belongs to the shell's badge
- * (rule P-1).
+ * other half of (AAP §0.2.1, T-13): the instant is compared character for character, offset included,
+ * because a banner that reformatted it would name a different moment from the one the controls carry.
+ * The two controls the boundary can render are driven by the keyboard alone (rule B-3), and a state
+ * handed none of its optional payloads still renders — degrading to the content or to a neutral notice
+ * rather than throwing or asserting a record the caller never supplied. Both themes are exercised on
+ * the state that carries the most wording, so a banner that resolved a colour itself would fail here
+ * rather than in one theme only. Every control the boundary can render exists only when a handler was
+ * supplied (rule P-8), and no state spells a simulation label of its own, because `Simulated data`
+ * belongs to the shell's badge (rule P-1).
  *
  * The permission, the roles and the instant below are this suite's own caller-level input, standing
  * for values a service `Problem` and a `Result.meta` supply at run time: the component types none of
@@ -64,6 +69,12 @@ const STATES: readonly ScreenState[] = [
   'conflict',
 ];
 
+/**
+ * The two states that warn about the content instead of replacing it, and therefore the only two whose
+ * content must still render when the state's own record was not supplied.
+ */
+const CONTENT_KEPT_STATES: readonly ScreenState[] = ['stale', 'partial'];
+
 /** Both themes, because a component that resolved a colour itself would look right in one of them. */
 const THEMES: readonly ThemeName[] = ['command', 'paper'];
 
@@ -98,7 +109,9 @@ describe('StateBoundary', () => {
     const region = screen.getByRole('status');
 
     expect(region).toHaveAttribute('aria-busy', 'true');
-    expect(region).toHaveTextContent(STATE_BOUNDARY_TEXT.loading);
+    /* The region's accessible name is the caption a reader hears, so the busy state is announced
+       rather than merely rendered (rule B-3). */
+    expect(region).toHaveAccessibleName(STATE_BOUNDARY_TEXT.loading);
     expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
   });
 
@@ -110,6 +123,7 @@ describe('StateBoundary', () => {
     );
 
     expect(screen.getByRole('status')).toHaveTextContent(EMPTY_MESSAGE);
+    expect(screen.getByText(EMPTY_MESSAGE)).toBeVisible();
     expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
   });
 
@@ -131,12 +145,18 @@ describe('StateBoundary', () => {
     );
 
     const region = screen.getByRole('status');
+    const instant = screen.getByText(STALE.asOf);
 
     expect(region).toHaveTextContent(`${STALE.label}${STATE_BOUNDARY_TEXT.staleSuffix}`);
-    expect(region).toHaveTextContent(STALE.asOf);
+    expect(region).toContainElement(instant);
+    /* Compared character for character, offset included: the banner prints the instant the source
+       answered, and a formatter that rewrote it would name a different moment from the one the
+       disabled approval controls carry in their reason (T-13's visible half). */
+    expect(instant.textContent).toBe(STALE.asOf);
+    expect(instant.textContent).toMatch(/\+01:00$/);
     /* The instant goes through the one presentation formatter, so it carries the mono face the token
        layer fixes for timestamps rather than a second formatter's opinion of it. */
-    expect(screen.getByText(STALE.asOf)).toHaveClass('font-mono');
+    expect(instant).toHaveClass('font-mono');
     expect(screen.getByText(CONTENT)).toBeVisible();
   });
 
@@ -168,7 +188,10 @@ describe('StateBoundary', () => {
     expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
 
     const control = screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel });
-    control.focus();
+    /* Reached and operated by the keyboard alone: no pointer is involved, and the focus lands on the
+       control by tabbing, which is what rule B-3 requires of every interactive element. */
+    await user.tab();
+    expect(control).toHaveFocus();
     await user.keyboard('{Enter}');
 
     expect(onRetry).toHaveBeenCalledTimes(1);
@@ -181,6 +204,56 @@ describe('StateBoundary', () => {
       </StateBoundary>,
     );
 
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('T-17 renders a state handed none of its optional payloads instead of throwing', () => {
+    for (const state of STATES) {
+      const { unmount } = render(
+        <StateBoundary state={state}>
+          <p>{CONTENT}</p>
+        </StateBoundary>,
+      );
+
+      /* A missing record degrades instead of being invented: the two warning states fall back to the
+         content alone, and the five that replace it render their own notice with no source, no
+         permission and no instant named. */
+      if (CONTENT_KEPT_STATES.includes(state)) {
+        expect(screen.getByText(CONTENT)).toBeVisible();
+      } else {
+        expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
+      }
+
+      /* No handler was supplied, so no control exists anywhere in the rendering (rule P-8). */
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+
+      unmount();
+    }
+  });
+
+  it('T-17 names no source, no permission and no instant when a state arrived without its record', () => {
+    const staleRender = render(
+      <StateBoundary state="stale">
+        <p>{CONTENT}</p>
+      </StateBoundary>,
+    );
+
+    /* Nothing is rendered beyond the content it was given: a banner that could not name the source and
+       its as-of time would assert a record the caller never supplied. */
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText(CONTENT)).toBeVisible();
+
+    staleRender.unmount();
+
+    render(
+      <StateBoundary state="forbidden">
+        <p>{CONTENT}</p>
+      </StateBoundary>,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(STATE_BOUNDARY_TEXT.forbiddenHeadline);
+    expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
@@ -217,7 +290,12 @@ describe('StateBoundary', () => {
     expect(screen.getByRole('status')).toHaveTextContent(CONFLICT_MESSAGE);
     expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.reloadLabel }));
+    const control = screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.reloadLabel });
+    /* Reached and operated by the keyboard alone, as the retry control is: the two are the same
+       primitive, so neither may depend on a pointer to work (rule B-3). */
+    await user.tab();
+    expect(control).toHaveFocus();
+    await user.keyboard('{Enter}');
 
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -233,6 +311,28 @@ describe('StateBoundary', () => {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
   });
+
+  it.each(THEMES)(
+    'T-17 renders the stale banner with the source and its as-of instant in the %s theme',
+    (theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+
+      render(
+        <StateBoundary state="stale" stale={STALE}>
+          <p>{CONTENT}</p>
+        </StateBoundary>,
+      );
+
+      /* The banner is asserted under each theme rather than in the default one only, so a state that
+         depended on a theme-specific value would be caught here (rule B-3). */
+      expect(document.documentElement).toHaveAttribute('data-theme', theme);
+      expect(screen.getByRole('status')).toHaveTextContent(
+        `${STALE.label}${STATE_BOUNDARY_TEXT.staleSuffix}`,
+      );
+      expect(screen.getByText(STALE.asOf)).toBeVisible();
+      expect(screen.getByText(CONTENT)).toBeVisible();
+    },
+  );
 
   it('T-17 paints every state from role tokens alone, with no palette literal and no shadow', () => {
     for (const theme of THEMES) {
