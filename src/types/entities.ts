@@ -15,13 +15,16 @@
  * without defining them (AAP 0.12.2): `ConfidenceLevel`, `ScenarioOrigin`, `WriteBackState`,
  * `ApprovalStatus`, `DecisionAction`, `Decision` and `ActiveUser`.
  *
- * The folder's single type-only cycle, deliberate and documented. This module imports
- * `SolverResult` from `./solver`, and `./solver` imports `Levers`, `OrderResult`, `SideEffect`,
- * `WriteBack` and `Confidence` from here, because a scenario carries its own identity — the
- * exception it belongs to, its name, its origin — while the solver owns its measures. Both sides
- * import with `import type`, so no runtime value crosses and the cycle is erased at compile time.
- * Do not "fix" it by moving a type across: the split is what keeps the solver free of identity and
- * this module free of arithmetic.
+ * The folder's single cycle in the import graph, accepted rather than treated as a defect. This
+ * module imports `SolverResult` from `./solver`, and `./solver` imports `Levers`, `OrderResult`,
+ * `SideEffect`, `WriteBack` and `Confidence` from here, because a scenario carries its own
+ * identity — the exception it belongs to, its name, its origin — while the solver owns its
+ * measures (AAP 0.12.1). Every cross-import on both sides is `import type` under
+ * `verbatimModuleSyntax`, and both modules declare types only — no value, no function, no
+ * constant — so those edges are erased at compile time and no runtime cycle can exist while that
+ * holds. Extracting the shared shapes into a third module is declined: it would move contracts §3
+ * declarations out of the module that owns the entity vocabulary and away from the `Scenario` and
+ * `Approval` records that carry them (AAP 0.12.1, AAP 0.12.2).
  *
  * This module declares shapes and never values (rule P-6). Every numeric member is a slot the
  * solver, an aggregation or a seed record fills; no threshold, amount, count, date or identifier

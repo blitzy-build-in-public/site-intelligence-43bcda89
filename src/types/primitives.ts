@@ -128,10 +128,13 @@ export const SIM_LABELS = [
 export type SimLabel = (typeof SIM_LABELS)[number];
 
 /**
- * The tag every competitor name carries. It sits alongside the seven labels rather than inside
- * them, because it is a longer, more specific string fixed for competitor names alone.
+ * The tag every competitor name carries, fixed character for character by rule P-5, which ranks
+ * first among the project's inputs (AAP 0.1) and therefore sets this literal. The companion-string
+ * row in AAP 0.10 and the competitor row in AAP 0.14.2 pair the tag with a different company word
+ * and are superseded here by that rule. The tag sits alongside the seven labels rather than inside
+ * them, because it is a separate string fixed for competitor names alone (AAP 0.10, rule P-1).
  */
-export const COMPETITOR_NAME_TAG = 'Simulated company';
+export const COMPETITOR_NAME_TAG = 'Synthetic company';
 
 /**
  * The tag on the client's own radar series, which records that the series is a self-assessment

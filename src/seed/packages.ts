@@ -9,12 +9,12 @@
  * produced.
  *
  * Readiness is derived, never stored. A package's figure is the elements whose state is `pass`
- * divided by the package's own element count, rounded half up to a whole percent — the rule
- * `src/domain/aggregation` applies through `wholePercent` (AAP 0.12.1). No figure is written here:
+ * divided by the package's own element count, handed to `wholePercent` — the readiness rule, and the
+ * only rounding rule the codebase holds (AAP 0.8, 0.12.1). No figure is written here:
  * `readinessPercent` is a required member of `PpapPackage`, so each package's value is counted from
  * the authored states at module initialisation and the count exists only in those states (rule P-6).
- * Four of PPAP-0219's eighteen elements are not in the pass state, so the aggregation reads fourteen
- * passing elements over eighteen and states 78 — the figure the assistant answers with (AAP 0.8).
+ * Four of PPAP-0219's eighteen elements are not in the pass state, so PPAP-0219 reads fourteen
+ * passing elements over eighteen as 78 — the figure the assistant answers with (AAP 0.8).
  *
  * Each package covers one supplier's part for one material, and the three cover three different
  * materials. The chain is set out once here so a reader can follow it without opening three files:
@@ -44,6 +44,7 @@
  */
 
 import type { EvidenceRule, PpapElement, PpapPackage } from '../types';
+import { wholePercent } from '../domain/solver/rounding';
 
 /* ---------------------------------------------------------------------------------------------
  * Evidence rules — platform-contracts.md §8
@@ -98,6 +99,13 @@ const RULE_DOC: EvidenceRule = {
  * casting lot's void fraction failed its limit, the appearance report awaits a disposition, and one
  * part-specific requirement awaits the customer's answer. The aggregation turns that arrangement
  * into the package's readiness figure; nothing here states it.
+ *
+ * No element of the three packages carries a `pinId`. The member is optional and states the
+ * document-and-pin association where one is attached: the package map and the pins it opens are the
+ * package surface of stage S4, which this run does not build (AAP 0.12.2), and the record that
+ * attaches a pin to an element belongs to the seed document's pins section, which declares none for
+ * these elements. What each element does name stands: its `documentId` carries the evidence document
+ * behind the reading that decided its state, as this module's header sets out.
  */
 export const PPAP_ELEMENTS: readonly PpapElement[] = [
   {
@@ -320,9 +328,10 @@ export const PPAP_ELEMENTS: readonly PpapElement[] = [
 
 /**
  * The passing elements of PPAP-0219, counted from the authored states once, at module
- * initialisation, so that no number reaches the record by hand (rule P-6). The domain layer counts
- * the same way through `wholePercent`; this count exists only because `PpapPackage` requires the
- * field and the seed may not import the domain layer (rule P-2).
+ * initialisation, so that no number reaches the record by hand (rule P-6). The count becomes the
+ * package's readiness through `wholePercent`, the same rule the aggregation applies to it — the only
+ * rounding rule in the codebase (AAP 0.8, 0.12.1) — and the dependency runs one way: this seed module
+ * reads that pure helper, and nothing under `src/domain` reads `src/seed`.
  */
 let ppap0219Passed = 0;
 for (const element of PPAP_ELEMENTS) {
@@ -801,9 +810,9 @@ for (const element of PPAP_0237_ELEMENTS) {
  * The three part approval packages the seed carries, each covering one supplier's part for one
  * material and carrying all eighteen elements.
  *
- * `readinessPercent` is the count above the record expressed as a whole percent, rounded half up,
- * so it can never disagree with the element states a review leaves behind; the domain layer states
- * the same figure for display through `wholePercent` (rule P-6). `elements` is a copy because a
+ * `readinessPercent` is that count over the package's element count handed to `wholePercent`, so the
+ * figure is stated by the one rounding rule the codebase holds (AAP 0.8, 0.12.1) and cannot disagree
+ * with the element states a review leaves behind (rule P-6). `elements` is a copy because a
  * package's elements are the mutable records the service holds, while the exported element lists are
  * read-only. Each record's `materialId` is one of `MATERIALS` and its `supplierId` that material's
  * `primarySupplierId`; the product, package, material and supplier each one states are tabled in
@@ -815,21 +824,21 @@ export const PPAP_PACKAGES: readonly PpapPackage[] = [
     supplierId: 'SUP-VLTAVA-GUSS',
     materialId: 'MAT-ALUMINIUM-DIE-CAST-COVER',
     elements: [...PPAP_ELEMENTS],
-    readinessPercent: Math.round((ppap0219Passed / PPAP_ELEMENTS.length) * 100),
+    readinessPercent: wholePercent(ppap0219Passed / PPAP_ELEMENTS.length),
   },
   {
     id: 'PPAP-0204',
     supplierId: 'SUP-VLTAVA-GUSS',
     materialId: 'MAT-CAST-IRON-HOUSING',
     elements: [...PPAP_0204_ELEMENTS],
-    readinessPercent: Math.round((ppap0204Passed / PPAP_0204_ELEMENTS.length) * 100),
+    readinessPercent: wholePercent(ppap0204Passed / PPAP_0204_ELEMENTS.length),
   },
   {
     id: 'PPAP-0237',
     supplierId: 'SUP-BAJIO-METALES',
     materialId: 'MAT-ALUMINIUM-SHEET',
     elements: [...PPAP_0237_ELEMENTS],
-    readinessPercent: Math.round((ppap0237Passed / PPAP_0237_ELEMENTS.length) * 100),
+    readinessPercent: wholePercent(ppap0237Passed / PPAP_0237_ELEMENTS.length),
   },
 ];
 

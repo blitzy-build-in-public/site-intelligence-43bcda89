@@ -18,10 +18,12 @@
  * invents none beyond the declared set, and types no record value into code (rule P-6). A row carries
  * counts, an instant and record text, so it needs neither the money nor the data-source vocabulary.
  *
- * One source for the rows. `SovereigntyStatus` carries a `ledger` member, and this function is the
- * single computation that fills it: it reads that member as the declared configuration, recomputes
- * both counts and the last attempt from the events it is handed, and returns fresh row objects. A
- * caller stores this result and keeps no second, hand-written copy of the counts, so the declared
+ * One source for the rows. The declared record carries a `ledger` member naming each endpoint with
+ * its purpose and state, and this function is the single computation that fills it in: it takes that
+ * member as the declared configuration, counts both columns and the last attempt from the events it
+ * is handed, and returns fresh row objects. The three counted members are absent from the input by
+ * construction, so a caller hands the record in as it stands and fabricates nothing to satisfy the
+ * call; because it stores this result and keeps no second, hand-written copy, the declared
  * configuration and the counted columns cannot drift apart.
  *
  * Determinism and purity (AAP 0.2.1, AAP 0.18.2). The window is derived from the `clock` argument —
@@ -54,13 +56,7 @@
  * declares, and nothing is added to it.
  */
 
-import type {
-  AuditEvent,
-  AuditResult,
-  LedgerRow,
-  SovereigntyStatus,
-  Timestamp,
-} from '../../types';
+import type { AuditEvent, AuditResult, LedgerRow, Timestamp } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
  * Constants fixed by the contracts
@@ -110,8 +106,30 @@ const CIVIL_EPOCH_SHIFT = 719468;
 /** Months in a year, the highest month a timestamp field may name. */
 const MONTHS_IN_YEAR = 12;
 
-/** Days in the longest month, the highest day-of-month a timestamp field may name. */
+/** Days in the longest month, which is every month other than February and the four short ones. */
 const DAYS_IN_LONGEST_MONTH = 31;
+
+/** Days in a short month: April, June, September and November. */
+const DAYS_IN_SHORT_MONTH = 30;
+
+/** Days in February of a common year, and in February of a year that carries the leap day. */
+const DAYS_IN_COMMON_FEBRUARY = 28;
+
+const DAYS_IN_LEAP_FEBRUARY = 29;
+
+/**
+ * The month numbers the length rule below names by hand: February, whose length depends on the year,
+ * and the four months that are shorter than the rest.
+ */
+const FEBRUARY = 2;
+
+const APRIL = 4;
+
+const JUNE = 6;
+
+const SEPTEMBER = 9;
+
+const NOVEMBER = 11;
 
 /** The last hour of a day, and the last minute and second of an hour and a minute. */
 const LAST_HOUR_OF_DAY = 23;
@@ -163,7 +181,15 @@ function digitsOf(groups: Record<string, string>, name: string): number | null {
   return Number.isInteger(value) ? value : null;
 }
 
-/** The offset a timestamp records, in minutes east of UTC, or `null` when it records none. */
+/**
+ * The offset a timestamp records, in minutes east of UTC, or `null` when it records a value this
+ * module will not place.
+ *
+ * Both fields are held to the bounds the clock time uses, so `+24:00` and `+99:99` are refused
+ * rather than read as a displacement no zone announces, which would land the instant on a day it
+ * does not fall on. Every offset a real zone keeps — up to `+14:00` and down to `-23:59` — stays
+ * inside those bounds, and `Z` still reads as zero.
+ */
 function offsetMinutesOf(groups: Record<string, string>): number | null {
   if (groups['zone'] === 'Z') {
     return 0;
@@ -171,7 +197,13 @@ function offsetMinutesOf(groups: Record<string, string>): number | null {
   const sign = groups['sign'];
   const hours = digitsOf(groups, 'offsetHours');
   const minutes = digitsOf(groups, 'offsetMinutes');
-  if (sign === undefined || hours === null || minutes === null) {
+  if (
+    sign === undefined ||
+    hours === null ||
+    minutes === null ||
+    hours > LAST_HOUR_OF_DAY ||
+    minutes > LAST_MINUTE_OF_HOUR
+  ) {
     return null;
   }
   const magnitude = hours * MINUTES_PER_HOUR + minutes;
@@ -204,12 +236,53 @@ function dayNumberOf(year: number, month: number, dayOfMonth: number): number {
 }
 
 /**
+ * Whether a year carries the Gregorian leap day: every year divisible by four, except a century year
+ * that is not divisible by four hundred.
+ *
+ * Stated as arithmetic over the year's own field, for the reason `dayNumberOf` is: it allocates
+ * nothing, reads no clock and builds no `Date` object, so its answer depends on the argument alone
+ * (AAP 0.18.2).
+ */
+function isLeapYear(year: number): boolean {
+  const divisibleByFour = year % LEAP_CYCLE_YEARS === 0;
+  const centuryYear = year % CENTURY_YEARS === 0;
+  const divisibleByFourCenturies = year % ERA_YEARS === 0;
+  return divisibleByFour && (!centuryYear || divisibleByFourCenturies);
+}
+
+/**
+ * The number of days a month of the given year has, so a day-of-month can be held to its own month.
+ *
+ * February takes the leap rule above and the other eleven months take their fixed length. This is
+ * what makes 31 November, or 29 February of a common year, unlocatable rather than silently rolled
+ * forward into the next month by the civil-day arithmetic. The months are switched on rather than
+ * looked up in a table, because `noUncheckedIndexedAccess` would turn every lookup into a possible
+ * absence the calendar does not have; the caller has already held `month` to its bound.
+ */
+function daysInMonthOf(year: number, month: number): number {
+  switch (month) {
+    case FEBRUARY:
+      return isLeapYear(year) ? DAYS_IN_LEAP_FEBRUARY : DAYS_IN_COMMON_FEBRUARY;
+    case APRIL:
+    case JUNE:
+    case SEPTEMBER:
+    case NOVEMBER:
+      return DAYS_IN_SHORT_MONTH;
+    default:
+      return DAYS_IN_LONGEST_MONTH;
+  }
+}
+
+/**
  * Locates an ISO 8601 instant, or answers `null` when the value is not one this module can place.
  *
- * A value that is not an ISO 8601 instant, or whose fields name a date or a time of day that cannot
- * exist, cannot be assigned to a day or ordered against another instant, so it is reported as
- * unlocatable rather than guessed at. Every timestamp the adapter supplies is ISO 8601 with an offset
- * by construction (contracts §1).
+ * A value that is not an ISO 8601 instant, or whose fields name a date, a time of day or an offset
+ * that cannot exist, cannot be assigned to a day or ordered against another instant, so it is
+ * reported as unlocatable rather than guessed at. The date is held to the length of its own month, so
+ * 31 November and 29 February of a common year are unlocatable instead of rolling into the following
+ * month; the time of day is checked field by field; and the offset is held to the same hour and
+ * minute bounds, so `+99:99` is unlocatable while every offset a real zone keeps still resolves.
+ * Every timestamp the adapter supplies is ISO 8601 with an offset by construction (contracts §1).
  */
 function locate(timestamp: Timestamp): LocatedInstant | null {
   const match = TIMESTAMP_PATTERN.exec(timestamp);
@@ -238,7 +311,7 @@ function locate(timestamp: Timestamp): LocatedInstant | null {
     month >= 1 &&
     month <= MONTHS_IN_YEAR &&
     dayOfMonth >= 1 &&
-    dayOfMonth <= DAYS_IN_LONGEST_MONTH &&
+    dayOfMonth <= daysInMonthOf(year, month) &&
     hour <= LAST_HOUR_OF_DAY &&
     minute <= LAST_MINUTE_OF_HOUR &&
     second <= LAST_SECOND_OF_MINUTE;
@@ -303,6 +376,32 @@ function columnOf(result: AuditResult): LedgerColumn | null {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The declared input, as a caller holds it
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One endpoint as the declared configuration states it: the address, its purpose and its state.
+ *
+ * The three counted members are left out of `LedgerRow` because this module produces them — both
+ * counts from the window's events and the last attempt from the newest one — so a caller hands the
+ * declared record in as it stands instead of inventing a count to satisfy the call (rule P-6), and
+ * no stored count can be passed in and reach a screen unchanged.
+ */
+type DeclaredLedgerEndpoint = Omit<LedgerRow, 'lastAttempt' | 'allowed' | 'blocked'>;
+
+/**
+ * The declared record this aggregate reads: the sovereignty record's `ledger` member as it stands.
+ *
+ * Only that member is named, because it is the whole of what the aggregate reads, and it is held as
+ * a read-only array so the record's own order passes through untouched. A caller's fuller record —
+ * the seed's, whose rows also state a `lastAttempt` — satisfies this shape without conversion,
+ * because a row that carries extra members is still one of these.
+ */
+interface DeclaredLedgerConfiguration {
+  readonly ledger: ReadonlyArray<DeclaredLedgerEndpoint>;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The aggregate
  * ------------------------------------------------------------------------------------------- */
 
@@ -342,9 +441,10 @@ function columnOf(result: AuditResult): LedgerColumn | null {
  *
  * @param events The audit chain's events, read and not modified. Only the events naming a declared
  *   endpoint contribute to a row.
- * @param sovereignty The sovereignty record whose `ledger` member declares the endpoints, their
- *   order, and each one's purpose and state. Any counts or last attempt already present in that
- *   record are recomputed here, so a stale hand-written value cannot reach a screen.
+ * @param sovereignty The declared record whose `ledger` member names the endpoints, their order, and
+ *   each one's purpose and state. The counted members are absent from its rows by construction, so
+ *   no stored figure can be handed to this function; both counts and the last attempt are recomputed
+ *   here from `events`, which is why no hand-written number can reach a screen.
  * @param clock The demonstration clock the window ends on, as an ISO 8601 instant.
  * @returns One row per declared endpoint, in the declared order.
  * @throws RangeError When `clock` is not an ISO 8601 instant, because no window can be derived from
@@ -352,7 +452,7 @@ function columnOf(result: AuditResult): LedgerColumn | null {
  */
 export function computeLedger(
   events: readonly AuditEvent[],
-  sovereignty: SovereigntyStatus,
+  sovereignty: DeclaredLedgerConfiguration,
   clock: Timestamp,
 ): LedgerRow[] {
   const windowEndDay = windowEndDayOf(clock);

@@ -25,6 +25,14 @@
  * - AAP 0.12.1 and AAP 0.12.4 for `ChainBreak`, the position pair a verification reports and the
  *   audit screen displays.
  *
+ * The payload's shape is settled rather than open. contracts §6 hashes the canonical JSON of
+ * `{ before, after }` and fixes no member of either side, AAP 0.12.2 records `before` and `after`
+ * among an event's attributes without naming a member of either, and `canonicalJson` in
+ * `src/domain/audit/hash.ts` recurses over whatever record it is given — objects, arrays and
+ * scalars alike. A payload is therefore arbitrary record content, and `AuditPayload` is
+ * deliberately that shape rather than a placeholder for one: no available input fixes a member that
+ * it could have declared instead.
+ *
  * This module declares shapes and the genesis constant only. The computation belongs to
  * `src/domain/audit/hash.ts`, `src/domain/audit/chain.ts` and `src/domain/audit/verify.ts`. The
  * `AuditEvent` and `ChainReport` entities belong to `./entities`, which imports the vocabulary below
@@ -85,7 +93,8 @@ export type AuditAction = string;
  * the record. The keys are sorted and the whitespace omitted when the payload is serialised for
  * hashing, and a missing value is written as `null` (contracts §6). `unknown` rather than a wider
  * escape is what lets a caller write a payload without a cast and read one back only after checking
- * it.
+ * it. No input available in this run fixes a shaped payload, so this declaration is the module's
+ * intended shape and not a stand-in for one.
  */
 export type AuditPayload = Record<string, unknown>;
 

@@ -33,14 +33,18 @@
  * `wholePercent` for a package's readiness — belong to `src/domain/solver/rounding.ts`, not to the
  * type of the member carrying their result.
  *
- * The folder's single type-only cycle, deliberate and documented. This module imports `Levers`,
- * `OrderResult`, `SideEffect`, `WriteBack` and `Confidence` from `./entities`, and `./entities`
- * imports `SolverResult` from here, because a scenario carries its own identity — the exception it
- * belongs to, its name, how it came to exist — while the solver owns its measures. Both sides
- * import with `import type`, so no runtime value crosses and the cycle is erased at compile time;
- * `./entities` records the same note from its end. Do not "fix" it by moving a type across the
- * boundary: the split is what keeps the solver free of identity and the entity module free of
- * arithmetic.
+ * The folder's single cycle in the import graph, accepted rather than treated as a defect. This
+ * module imports `Levers`, `OrderResult`, `SideEffect`, `WriteBack` and `Confidence` from
+ * `./entities`, and `./entities` imports `SolverResult` from here, because a scenario carries its
+ * own identity — the exception it belongs to, its name, how it came to exist — while the solver
+ * owns its measures. `SolverResult` and `Scenario` therefore name each other's vocabulary through
+ * `import type` alone. Every cross-import on both sides is `import type` under
+ * `verbatimModuleSyntax`, and both modules declare types only — no value, no function, no
+ * constant — so nothing exists at runtime and no cycle can form there while that holds.
+ * Extracting the shared shapes into a third module is declined: it would take contracts §3
+ * declarations out of `./entities`, which owns the entity vocabulary and the `Scenario` and
+ * `Approval` records that carry them (AAP 0.12.1, AAP 0.12.2). `./entities` records the same
+ * acceptance from its end.
  *
  * Rules this module is built to satisfy:
  * - P-6: measure slots only. No number is typed here, and no component can read a measure except
