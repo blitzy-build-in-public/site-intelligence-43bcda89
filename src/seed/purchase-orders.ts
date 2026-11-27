@@ -12,6 +12,12 @@
  * four `./plants.ts` rows. Seed modules stay flat (AAP 0.18.1) and are joined by the mock adapter's
  * handlers, never by importing one another.
  *
+ * The material master owns the price and the lead time, and each named record below restates them
+ * rather than deciding them: `unitCostEur` repeats the figure `./materials.ts` states for the same
+ * `materialId`, and `orderedDate` plus that material's `leadTimeDays` is exactly the record's
+ * `originalDueDate`, so the first promise sits the quoted lead time after call-off and no order
+ * falls due before its material's lead allows.
+ *
  * The five named records, in identifier order:
  * - `PO-45011884` is the delayed order of the investigation, and the only delayed one: the seal kits
  *   the Brno service-kit line builds with, two weeks past the promised date. It is the record
@@ -77,7 +83,10 @@ export interface PurchaseOrder {
   /** How many purchasing units of the material are on order. */
   quantity: number;
 
-  /** The agreed unit cost in euro, at most two decimals: a price, never a line total. */
+  /**
+   * The price per purchasing unit in euro, at most two decimals: the figure `./materials.ts` states
+   * for the material, restated from that master and never a line total or a computed figure.
+   */
   unitCostEur: Money;
 
   /** The date the order was placed. */
@@ -111,8 +120,8 @@ export const PURCHASE_ORDERS: readonly PurchaseOrder[] = [
     materialId: 'MAT-SEAL-KIT',
     plantId: 'PLT-BRN',
     quantity: 2400,
-    unitCostEur: 18.75,
-    orderedDate: '2026-11-26',
+    unitCostEur: 17.45,
+    orderedDate: '2026-11-10',
     originalDueDate: '2026-12-04',
     currentDueDate: '2026-12-16',
     status: 'delayed',
@@ -124,8 +133,8 @@ export const PURCHASE_ORDERS: readonly PurchaseOrder[] = [
     materialId: 'MAT-CAST-IRON-HOUSING',
     plantId: 'PLT-BRN',
     quantity: 900,
-    unitCostEur: 96.5,
-    orderedDate: '2026-11-26',
+    unitCostEur: 118.5,
+    orderedDate: '2026-10-23',
     originalDueDate: '2026-12-07',
     currentDueDate: '2026-12-07',
     status: 'open',
@@ -136,8 +145,8 @@ export const PURCHASE_ORDERS: readonly PurchaseOrder[] = [
     materialId: 'MAT-STAINLESS-BAR',
     plantId: 'PLT-RAK',
     quantity: 1250,
-    unitCostEur: 24.4,
-    orderedDate: '2026-11-24',
+    unitCostEur: 26.9,
+    orderedDate: '2026-10-29',
     originalDueDate: '2026-12-10',
     currentDueDate: '2026-12-10',
     status: 'open',
@@ -148,8 +157,8 @@ export const PURCHASE_ORDERS: readonly PurchaseOrder[] = [
     materialId: 'MAT-CONTROL-PCBA',
     plantId: 'PLT-QRO',
     quantity: 260,
-    unitCostEur: 438.4,
-    orderedDate: '2026-10-28',
+    unitCostEur: 268.4,
+    orderedDate: '2026-09-04',
     originalDueDate: '2026-11-27',
     currentDueDate: '2026-11-27',
     status: 'received',
@@ -160,8 +169,8 @@ export const PURCHASE_ORDERS: readonly PurchaseOrder[] = [
     materialId: 'MAT-ALUMINIUM-SHEET',
     plantId: 'PLT-RGB',
     quantity: 4200,
-    unitCostEur: 3.95,
-    orderedDate: '2026-11-16',
+    unitCostEur: 18.4,
+    orderedDate: '2026-11-11',
     originalDueDate: '2026-12-09',
     currentDueDate: '2026-12-09',
     status: 'open',

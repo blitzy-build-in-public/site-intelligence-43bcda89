@@ -18,7 +18,7 @@
  * order to tell them apart: `'evaluated'` for a rule the engine runs (POL-001, POL-003, POL-005
  * and POL-007), and `'declared'` for POL-009, which is declared configuration the engine never
  * evaluates and which the interface shows under the fixed `Declared, not verified` label (rule
- * P-4). No record describes itself as establishing sovereignty, resisting an edit or preventing a
+ * P-4). No record describes itself as establishing sovereignty, withstanding an edit or stopping a
  * copy, and none claims a state this workspace does not check (rule P-4).
  *
  * Imported only by `src/services/mock/seed-loader.ts`, which hands the records to the mock adapter;

@@ -13,18 +13,19 @@
  * already carries a theme and a density, so no screen renders unthemed and a reload with a
  * persisted choice shows no flash of the other theme.
  *
- * The two unions below carry the same values as `ThemeName` and `Density` in
- * `src/types/primitives.ts`. They are declared here rather than imported because this module owns
- * the attributes and reaches into the type layer only for the `Role` it maps to a density. The
- * declarations are structurally identical, so a value from either one is accepted wherever the
- * other is expected.
+ * The `data-theme` and `data-density` vocabularies are declared once, in `src/types/primitives.ts`,
+ * as `ThemeName` and `Density`. This module imports them and re-exports them under the names the
+ * theme switch, the density switch and this module's own API use, so the provider and both theme
+ * files read one declaration: a value added to the vocabulary reaches all of them from that single
+ * place instead of leaving one of them out of step.
  *
  * Rules served: B-1 (this module reaches only `document` and `localStorage` and fetches nothing),
  * B-2 (it reads no environment value and holds no configuration; the two storage keys are code
  * constants), B-3 (it renders no control, sets no `tabIndex` and touches no focus styling, so the
- * switches it serves stay keyboard-operable with their focus ring intact), P-2 (its only repository
- * import is the `Role` type) and P-6 (the only values stated here are the design defaults `command`
- * and `comfortable`).
+ * switches it serves stay keyboard-operable with their focus ring intact), P-2 (it imports no seed
+ * record — its only repository imports are the type vocabulary of `src/types`: the `Role` it maps
+ * to a density, and the theme and density names it re-exports) and P-6 (the only values stated here
+ * are the design defaults `command` and `comfortable`).
  */
 import {
   createContext,
@@ -38,6 +39,7 @@ import {
 import type { ReactElement, ReactNode } from 'react';
 
 import type { Role } from '../types/entities';
+import type { Density, ThemeName as Theme } from '../types/primitives';
 
 /* ---------------------------------------------------------------------------------------------
  * Attribute values
@@ -49,15 +51,16 @@ import type { Role } from '../types/entities';
  * print use (AAP 0.5.3).
  *
  * `src/theme/command.css` and `src/theme/paper.css` each select on one of these exact values, so a
- * member added here without a matching block would leave the page with neither palette applied.
+ * value added to the vocabulary without a matching block would leave the page with neither palette
+ * applied.
  */
-export type Theme = 'command' | 'paper';
+export type { Theme };
 
 /**
  * The value of the `data-density` attribute on `<html>`, selecting the 32 px (`compact`) or 44 px
  * (`comfortable`) row height that `src/theme/tokens.css` derives `--row-height` from.
  */
-export type Density = 'compact' | 'comfortable';
+export type { Density };
 
 /**
  * Browser-storage key of the chosen theme: one of the only two keys the application ever writes

@@ -99,7 +99,12 @@ export interface CustomerOrder {
   /**
    * The price agreed per unit, in euro with at most two decimals (contracts §1).
    *
-   * An order price, not a computed value: the order's revenue is `quantity` times this price, and
+   * It restates the product master's `priceEur` for this order's `productId`
+   * (`src/seed/products.ts`), so an order is valued one way by every reader: the revenue-at-risk rule
+   * multiplies units at risk by the product price (AAP 0.8), and this record states that same figure
+   * instead of offering a second valuation of the same units.
+   *
+   * A record value, never a computed one: the order's revenue is `quantity` times this price, and
    * that product is taken by the aggregation that needs it rather than being stored here (rule P-6).
    */
   readonly unitPriceEur: Money;
@@ -127,7 +132,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 210,
-    unitPriceEur: 1150,
+    unitPriceEur: 1240,
     dueDate: '2026-11-24',
     originalDueDate: '2026-11-24',
     status: 'shipped',
@@ -138,7 +143,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-A200',
     plantId: 'PLT-QRO',
     quantity: 360,
-    unitPriceEur: 845,
+    unitPriceEur: 480,
     dueDate: '2026-11-27',
     originalDueDate: '2026-11-27',
     status: 'late',
@@ -161,7 +166,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-A200',
     plantId: 'PLT-QRO',
     quantity: 275,
-    unitPriceEur: 845,
+    unitPriceEur: 480,
     dueDate: '2026-12-07',
     originalDueDate: '2026-12-04',
     status: 'at-risk',
@@ -173,7 +178,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 580,
-    unitPriceEur: 1150,
+    unitPriceEur: 1240,
     dueDate: '2026-12-09',
     originalDueDate: '2026-12-09',
     status: 'at-risk',
@@ -195,7 +200,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-A200',
     plantId: 'PLT-QRO',
     quantity: 300,
-    unitPriceEur: 845,
+    unitPriceEur: 480,
     dueDate: '2026-12-11',
     originalDueDate: '2026-12-11',
     status: 'at-risk',
@@ -207,7 +212,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 640,
-    unitPriceEur: 1150,
+    unitPriceEur: 1240,
     dueDate: '2026-12-16',
     originalDueDate: '2026-12-16',
     status: 'at-risk',
@@ -229,7 +234,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-A200',
     plantId: 'PLT-QRO',
     quantity: 160,
-    unitPriceEur: 845,
+    unitPriceEur: 480,
     dueDate: '2026-12-21',
     originalDueDate: '2026-12-21',
     status: 'open',
@@ -240,7 +245,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-A200',
     plantId: 'PLT-QRO',
     quantity: 420,
-    unitPriceEur: 845,
+    unitPriceEur: 480,
     dueDate: '2026-12-23',
     originalDueDate: '2026-12-23',
     status: 'open',
@@ -263,7 +268,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 240,
-    unitPriceEur: 1150,
+    unitPriceEur: 1240,
     dueDate: '2027-01-08',
     originalDueDate: '2027-01-08',
     status: 'open',
@@ -274,7 +279,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-A200',
     plantId: 'PLT-QRO',
     quantity: 180,
-    unitPriceEur: 845,
+    unitPriceEur: 480,
     dueDate: '2027-01-12',
     originalDueDate: '2027-01-12',
     status: 'open',

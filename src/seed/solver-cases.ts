@@ -26,12 +26,14 @@
  * orders at stake and the window the projection covers.
  *
  * DERIVATION — where the record's figures come from. `platform-seed-data.md`, which fixes each
- * named seed record, is not available in this run, so the inventory figures and the two orders'
- * quantities below are derived from the facts an input does fix and stated as record content: the
- * case is the delayed service-kit supply at PLT-BRN, whose kit line's nominal output the plant
- * records put at 300 units a working day; the opening position covers the first order only in
- * part and the second not at all, which is the shortfall the disruption consists of; and the
- * transfer bound is the 900 kits AAP 0.8 names. That is the one place this module departs from
+ * named seed record, is not available in this run, so the inventory figures below are derived from
+ * the facts an input does fix and stated as record content: the case is the delayed service-kit
+ * supply at PLT-BRN, and the record holds an opening stock position, a build rate for the
+ * projection and two orders whose due dates fall inside the window. The two orders' product,
+ * quantity and due date are not derived: they are the order book's own values, copied from
+ * `src/seed/customer-orders.ts` for the two order ids the case names, and `EXC-2026-1184`'s
+ * affected lines in `src/seed/exceptions.ts` carry the same figures. The transfer bound is the 900
+ * kits AAP 0.8 names. Deriving those inventory figures is the one place this module departs from
  * rule P-7, which admits only the figures of that seed document and no additions: the case the AAP
  * requires cannot be written from a document this run does not hold, so the record states the
  * values an input does fix and derives the rest, and a supplied seed document supersedes them
@@ -71,7 +73,9 @@ export const BASELINE_CASE_ID = 'CASE-1184';
  * screen's figures. `openingStock` is the sets on hand when the window opens and `finishedGoods` the
  * units already built, so the position the case starts from is both of them together; nothing
  * replaces the purchase order that does not arrive, which is what the levers below exist to answer.
- * Both orders are for one product of the Brno kit line, and their due dates fall on working days
+ * Both orders are the two `PRD-R75` orders `EXC-2026-1184`'s affected lines name, and they carry the
+ * order book's own product, quantity and promise date; `PRD-R75` is built on `LN-RGB-1` and
+ * `LN-BRN-1` (`src/seed/products.ts`, `src/seed/plants.ts`), and both due dates fall on working days
  * inside the window.
  *
  * The figures below are record content; the ones no input states are derived as the module header
@@ -91,15 +95,15 @@ export const SOLVER_CASES: readonly SolverCase[] = [
     orders: [
       {
         orderId: 'CO-770233',
-        productId: 'PRD-V40',
-        quantity: 1700,
-        dueDate: '2026-12-08',
+        productId: 'PRD-R75',
+        quantity: 580,
+        dueDate: '2026-12-09',
       },
       {
         orderId: 'CO-770251',
-        productId: 'PRD-V40',
+        productId: 'PRD-R75',
         quantity: 640,
-        dueDate: '2026-12-15',
+        dueDate: '2026-12-16',
       },
     ],
     windowStart: '2026-12-03',

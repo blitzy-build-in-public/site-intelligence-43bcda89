@@ -18,11 +18,17 @@
  * identifiers, the `SCN-nnnn-x` identifier pattern with each scenario sharing its exception's
  * number, one set per exception in which the recommendation resolves inside the set and a set-aside
  * option names the constraint that blocked it, and the arithmetic the comparison screen and the
- * recommendation rule rely on (AAP 0.8, AAP 0.10, AAP 0.12.2). Every measure is consistent with
- * the option's own orders, levers and stock series, no figure the plan quotes as a solver expected
- * result for `CASE-1184` appears anywhere in the file, and no option is described as computed. If
- * the seed document is supplied later, its records transcribe over this set and supersede it; no
- * consumer changes, because the mock adapter reads every set from here.
+ * recommendation rule rely on (AAP 0.8, AAP 0.10, AAP 0.12.2). Each option measures the exception's
+ * own affected line - the single order its `affectedLines` names - taking that order's product,
+ * plant and promise date from the order book in `src/seed/customer-orders.ts`, so the record set
+ * carries no order identifier the order book does not declare. A seeded option values the units it
+ * leaves late at one per-unit figure for the product it measures, so a late unit of `PRD-A200` is
+ * worth EUR 2,000 in every set that measures it and one order's lateness carries one value wherever
+ * it appears. Every other measure is consistent with the option's own orders, levers and stock
+ * series, no figure the plan quotes as a solver expected result for `CASE-1184` appears anywhere in
+ * the file, and no option is described as computed. If the seed document is supplied later, its
+ * records transcribe over this set and supersede it; no consumer changes, because the mock adapter
+ * reads every set from here.
  *
  * Rules served:
  * - P-6: every member is a seed record value disclosed as one through `origin: 'seeded'`. Nothing
@@ -83,8 +89,8 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           origin: 'seeded',
           unitsLate: 120,
           maxDaysLate: 3,
-          ordersOnTime: 2,
-          ordersTotal: 3,
+          ordersOnTime: 0,
+          ordersTotal: 1,
           addedCostEur: 41400,
           lineIdleDays: 0.75,
           revenueDelayedEur: 240000,
@@ -100,11 +106,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-11', units: 884 },
             { date: '2026-12-14', units: 672 },
           ],
-          orders: [
-            { orderId: 'CO-770312', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770318', unitsLate: 120, daysLate: 3 },
-            { orderId: 'CO-770324', unitsLate: 0, daysLate: 0 },
-          ],
+          orders: [{ orderId: 'CO-770227', unitsLate: 120, daysLate: 3 }],
           constraintCheck: 'pass',
           constraintMessages: [],
           sideEffects: [],
@@ -112,7 +114,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             {
               sequence: 1,
               system: 'erp',
-              recordRef: 'PO-45077123',
+              recordRef: 'PO-45011946',
               description: 'Advance the release date on the expedited purchase order.',
               state: 'pending',
             },
@@ -145,8 +147,8 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           origin: 'seeded',
           unitsLate: 90,
           maxDaysLate: 2,
-          ordersOnTime: 2,
-          ordersTotal: 3,
+          ordersOnTime: 0,
+          ordersTotal: 1,
           addedCostEur: 39100,
           lineIdleDays: 0.5,
           revenueDelayedEur: 180000,
@@ -162,11 +164,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-11', units: 902 },
             { date: '2026-12-14', units: 744 },
           ],
-          orders: [
-            { orderId: 'CO-770312', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770318', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770324', unitsLate: 90, daysLate: 2 },
-          ],
+          orders: [{ orderId: 'CO-770227', unitsLate: 90, daysLate: 2 }],
           constraintCheck: 'pass',
           constraintMessages: [],
           // The transferred share is taken out of the alternate site's own build, which is what the
@@ -184,7 +182,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             {
               sequence: 1,
               system: 'erp',
-              recordRef: 'PO-45077123',
+              recordRef: 'PO-45011946',
               description:
                 'Split the purchase order release between the expedited and the transferred quantity.',
               state: 'pending',
@@ -223,13 +221,13 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           exceptionId: 'EXC-2026-1185',
           name: 'Absorb the delay behind a later promise date',
           origin: 'seeded',
-          unitsLate: 735,
+          unitsLate: 275,
           maxDaysLate: 6,
           ordersOnTime: 0,
-          ordersTotal: 3,
+          ordersTotal: 1,
           addedCostEur: 0,
           lineIdleDays: 4.25,
-          revenueDelayedEur: 1470000,
+          revenueDelayedEur: 550000,
           // Nothing arrives inside the window, so the stock reaches zero on 7 December and stays
           // there: the run-out is the point every later date is measured from.
           runOut: { day: 3, fractionOfDay: 0.75 },
@@ -243,11 +241,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-11', units: 0 },
             { date: '2026-12-14', units: 0 },
           ],
-          orders: [
-            { orderId: 'CO-770312', unitsLate: 205, daysLate: 6 },
-            { orderId: 'CO-770318', unitsLate: 300, daysLate: 5 },
-            { orderId: 'CO-770324', unitsLate: 230, daysLate: 4 },
-          ],
+          orders: [{ orderId: 'CO-770227', unitsLate: 275, daysLate: 6 }],
           constraintCheck: 'pass',
           constraintMessages: [],
           sideEffects: [],
@@ -255,8 +249,8 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             {
               sequence: 1,
               system: 'erp',
-              recordRef: 'CO-770312',
-              description: 'Move the promise dates on the affected customer orders to the later release.',
+              recordRef: 'CO-770227',
+              description: 'Move the promise dates on the affected customer order to the later release.',
               state: 'pending',
             },
             {
@@ -282,13 +276,13 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           // A breaching option reports its constraint instead of a recovery: its measures stay on the
           // unmitigated path, and it sets off no write-back because no system is told to act on a
           // plan that cannot be carried out.
-          unitsLate: 735,
+          unitsLate: 275,
           maxDaysLate: 6,
           ordersOnTime: 0,
-          ordersTotal: 3,
+          ordersTotal: 1,
           addedCostEur: 0,
           lineIdleDays: 4.25,
-          revenueDelayedEur: 1470000,
+          revenueDelayedEur: 550000,
           runOut: { day: 3, fractionOfDay: 0.75 },
           dailyClosingStock: [
             { date: '2026-12-03', units: 424 },
@@ -300,11 +294,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-11', units: 0 },
             { date: '2026-12-14', units: 0 },
           ],
-          orders: [
-            { orderId: 'CO-770312', unitsLate: 205, daysLate: 6 },
-            { orderId: 'CO-770318', unitsLate: 300, daysLate: 5 },
-            { orderId: 'CO-770324', unitsLate: 230, daysLate: 4 },
-          ],
+          orders: [{ orderId: 'CO-770227', unitsLate: 275, daysLate: 6 }],
           constraintCheck: 'fail',
           constraintMessages: [
             'Transfer of 1,320 sets exceeds the 800-set limit on the transfer lever.',
@@ -345,11 +335,11 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           origin: 'seeded',
           unitsLate: 84,
           maxDaysLate: 2,
-          ordersOnTime: 2,
-          ordersTotal: 3,
+          ordersOnTime: 0,
+          ordersTotal: 1,
           addedCostEur: 18720,
           lineIdleDays: 1,
-          revenueDelayedEur: 96600,
+          revenueDelayedEur: 168000,
           // The sort releases on 10 December, the working day after the stock reaches zero.
           runOut: { day: 4, fractionOfDay: 0.25 },
           dailyClosingStock: [
@@ -362,11 +352,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-14', units: 302 },
             { date: '2026-12-15', units: 186 },
           ],
-          orders: [
-            { orderId: 'CO-770341', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770352', unitsLate: 84, daysLate: 2 },
-            { orderId: 'CO-770366', unitsLate: 0, daysLate: 0 },
-          ],
+          orders: [{ orderId: 'CO-770227', unitsLate: 84, daysLate: 2 }],
           constraintCheck: 'pass',
           constraintMessages: [],
           sideEffects: [],
@@ -381,15 +367,15 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             {
               sequence: 2,
               system: 'erp',
-              recordRef: 'PO-45077188',
+              recordRef: 'PO-45011946',
               description: 'Release the inspected quantity to the purchase order.',
               state: 'pending',
             },
             {
               sequence: 3,
               system: 'scheduling',
-              recordRef: 'PLT-RAK-W50-2026',
-              description: 'Rebuild the PLT-RAK schedule on the released quantity.',
+              recordRef: 'PLT-QRO-W50-2026',
+              description: 'Rebuild the PLT-QRO schedule on the released quantity.',
               state: 'pending',
             },
           ],
@@ -407,12 +393,12 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           origin: 'seeded',
           unitsLate: 0,
           maxDaysLate: 0,
-          ordersOnTime: 3,
-          ordersTotal: 3,
+          ordersOnTime: 1,
+          ordersTotal: 1,
           addedCostEur: 28080,
           lineIdleDays: 0,
           revenueDelayedEur: 0,
-          // Stock reaches zero at the window's last close, after every order in the set is due, so
+          // Stock reaches zero at the window's last close, after the order it measures is due, so
           // no order arrives late while the projection still reports a run-out day.
           runOut: { day: 8, fractionOfDay: 0.5 },
           dailyClosingStock: [
@@ -425,11 +411,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-14', units: 402 },
             { date: '2026-12-15', units: 0 },
           ],
-          orders: [
-            { orderId: 'CO-770341', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770352', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770366', unitsLate: 0, daysLate: 0 },
-          ],
+          orders: [{ orderId: 'CO-770227', unitsLate: 0, daysLate: 0 }],
           constraintCheck: 'pass',
           constraintMessages: [],
           sideEffects: [
@@ -451,15 +433,15 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             {
               sequence: 2,
               system: 'erp',
-              recordRef: 'PO-45077188',
+              recordRef: 'PO-45011946',
               description: 'Release every held unit to the purchase order.',
               state: 'pending',
             },
             {
               sequence: 3,
               system: 'scheduling',
-              recordRef: 'PLT-RAK-W50-2026',
-              description: 'Rebuild the PLT-RAK schedule on the full release.',
+              recordRef: 'PLT-QRO-W50-2026',
+              description: 'Rebuild the PLT-QRO schedule on the full release.',
               state: 'pending',
             },
           ],
@@ -475,13 +457,13 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           exceptionId: 'EXC-2026-1187',
           name: 'Replace the whole held quantity from the alternate site',
           origin: 'seeded',
-          unitsLate: 520,
+          unitsLate: 275,
           maxDaysLate: 6,
           ordersOnTime: 0,
-          ordersTotal: 3,
+          ordersTotal: 1,
           addedCostEur: 0,
           lineIdleDays: 5.5,
-          revenueDelayedEur: 598000,
+          revenueDelayedEur: 550000,
           runOut: { day: 3, fractionOfDay: 0.75 },
           dailyClosingStock: [
             { date: '2026-12-04', units: 318 },
@@ -493,11 +475,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-14', units: 0 },
             { date: '2026-12-15', units: 0 },
           ],
-          orders: [
-            { orderId: 'CO-770341', unitsLate: 210, daysLate: 6 },
-            { orderId: 'CO-770352', unitsLate: 186, daysLate: 5 },
-            { orderId: 'CO-770366', unitsLate: 124, daysLate: 4 },
-          ],
+          orders: [{ orderId: 'CO-770227', unitsLate: 275, daysLate: 6 }],
           constraintCheck: 'fail',
           constraintMessages: [
             'Transfer of 960 sets exceeds the 800-set limit on the transfer lever.',
@@ -538,11 +516,11 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           origin: 'seeded',
           unitsLate: 96,
           maxDaysLate: 2,
-          ordersOnTime: 2,
-          ordersTotal: 3,
+          ordersOnTime: 0,
+          ordersTotal: 1,
           addedCostEur: 12480,
           lineIdleDays: 1,
-          revenueDelayedEur: 134400,
+          revenueDelayedEur: 192000,
           // The rerouted consignment lands on 14 December, the next working day after the stock reaches zero.
           runOut: { day: 5, fractionOfDay: 0.5 },
           dailyClosingStock: [
@@ -555,11 +533,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-15', units: 924 },
             { date: '2026-12-16', units: 783 },
           ],
-          orders: [
-            { orderId: 'CO-770389', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770394', unitsLate: 96, daysLate: 2 },
-            { orderId: 'CO-770401', unitsLate: 0, daysLate: 0 },
-          ],
+          orders: [{ orderId: 'CO-770244', unitsLate: 96, daysLate: 2 }],
           constraintCheck: 'pass',
           constraintMessages: [],
           sideEffects: [],
@@ -574,15 +548,15 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             {
               sequence: 2,
               system: 'erp',
-              recordRef: 'PO-45077201',
+              recordRef: 'PO-45011963',
               description: 'Move the purchase order release onto the rerouted lane.',
               state: 'pending',
             },
             {
               sequence: 3,
               system: 'scheduling',
-              recordRef: 'PLT-BRN-W50-2026',
-              description: 'Rebuild the PLT-BRN schedule around the rerouted arrival.',
+              recordRef: 'PLT-RGB-W50-2026',
+              description: 'Rebuild the PLT-RGB schedule around the rerouted arrival.',
               state: 'pending',
             },
           ],
@@ -600,12 +574,12 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           origin: 'seeded',
           unitsLate: 0,
           maxDaysLate: 0,
-          ordersOnTime: 3,
-          ordersTotal: 3,
+          ordersOnTime: 1,
+          ordersTotal: 1,
           addedCostEur: 38880,
           lineIdleDays: 0,
           revenueDelayedEur: 0,
-          // Stock reaches zero at the window's last close, after every order in the set is due, so
+          // Stock reaches zero at the window's last close, after the order it measures is due, so
           // no order arrives late while the projection still reports a run-out day.
           runOut: { day: 8, fractionOfDay: 0.5 },
           dailyClosingStock: [
@@ -618,11 +592,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-15', units: 314 },
             { date: '2026-12-16', units: 0 },
           ],
-          orders: [
-            { orderId: 'CO-770389', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770394', unitsLate: 0, daysLate: 0 },
-            { orderId: 'CO-770401', unitsLate: 0, daysLate: 0 },
-          ],
+          orders: [{ orderId: 'CO-770244', unitsLate: 0, daysLate: 0 }],
           constraintCheck: 'pass',
           constraintMessages: [],
           sideEffects: [
@@ -644,15 +614,15 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             {
               sequence: 2,
               system: 'erp',
-              recordRef: 'PO-45077201',
+              recordRef: 'PO-45011963',
               description: 'Move the purchase order release onto the rerouted lane and the uplift.',
               state: 'pending',
             },
             {
               sequence: 3,
               system: 'scheduling',
-              recordRef: 'PLT-BRN-W50-2026',
-              description: 'Rebuild the PLT-BRN schedule around both arrivals.',
+              recordRef: 'PLT-RGB-W50-2026',
+              description: 'Rebuild the PLT-RGB schedule around both arrivals.',
               state: 'pending',
             },
           ],
@@ -668,13 +638,13 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
           exceptionId: 'EXC-2026-1195',
           name: 'Air-freight the entire shortage',
           origin: 'seeded',
-          unitsLate: 708,
+          unitsLate: 300,
           maxDaysLate: 7,
           ordersOnTime: 0,
-          ordersTotal: 3,
+          ordersTotal: 1,
           addedCostEur: 0,
           lineIdleDays: 6.75,
-          revenueDelayedEur: 991200,
+          revenueDelayedEur: 600000,
           runOut: { day: 2, fractionOfDay: 0.75 },
           dailyClosingStock: [
             { date: '2026-12-07', units: 372 },
@@ -686,11 +656,7 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
             { date: '2026-12-15', units: 0 },
             { date: '2026-12-16', units: 0 },
           ],
-          orders: [
-            { orderId: 'CO-770389', unitsLate: 288, daysLate: 7 },
-            { orderId: 'CO-770394', unitsLate: 252, daysLate: 6 },
-            { orderId: 'CO-770401', unitsLate: 168, daysLate: 5 },
-          ],
+          orders: [{ orderId: 'CO-770244', unitsLate: 300, daysLate: 7 }],
           constraintCheck: 'fail',
           constraintMessages: [
             'Air freight of 1,480 sets exceeds the 1,200-set limit on the air lever.',

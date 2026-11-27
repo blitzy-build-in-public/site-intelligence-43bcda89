@@ -5,10 +5,13 @@
  *
  * `platform-contracts.md` §3 fixes the shape and AAP 0.12.2 fixes the record: an approval names one
  * exception and one option measured for it, the requester is never eligible to decide it, and the
- * decision fields are present exactly when a decision has been taken. The four records below cover
- * the four `ApprovalStatus` members, so the inbox, its status filter and the detail screen each have
- * a record of their own to show, and the pending supply-delay plan is the one the planner journey of
- * AAP 0.2.2 approves.
+ * decision fields are present exactly when a decision has been taken. Three approved plans and one
+ * pending plan appear in the seed — `approved` three times and `pending` once — so the inbox, its
+ * status filter and the detail screen each have a record to show. A rejection and a request for
+ * changes are taken live through SCR-05 and are not seeded, so every seeded decision is an approval
+ * recorded at the instant its exception's own history records and by the actor that history names,
+ * and `pending` belongs to the plan awaiting a decision alone. That pending supply-delay plan is the
+ * one the planner journey of AAP 0.2.2 approves.
  *
  * Only `src/services/mock/seed-loader.ts` may import this module (rule P-2). Screens and components
  * reach these records through the service port, and the loader deep-clones them into the mock
@@ -46,7 +49,7 @@
  * Rules this module is built to satisfy: P-1 (every write-back is simulated, and the label its
  * rendering carries is read from `SIM_LABELS` instead of being retyped on each step), P-2 (it
  * imports `src/types` and nothing else), P-4 (nothing here claims the flow establishes sovereignty,
- * resists tampering or prevents copying; the write-backs are recorded as steps, not as guarantees),
+ * withstands an edit or stops a copy; the write-backs are recorded as steps, not as assurances),
  * P-6 (no computed measure is stated as this module's own result), P-7 (only synthetic personas,
  * generic system categories and figures), B-1 (no external URL) and B-2 (no credential field and no
  * environment read).
@@ -70,11 +73,11 @@ export const WRITE_BACK_SIM_LABEL: SimLabel = SIM_LABELS[3];
  * The seeded approvals, ordered by identifier.
  *
  * Each record's `writeBacks` are the steps its plan would write, in the order the plan states them,
- * and each step's state says what has happened to it: `succeeded` for the plan that ran, `pending`
- * for a plan no part of which has been written — which is the state of every step of a plan that is
- * awaiting a decision, was rejected, or was sent back for changes. A failure would be recorded on
- * the step itself, beside the fixed write-back label, because a simulated write-back is
- * all-or-nothing and a failed step is never silently dropped (AAP 0.2.2).
+ * and each step's state says what has happened to it: `succeeded` for a plan that was approved and
+ * whose steps have run, `pending` for a plan no part of which has been written — the state of the
+ * plan still awaiting a decision, which is the only seeded plan no approval has been taken on. A
+ * failure would be recorded on the step itself, beside the fixed write-back label, because a
+ * simulated write-back is all-or-nothing and a failed step is never silently dropped (AAP 0.2.2).
  */
 export const APPROVALS: readonly Approval[] = [
   // Approved, awaiting its outcome review: the state the SCR-05 outcome card writes its planned and
@@ -86,15 +89,15 @@ export const APPROVALS: readonly Approval[] = [
     requestedBy: 'USR-01',
     eligibleApproverRoles: ['plant-manager'],
     status: 'approved',
-    addedCostEur: 8400,
-    protectedRevenueEur: 312000,
+    addedCostEur: 41400,
+    protectedRevenueEur: 240000,
     decision: {
       action: 'approve',
       comment:
-        'Approved: the plan spends far less than the revenue it protects, and the side effect on the deferred kits is acknowledged.',
+        'Approved: the uplift restarts the line the working day after it stops, which holds the lateness to three days and delays a fraction of the revenue the waiting option would.',
     },
     decidedBy: 'USR-02',
-    decidedAt: '2026-11-24T14:05:00+01:00',
+    decidedAt: '2026-12-01T15:40:00+01:00',
     writeBacks: [
       {
         sequence: 1,
@@ -128,124 +131,125 @@ export const APPROVALS: readonly Approval[] = [
         sequence: 5,
         system: 'plm-qms',
         recordRef: 'QMS.DEV.1185.01',
-        description: 'Record the plan and the side effect it accepts against the open deviation.',
+        description: 'Record the approved plan against the open deviation record.',
         state: 'succeeded',
       },
     ],
     outcomeReviewed: false,
   },
 
-  // Rejected: the plan was set aside on the arithmetic of line idle days rather than on its cost, so
-  // the detail screen shows a decline with a reason the requester can act on.
+  // Approved, and the second approved plan awaiting its outcome review: this plan's rejection was
+  // never taken, so the record carries the approval the exception's history already records for it.
   {
     id: 'APR-2026-102',
     exceptionId: 'EXC-2026-1187',
     scenarioId: 'SCN-1187-A',
     requestedBy: 'USR-05',
     eligibleApproverRoles: ['plant-manager'],
-    status: 'rejected',
-    addedCostEur: 14750,
-    protectedRevenueEur: 640000,
+    status: 'approved',
+    addedCostEur: 18720,
+    protectedRevenueEur: 168000,
     decision: {
-      action: 'reject',
+      action: 'approve',
       comment:
-        'Rejected: the transfer idles the line for longer than the delay it removes, and the alternate source is not confirmed. Bring a smaller transfer quantity.',
+        'Approved: the on-site sort releases the inspected quantity the working day after the stock runs out, which holds the lateness to two days and delays far less revenue than the hold would.',
     },
     decidedBy: 'USR-02',
-    decidedAt: '2026-11-26T10:20:00+01:00',
+    decidedAt: '2026-12-02T11:20:00+01:00',
     writeBacks: [
       {
         sequence: 1,
         system: 'erp',
         recordRef: 'ERP.REL.1187.01',
         description: 'Release the amended purchase order line for the affected material.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 2,
         system: 'scheduling',
         recordRef: 'SCH.SLOT.1187.01',
         description: 'Re-sequence the line run around the alternate source.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 3,
         system: 'transport',
         recordRef: 'TRN.SHP.1187.01',
         description: 'Book the transport leg for the alternate quantity.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 4,
         system: 'mes',
         recordRef: 'MES.WO.1187.01',
         description: 'Release the revised production order to the shop floor.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 5,
         system: 'plm-qms',
         recordRef: 'QMS.DEV.1187.01',
-        description: 'Record the plan and the side effect it accepts against the open deviation.',
-        state: 'pending',
+        description: 'Record the approved plan against the open deviation record.',
+        state: 'succeeded',
       },
     ],
     outcomeReviewed: false,
   },
 
-  // Sent back for changes: the third decided state, so the inbox filter and the detail screen have
-  // every member of `ApprovalStatus` represented before the session records anything new.
+  // The third approved plan: recorded at the instant the exception's own history records for it, and
+  // by the actor that history names. `EXC-2026-1195-02` approved the alternate routing at 18:30 on
+  // 2 December, so the record below carries that approval rather than a request for changes.
   {
     id: 'APR-2026-103',
     exceptionId: 'EXC-2026-1195',
     scenarioId: 'SCN-1195-A',
     requestedBy: 'USR-01',
     eligibleApproverRoles: ['head-of-supply-chain'],
-    status: 'changes-requested',
-    addedCostEur: 9600,
-    protectedRevenueEur: 486000,
+    status: 'approved',
+    addedCostEur: 12480,
+    protectedRevenueEur: 192000,
     decision: {
-      action: 'request-changes',
+      action: 'approve',
       comment:
-        'Changes requested: name the side effect on the receiving plant, and show what the plan would spend if the supplier confirms a shorter delay.',
+        'Approved: the reroute restores the inbound lane the next working day after it stops, which holds the lateness to two days and delays far less revenue than waiting out the delay would.',
     },
     decidedBy: 'USR-03',
-    decidedAt: '2026-12-01T16:40:00+01:00',
+    decidedAt: '2026-12-02T18:30:00+01:00',
     writeBacks: [
       {
         sequence: 1,
         system: 'erp',
         recordRef: 'ERP.REL.1195.01',
         description: 'Release the amended purchase order line for the held material.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 2,
         system: 'scheduling',
         recordRef: 'SCH.SLOT.1195.01',
         description: 'Re-sequence the line run to consume the released stock first.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 3,
         system: 'transport',
         recordRef: 'TRN.SHP.1195.01',
         description: 'Book the transport leg for the replacement quantity.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 4,
         system: 'mes',
         recordRef: 'MES.WO.1195.01',
         description: 'Release the revised production order to the shop floor.',
-        state: 'pending',
+        state: 'succeeded',
       },
       {
         sequence: 5,
         system: 'plm-qms',
         recordRef: 'QMS.DEV.1195.01',
-        description: 'Record the plan and the side effect it accepts against the open deviation.',
-        state: 'pending',
+        description: 'Record the approved plan against the open deviation record.',
+        state: 'succeeded',
       },
     ],
     outcomeReviewed: false,

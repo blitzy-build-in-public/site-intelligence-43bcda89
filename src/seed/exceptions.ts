@@ -62,8 +62,8 @@
  *   states - the housings on hold - is the record's own content rather than a computation.
  * - P-1: nothing here presents a synthetic exception as a production result, and no simulation
  *   label is paraphrased into this text; the interface carries the labels of specification §5.3.
- * - P-4: no text here claims a deployment property, asserts that copying is prevented, or claims
- *   that the audit records are protected from alteration.
+ * - P-4: no text here claims a deployment property, asserts any control over copying, or claims
+ *   that the audit records are safe from alteration.
  * - P-7: every supplier, site and part here is a synthetic record; no real vendor, customer,
  *   carmaker or cloud product is named, and no text is filler prose.
  * - P-2: the only import is `src/types`, so this module cannot become a second data boundary.
