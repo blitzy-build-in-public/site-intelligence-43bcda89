@@ -221,7 +221,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     unitPriceEur: 120,
     dueDate: '2026-12-18',
     originalDueDate: '2026-12-18',
-    status: 'open',
+    status: 'at-risk',
   },
   {
     id: 'CO-770263',

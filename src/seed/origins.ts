@@ -12,23 +12,31 @@
  *   module is therefore what the graph lens's upstream path and the map lens's origin marks are
  *   drawn from, and an unreachable supplier would be a network node with no upstream edge.
  *
+ * This module owns the origin identifiers: every `ORG-…` key in the seed is one of the seven records
+ * below, and the material records of `src/seed/materials.ts` name one of them in their `originId`.
  * The supplier keys `supplierIds` names are the seven tier-1 suppliers declared in
- * `src/seed/suppliers.ts`, and every one of them is reachable from at least one origin below:
+ * `src/seed/suppliers.ts`, each derived as the primary supplier of every material that names the
+ * site, and every one of those suppliers is reachable from at least one origin below:
  *
- * | Supplier key | Supplier's role                           | Country  | Fed by                        |
- * | ------------ | ----------------------------------------- | -------- | ----------------------------- |
- * | `SUP-ORVA`   | die-cast and machined aluminium housings  | Poland   | `ORG-ALU`                     |
- * | `SUP-TALV`   | aluminium sheet and structural bracketry  | Czechia  | `ORG-ALU`                     |
- * | `SUP-VELT`   | copper windings and electrical laminations| Italy    | `ORG-CU`, `ORG-FE`            |
- * | `SUP-SOND`   | permanent magnets and magnetic assemblies | Vietnam  | `ORG-RE`, `ORG-CO`            |
- * | `SUP-KRIM`   | circuit-board assemblies and sensors      | Malaysia | `ORG-CU`, `ORG-RE`, `ORG-SEMI`|
- * | `SUP-HALV`   | steel stampings and turned fasteners      | Spain    | `ORG-FE`                      |
- * | `SUP-MIRK`   | engineered polymer mouldings and seals    | Morocco  | `ORG-POL`                     |
+ * | Supplier key                | Supplier's role                            | Country              | Fed by                                   |
+ * | --------------------------- | ------------------------------------------ | -------------------- | ---------------------------------------- |
+ * | `SUP-HANSA-METALL`          | steel and stainless long products          | Norway               | `ORG-FE`                                 |
+ * | `SUP-BAJIO-METALES`         | aluminium sheet and copper busbar          | Mexico               | `ORG-ALU`, `ORG-CU`                      |
+ * | `SUP-VLTAVA-GUSS`           | iron and aluminium castings                | Czechia              | `ORG-ALU`, `ORG-FE`                      |
+ * | `SUP-RHEINSTERN-ELEKTRONIK` | control electronics, sensors and drives    | Germany              | `ORG-CU`, `ORG-RE`, `ORG-CO`, `ORG-SEMI` |
+ * | `SUP-NORDWERK-ANTRIEB`      | bearings, shafts and gear blanks           | Austria              | `ORG-FE`                                 |
+ * | `SUP-DONAU-DICHTUNG`        | seals, gaskets and hose assemblies         | Austria              | `ORG-POL`                                |
+ * | `SUP-MERIDIAN-INDUSTRIAL`   | fasteners, springs, finish and consumables | United Arab Emirates | `ORG-FE`, `ORG-POL`                      |
  *
- * Four origins feed more than one supplier and three suppliers draw on more than one origin, so a
- * network position can be shared: that density is what lets the four chokepoints of the
- * market-intelligence pack (`CHK-01` to `CHK-04`, `src/seed/market-intelligence.ts`) be described
- * against this graph instead of restating it. The chokepoint records themselves are not here.
+ * `ORG-CO` is the one site that no material's substance reaches. The cobalt it refines enters the
+ * network through the permanent magnets of the brushless motor, which `SUP-RHEINSTERN-ELEKTRONIK`
+ * builds, so this site names that supplier even though no material's `originId` points here.
+ *
+ * Four origins feed more than one supplier and four suppliers draw on more than one origin, so a
+ * network position can be shared: that density is what lets the two crossings the client network
+ * actually shares (`CHK-01` and `CHK-02` of `src/seed/market-intelligence.ts`) be described against
+ * this graph instead of restated. The pack's other two crossings reach no position here and stand in
+ * the pack alone, and the chokepoint records themselves are not here.
  *
  * Rules this module is built to satisfy:
  * - P-2: only `src/services/mock/seed-loader.ts` imports this folder, and this module imports the
@@ -72,7 +80,9 @@ export interface Origin {
   /**
    * The tier-1 suppliers this origin feeds, by their keys in `src/seed/suppliers.ts`. One entry per
    * origin-to-supplier lane the topology payload emits; never empty, because an origin that feeds
-   * nothing would be an unreachable node in the graph lens.
+   * nothing would be an unreachable node in the graph lens. The set holds the `primarySupplierId` of
+   * every material whose `originId` is this origin, so a lane exists for each material bought through
+   * a supplier that draws on this site.
    */
   supplierIds: readonly SupplierId[];
 }
@@ -87,7 +97,7 @@ export const ORIGINS: readonly Origin[] = [
     country: 'Norway',
     latitude: 62.34,
     longitude: 6.36,
-    supplierIds: ['SUP-ORVA', 'SUP-TALV'],
+    supplierIds: ['SUP-BAJIO-METALES', 'SUP-VLTAVA-GUSS'],
   },
   {
     id: 'ORG-CU',
@@ -95,7 +105,7 @@ export const ORIGINS: readonly Origin[] = [
     country: 'Chile',
     latitude: -23.48,
     longitude: -69.9,
-    supplierIds: ['SUP-VELT', 'SUP-KRIM'],
+    supplierIds: ['SUP-BAJIO-METALES', 'SUP-RHEINSTERN-ELEKTRONIK'],
   },
   {
     id: 'ORG-RE',
@@ -103,15 +113,17 @@ export const ORIGINS: readonly Origin[] = [
     country: 'China',
     latitude: 40.62,
     longitude: 109.98,
-    supplierIds: ['SUP-SOND', 'SUP-KRIM'],
+    supplierIds: ['SUP-RHEINSTERN-ELEKTRONIK'],
   },
   {
+    // Cobalt reaches the network through the permanent-magnet motor this supplier builds, so the
+    // refined-cobalt site feeds the control-electronics supplier even though no material names it.
     id: 'ORG-CO',
     name: 'Lualaba Cobalt Refinery',
     country: 'Democratic Republic of the Congo',
     latitude: -10.78,
     longitude: 25.6,
-    supplierIds: ['SUP-SOND'],
+    supplierIds: ['SUP-RHEINSTERN-ELEKTRONIK'],
   },
   {
     id: 'ORG-FE',
@@ -119,7 +131,12 @@ export const ORIGINS: readonly Origin[] = [
     country: 'Spain',
     latitude: 43.26,
     longitude: -2.95,
-    supplierIds: ['SUP-HALV', 'SUP-VELT'],
+    supplierIds: [
+      'SUP-HANSA-METALL',
+      'SUP-VLTAVA-GUSS',
+      'SUP-NORDWERK-ANTRIEB',
+      'SUP-MERIDIAN-INDUSTRIAL',
+    ],
   },
   {
     id: 'ORG-POL',
@@ -127,7 +144,7 @@ export const ORIGINS: readonly Origin[] = [
     country: 'Germany',
     latitude: 52.28,
     longitude: 8.92,
-    supplierIds: ['SUP-MIRK'],
+    supplierIds: ['SUP-DONAU-DICHTUNG', 'SUP-MERIDIAN-INDUSTRIAL'],
   },
   {
     id: 'ORG-SEMI',
@@ -135,6 +152,6 @@ export const ORIGINS: readonly Origin[] = [
     country: 'Malaysia',
     latitude: 4.6,
     longitude: 101.09,
-    supplierIds: ['SUP-KRIM'],
+    supplierIds: ['SUP-RHEINSTERN-ELEKTRONIK'],
   },
 ];
