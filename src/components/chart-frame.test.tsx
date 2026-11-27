@@ -10,9 +10,10 @@
  * that exists only when the caller can honour it, the sentence that explains a table view with no
  * rows, and the toggle that stays enabled and single.
  *
- * The cells hold made-up labels because the frame computes nothing (rule P-6): what the table shows
- * is entirely the caller's `tableRows`. Renders under the jsdom environment `vite.config.ts`
- * configures; nothing here hashes or reads the clock.
+ * The cells hold plain words because the frame computes nothing (rule P-6): what the table shows is
+ * entirely the caller's `tableRows`, so the values below are the caller's own labels rather than a
+ * currency amount or a domain identifier borrowed from a seed record. Renders under the jsdom
+ * environment `vite.config.ts` configures; nothing here hashes or reads the clock.
  */
 
 import { render, screen, within } from '@testing-library/react';
@@ -27,33 +28,60 @@ import type { ChartFrameProps, ChartTableSpec } from './chart-frame';
 import type { TableColumn, TableSort } from './data-table';
 import { VIEW_AS_TABLE_LABELS } from './view-as-table-toggle';
 
+/*
+ * The two sibling imports above are the frame's own vocabulary, not new dependencies of this suite:
+ * `ChartTableSpec` speaks `TableColumn` and `TableSort`, and the toggle owns the two label strings
+ * success criterion 9 quotes, so retyping them here would give that wording a second owner.
+ */
+
 /** The two labels the control renders, read from their single owner so this suite never retypes them. */
 const { showChart, showTable } = VIEW_AS_TABLE_LABELS;
 
 /** The row shape a caller of this suite would draw on its surface. Readonly, as a response is. */
 interface Row {
   readonly key: string;
-  readonly order: string;
-  readonly unitsLate: string;
+  readonly lane: string;
+  readonly region: string;
+  readonly window: string;
 }
 
-const TITLE = 'Units late by order';
-const DESCRIPTION = 'Every order the selected plan leaves short.';
-const CAPTION = 'Units late by order, as a table';
+const TITLE = 'Delivery windows by lane';
+const DESCRIPTION = 'Every lane the selected plan schedules.';
+const CAPTION = 'Delivery windows by lane, as a table';
 
 /** The attribute that identifies the surface a case is checking for, without naming its internals. */
 const CHART_SURFACE = 'chart-surface';
 
+/**
+ * Three rows across three columns, each value a plain word: the frame passes the caller's cells
+ * through unchanged, so this suite states its own labels rather than a figure or an identifier that
+ * belongs to a seed record. Three columns rather than two is what makes a cell assertion prove the
+ * column order as well as the values — a positional slip shows up in the second and third cells.
+ */
 const ROWS = [
-  { key: 'CO-770233', order: 'CO-770233', unitsLate: '580' },
-  { key: 'CO-770251', order: 'CO-770251', unitsLate: '640' },
-  { key: 'CO-770310', order: 'CO-770310', unitsLate: '0' },
+  { key: 'alpha', lane: 'Alpha lane', region: 'inland', window: 'morning' },
+  { key: 'beta', lane: 'Beta lane', region: 'coastal', window: 'midday' },
+  { key: 'gamma', lane: 'Gamma lane', region: 'upland', window: 'evening' },
 ] as const satisfies readonly Row[];
 
 const COLUMNS = [
-  { id: 'order', header: 'Order', render: (row: Row) => row.order },
-  { id: 'unitsLate', header: 'Units late', align: 'end', render: (row: Row) => row.unitsLate },
+  { id: 'lane', header: 'Lane', render: (row: Row) => row.lane },
+  { id: 'region', header: 'Region', render: (row: Row) => row.region },
+  { id: 'window', header: 'Window', align: 'end', render: (row: Row) => row.window },
 ] as const satisfies readonly TableColumn<Row>[];
+
+/**
+ * What the table view must show, stated here as its own literals rather than derived from `ROWS`.
+ *
+ * Deriving it would make the cell assertion tautological — the expectation and the spec would move
+ * together, and a table drawing other data than the caller handed it would still pass. Held apart,
+ * a one-character change to a spec value, or a column mapped to the wrong field, fails the case.
+ */
+const EXPECTED_CELLS = [
+  ['Alpha lane', 'inland', 'morning'],
+  ['Beta lane', 'coastal', 'midday'],
+  ['Gamma lane', 'upland', 'evening'],
+] as const satisfies readonly (readonly string[])[];
 
 /** The same columns, declaring that a caller could order them — which only becomes true with `onSort`. */
 const SORTABLE_COLUMNS: readonly TableColumn<Row>[] = COLUMNS.map((column) => ({
@@ -111,9 +139,9 @@ function bodyRows(): readonly HTMLTableRowElement[] {
   );
 }
 
-/** The cell text of every body row, which is how the table view is compared with the caller's rows. */
-function cellTexts(): readonly (readonly (string | null)[])[] {
-  return bodyRows().map((row) => Array.from(row.cells, (cell) => cell.textContent));
+/** The cell text of one body row: the unit a cell assertion compares, in column order. */
+function cellTexts(row: HTMLTableRowElement): readonly (string | null)[] {
+  return Array.from(row.cells, (cell) => cell.textContent);
 }
 
 interface FrameOptions {
@@ -188,8 +216,22 @@ describe('ChartFrame', () => {
     const table = screen.getByRole('table');
     expect(table.querySelector('caption')).toHaveTextContent(CAPTION);
     expect(within(table).getAllByRole('columnheader')).toHaveLength(COLUMNS.length);
-    expect(bodyRows()).toHaveLength(ROWS.length);
-    expect(cellTexts()).toEqual(ROWS.map((row) => [row.order, row.unitsLate]));
+
+    const rendered = bodyRows();
+    expect(rendered).toHaveLength(ROWS.length);
+    expect(rendered).toHaveLength(EXPECTED_CELLS.length);
+    for (const [index, expectedCells] of EXPECTED_CELLS.entries()) {
+      const renderedRow = rendered[index];
+      if (renderedRow === undefined) {
+        throw new Error(`the table view rendered no body row at index ${index}`);
+      }
+      // Cell by cell against an expectation held apart from the spec: a table showing other data
+      // than the caller handed it fails here, where a row count alone would pass.
+      expect(cellTexts(renderedRow)).toEqual(expectedCells);
+    }
+
+    // One control and no second: the frame mounts a single toggle whichever view is up (rule P-8).
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
   it('restores the surface when the control is activated again', async () => {
@@ -264,7 +306,7 @@ describe('ChartFrame', () => {
     render(
       frameElement({
         columns: SORTABLE_COLUMNS,
-        sort: { columnId: 'order', direction: 'asc' },
+        sort: { columnId: 'lane', direction: 'asc' },
         onSort,
       }),
     );
@@ -272,13 +314,13 @@ describe('ChartFrame', () => {
     await user.click(toggleButton());
 
     const table = screen.getByRole('table');
-    const [orderHeader] = within(table).getAllByRole('columnheader');
-    expect(orderHeader).toHaveAttribute('aria-sort', 'ascending');
+    const [laneHeader] = within(table).getAllByRole('columnheader');
+    expect(laneHeader).toHaveAttribute('aria-sort', 'ascending');
 
-    await user.click(within(table).getByRole('button', { name: 'Order' }));
+    await user.click(within(table).getByRole('button', { name: 'Lane' }));
 
     expect(onSort).toHaveBeenCalledTimes(1);
-    expect(onSort).toHaveBeenCalledWith('order');
+    expect(onSort).toHaveBeenCalledWith('lane');
   });
 
   it('explains a table view with no rows instead of leaving it blank', async () => {
