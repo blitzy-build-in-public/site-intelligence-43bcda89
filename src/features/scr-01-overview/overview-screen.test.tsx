@@ -1,0 +1,1070 @@
+/**
+ * Component suite for `overview-screen.tsx`, the SCR-01 overview a planner lands on.
+ *
+ * WHAT IT PROVES. Each case states a contract the screen is relied on for rather than a description
+ * of its markup: that `getOverview` is read once through the port with the shell's scope and nothing
+ * else is written; that each of the four tiles carries the exact specification §5.3 label for a
+ * computed figure on the tile itself, asserted inside that tile so the shell's page-level badge could
+ * not satisfy it (rule P-1); that a tile's figure opens the evidence behind it; that a revenue bar
+ * reports the plant it draws to the shell once, from the keyboard (rule P-8); that the opened and
+ * resolved series draws one mark per delivered day; that both charts swap to a table whose cells are
+ * the values the chart drew, in both directions and from the keyboard (success criterion 9, rule
+ * B-3); that the changed-since list and the risk-by-plant table render every record they were
+ * handed, with the amounts set through the one money formatter in the mono face (AAP §0.5.3); that
+ * each of the seven states specification §8 fixes renders for the outcome the screen maps it to;
+ * that both themes render the same figures; and that the primary action is reached with `Tab`,
+ * shows its focus ring and opens the exception queue on `Enter` (`T-16`).
+ *
+ * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a
+ * screen may read through (rule P-2), so no seed module, adapter or domain module is involved and
+ * the suite observes exactly the calls the screen makes. Everything else — `MetricTile`, `Card`,
+ * `ChartFrame`, `DataTable`, `StateBoundary`, `EvidenceRef`, `MonoValue`, `ActionButton` and the two
+ * SVG surfaces — is the real component, because what a reader receives is the thing under test.
+ *
+ * THE FIXTURE IS INPUT, NOT AN EXPECTED RESULT (rule P-6). Every value below is data handed to the
+ * mocked read, so the screen is free to place it and a case can only pass by finding what the screen
+ * actually rendered. Nothing is imported from `tests/fixtures/` or `src/seed`, and the file is
+ * written to stay clear of the figures scan that covers `src/features/**`: identifiers are opaque
+ * placeholders (`plant-alpha`, `record-beta`) rather than domain-identifier shapes, the series'
+ * dates are derived from the imported demonstration clock instead of written out, and every amount
+ * is asserted through the imported `formatMoney` rather than as a typed currency string. The
+ * wording is a different matter: `SCREEN_TEXT` is module-private in the screen, so the captions this
+ * suite drives by name are restated once in {@link UI} below — the device `audit-screen.test.tsx`
+ * uses for the same reason — while every string an input or a sibling component owns (the §5.3
+ * labels, the boundary's sentences, the toggle's two labels, the drawer's heading, the source names)
+ * is imported and never retyped.
+ *
+ * GAPS THIS SUITE REPORTS RATHER THAN WORKS AROUND.
+ * 1. `overview-screen.tsx` does not export `SCREEN_TEXT`, although its own module note says its
+ *    suite names the wording through it. A test cannot reach a private const, so {@link UI} states
+ *    the screen's visible wording once; a reworded caption reaches exactly one place here.
+ * 2. `LineChart` exposes no activation callback, so the opened/resolved series cannot narrow the
+ *    queue by date — the screen's own gap 2. `OverviewNarrowing` still declares the `date` member for
+ *    the shell and the sibling screens, so the case below asserts the documented alternative: one
+ *    mark per delivered day, marks operable from the keyboard, and no narrowing of any kind emitted.
+ * 3. `Overview` carries no evidence reference for its tiles, rows or points, so the screen composes
+ *    `overview:<key>` references of its own. A case therefore asserts that a reference reaches the
+ *    drawer, not that a record answers one: resolving an aggregate reference is the adapter's work
+ *    and the mock here answers every reference with the same evidence.
+ *
+ * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
+ * system clock, touches the network or reaches outside the service boundary.
+ */
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
+import { MONO_VALUE_CLASSES, formatMoney } from '../../components/mono-value';
+import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
+import { CONTROL_STRUCTURE_CLASSES } from '../../components/tooltip';
+import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
+import {
+  APPROVAL_GATE_SOURCE,
+  DEMO_CLOCK,
+  SIM_LABELS,
+  SOURCE_IDS,
+  SOURCE_LABELS,
+} from '../../types';
+import type {
+  ChangedSinceLastVisitItem,
+  DailyCountPoint,
+  Evidence,
+  Freshness,
+  FreshnessState,
+  IsoDate,
+  Overview,
+  Permission,
+  PlantId,
+  PlantRiskRow,
+  Problem,
+  Result,
+  Role,
+  Scope,
+  SimLabel,
+  SourceId,
+} from '../../types';
+import { OverviewScreen } from './overview-screen';
+import type { OverviewNarrowing } from './overview-screen';
+
+/* ---------------------------------------------------------------------------------------------
+ * The wording this suite drives, and why it is restated here
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The screen's own visible wording, stated once (gap 1 above).
+ *
+ * None of these is a specification string: the seven §5.3 labels, the boundary's sentences, the
+ * toggle's labels and the drawer's heading all belong to the modules that export them and are
+ * imported instead. The one caption this object takes from a private component constant is the
+ * forbidden card's heading prefix, which `forbidden-card.tsx` does not export either.
+ */
+const UI = {
+  /** The screen's title, in the one level-one heading it renders. */
+  title: 'Overview',
+
+  /** The eyebrow above the title. */
+  eyebrow: 'Site Intelligence',
+
+  /** The one action this screen exists to take. */
+  primaryAction: 'Review critical exceptions',
+
+  /** The tiles' four captions, in the order the screen lays them out. */
+  tileOpenExceptions: 'Open exceptions',
+  tileRevenueAtRisk: 'Revenue at risk',
+  tileCustomerOrdersAtRisk: 'Customer orders at risk',
+  tileMedianHours: 'Median hours to approved plan',
+
+  /** The changed-since group and what it says when nothing moved. */
+  changedSinceTitle: 'Changed since your last visit',
+  changedSinceEmpty: 'No record has changed since your last visit.',
+
+  /** The risk-by-plant group and its table's accessible name. */
+  byPlantTitle: 'Risk by plant',
+  byPlantCaption: 'Open exceptions and revenue at risk, by plant',
+
+  /** The risk-by-plant table's four column headers. */
+  columnPlant: 'Plant',
+  columnPlantName: 'Name',
+  columnOpenExceptions: 'Open exceptions',
+  columnRevenueAtRisk: 'Revenue at risk',
+
+  /** The revenue bars: the frame title and the axis the surface is named by. */
+  revenueChartTitle: 'Revenue at risk by plant',
+  revenueChartCaption: 'Revenue at risk by plant, as a table',
+
+  /** The series: the frame title and the two series names its marks are announced with. */
+  seriesChartTitle: 'Exceptions opened and resolved per day',
+  seriesChartCaption: 'Exceptions opened and resolved per day, as a table',
+  seriesOpened: 'Opened',
+  seriesResolved: 'Resolved',
+
+  /** The series table's three column headers. */
+  columnDate: 'Date',
+  columnOpened: 'Opened',
+  columnResolved: 'Resolved',
+
+  /** The three sentences the screen supplies to the boundary for its own empty, partial and moved cases. */
+  empty: 'No exception is open in this scope, so there is nothing to summarise.',
+  partial:
+    'A source behind these figures answered incompletely, so the readings cover the inputs it supplied.',
+  conflict: 'These figures were read against records that have since changed. Read the overview again.',
+
+  /** The prefix `forbidden-card.tsx` puts before the permission it names, which it does not export. */
+  permissionRequiredPrefix: 'Permission required: ',
+
+  /** The heading the probe route renders, so a navigation is asserted through the visible interface. */
+  queueProbe: 'Exception queue',
+} as const;
+
+/* ---------------------------------------------------------------------------------------------
+ * The fixture: input data for the mocked read, and nothing an aggregate would report
+ * ------------------------------------------------------------------------------------------- */
+
+/** The correlation identifier every result and every failure of these fixtures carries. */
+const TRACE_ID = 'trace-overview';
+
+/** The instant the six sources last answered: the demonstration clock's own instant, never typed. */
+const AS_OF = DEMO_CLOCK;
+
+/**
+ * The label a computed figure carries, read from the tuple that owns the seven fixed strings so
+ * this suite can never assert a label the interface does not carry (rule P-1).
+ */
+const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
+
+/** One day, in milliseconds, for deriving a series' dates from the demonstration clock. */
+const DAY_MS = 86_400_000;
+
+/**
+ * The calendar date a given number of days from the demonstration clock's instant, as `YYYY-MM-DD`.
+ *
+ * Derived rather than written out, so the fixture holds no typed date and a change of the
+ * demonstration clock reaches every point of the series at once.
+ */
+function isoDateAt(offsetDays: number): IsoDate {
+  return new Date(Date.parse(DEMO_CLOCK) + offsetDays * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** One plant of the risk-by-plant rows, before the row shape is built from it. */
+interface PlantSpec {
+  /** The plant's identifier: an opaque placeholder, not a record-identifier shape. */
+  readonly id: PlantId;
+
+  /** The plant's display name, as the record would state it. */
+  readonly name: string;
+
+  /** How many exceptions at that plant are still open. */
+  readonly open: number;
+
+  /** The revenue those exceptions place at risk, as the aggregate would compute it. */
+  readonly revenue: number;
+}
+
+/** Three plants, so an ordering and a per-row assertion have more than one row to tell apart. */
+const PLANTS: readonly PlantSpec[] = [
+  { id: 'plant-alpha', name: 'Alpha plant', open: 3, revenue: 1250.5 },
+  { id: 'plant-beta', name: 'Beta plant', open: 2, revenue: 840.25 },
+  { id: 'plant-gamma', name: 'Gamma plant', open: 1, revenue: 400 },
+];
+
+/** The by-plant rows the read returns, built from {@link PLANTS} so both read one set of values. */
+const BY_PLANT: readonly PlantRiskRow[] = PLANTS.map((plant) => ({
+  plantId: plant.id,
+  plantName: plant.name,
+  openExceptions: plant.open,
+  revenueAtRiskEur: plant.revenue,
+}));
+
+/** Two records that moved since the last visit, each with the record's own account of the change. */
+const CHANGED: readonly ChangedSinceLastVisitItem[] = [
+  { ref: 'record-alpha', label: 'Record alpha', detail: 'the record says what changed about it' },
+  {
+    ref: 'record-beta',
+    label: 'Record beta',
+    detail: 'the second record states its own change',
+  },
+];
+
+/** Three days of the opened/resolved series, the dates derived from the demonstration clock. */
+const SERIES: readonly DailyCountPoint[] = [
+  { date: isoDateAt(-2), open: 1, resolved: 0 },
+  { date: isoDateAt(-1), open: 2, resolved: 1 },
+  { date: isoDateAt(0), open: 3, resolved: 2 },
+];
+
+/**
+ * The payload a healthy read resolves to: the four tiles, the changed list, the by-plant rows and
+ * the series, every number a slot the aggregate would fill rather than a result this suite asserts.
+ */
+const OVERVIEW: Overview = {
+  openExceptions: 6,
+  revenueAtRiskEur: 2490.75,
+  customerOrdersAtRisk: 4,
+  medianHoursToApprovedPlan: 18.5,
+  alternateSourceReadinessPercent: 75,
+  changedSinceLastVisit: [...CHANGED],
+  byPlant: [...BY_PLANT],
+  openResolvedSeries: [...SERIES],
+};
+
+/** A scope holding nothing: the identity the aggregate reports for an empty population. */
+const EMPTY_OVERVIEW: Overview = {
+  openExceptions: 0,
+  revenueAtRiskEur: 0,
+  customerOrdersAtRisk: 0,
+  medianHoursToApprovedPlan: 0,
+  alternateSourceReadinessPercent: 0,
+  changedSinceLastVisit: [],
+  byPlant: [],
+  openResolvedSeries: [],
+};
+
+/** The same payload with the by-plant rows but nothing moved since the last visit. */
+const UNCHANGED_OVERVIEW: Overview = { ...OVERVIEW, changedSinceLastVisit: [] };
+
+/** The scope the shell hands the screen: the unfiltered "all plants, all products" selection. */
+const SCOPE: Scope = { plants: [], products: [] };
+
+/** The six sources all answering and current, as `Meta.freshness` reports them. */
+const FRESH_SOURCES: Freshness[] = SOURCE_IDS.map(
+  (source): Freshness => ({ source, asOf: AS_OF, state: 'fresh' }),
+);
+
+/**
+ * The same report with one source in the state asked about.
+ *
+ * The approval gate is the default because it is the source the screen's stale banner looks for
+ * first (AAP §0.2.1, `T-13`), so a case can put another source in that state and prove the banner
+ * still names one.
+ */
+function freshnessWith(state: FreshnessState, source: SourceId = APPROVAL_GATE_SOURCE): Freshness[] {
+  return FRESH_SOURCES.map((entry) => (entry.source === source ? { ...entry, state } : entry));
+}
+
+/** The envelope every read resolves to: the payload and the metadata that qualifies it. */
+function envelope(data: Overview, freshness: readonly Freshness[] = FRESH_SOURCES): Result<Overview> {
+  return { data, meta: { freshness: [...freshness], simulated: true, traceId: TRACE_ID } };
+}
+
+/** The permission the refused read names, from the contracts §7.1 vocabulary. */
+const REQUIRED_PERMISSION: Permission = 'exception.read';
+
+/** The roles that hold it, so the forbidden card can name who may act instead of only what is missing. */
+const ROLES_WITH_PERMISSION: Role[] = ['material-planner', 'head-of-supply-chain'];
+
+/** The refusal a persona without `exception.read` meets. */
+const DENIAL: Problem = {
+  type: 'permission',
+  message: 'Reading the overview needs a permission the acting persona does not hold.',
+  traceId: TRACE_ID,
+  requiredPermission: REQUIRED_PERMISSION,
+  rolesWithPermission: ROLES_WITH_PERMISSION,
+};
+
+/** A failure the screen reports as the offline state: no source answered the read. */
+const FAILURE: Problem = {
+  type: 'not-found',
+  message: 'The overview could not be read.',
+  traceId: TRACE_ID,
+};
+
+/** The refusal a record that moved under the reader produces, which the screen shows as a conflict. */
+const MOVED_RECORD: Problem = {
+  type: 'validation',
+  message: 'The overview was read against records that changed while the view was open.',
+  traceId: TRACE_ID,
+};
+
+/** A record the drawer can render in full, so an opened dialog shows content rather than a failure. */
+const EVIDENCE: Evidence = {
+  value: 'the figure this reference answers',
+  provenance: 'computed',
+  label: CALCULATION_LABEL,
+  formula: 'one record over another, by the rule that owns the figure',
+  inputs: ['input-alpha'],
+  upstream: ['upstream-alpha'],
+  downstream: ['downstream-alpha'],
+  confidence: { level: 'high', reason: 'every input was read in full' },
+  missingInputs: [],
+  documents: [],
+};
+
+/** The response the evidence read resolves to, carrying the metadata every call returns. */
+function evidenceEnvelope(): Result<Evidence> {
+  return { data: EVIDENCE, meta: { freshness: [...FRESH_SOURCES], simulated: true, traceId: TRACE_ID } };
+}
+
+/**
+ * The four tiles, each with the caption the reader sees and the figure the payload carries for it.
+ *
+ * The amount goes through the imported formatter because that is the text the tile prints: a typed
+ * currency string here would be this suite's own formatting rule rather than the interface's
+ * (rule P-6).
+ */
+const TILE_CASES = [
+  { caption: UI.tileOpenExceptions, figure: String(OVERVIEW.openExceptions) },
+  { caption: UI.tileRevenueAtRisk, figure: formatMoney(OVERVIEW.revenueAtRiskEur) },
+  { caption: UI.tileCustomerOrdersAtRisk, figure: String(OVERVIEW.customerOrdersAtRisk) },
+  { caption: UI.tileMedianHours, figure: String(OVERVIEW.medianHoursToApprovedPlan) },
+] as const;
+
+/** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
+const THEMES = ['command', 'paper'] as const;
+
+/** The route the screen is mounted at, and the one its primary action reaches. */
+const OVERVIEW_ROUTE = '/overview';
+const EXCEPTIONS_ROUTE = '/exceptions';
+
+/**
+ * The focus-ring utilities the shared control structure names, taken from it rather than retyped.
+ *
+ * Rule B-3 requires a visible focus indicator, and jsdom paints nothing, so the class list the
+ * control carries is what a case can observe. Reading the tokens from the exported list keeps the
+ * assertion tied to the one owner of that structure: a renamed utility moves both together.
+ */
+const FOCUS_RING_CLASSES = CONTROL_STRUCTURE_CLASSES.split(' ').filter((token) =>
+  token.startsWith('focus-visible:'),
+);
+
+/* ---------------------------------------------------------------------------------------------
+ * The service boundary — mocked at the provider, never at the network
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The port members this suite observes.
+ *
+ * The two the screen reads are first: `getOverview` for the page and `getEvidence` for whichever
+ * figure's drawer is opened. The members beside them are reads and writes of the same port the
+ * screen must leave alone, so "the overview is a read" is asserted rather than assumed — the object
+ * is enumerable and {@link calledMembers} reports exactly which of it was touched.
+ */
+const mockService = vi.hoisted(() => ({
+  getOverview: vi.fn(),
+  getEvidence: vi.fn(),
+  listExceptions: vi.fn(),
+  requestApproval: vi.fn(),
+}));
+
+/**
+ * The provider replaced before the screen is imported, so the real binding — and with it the
+ * in-browser adapter — is never reached from a component test (rule P-2).
+ *
+ * Every hook the rendered tree could reach is exported, not only the one the screen calls:
+ * `evidence-drawer.tsx` reads `useService()`, and the two siblings are stubbed with the module's own
+ * "no demonstration capability, no session persona" values so a component that starts reading them
+ * finds a shape rather than `undefined`.
+ */
+vi.mock('../../services/service-provider', () => ({
+  useService: () => mockService,
+  useDemonstration: () => null,
+  useActiveUser: () => null,
+}));
+
+/** Every port member this suite observed a call on, in the order the object declares them. */
+function calledMembers(): readonly string[] {
+  return Object.entries(mockService)
+    .filter(([, member]) => member.mock.calls.length > 0)
+    .map(([name]) => name);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The harness and the readings it takes
+ * ------------------------------------------------------------------------------------------- */
+
+/** Props a case varies on the screen it mounts. */
+interface ScreenOptions {
+  /** What the shell does when a figure narrows the queue. Absent, the screen takes no handler. */
+  readonly onNarrowQueue?: (narrowing: OverviewNarrowing) => void;
+}
+
+/**
+ * Renders the screen as the shell mounts it: at its own route, inside a cache of its own, with the
+ * exception queue mounted beside it as the probe the primary action navigates to.
+ *
+ * The cache is fresh per render and its retries are off, so a refusal fails the same way however
+ * often it is repeated and one case cannot read another's cached payload. The probe route is what
+ * lets the primary action be asserted through the visible interface: the case presses `Enter` and
+ * finds the heading a reader would arrive at, rather than inspecting a router's internals.
+ */
+function renderScreen(options: ScreenOptions = {}): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+
+  const screenElement = (
+    <OverviewScreen
+      scope={SCOPE}
+      {...(options.onNarrowQueue === undefined
+        ? {}
+        : { onNarrowQueue: options.onNarrowQueue })}
+    />
+  );
+
+  render(
+    <MemoryRouter initialEntries={[OVERVIEW_ROUTE]}>
+      <QueryClientProvider client={queryClient}>
+        <Routes>
+          <Route path={OVERVIEW_ROUTE} element={screenElement} />
+          <Route path={EXCEPTIONS_ROUTE} element={<h1>{UI.queueProbe}</h1>} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+/**
+ * The item at a position, or a failure naming what was missing.
+ *
+ * `noUncheckedIndexedAccess` makes every indexed read a possible absence, and a case that reached
+ * for a missing row would otherwise compare against `undefined` and report the wrong thing.
+ */
+function at<T>(items: readonly T[], index: number, what: string): T {
+  const item = items[index];
+
+  if (item === undefined) {
+    throw new Error(`the ${what} at position ${String(index)} is missing`);
+  }
+
+  return item;
+}
+
+/** Collapses a string's runs of whitespace, so the formatter's no-break space compares as a space. */
+function collapse(text: string): string {
+  return text.replace(/\s+/gu, ' ').trim();
+}
+
+/** Escapes a string so it can be compared as a pattern rather than as a pattern's syntax. */
+function escapePattern(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+/**
+ * A pattern matching the given text with any run of whitespace between its words.
+ *
+ * The money formatter separates the amount from the currency code with a no-break space, so a
+ * regex built from the collapsed text would otherwise miss a figure it was meant to find. The
+ * pattern also keeps an assertion readable in a failure: it says which figure it looked for.
+ */
+function patternOf(text: string): RegExp {
+  return new RegExp(
+    collapse(text)
+      .split(' ')
+      .map((word) => escapePattern(word))
+      .join('\\s+'),
+    'u',
+  );
+}
+
+/** Every string an element's subtree holds, with its whitespace collapsed. */
+function collapsedTextOf(element: HTMLElement): string {
+  return collapse(element.textContent ?? '');
+}
+
+/** The tile carrying the given caption, which is the card's heading and the region's name. */
+function tileRegion(caption: string): HTMLElement {
+  return screen.getByRole('region', { name: caption });
+}
+
+/** The tile carrying the given caption, once the read has resolved it onto the screen. */
+async function settledTile(caption: string): Promise<HTMLElement> {
+  return screen.findByRole('region', { name: caption });
+}
+
+/** The "View as table" control of the chart with the given title. */
+function tableToggle(chartTitle: string): HTMLElement {
+  return screen.getByRole('button', {
+    name: `${VIEW_AS_TABLE_LABELS.showTable}: ${chartTitle}`,
+  });
+}
+
+/** The "View as chart" control of the chart with the given title, once its table view is up. */
+function chartToggle(chartTitle: string): HTMLElement {
+  return screen.getByRole('button', {
+    name: `${VIEW_AS_TABLE_LABELS.showChart}: ${chartTitle}`,
+  });
+}
+
+/** A pattern matching any revenue bar's accessible name, whichever plant it draws. */
+const BAR_NAME_PATTERN = new RegExp(
+  `^(?:${PLANTS.map((plant) => escapePattern(plant.name)).join('|')}):`,
+  'u',
+);
+
+/** Every revenue bar on the screen, in the order the chart draws them. */
+function barMarks(): readonly HTMLElement[] {
+  return screen.queryAllByRole('button', { name: BAR_NAME_PATTERN });
+}
+
+/** The bar drawing the given plant, located by the name it is announced with. */
+function barMark(plant: PlantSpec): HTMLElement {
+  return screen.getByRole('button', { name: patternOf(`${plant.name}:`) });
+}
+
+/** The marks of one series of the opened/resolved chart, in the order the series states them. */
+function seriesMarks(seriesLabel: string): readonly HTMLElement[] {
+  return screen.queryAllByRole('button', {
+    name: new RegExp(`^${escapePattern(seriesLabel)}, `, 'u'),
+  });
+}
+
+/** The rows of a table, in document order, with its header row left out. */
+function dataRowsOf(table: HTMLElement): readonly HTMLElement[] {
+  return within(table).getAllByRole('row').slice(1);
+}
+
+/** One row's cells, in column order. */
+function cellsOf(row: HTMLElement): readonly HTMLElement[] {
+  return within(row).getAllByRole('cell');
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Per-case state
+ * ------------------------------------------------------------------------------------------- */
+
+beforeEach(() => {
+  for (const member of Object.values(mockService)) {
+    member.mockReset();
+  }
+
+  mockService.getOverview.mockResolvedValue(envelope(OVERVIEW));
+  mockService.getEvidence.mockResolvedValue(evidenceEnvelope());
+});
+
+/** Leaves `<html>` on the theme of whichever suite runs next, and no case's attribute behind. */
+afterEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+});
+
+describe('OverviewScreen', () => {
+  it('reads the overview once through the port with the shell’s scope, and writes nothing', async () => {
+    renderScreen();
+
+    expect(await screen.findByRole('heading', { level: 1, name: UI.title })).toBeVisible();
+    expect(screen.getByText(UI.eyebrow)).toBeVisible();
+
+    for (const tile of TILE_CASES) {
+      expect(await settledTile(tile.caption)).toBeVisible();
+    }
+
+    expect(mockService.getOverview).toHaveBeenCalledTimes(1);
+    expect(mockService.getOverview).toHaveBeenCalledWith(SCOPE);
+    // A read is a read: no other member of the port was reached (rule P-2).
+    expect(calledMembers()).toEqual(['getOverview']);
+  });
+
+  it.each(TILE_CASES)(
+    'labels the “$caption” tile on the tile itself with the fixed string for a computed figure',
+    async ({ caption, figure }) => {
+      renderScreen();
+
+      const tile = await settledTile(caption);
+
+      // The label is read inside this one tile, so the shell's page-level badge could not satisfy it
+      // and neither could a sibling tile's label (rule P-1).
+      expect(within(tile).getAllByText(CALCULATION_LABEL)).toHaveLength(1);
+      expect(within(tile).getByRole('heading', { level: 2, name: caption })).toBeVisible();
+
+      // The figure sits inside the tile's one control, whose accessible name starts with what a
+      // reader sees there (WCAG 2.2 SC 2.5.3).
+      const trigger = within(tile).getByRole('button');
+      expect(trigger).toHaveTextContent(patternOf(figure));
+      expect(trigger).toHaveAccessibleName(patternOf(figure));
+      expect(within(tile).getAllByRole('button')).toHaveLength(1);
+    },
+  );
+
+  it('opens the evidence behind a tile’s figure from that figure’s own trigger', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const tile = await settledTile(UI.tileRevenueAtRisk);
+    await user.click(within(tile).getByRole('button'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAccessibleName(EVIDENCE_DRAWER_TEXT.title);
+    expect(mockService.getEvidence).toHaveBeenCalledTimes(1);
+
+    // The drawer prints the reference the tile carries, so the figure a reader opened is the one
+    // the read was asked about rather than any figure on the page.
+    const reference = mockService.getEvidence.mock.calls[0]?.[0];
+    expect(typeof reference).toBe('string');
+    expect(dialog).toHaveTextContent(String(reference));
+  });
+
+  it('reports the plant a revenue bar draws, once, when the bar is activated from the keyboard', async () => {
+    const user = userEvent.setup();
+    const onNarrowQueue = vi.fn<(narrowing: OverviewNarrowing) => void>();
+
+    renderScreen({ onNarrowQueue });
+    await settledTile(UI.tileOpenExceptions);
+
+    const plant = at(PLANTS, 1, 'plant');
+    const bar = barMark(plant);
+
+    expect(barMarks()).toHaveLength(PLANTS.length);
+    expect(bar).toHaveAttribute('tabindex', '0');
+
+    // Each bar names its own figure and the exact §5.3 label that figure carries (rule P-1), and
+    // says what activating it opens (rule P-8).
+    for (const mark of barMarks()) {
+      expect(mark).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(mark.getAttribute('aria-label')).toContain(`(${CALCULATION_LABEL})`);
+    }
+
+    bar.focus();
+    expect(bar).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    // One gesture, two effects: the shell is asked to narrow to this plant, once, and the bar the
+    // reader chose is marked as the current one.
+    expect(onNarrowQueue).toHaveBeenCalledTimes(1);
+    expect(onNarrowQueue).toHaveBeenCalledWith({ kind: 'plant', plantId: plant.id });
+    expect(bar).toHaveAttribute('aria-current', 'true');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('draws one mark per delivered day for each series, and narrows the queue by no date', async () => {
+    const user = userEvent.setup();
+    const onNarrowQueue = vi.fn<(narrowing: OverviewNarrowing) => void>();
+
+    renderScreen({ onNarrowQueue });
+    await settledTile(UI.tileOpenExceptions);
+
+    const opened = seriesMarks(UI.seriesOpened);
+    const resolved = seriesMarks(UI.seriesResolved);
+
+    expect(opened).toHaveLength(SERIES.length);
+    expect(resolved).toHaveLength(SERIES.length);
+
+    SERIES.forEach((point, index) => {
+      expect(at(opened, index, 'opened mark')).toHaveAttribute(
+        'aria-label',
+        `${UI.seriesOpened}, ${point.date}: ${String(point.open)}`,
+      );
+      expect(at(resolved, index, 'resolved mark')).toHaveAttribute(
+        'aria-label',
+        `${UI.seriesResolved}, ${point.date}: ${String(point.resolved)}`,
+      );
+    });
+
+    // A mark still opens its own evidence from the keyboard, so it is a control that performs its
+    // function rather than a dead mark (rule P-8, rule B-3).
+    at(opened, 0, 'opened mark').focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    /*
+     * Gap 2 of the screen, asserted rather than skipped: `LineChart` exposes no activation callback,
+     * so no gesture on this series emits a date narrowing. `OverviewNarrowing`'s `date` member stays
+     * exported for the shell and the sibling screens that can emit it, and this suite states that the
+     * screen itself never does — the alternative would be to assert a call the component cannot make.
+     */
+    expect(onNarrowQueue).not.toHaveBeenCalled();
+  });
+
+
+  it('replaces the revenue bars with a table of the same rows, and back, from the keyboard', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await settledTile(UI.tileOpenExceptions);
+
+    const toggle = tableToggle(UI.revenueChartTitle);
+    toggle.focus();
+    expect(toggle).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    // The surface is unmounted rather than hidden, so no focus stop survives inside a chart that is
+    // no longer shown.
+    expect(barMarks()).toHaveLength(0);
+
+    const table = screen.getByRole('table', { name: UI.revenueChartCaption });
+    expect(within(table).getAllByRole('columnheader').map(collapsedTextOf)).toEqual([
+      UI.columnPlant,
+      UI.columnPlantName,
+      UI.columnOpenExceptions,
+      UI.columnRevenueAtRisk,
+    ]);
+
+    const rows = dataRowsOf(table);
+    expect(rows).toHaveLength(BY_PLANT.length);
+
+    BY_PLANT.forEach((row, index) => {
+      const cells = cellsOf(at(rows, index, 'row'));
+
+      expect(cells).toHaveLength(4);
+      // The identifier and the amount are set in the mono face with tabular figures (AAP §0.5.3).
+      expect(collapsedTextOf(at(cells, 0, 'cell'))).toBe(row.plantId);
+      expect(collapsedTextOf(at(cells, 1, 'cell'))).toBe(row.plantName);
+      expect(within(at(cells, 2, 'cell')).getByRole('button')).toHaveAccessibleName(
+        patternOf(String(row.openExceptions)),
+      );
+
+      const amount = within(at(cells, 3, 'cell')).getByText(
+        patternOf(formatMoney(row.revenueAtRiskEur)),
+      );
+      expect(amount.className.split(' ')).toEqual(
+        expect.arrayContaining(MONO_VALUE_CLASSES.base.split(' ')),
+      );
+    });
+
+    const back = chartToggle(UI.revenueChartTitle);
+    back.focus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.queryByRole('table', { name: UI.revenueChartCaption })).toBeNull();
+    expect(barMarks()).toHaveLength(PLANTS.length);
+    expect(at(barMarks(), 0, 'bar')).toHaveAttribute('tabindex', '0');
+  });
+
+  it('replaces the opened and resolved series with a table of the same days, and back, from the keyboard', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await settledTile(UI.tileOpenExceptions);
+
+    const toggle = tableToggle(UI.seriesChartTitle);
+    toggle.focus();
+    await user.keyboard('{Enter}');
+
+    expect(seriesMarks(UI.seriesOpened)).toHaveLength(0);
+
+    const table = screen.getByRole('table', { name: UI.seriesChartCaption });
+    expect(within(table).getAllByRole('columnheader').map(collapsedTextOf)).toEqual([
+      UI.columnDate,
+      UI.columnOpened,
+      UI.columnResolved,
+    ]);
+
+    const rows = dataRowsOf(table);
+    expect(rows).toHaveLength(SERIES.length);
+
+    SERIES.forEach((point, index) => {
+      const cells = cellsOf(at(rows, index, 'row'));
+
+      expect(cells).toHaveLength(3);
+      expect(collapsedTextOf(at(cells, 0, 'cell'))).toBe(point.date);
+      expect(within(at(cells, 1, 'cell')).getByRole('button')).toHaveAccessibleName(
+        patternOf(String(point.open)),
+      );
+      expect(within(at(cells, 2, 'cell')).getByRole('button')).toHaveAccessibleName(
+        patternOf(String(point.resolved)),
+      );
+    });
+
+    const back = chartToggle(UI.seriesChartTitle);
+    back.focus();
+    await user.keyboard('{Enter}');
+
+    expect(seriesMarks(UI.seriesOpened)).toHaveLength(SERIES.length);
+  });
+
+  it('lists every record that changed since the last visit, each opening its own evidence', async () => {
+    renderScreen();
+
+    const group = await screen.findByRole('region', { name: UI.changedSinceTitle });
+
+    for (const item of CHANGED) {
+      const trigger = within(group).getByRole('button', {
+        name: new RegExp(`^${escapePattern(item.label)}`, 'u'),
+      });
+
+      expect(trigger).toBeVisible();
+      expect(within(group).getByText(item.detail)).toBeVisible();
+    }
+
+    expect(within(group).getAllByRole('button')).toHaveLength(CHANGED.length);
+  });
+
+  it('states that no record changed when nothing moved since the last visit', async () => {
+    mockService.getOverview.mockResolvedValue(envelope(UNCHANGED_OVERVIEW));
+
+    renderScreen();
+
+    const group = await screen.findByRole('region', { name: UI.changedSinceTitle });
+
+    expect(within(group).getByText(UI.changedSinceEmpty)).toBeVisible();
+    expect(within(group).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('renders the risk-by-plant table with its caption, its headers and each row’s own figures', async () => {
+    renderScreen();
+
+    expect(await screen.findByRole('heading', { level: 2, name: UI.byPlantTitle })).toBeVisible();
+
+    // The caption is the table's accessible name, which is what makes an unnamed table impossible
+    // to reach a reader without a name (rule B-3).
+    const table = screen.getByRole('table', { name: UI.byPlantCaption });
+
+    expect(within(table).getAllByRole('columnheader').map(collapsedTextOf)).toEqual([
+      UI.columnPlant,
+      UI.columnPlantName,
+      UI.columnOpenExceptions,
+      UI.columnRevenueAtRisk,
+    ]);
+
+    const rows = dataRowsOf(table);
+    expect(rows).toHaveLength(BY_PLANT.length);
+
+    BY_PLANT.forEach((row, index) => {
+      const cells = cellsOf(at(rows, index, 'row'));
+
+      expect(collapsedTextOf(at(cells, 0, 'cell'))).toBe(row.plantId);
+      expect(collapsedTextOf(at(cells, 1, 'cell'))).toBe(row.plantName);
+
+      // Each figure is wrapped in the trigger that opens its evidence, so its accessible name starts
+      // with the figure a reader sees in the cell.
+      expect(within(at(cells, 2, 'cell')).getByRole('button')).toHaveAccessibleName(
+        patternOf(String(row.openExceptions)),
+      );
+      expect(within(at(cells, 3, 'cell')).getByRole('button')).toHaveAccessibleName(
+        patternOf(formatMoney(row.revenueAtRiskEur)),
+      );
+
+      const identifier = within(at(cells, 0, 'cell')).getByText(row.plantId);
+      expect(identifier.className.split(' ')).toEqual(
+        expect.arrayContaining(MONO_VALUE_CLASSES.base.split(' ')),
+      );
+    });
+  });
+
+  it('renders no control that cannot act', async () => {
+    renderScreen();
+    await settledTile(UI.tileOpenExceptions);
+
+    const controls = screen.getAllByRole('button');
+    expect(controls.length).toBeGreaterThan(0);
+
+    for (const control of controls) {
+      // Nothing here is disabled, so nothing owes a reader a reason; and every control carries a
+      // name, so no control reaches assistive technology as an unnamed button (rule P-8, rule B-3).
+      expect(control).not.toHaveAttribute('aria-disabled', 'true');
+      expect(control).toBeEnabled();
+      expect(control).toHaveAccessibleName(/\S/u);
+    }
+  });
+
+  /* -------------------------------------------------------------------------------------------
+   * The seven states specification §8 fixes, each driven from the read alone
+   * ----------------------------------------------------------------------------------------- */
+
+  it('shows the loading region until the overview read settles', () => {
+    mockService.getOverview.mockReturnValue(new Promise<Result<Overview>>(() => {}));
+
+    renderScreen();
+
+    const region = screen.getByRole('status', { name: STATE_BOUNDARY_TEXT.loading });
+
+    expect(region).toBeVisible();
+    expect(region).toHaveAttribute('aria-busy', 'true');
+    // Nothing half-read is placed beside the skeleton.
+    expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
+  });
+
+  it('explains a permission refusal with the permission, the roles that may act and the trace id', async () => {
+    mockService.getOverview.mockRejectedValue(DENIAL);
+
+    renderScreen();
+
+    const card = await screen.findByRole('region', {
+      name: `${UI.permissionRequiredPrefix}${REQUIRED_PERMISSION}`,
+    });
+
+    expect(within(card).getAllByRole('listitem').map(collapsedTextOf)).toEqual([
+      ...ROLES_WITH_PERMISSION,
+    ]);
+    expect(card).toHaveTextContent(TRACE_ID);
+
+    // Repeating a call the acting role may not make would fail the same way, so no retry is offered
+    // and no figure is shown beside the refusal (rule P-8).
+    expect(screen.queryByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel })).toBeNull();
+    expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
+  });
+
+  it('shows the offline notice and repeats the read from its retry control', async () => {
+    const user = userEvent.setup();
+
+    mockService.getOverview.mockRejectedValueOnce(FAILURE);
+
+    renderScreen();
+
+    expect(await screen.findByText(STATE_BOUNDARY_TEXT.offlineHeadline)).toBeVisible();
+    expect(screen.getByText(STATE_BOUNDARY_TEXT.offlineDetail)).toBeVisible();
+    expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel }));
+
+    // The retry repeats the same read, and the figures replace the notice once it answers.
+    expect(await settledTile(UI.tileOpenExceptions)).toBeVisible();
+    expect(mockService.getOverview).toHaveBeenCalledTimes(2);
+    expect(mockService.getOverview).toHaveBeenNthCalledWith(2, SCOPE);
+  });
+
+  it('takes a source that did not answer as offline and withholds the figures', async () => {
+    mockService.getOverview.mockResolvedValue(envelope(OVERVIEW, freshnessWith('unavailable')));
+
+    renderScreen();
+
+    expect(await screen.findByText(STATE_BOUNDARY_TEXT.offlineHeadline)).toBeVisible();
+    expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
+    // The read can be repeated, so the control that repeats it is there to be used (rule P-8).
+    expect(screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel })).toBeVisible();
+  });
+
+  it.each<SourceId>([APPROVAL_GATE_SOURCE, 'transport'])(
+    'keeps the figures on screen while naming the %s source and its as-of time as stale',
+    async (source) => {
+      mockService.getOverview.mockResolvedValue(envelope(OVERVIEW, freshnessWith('stale', source)));
+
+      renderScreen();
+
+      // Waiting for a figure is also what waits the loading region away: once the read has settled
+      // the stale banner is the only live region on the screen.
+      await settledTile(UI.tileOpenExceptions);
+      const banner = screen.getByRole('status');
+
+      expect(banner).toHaveTextContent(
+        `${SOURCE_LABELS[source]}${STATE_BOUNDARY_TEXT.staleSuffix}`,
+      );
+      expect(banner).toHaveTextContent(STATE_BOUNDARY_TEXT.staleAsOfPrefix);
+      // The instant printed is the record's own, never an age derived here (rule P-6).
+      expect(banner).toHaveTextContent(AS_OF);
+
+      // A warning about the figures is not a reason to withhold them.
+      expect(screen.getByRole('table', { name: UI.byPlantCaption })).toBeVisible();
+    },
+  );
+
+  it('names the inputs a partial read left out while still showing the figures', async () => {
+    mockService.getOverview.mockResolvedValue(envelope(OVERVIEW, freshnessWith('partial')));
+
+    renderScreen();
+
+    expect(await screen.findByText(STATE_BOUNDARY_TEXT.partialHeadline)).toBeVisible();
+    expect(screen.getByText(UI.partial)).toBeVisible();
+    expect(tileRegion(UI.tileOpenExceptions)).toBeVisible();
+  });
+
+  it('shows the empty message when the scope holds nothing to summarise', async () => {
+    mockService.getOverview.mockResolvedValue(envelope(EMPTY_OVERVIEW));
+
+    renderScreen();
+
+    expect(await screen.findByText(UI.empty)).toBeVisible();
+    // An empty scope shows the sentence instead of three blank surfaces.
+    expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('treats a record that moved under the reader as a conflict and offers a reload', async () => {
+    mockService.getOverview.mockRejectedValue(MOVED_RECORD);
+
+    renderScreen();
+
+    expect(await screen.findByText(STATE_BOUNDARY_TEXT.conflictHeadline)).toBeVisible();
+    expect(screen.getByText(UI.conflict)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.reloadLabel }),
+    ).toBeVisible();
+    expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
+  });
+
+  /* -------------------------------------------------------------------------------------------
+   * Both themes
+   * ----------------------------------------------------------------------------------------- */
+
+  it.each(THEMES)('renders the same figures under the %s theme', async (theme) => {
+    document.documentElement.setAttribute('data-theme', theme);
+
+    renderScreen();
+
+    for (const tile of TILE_CASES) {
+      expect(await settledTile(tile.caption)).toBeVisible();
+    }
+
+    // What a case asserts is what a reader receives, never a colour: the themes differ in token
+    // values, and no reading of the screen depends on one of them.
+    expect(screen.getByRole('table', { name: UI.byPlantCaption })).toBeVisible();
+    expect(tableToggle(UI.revenueChartTitle)).toBeVisible();
+    expect(tableToggle(UI.seriesChartTitle)).toBeVisible();
+  });
+
+  /* -------------------------------------------------------------------------------------------
+   * The primary action, from the keyboard only
+   * ----------------------------------------------------------------------------------------- */
+
+  it('T-16 reaches the primary action with Tab, shows its focus ring, and opens the queue with Enter', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+    await settledTile(UI.tileOpenExceptions);
+
+    await user.tab();
+
+    const primary = screen.getByRole('button', { name: UI.primaryAction });
+
+    expect(primary).toHaveFocus();
+    // A visible focus indicator (rule B-3): jsdom paints nothing, so the utilities the shared control
+    // structure owns are what the case can observe, taken from that list rather than retyped.
+    expect(FOCUS_RING_CLASSES.length).toBeGreaterThan(0);
+    for (const focusClass of FOCUS_RING_CLASSES) {
+      expect(primary.className.split(' ')).toContain(focusClass);
+    }
+
+    await user.keyboard('{Enter}');
+
+    // The action performs its function: the exception queue a reader would arrive at is on screen.
+    expect(await screen.findByRole('heading', { level: 1, name: UI.queueProbe })).toBeVisible();
+    // Navigating is not a read, so the overview was not fetched again.
+    expect(mockService.getOverview).toHaveBeenCalledTimes(1);
+  });
+});
+
+
