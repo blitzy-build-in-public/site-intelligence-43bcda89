@@ -22,6 +22,25 @@
  * reads this folder (rule P-6); the permission and role vocabulary is the contracts' own and is typed
  * as such, which is what makes the fixture valid data.
  *
+ * WHAT EACH CASE WOULD CATCH. Every case is written to fail on one specific regression rather than to
+ * describe the markup: a dropped `label` association fails the labelled-field queries; one generic
+ * sentence standing in for the three blocker sentences fails the disabled-submit case, which asserts
+ * each sentence in turn; a second `requestPolicyException` call, or a reformatted term, fails the
+ * exact once-only payload assertions on both the pointer and the keyboard path; a swallowed `Problem`
+ * fails the failure case, which also keeps the dialog open with the submit usable again; a trap that
+ * closes in one direction only, or a focus return that lands nowhere, fails the `Tab` and `Esc` cases;
+ * an explanation that lives only under the pointer fails the focus case, which reads the reason off
+ * the hint the keyboard brings up; and a sentence the component does not own — a claim, or a name the
+ * fixture never supplied — fails the rendered-text case.
+ *
+ * WHAT THE CLAIM-VOCABULARY ASSERTION DOES NOT TYPE. This suite's checklist asks for an assertion
+ * that the banned claim phrases of rule P-4 appear nowhere, and those phrases are deliberately not
+ * written into this file: `tests/source-checks/forbidden-strings.test.ts` rejects them anywhere under
+ * `src/` (AAP §0.9) and this folder sits inside that scan, so typing them here would turn the
+ * project's own gate red to prove the dialog does not say them. The rendered-text case proves the
+ * same property structurally — nothing is rendered that the component's own wording and the caller's
+ * supplied values do not account for — and the banned vocabulary stays owned by the source check.
+ *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock or touches the network.
  */
@@ -34,7 +53,7 @@ import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DEMO_CLOCK } from '../../types';
+import { DEMO_CLOCK, SIM_LABELS } from '../../types';
 import type { Permission, PolicyException, Problem, Result, Role } from '../../types';
 import { GRANT_EXCEPTION_DIALOG_TEXT as TEXT, GrantExceptionDialog } from './grant-exception-dialog';
 import type { GrantExceptionApprover } from './grant-exception-dialog';
@@ -58,6 +77,13 @@ const POLICY_ID = 'policy-under-test';
 
 /** The policy's display label, which the caller supplies from the record (rule P-6). */
 const POLICY_LABEL = 'Model routing policy';
+
+/**
+ * The `Simulated control` label of specification §5.3, named once because the component holds it as a
+ * private constant typed `SimLabel` and does not export it. The case below also ties the rendered tag
+ * back to the fixed list, so a reworded label fails here too (rule P-1).
+ */
+const SIMULATED_CONTROL_LABEL = 'Simulated control';
 
 /** One persona the caller offers as the second approver; identifiers stay opaque for the figure scan. */
 const APPROVER_ALPHA: GrantExceptionApprover = { id: 'approver-alpha', name: 'Approver Alpha' };
@@ -292,6 +318,20 @@ function describedText(element: HTMLElement): string {
     .join(' ');
 }
 
+/**
+ * Every line the dialog renders, one entry per element that holds text and no child element.
+ *
+ * Reading the leaves rather than the panel's whole `textContent` is what makes the rendered-text case
+ * able to name a sentence: a claim, or a name the fixture never supplied, sits on a leaf of its own
+ * and is therefore reported rather than merged into a paragraph.
+ */
+function leafTexts(root: HTMLElement): string[] {
+  return Array.from(root.querySelectorAll<HTMLElement>('*'))
+    .filter((element) => element.children.length === 0)
+    .map((element) => (element.textContent ?? '').trim())
+    .filter((text) => text.length > 0);
+}
+
 beforeEach(() => {
   requestPolicyException.mockReset();
   requestPolicyException.mockResolvedValue(envelope(recordedException()));
@@ -372,14 +412,51 @@ describe('GrantExceptionDialog', () => {
     renderDialog();
 
     const dialog = screen.getByRole('dialog', { name: TEXT.heading });
+    const tag = within(dialog).getByText(SIMULATED_CONTROL_LABEL);
 
-    expect(within(dialog).getByText('Simulated control')).toBeInTheDocument();
+    /* The tag is one of the seven strings specification §5.3 fixes, character for character, so a
+       label that drifts from the fixed list fails here and not only at the component's own constant. */
+    expect(SIM_LABELS).toContain(tag.textContent);
+  });
+
+  it('renders only its own wording and the values its caller supplied', () => {
+    renderDialog();
+
+    const dialog = screen.getByRole('dialog', { name: TEXT.heading });
+
+    /* Every sentence the dialog owns, the seven fixed labels, and the three values the caller supplied:
+       the policy label and the two personas. A claim about the deployment (rule P-4) or a persona the
+       fixture never supplied leaves a residue here, which is how the absence of that vocabulary is
+       proved without typing it — see this file's opening comment on why it is not typed. */
+    const owned = [
+      ...Object.values(TEXT),
+      ...SIM_LABELS,
+      POLICY_LABEL,
+      ...APPROVERS.map((candidate) => `${candidate.name} (${candidate.id})`),
+    ];
+
+    const rendered = leafTexts(dialog);
+
+    expect(rendered.length).toBeGreaterThan(0);
+    for (const line of rendered) {
+      const residue = owned.reduce((rest, fragment) => rest.split(fragment).join(''), line);
+
+      expect(residue.trim()).toBe('');
+    }
   });
 
   it('moves focus into the first field as it opens', () => {
     renderDialog();
 
-    expect(screen.getByLabelText(TEXT.reasonLabel)).toHaveFocus();
+    const dialog = screen.getByRole('dialog', { name: TEXT.heading });
+    const reason = screen.getByLabelText(TEXT.reasonLabel);
+
+    /* Asserted against `document.activeElement` as well as the matcher, because rule B-3 is about
+       where focus actually is: a field that merely carries the focus class would pass the matcher and
+       leave a keyboard user at the top of the document. */
+    expect(reason).toHaveFocus();
+    expect(document.activeElement).toBe(reason);
+    expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
   it('keeps Tab inside the dialog in both directions', async () => {
@@ -394,8 +471,39 @@ describe('GrantExceptionDialog', () => {
     await user.tab({ shift: true });
     expect(submit).toHaveFocus();
 
+    /* The disabled control's explanation is painted on focus and not only under the pointer, which is
+       what makes rule P-8's reason reachable from the keyboard (rule B-3). */
+    expect(screen.getByRole('tooltip')).toHaveTextContent(TEXT.reasonRequired);
+
     await user.tab();
     expect(reason).toHaveFocus();
+  });
+
+  it('records the request when the submit is activated from the keyboard alone', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSubmitted = vi.fn();
+    renderDialog({ onClose, onSubmitted });
+
+    await completeTerms(user);
+
+    const submit = screen.getByRole('button', { name: TEXT.submit });
+
+    submit.focus();
+    expect(submit).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    expect(requestPolicyException).toHaveBeenCalledTimes(1);
+    expect(requestPolicyException).toHaveBeenCalledWith({
+      policyId: POLICY_ID,
+      reason: TRIMMED_REASON,
+      expiresAt: LATER_INSTANT,
+      secondApproverId: APPROVER_ALPHA.id,
+    });
+    expect(onSubmitted).toHaveBeenCalledTimes(1);
+    expect(onSubmitted).toHaveBeenCalledWith(recordedException());
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('sends one request with the three terms, then hands the record on and closes', async () => {
@@ -407,6 +515,9 @@ describe('GrantExceptionDialog', () => {
     await completeTerms(user);
     await user.click(screen.getByRole('button', { name: TEXT.submit }));
 
+    /* One call, with the three terms and nothing else: the mocked service exposes
+       `requestPolicyException` alone, so a call to any other port member has no target and a second
+       send of this one is what the count catches. */
     expect(requestPolicyException).toHaveBeenCalledTimes(1);
     expect(requestPolicyException).toHaveBeenCalledWith({
       policyId: POLICY_ID,
@@ -553,6 +664,7 @@ describe('GrantExceptionDialog', () => {
 
     const alert = await screen.findByRole('alert');
 
+    expect(requestPolicyException).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('dialog', { name: TEXT.heading })).toBeInTheDocument();
     expect(alert).toHaveTextContent(TEXT.failureTitle);
     expect(alert).toHaveTextContent(REFUSAL.message);
