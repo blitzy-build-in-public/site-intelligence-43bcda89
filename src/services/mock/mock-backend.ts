@@ -309,6 +309,22 @@ function actorOf(state: MockState): ActiveUser {
     );
   }
 
+  return activeUserOf(record);
+}
+
+/**
+ * One persona record as the identity surface reports it: the shape both the acting-persona read and
+ * the roster answer with, built in one place so the two cannot describe the same record differently.
+ *
+ * The plant scope and the permissions are the role's rather than the record's, exactly as the
+ * adapter enforces them: a caller that acts as this persona is narrowed to the scope below and
+ * allowed exactly these permissions, so a switch and the roster do not disagree about what a persona
+ * can do.
+ *
+ * @param record - One of the seeded persona records.
+ * @returns The persona, with the plant scope and permissions its role holds.
+ */
+function activeUserOf(record: MockState['records']['users'][number]): ActiveUser {
   return {
     id: record.id,
     name: record.name,
@@ -2005,6 +2021,27 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    */
   async getActiveUser(): Promise<Result<ActiveUser>> {
     return this.dispatchControl((ctx) => actorOf(ctx.state));
+  }
+
+  /**
+   * Reads the personas a role switch may name, in the record set's own order.
+   *
+   * The roster the shell's role switcher offers as its options: each record is built by the same
+   * {@link activeUserOf} the acting-persona read uses, so an option and the identity a switch to it
+   * produces cannot describe one persona two ways. The order is the seed's order, which is also the
+   * order the session's opening persona is taken from, so the first option is the persona a fresh
+   * session acts as.
+   *
+   * It changes nothing and records nothing: reading who the demonstration could act as is not one of
+   * the acts contracts §6 records, so this member appends no audit event and asks no permission. It
+   * goes through `dispatchControl` for `getActiveUser`'s reason — the roster must answer while the
+   * simulation's `loading` trigger holds, because a switcher with no options could not be operated
+   * to lift it.
+   *
+   * @returns The personas the adapter can act as, in the envelope every call returns.
+   */
+  async listPersonas(): Promise<Result<ActiveUser[]>> {
+    return this.dispatchControl((ctx) => ctx.state.records.users.map(activeUserOf));
   }
 }
 

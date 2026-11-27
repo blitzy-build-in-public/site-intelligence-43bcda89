@@ -218,18 +218,20 @@ type ApiClientExtras = AssertNever<Exclude<keyof ApiClient, keyof SiteIntelligen
 /**
  * The members `MockBackend` publishes besides the port's own.
  *
- * Three names, and all are stated deliberately: `whenReady` is the readiness promise the binding point
- * awaits before the first screen renders, `switchRole` is the demonstration's role switch, and
- * `getActiveUser` is the acting-persona read the shell seeds its persona from. All three sit beside the
- * port rather than in it — the capability and the readiness handshake are demonstration and
- * construction facts the contracts' interface does not declare. The next alias proves the set is
- * exact, so a fourth public member here is a compile error.
+ * Four names, and all are stated deliberately: `whenReady` is the readiness promise the binding point
+ * awaits before the first screen renders, `switchRole` is the demonstration's role switch,
+ * `getActiveUser` is the acting-persona read the shell seeds its persona from, and `listPersonas` is
+ * the roster of personas a switch may name, which the shell's role switcher offers as its options
+ * because no port member reports the seeded personas (rule P-2). All four sit beside the port rather
+ * than in it — the capability and the readiness handshake are demonstration and construction facts the
+ * contracts' interface does not declare. The next alias proves the set is exact, so a fifth public
+ * member here is a compile error.
  */
 type MockBackendExtras = Exclude<keyof MockBackend, keyof SiteIntelligenceService>;
 
-/** The mock backend's extras are the readiness promise and the capability's two members, and nothing else. */
+/** The mock backend's extras are the readiness promise and the capability's three members, and nothing else. */
 type MockBackendExtrasAreNamed = AssertTrue<
-  Same<MockBackendExtras, 'whenReady' | 'switchRole' | 'getActiveUser'>
+  Same<MockBackendExtras, 'whenReady' | 'switchRole' | 'getActiveUser' | 'listPersonas'>
 >;
 
 /** `MockBackend` implements the demonstration capability that sits beside the port. */

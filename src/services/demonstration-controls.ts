@@ -47,13 +47,21 @@ import type { Result } from '../types/service';
  * the bound port: the role switch the shell's role switcher drives, and the read of the persona the
  * session is acting as.
  *
- * Two members, because one identity has two sides. A switch changes which persona the session acts
- * as and records the change; the read reports the persona the adapter is enforcing, so the shell
- * takes the role it displays from the same value the adapter authorises against. Both are
- * asynchronous, and for the same reason: a switch is a recorded act, so the adapter appends the
- * audit event contracts §6 defines for a persona change and the resulting identity settles together
- * with its record, so a caller cannot read a switched identity beside an event that was never
- * written; and the read is served through the envelope every member returns.
+ * Three members, because one identity has three sides. A switch changes which persona the session
+ * acts as and records the change; the read reports the persona the adapter is enforcing, so the
+ * shell takes the role it displays from the same value the adapter authorises against; and the
+ * roster reports the personas a switch may name, which is the only way a caller can offer a choice
+ * without reading the seed's user records itself (rule P-2). All three are asynchronous, and for the
+ * same reason: a switch is a recorded act, so the adapter appends the audit event contracts §6
+ * defines for a persona change and the resulting identity settles together with its record, so a
+ * caller cannot read a switched identity beside an event that was never written; and the two reads
+ * are served through the envelope every member returns.
+ *
+ * The roster is the one optional member. An adapter that carries no seeded personas — the
+ * unconnected HTTP client, whose service knows its caller from a real session — leaves it absent,
+ * and a caller that finds it absent offers the acting persona alone rather than assuming a list it
+ * was never given. Declaring it optional is also what keeps a test double carrying only the switch
+ * and the read assignable to this interface.
  */
 export interface DemonstrationControls {
   /**
@@ -112,4 +120,34 @@ export interface DemonstrationControls {
    * an identity that does not exist.
    */
   getActiveUser(): Promise<Result<ActiveUser>>;
+
+  /**
+   * Reads the personas a role switch may name, in the adapter's own order.
+   *
+   * The roster the shell's role switcher offers, declared here because the port carries no read of
+   * the seeded personas and rule P-2 forbids a screen or a component reaching them directly. Each
+   * record is the same `ActiveUser` shape `switchRole` answers with — the identifier a caller passes
+   * back to it, the synthetic name and role the choice is named by, that role's plant scope and
+   * permissions, and the home route the router opens for it — so a caller builds its options from
+   * one read rather than assembling an identity out of parts.
+   *
+   * Optional, and absent on an adapter that holds no seeded personas: real identity belongs to the
+   * session that reached a real service, so the unconnected HTTP client has no roster to report. A
+   * caller that finds the member absent offers the acting persona alone, which is why this member is
+   * declared optional rather than required — the alternative would force every adapter to claim a
+   * capability it does not have.
+   *
+   * It appends no audit event and requires no permission: reading who the demonstration could act as
+   * changes nothing about who it does act as, and the seeded personas are not a record whose
+   * disclosure the permission matrix governs. Nothing about the answer authorises anything: a switch
+   * to a persona a caller saw here is still evaluated against the matrix and the policy engine by the
+   * adapter, and the checks behind both run in the browser of a build with no backend, so they are a
+   * demonstration and not production authorisation (rule P-3).
+   *
+   * @returns Every persona the adapter can act as, in the order it holds them, in the envelope every
+   * call returns.
+   * @throws Problem - No cause of its own on the in-browser adapter, which reports its own seeded
+   * records; a deployment's implementation may refuse the read on its own terms.
+   */
+  listPersonas?(): Promise<Result<ActiveUser[]>>;
 }
