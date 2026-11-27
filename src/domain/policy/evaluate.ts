@@ -48,10 +48,12 @@
  *   simulation label out of it.
  * - P-6: no figure, measure, currency value or threshold is typed here, and no record identifier of a
  *   plant, product, order, exception, approval or model: the engine compares identifiers it was handed
- *   with ones a record holds, and performs no arithmetic. The only literals it holds are the five policy
- *   identifiers contracts §7.2 fixes and the four record values its rules compare — the blocking
+ *   with ones a record holds, and performs no arithmetic. The only literals it holds are the four policy
+ *   identifiers its rules cite and the four record values its rules compare — the blocking
  *   classification and residency, the boundary of a model, and the constraint check a response option
- *   reports — each declared once so that no comparison and no consumer repeats one.
+ *   reports — each declared once so that no comparison and no consumer repeats one. POL-009, the fifth
+ *   identifier contracts §7.2 fixes, is named by no predicate, because a lookup of it is answered
+ *   without a verdict.
  * - P-5: nothing is summed or aggregated, so no verdict can blend a market-intelligence figure with a
  *   first-party one.
  * - P-7: every reason is user-visible prose built only from interpolated identifiers and record facts.
@@ -107,7 +109,7 @@ import type {
 } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
- * The five policy identifiers — contracts §7.2
+ * The four policy identifiers the rules cite — contracts §7.2
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -137,16 +139,6 @@ const POL_RESPONSE_OPTION_VALIDATION: PolicyId = 'POL-005';
  * identifier rather than once under each of them.
  */
 const POL_EXTERNAL_MODEL_BOUNDARY: PolicyId = 'POL-007';
-
-/**
- * POL-009: key custody is declared to sit with the customer.
- *
- * Declared configuration, not an evaluated rule: the engine never evaluates it and returns
- * `notApplicable` for it, and the sovereignty screen shows it under the fixed `Declared, not
- * verified` label (rule P-4). The identifier is declared here so that the one action which can name
- * it is answered without a second literal appearing anywhere else.
- */
-const POL_CUSTOMER_HELD_KEYS: PolicyId = 'POL-009';
 
 /* ---------------------------------------------------------------------------------------------
  * The record values the rules compare — contracts §3, §7.2, AAP 0.12.2
@@ -684,34 +676,6 @@ function decideAssistantQuery(
 }
 
 /* ---------------------------------------------------------------------------------------------
- * POL-009 — declared configuration, never evaluated — contracts §7.2, rule P-4
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * Answers a question about one policy by identifier — contracts §7.2.
- *
- * A lookup asks what a policy says, never whether a rule governs an action, so the engine gives no
- * verdict for it. Two cases reach this function and neither is a refusal: POL-009 is declared
- * configuration the engine never evaluates, so its answer is `notApplicable` by design, and every
- * other identifier names a policy that is read against an action rather than on its own, so its answer
- * is `notApplicable` for want of an action to evaluate. Declaring the declared policy explicitly keeps
- * the design decision in the code that answers it rather than only in this module's prose.
- *
- * @param action The policy the question is about.
- * @returns `notApplicable` in both cases; never a denial, and never a permission.
- */
-function decidePolicyLookup(action: PolicyLookupAction): PolicyDecision {
-  if (action.policyId === POL_CUSTOMER_HELD_KEYS) {
-    // Declared configuration: a question about it is answered without a verdict rather than with a
-    // permission, because the engine never evaluates it (rule P-4).
-    return notApplicable();
-  }
-
-  // An evaluated policy is read against an action, and a lookup supplies none to read it against.
-  return notApplicable();
-}
-
-/* ---------------------------------------------------------------------------------------------
  * The decision — AAP 0.12.1
  * ------------------------------------------------------------------------------------------- */
 
@@ -750,7 +714,12 @@ export function evaluate(
     case 'assistant.query':
       return decideAssistantQuery(action, records);
     case 'policy-lookup':
-      return decidePolicyLookup(action);
+      // A lookup asks what a policy says, never whether a rule governs an action, so the engine gives
+      // no verdict for it. POL-009 is declared configuration it never evaluates (rule P-4, contracts
+      // §7.2), and every other identifier names a policy read against an action a lookup does not
+      // supply. The decision states a rule and a reason on a denial only, so no member could tell the
+      // two cases apart and no branch on the identifier exists.
+      return notApplicable();
     default: {
       // A member added to `PolicyAction` without a predicate lands here, where this assignment makes
       // the missing case a compile error rather than a silent outcome.

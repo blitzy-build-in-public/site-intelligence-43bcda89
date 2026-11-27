@@ -1720,7 +1720,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * same freshness reaches every other screen through each result's metadata.
    *
    * @returns The source catalogue, in the order the freshness strip renders it.
-   * @throws Problem - A `'permission'` failure when the role does not hold `admin.read`.
+   * @throws Problem - A `'permission'` failure while the demonstration's forbidden trigger is on.
    */
   async getSourceCatalogue(): Promise<Result<SourceCatalogue>> {
     return this.dispatch((ctx) => governance.getSourceCatalogue(ctx));
