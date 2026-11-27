@@ -51,6 +51,14 @@
     background-color: var(--color-ground, var(--palette-ground));
     color: var(--color-text-primary, var(--palette-text-primary));
   }
+
+  /* rule B-3: every control shows a focus ring, including one authored without the
+     focus-visible utilities. A control that carries them still wins, because the
+     utilities layer is declared after base. */
+  :focus-visible {
+    outline: 2px solid var(--color-focus-ring, var(--palette-focus-ring));
+    outline-offset: 2px;
+  }
 }
 
 /* reduced motion — rule B-3 */

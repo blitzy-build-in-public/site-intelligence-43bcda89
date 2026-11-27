@@ -242,10 +242,13 @@ describe('DataTable', () => {
     rowAt(0).focus();
 
     // The visible focus indicator B-3 requires: a 2px ring in the theme's focus-ring role token,
-    // drawn only on keyboard focus so a pointer user never sees it.
+    // drawn only on keyboard focus so a pointer user never sees it. No `outline-none` reset sits
+    // beside it, because that reset sets `--tw-outline-style: none` and `focus-visible:outline-2`
+    // reads the variable back into `outline-style`, which would paint no ring at all.
     const focusRingClass = 'focus-visible:outline-focus-ring';
     expect(rowAt(0).className).toContain(focusRingClass);
-    expect(rowAt(0).className).toContain('outline-none');
+    expect(rowAt(0).className).toContain('focus-visible:outline-2');
+    expect(rowAt(0).className).not.toContain('outline-none');
 
     await user.keyboard('j');
 

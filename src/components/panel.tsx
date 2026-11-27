@@ -8,9 +8,11 @@ export interface PanelProps {
   /** The grouped content, rendered directly inside the surface. */
   children: ReactNode;
   /**
-   * A short caption naming the group. It is rendered in the caption text role and becomes the
-   * region's accessible name, so a group can be announced without a heading. Omitted, no caption
-   * element is rendered and the panel carries no accessible name of its own.
+   * A short caption naming the group. It is rendered in the caption text role and, when the panel
+   * renders as its default `<section>`, it becomes that region's accessible name, so a group can be
+   * announced without a heading. Absent, `null` and the empty string all leave the caption out
+   * entirely — no caption element, and no name reference pointing at text that does not exist — so
+   * the panel carries no accessible name of its own.
    */
   label?: ReactNode;
   /** The element the surface is built from. Defaults to `'section'`. */
@@ -36,7 +38,15 @@ export interface PanelProps {
  */
 export function Panel({ children, label, as = 'section', className }: PanelProps) {
   const captionId = useId();
-  const hasCaption = label !== undefined && label !== null;
+
+  /* An empty caption is no caption, so presence is tested against `undefined`, `null` and the empty
+     string rather than against truthiness, which is the predicate `Card` applies to its title. The
+     name reference is emitted only from the `<section>` default, because a `<div>` has no role for
+     `aria-labelledby` to name: the attribute would be ignored there and would read as a name given
+     to nothing. The caption itself still renders either way, since it is visible content and only
+     its use as a name depends on the role. */
+  const hasCaption = label !== undefined && label !== null && label !== '';
+  const isNamed = hasCaption && as === 'section';
   const Element = as;
 
   return (
@@ -45,7 +55,7 @@ export function Panel({ children, label, as = 'section', className }: PanelProps
         'rounded-panel border border-hairline bg-surface-2 p-4 text-14 text-text-primary',
         className,
       )}
-      aria-labelledby={hasCaption ? captionId : undefined}
+      aria-labelledby={isNamed ? captionId : undefined}
     >
       {hasCaption ? (
         /* Block flow rather than a flex column with a gap: the panel groups arbitrary content, and

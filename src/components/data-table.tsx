@@ -88,16 +88,21 @@ const HEADER_CELL_CLASS =
 
 const CELL_CLASS = 'border-b border-hairline px-3 align-middle';
 
+/* Both ring-bearing controls below draw their indicator for keyboard focus only, so neither carries
+   an `outline-none` reset. That reset sets `--tw-outline-style: none` on the element, and
+   `focus-visible:outline-2` reads that variable back into `outline-style`, so carrying one would
+   suppress the very ring B-3 requires. */
+
 /**
  * The sort control: a real button, at least 24 by 24 px (B-3's target minimum), carrying the 2px
  * focus ring of the theme on keyboard focus only.
  */
 const SORT_BUTTON_CLASS =
-  'inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control bg-transparent p-0 font-mono text-12 font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
+  'inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control bg-transparent p-0 font-mono text-12 font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
 
 /** The row cursor's focus indicator, drawn inside the row so it is never clipped by a scroll box. */
 const ROW_CLASS =
-  'outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
+  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
 
 /**
  * A row that opens something also advertises it: a pointer cursor and a hover ground, which fades in
