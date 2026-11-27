@@ -99,8 +99,14 @@ export function meaningOf(state: PinState): StatusDescriptor {
  * Each value is the `text-` utility of a `--color-status-*` role token, so the same class list serves
  * both themes and the icon paints in the theme's own measured colour. The map is exhaustive by type,
  * so a meaning added without a colour fails to compile.
+ *
+ * This module owns the token, so `status-indicator.test.tsx` names each meaning's colour through this
+ * map instead of retyping the utility. A restyle to an equivalent utility, or a change of the role a
+ * meaning carries, then flows from here into the case rather than breaking it, and the case is left
+ * proving which tokens reach the markup — the value each role resolves to belongs to the theme layer,
+ * `src/theme/tokens.css`.
  */
-const MEANING_COLOUR_CLASSES = {
+export const MEANING_COLOUR_CLASSES = {
   pass: 'text-status-pass',
   fail: 'text-status-fail',
   warning: 'text-status-warning',
@@ -108,6 +114,17 @@ const MEANING_COLOUR_CLASSES = {
   empty: 'text-status-empty',
   simulated: 'text-status-simulated',
 } as const satisfies Record<StatusMeaning, string>;
+
+/**
+ * The text role the label is painted in, and the only place one is chosen: specification §4.2's
+ * primary text role, whose measured contrast is the ratio the label carries on every surface a status
+ * appears on. The layout utility beside it keeps the label from forcing the row wider than its cell.
+ *
+ * This module owns the token, so `status-indicator.test.tsx` names it through this constant instead
+ * of retyping `text-text-primary`. The case then asserts which role reaches the label, and the value
+ * that role resolves to stays the theme layer's, `src/theme/tokens.css`.
+ */
+export const STATUS_LABEL_CLASS = 'min-w-0 text-text-primary';
 
 /**
  * The icon per meaning, and the only place one is chosen: a check for pass, a cross for fail, a
@@ -178,7 +195,7 @@ export function StatusIndicator({ meaning, label, icon, className }: StatusIndic
       >
         {icon ?? <MeaningIcon aria-hidden="true" focusable="false" />}
       </span>
-      <span className="min-w-0 text-text-primary">{label}</span>
+      <span className={STATUS_LABEL_CLASS}>{label}</span>
     </span>
   );
 }

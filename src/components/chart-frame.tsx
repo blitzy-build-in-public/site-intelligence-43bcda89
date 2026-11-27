@@ -144,9 +144,19 @@ const FIGURE_CLASS = 'flex min-w-0 flex-col gap-3';
 /** The title row: the caption block on the start side, the label and the toggle on the end side. */
 const CAPTION_CLASS = 'flex flex-wrap items-start justify-between gap-3';
 
-const TITLE_CLASS = 'text-16 font-semibold text-text-primary';
-
-const DESCRIPTION_CLASS = 'text-14 text-text-secondary';
+/**
+ * The frame's two caption tokens: the title at the type step and weight specification §4.3 gives a
+ * figure caption, in the primary text role, and the description one step down in the secondary role.
+ *
+ * This module owns both, so `chart-frame.test.tsx` names them through this object rather than
+ * retyping the utilities: a restyle to an equivalent utility, or a move of either caption onto
+ * another role, then reaches the case instead of breaking it. What each role resolves to stays the
+ * theme layer's, `src/theme/tokens.css`.
+ */
+export const CHART_FRAME_CAPTION_CLASSES = {
+  title: 'text-16 font-semibold text-text-primary',
+  description: 'text-14 text-text-secondary',
+} as const;
 
 /**
  * The sentence the table view shows when the caller supplied no rows.
@@ -217,9 +227,9 @@ export function ChartFrame<Row>({
     <figure className={FIGURE_CLASS}>
       <figcaption className={CAPTION_CLASS}>
         <span className="flex min-w-0 flex-col gap-1">
-          <span className={TITLE_CLASS}>{title}</span>
+          <span className={CHART_FRAME_CAPTION_CLASSES.title}>{title}</span>
           {description === undefined ? null : (
-            <span className={DESCRIPTION_CLASS}>{description}</span>
+            <span className={CHART_FRAME_CAPTION_CLASSES.description}>{description}</span>
           )}
         </span>
         <span className="flex shrink-0 flex-wrap items-center gap-3">

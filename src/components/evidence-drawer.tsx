@@ -177,6 +177,19 @@ export const EVIDENCE_DRAWER_TEXT = {
   /** Shown only when the failure arrived without a message, so the region is never silent. */
   failureFallback: 'The read stopped without reporting a cause.',
 
+  /**
+   * The drawer's own sentence for a failure that did not arrive in the service's shape — a read that
+   * rejected with something carrying no `Problem` at all — so that case states what happened instead
+   * of leaving a heading over an empty body.
+   *
+   * It states no cause, because the drawer has none to state, and no security property of any kind
+   * (rule P-4). It is word for word the sentence the grant dialog states for the same case: one
+   * wording exists for a call that stopped without reporting why. The drawer repeats it here rather
+   * than importing it, because a component may not reach into a feature module — the dependency runs
+   * the other way, features importing components.
+   */
+  unreportedFailure: 'The call stopped without reporting a cause.',
+
   /** The label the correlation identifier is printed under, so a reader can quote it. */
   traceLabel: 'Trace',
 } as const;
@@ -488,10 +501,13 @@ export interface EvidenceDrawerProps {
  * DATA — `useQuery`, keyed by the port method's name and the reference, read through `useService()`.
  * The read is wrapped in `StateBoundary` so the pending call renders the shared skeleton and a
  * permission refusal renders the shared forbidden card. Every other failure renders
- * {@link FailureRegion}, which shows the service's own message and a retry: the boundary's `offline`
- * notice states that no source answered, and a reference the records do not hold did not fail for
- * that reason, so the drawer reports the cause it was given rather than one it does not know
- * (rule P-6).
+ * {@link FailureRegion}, which has two shapes and invents neither of them: a failure the service
+ * raised in its own `Problem` shape is printed character for character with the correlation
+ * identifier beside it, and a read that stopped for anything else gets the drawer's own sentence
+ * and a retry, with no cause, permission, role or trace id supplied in its place. The boundary's
+ * `offline` notice states that no source answered, and a reference the records do not hold did not
+ * fail for that reason, so the drawer reports the cause it was given rather than one it does not
+ * know (rule P-6).
  */
 export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps): ReactElement {
   const service = useService();
@@ -553,7 +569,11 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
     }
 
     if (data === undefined) {
-      return null;
+      /* The read settled with no record and no `Problem`: a rejection that did not arrive in the
+         service's shape, so there is no cause to print and none is invented. The failure region
+         still says that the read stopped and offers the retry, rather than leaving the dialog's
+         header and close control over an empty body. */
+      return <FailureRegion problem={null} onRetry={requestRetry} />;
     }
 
     return (
@@ -834,8 +854,12 @@ function ReferenceList({ label, values }: ReferenceListProps): ReactElement | nu
 
 /** Props of {@link FailureRegion}. */
 interface FailureRegionProps {
-  /** The failure the service raised, carried whole so its own message can be printed. */
-  readonly problem: Problem;
+  /**
+   * The failure that ended the read: the `Problem` the service raised, carried whole so its own
+   * message can be printed, or `null` for a rejection that did not arrive in that shape and so has
+   * no member this region could print.
+   */
+  readonly problem: Problem | null;
 
   /** Repeats the read. */
   readonly onRetry: () => void;
@@ -844,11 +868,17 @@ interface FailureRegionProps {
 /**
  * What the drawer shows when the read failed for a reason the state boundary does not own.
  *
- * The sentence is the service's own `Problem.message`, printed character for character rather than
- * paraphrased (rule P-6), with the correlation identifier beside it so a reader can quote the call
- * when reporting it. The retry control is `ActionButton`, the application's one control pattern, so
- * the drawer repeats no button styling of its own and the control keeps the minimum target and the
- * focus ring rule B-3 requires; its label is the state boundary's, which already owns that wording.
+ * It renders the cause it was given and invents none (rule P-6), in one of two shapes. With the
+ * service's `Problem` the sentence is `Problem.message`, printed character for character rather than
+ * paraphrased, with the correlation identifier beside it so a reader can quote the call when
+ * reporting it. With `null` — a rejection carrying no `Problem`, so no cause, no permission, no role
+ * list and no trace id this drawer ever received — it prints the module's own sentence and no trace
+ * row at all, because a correlation identifier supplied there would be one the read never reported.
+ *
+ * The retry control is `ActionButton`, the application's one control pattern, so the drawer repeats
+ * no button styling of its own and the control keeps the minimum target and the focus ring rule B-3
+ * requires; its label is the state boundary's, which already owns that wording, and activating it
+ * repeats the read rather than standing as a control that cannot act (rule P-8).
  *
  * The region is announced (`role="status"`), so a reader who activated a figure is told the read
  * failed without having to hunt for the message. Its wording states what happened and nothing about
@@ -856,17 +886,23 @@ interface FailureRegionProps {
  */
 function FailureRegion({ problem, onRetry }: FailureRegionProps): ReactElement {
   const message =
-    problem.message !== '' ? problem.message : EVIDENCE_DRAWER_TEXT.failureFallback;
+    problem === null
+      ? EVIDENCE_DRAWER_TEXT.unreportedFailure
+      : problem.message !== ''
+        ? problem.message
+        : EVIDENCE_DRAWER_TEXT.failureFallback;
 
   return (
     <div className={BODY_CLASSES}>
       <div role="status" className={NOTICE_CLASSES}>
         <StatusIndicator meaning="fail" label={EVIDENCE_DRAWER_TEXT.failureHeadline} />
         <p className={TEXT_CLASSES}>{message}</p>
-        <p className={DETAIL_CLASSES}>
-          {EVIDENCE_DRAWER_TEXT.traceLabel}{' '}
-          <MonoValue value={problem.traceId} kind="id" />
-        </p>
+        {problem === null ? null : (
+          <p className={DETAIL_CLASSES}>
+            {EVIDENCE_DRAWER_TEXT.traceLabel}{' '}
+            <MonoValue value={problem.traceId} kind="id" />
+          </p>
+        )}
       </div>
       <div>
         <ActionButton onClick={onRetry}>{STATE_BOUNDARY_TEXT.retryLabel}</ActionButton>
@@ -902,8 +938,10 @@ function isProblemType(value: unknown): value is Problem['type'] {
  * A service call fails by throwing its `Problem` (contracts §2), and the query cache hands that same
  * value back as an `unknown` error. The three members every failure carries are checked before the
  * value is treated as one, so a rejection that is not a `Problem` — a defect in the read rather than
- * a refusal — is not displayed as though it were a refusal. The remaining members are the service's
- * to populate: only the adapter throws these, and it throws a `Problem`.
+ * a refusal — is never displayed as though it were a refusal: it reaches {@link FailureRegion} with
+ * no problem at all, which says that the read stopped and prints no member of a failure nobody
+ * raised. The remaining members are the service's to populate: only the adapter throws these, and it
+ * throws a `Problem`.
  */
 function asProblem(error: unknown): Problem | null {
   if (typeof error !== 'object' || error === null) {

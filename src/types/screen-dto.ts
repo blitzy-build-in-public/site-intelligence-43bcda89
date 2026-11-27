@@ -494,13 +494,19 @@ export interface SovereigntyStatus {
 /**
  * One policy as its detail screen shows it.
  *
- * Fixing input: AAP 0.12.2's `PolicyDetail` row — contracts §7.2's display text and the recent
- * decisions the screen lists — with the values held by the policy record. `statement` is that
- * record's display text and no wording of it is written in this module.
+ * Fixing input: AAP 0.12.2's `PolicyDetail` row, which fixes the whole row — contracts §7.2's display
+ * text, the recent decisions the screen lists, and specification SCR-07's grant flow for the requests
+ * made against the policy: the reason, the expiry, the second approver and the pending request the
+ * flow records. `statement` is the policy record's display text and no wording of it is written in
+ * this module.
  *
  * `evaluated` is `false` for a policy that is declared configuration rather than a rule the engine
  * runs, which is how the screen distinguishes a policy it can show a decision for from one it can
  * only show as declared (rule P-4).
+ *
+ * `pendingExceptions` is the read side of that grant flow: the flow records a request against one
+ * policy (AAP 0.12.4), and the policy's own detail answers with it, so a reader who has just asked for
+ * an exception sees the request on the policy rather than having to look for it in the audit trail.
  */
 export interface PolicyDetail {
   /** The policy's identifier, `POL-nnn`. */
@@ -517,6 +523,15 @@ export interface PolicyDetail {
 
   /** The audit events recording decisions this policy made, most recent as the screen orders them. */
   recentDecisions: AuditEvent[];
+
+  /**
+   * The time-boxed exception requests pending against this policy, the newest request first.
+   *
+   * Each carries the reason, the expiry, the requester and the second approver the grant flow
+   * recorded, in the record's own words and instants. A request the audit trail also holds is the same
+   * request: this member is the session's record of it, and the event is that record's trail.
+   */
+  pendingExceptions: PolicyException[];
 }
 
 /**

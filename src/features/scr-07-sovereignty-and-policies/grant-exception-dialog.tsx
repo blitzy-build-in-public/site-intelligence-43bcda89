@@ -11,6 +11,14 @@
  * appears in the session is the adapter's record and never a copy made here (AAP 0.12.2
  * `PolicyException`, AAP 0.12.1 "Port" row).
  *
+ * WHAT A RECORDED REQUEST DOES TO THE CACHE. Once the port has resolved the request, the dialog
+ * invalidates the reads that write touched through `invalidateAfterWrite` from the shell's cache
+ * module (`src/app/query-cache.ts`), which is the one implementation of AAP 0.6.2's "a write
+ * invalidates the queries it affects". That helper only marks cache entries stale — it reads no
+ * record, edits none, and holds no data boundary of its own — and it is called before the caller is
+ * told the request was recorded, so a policy, sovereignty or audit surface that stays mounted reads
+ * the post-write payload instead of the one it cached. A refused call invalidates nothing.
+ *
  * WHAT IT CLAIMS, AND WHAT IT DOES NOT. The dialog says that a request is recorded as pending and
  * that nothing here decides it. A denial in a browser page demonstrates the declared policy set
  * rather than production authorisation, so no sentence states or implies that granting an exception
@@ -31,8 +39,11 @@
  *   lifts its boundary to the accent role under the pointer, so a pointer reader sees a state the
  *   keyboard reader has an equivalent of; and every transition is `motion-safe:`, so a reduced-motion
  *   session animates nothing here.
- * - P-2: data access is `useService()` alone. No seed module, adapter, API client, shell module or
- *   other feature is imported, so this dialog cannot become a second data boundary.
+ * - P-2: data access is `useService()` alone. The one module from the shell imported here is
+ *   `src/app/query-cache.ts`, whose `invalidateAfterWrite` marks the cache entries a recorded write
+ *   moved; it reads no record, edits none and holds no data boundary. No seed module, adapter, API
+ *   client, other shell module or other feature is imported, so this dialog cannot become a second
+ *   data boundary.
  * - P-6: no figure, date, identifier, user, role or count is typed here. The policy identifier and its
  *   label arrive as props, the candidate approvers arrive as props, and the boundary the expiry is
  *   measured against is the imported `DEMO_CLOCK` constant rather than a literal or the system clock.
@@ -67,9 +78,11 @@
  * so nothing in this markup can submit implicitly and `Enter` inside the reason field inserts a line
  * break instead of sending a policy exception.
  */
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
+import { invalidateAfterWrite } from '../../app/query-cache';
 import { Card } from '../../components/card';
 import { ActionButton } from '../../components/tooltip';
 import type {
@@ -550,6 +563,7 @@ export function GrantExceptionDialog({
   secondApprovers,
 }: GrantExceptionDialogProps): ReactElement {
   const service = useService();
+  const queryClient = useQueryClient();
 
   const [reason, setReason] = useState('');
   const [expiry, setExpiry] = useState('');
@@ -658,10 +672,11 @@ export function GrantExceptionDialog({
   /**
    * Sends the request once, through the port.
    *
-   * On success the caller is handed the record the service returned and the dialog closes; on a refusal
-   * or another throw the dialog stays open with its terms intact, the failure is rendered and the
-   * submit becomes usable again, so nothing a reader typed is lost and no failure is swallowed
-   * (AAP 0.2.2).
+   * On success the reads the write touched are invalidated (AAP 0.6.2), the caller is handed the record
+   * the service returned and the dialog closes; on a refusal or another throw the dialog stays open with
+   * its terms intact, the failure is rendered and the submit becomes usable again, so nothing a reader
+   * typed is lost and no failure is swallowed (AAP 0.2.2). A refused call invalidates nothing, because no
+   * record moved.
    */
   const submit = async (): Promise<void> => {
     if (submitBlocker !== null) {
@@ -680,6 +695,15 @@ export function GrantExceptionDialog({
       });
 
       setSubmitting(false);
+
+      /* The three reads this write touched: `getPolicy`, for the policy the request was recorded
+         against, then the two reads of the same governance family — `getSovereigntyStatus`, whose
+         payload carries the ledger computed from the audit trail this write appends to, and
+         `listAuditEvents`, which shows the appended event. Issued before the caller is told the request
+         was recorded, so a surface that stays mounted reads the post-write payload rather than the one
+         it cached before the write. */
+      invalidateAfterWrite(queryClient, ['getPolicy', 'getSovereigntyStatus', 'listAuditEvents']);
+
       onSubmitted?.(result.data);
       onClose();
     } catch (thrown) {

@@ -1,15 +1,17 @@
 /**
  * The React boundary every screen, component and shell module reaches the service through: one
- * context, the two hooks that read it, the skeleton the first paint shows while the in-browser
+ * context, the three hooks that read it, the skeleton the first paint shows while the in-browser
  * adapter prepares the seeded records and hashes their audit chain, and the failure region a
  * start-up that could not finish is reported in.
  *
  * WHY THIS MODULE EXISTS. Rule P-2 binds all data access to the one typed service interface, and
- * AAP 0.12.1's "Provider" row gives that binding its React shape: a context exposing `useService()`
- * and `useDemonstration()`, awaiting the adapter's asynchronous bootstrap before the first screen
- * renders. A screen therefore reaches records through a hook and never through an adapter, a seed
- * module or a global, which is what makes "components and screens never import seed data" a
- * property of the dependency graph rather than a habit (rules P-2, P-6).
+ * AAP 0.12.1's "Provider" row gives that binding its React shape: a context exposing `useService()`,
+ * `useDemonstration()` and `useActiveUser()`, awaiting the adapter's asynchronous bootstrap before the
+ * first screen renders. The persona the session acts as is read in that same start-up, so the shell
+ * learns who the adapter is enforcing from one settling pass rather than from a second request once a
+ * screen has mounted (AAP 0.6.3 "Identity"). A screen therefore reaches records through a hook and
+ * never through an adapter, a seed module or a global, which is what makes "components and screens
+ * never import seed data" a property of the dependency graph rather than a habit (rules P-2, P-6).
  *
  * WHY THE FIRST PAINT WAITS. The in-browser adapter hashes the two hundred seeded audit events
  * through the platform's own Web Crypto in its constructor, so until that pass settles the trail
@@ -28,7 +30,7 @@
  *
  * WHAT A FAILED START-UP SHOWS. An accessible region stating that the workspace could not be
  * prepared, the `Problem`'s own message, its correlation identifier when it carried one, and one
- * retry control that re-runs the readiness handshake and nothing else — no port write, no reset,
+ * retry control that re-runs the start-up and nothing else — no port write, no reset,
  * no state of its own (AAP 0.2.2's "a pending call shows the loading state and a failure shows a
  * message with a retry action"). The retry replaces the attempt promise held in state, so the
  * boundary suspends into the skeleton again and then renders either the workspace or the failure
@@ -76,6 +78,7 @@
 import { Suspense, createContext, use, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
+import type { ActiveUser } from '../types/entities';
 import type { Problem, ProblemType } from '../types/service';
 import { createService, getDemonstrationControls, whenServiceReady } from './create-service';
 import type { DemonstrationControls } from './demonstration-controls';
@@ -129,10 +132,12 @@ export const SERVICE_PROVIDER_TEXT = {
   reloadHint: 'If it stays unavailable, reload the page to start a fresh session.',
 
   /**
-   * The developer-facing message `useService()` and `useDemonstration()` throw with when they are
-   * called outside the provider. It is a misuse of the module, never a string a reader sees.
+   * The developer-facing message `useService()`, `useDemonstration()` and `useActiveUser()` throw
+   * with when they are called outside the provider. It is a misuse of the module, never a string a
+   * reader sees.
    */
-  outsideProvider: 'useService and useDemonstration must be called inside ServiceProvider',
+  outsideProvider:
+    'useService, useDemonstration and useActiveUser must be called inside ServiceProvider',
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
@@ -228,9 +233,15 @@ const RETRY_BUTTON_CLASSES = [
  * not have and cannot be, without a class component. The failure therefore travels as a value the
  * boundary renders, and the `Problem` the service produced is carried whole so the region prints
  * the service's own message and identifier instead of a paraphrase (rule P-6).
+ *
+ * The ready member carries the persona the session acts as, read once from the adapter in the same
+ * attempt that waits for its bootstrap, so the shell seeds the persona it displays from the persona
+ * the adapter enforces (AAP 0.6.3 "Identity"). `null` states one fact rather than a missing one: the
+ * bound adapter carries no demonstration capability, so it has no seeded persona to report and the
+ * shell keeps whatever a successful role switch gives it.
  */
 type BootstrapOutcome =
-  | { readonly status: 'ready' }
+  | { readonly status: 'ready'; readonly activeUser: ActiveUser | null }
   | { readonly status: 'failed'; readonly problem: Problem };
 
 /**
@@ -298,20 +309,43 @@ function asProblem(error: unknown): Problem {
 }
 
 /**
- * Runs the readiness handshake once and records how it settled.
+ * Runs the start-up once and records how it settled.
  *
- * Never rejects: a rejection is converted to the failure member of {@link BootstrapOutcome}, which
- * is what lets the boundary read the promise with `use()` and render the outcome instead of
- * throwing. It performs no port write and changes no state of its own — a retry calls it again and
- * nothing else, so a failed start-up cannot leave a half-applied change behind.
+ * Two steps, in this order. The readiness handshake settles first, so the seeded records are installed
+ * and their audit chain is hashed before anything is read from them. The persona the session acts as is
+ * then read through the adapter's demonstration capability, because the session's identity is part of
+ * preparing the workspace rather than a detail a screen collects once it has rendered: the shell seeds
+ * the role it displays, and the density and entry route that follow that role, from this one value
+ * (AAP 0.6.3 "Identity", AAP 0.12.4). An adapter carrying no demonstration capability — the
+ * unconnected HTTP client, which leaves identity to the service it addresses — settles ready with
+ * `null` and no identity to seed.
+ *
+ * Never rejects: a refused handshake, and equally a `Problem` the identity read threw, is recorded as
+ * the failure member of {@link BootstrapOutcome}. That is what lets the boundary read the promise with
+ * `use()` and render the outcome instead of throwing, and it applies one rule to both steps — a
+ * start-up that cannot report who the session acts as leaves the boundary in the failure region with
+ * its retry rather than rendering a workspace whose persona nobody knows. It performs no port write
+ * and changes no state of its own — a retry calls it again and nothing else, so a failed start-up
+ * cannot leave a half-applied change behind.
  *
  * @returns A promise that resolves to the recorded outcome of this attempt.
  */
-function startBootstrap(): Promise<BootstrapOutcome> {
-  return whenServiceReady().then(
-    (): BootstrapOutcome => ({ status: 'ready' }),
-    (error: unknown): BootstrapOutcome => ({ status: 'failed', problem: asProblem(error) }),
-  );
+async function startBootstrap(): Promise<BootstrapOutcome> {
+  try {
+    await whenServiceReady();
+
+    const demonstration = getDemonstrationControls();
+
+    if (demonstration === null) {
+      return { status: 'ready', activeUser: null };
+    }
+
+    const activeUser = await demonstration.getActiveUser();
+
+    return { status: 'ready', activeUser: activeUser.data };
+  } catch (error: unknown) {
+    return { status: 'failed', problem: asProblem(error) };
+  }
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -319,24 +353,36 @@ function startBootstrap(): Promise<BootstrapOutcome> {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * What the provider hands its consumers: the bound adapter, and the demonstration capability beside
- * it when the adapter carries one.
+ * What the provider hands its consumers: the bound adapter, the demonstration capability beside it
+ * when the adapter carries one, and the persona that adapter acts as.
  *
- * The capability is part of the value rather than a second context, because the two are read from
- * the same bound instance and a consumer that had one but not the other would have to re-derive
- * which adapter it is talking to.
+ * The capability and the identity are part of the value rather than further contexts, because all
+ * three are read from the same bound instance and a consumer that had one but not the others would
+ * have to re-derive which adapter it is talking to.
  */
 interface ServiceContextValue {
   /** The bound adapter, the single route to every record (rule P-2). */
   readonly service: SiteIntelligenceService;
 
   /**
-   * The role switch the demonstration offers, or `null` when the bound adapter carries none.
+   * The role switch and the acting-persona read the demonstration offers, or `null` when the bound
+   * adapter carries none.
    *
    * `null` is what lets the role switcher render disabled with a reason instead of assuming the
    * capability is there (rule P-8, `src/services/demonstration-controls.ts`).
    */
   readonly demonstration: DemonstrationControls | null;
+
+  /**
+   * The persona the session acts as, as the adapter reported it when the start-up settled, or `null`
+   * when the bound adapter carries no demonstration capability.
+   *
+   * It is published rather than held so the shell can seed the persona it displays from the persona
+   * the adapter enforces (AAP 0.6.3 "Identity"). It is read once per settled attempt and is never
+   * re-read here: a role switch and a demonstration reset both answer the caller that made them, so
+   * this value is the start of the session rather than a live subscription to it.
+   */
+  readonly activeUser: ActiveUser | null;
 }
 
 /**
@@ -353,11 +399,11 @@ export interface ServiceProviderProps {
 
 /**
  * Supplies the bound service to the shell, and holds the first paint back until the adapter can
- * answer its first call.
+ * answer its first call and has reported the persona it acts as.
  *
  * The attempt promise lives in state so a retry can replace it: `use()` tracks the promise it was
  * given, so a new attempt suspends the boundary into the skeleton again and the reader sees the
- * wait rather than a stale failure while the handshake runs. The promise is created by the state
+ * wait rather than a stale failure while the start-up runs. The promise is created by the state
  * initialiser, so it is one promise per attempt and never a new one per render — a fresh promise on
  * every render would suspend the tree forever.
  *
@@ -369,7 +415,7 @@ export function ServiceProvider({ children }: ServiceProviderProps): ReactElemen
   const [attempt, setAttempt] = useState<Promise<BootstrapOutcome>>(startBootstrap);
 
   /*
-   * The retry re-runs the readiness handshake and nothing else. It is not a reset and not a write:
+   * The retry re-runs the start-up and nothing else. It is not a reset and not a write:
    * the demonstration's `Reset demo data` is a member of the port that a screen offers, while this
    * control exists only because a start-up that could not finish leaves no screen to offer it.
    */
@@ -391,7 +437,7 @@ interface ServiceGateProps {
   /** The attempt to read: the component suspends until it settles. */
   readonly attempt: Promise<BootstrapOutcome>;
 
-  /** Re-runs the readiness handshake, offered only by the failure region. */
+  /** Re-runs the start-up, offered only by the failure region. */
   readonly onRetry: () => void;
 
   /** The shell and its screens, rendered for a settled, successful attempt. */
@@ -413,27 +459,39 @@ function ServiceGate({ attempt, onRetry, children }: ServiceGateProps): ReactEle
     return <WorkspaceFailure problem={outcome.problem} onRetry={onRetry} />;
   }
 
-  return <BoundServices>{children}</BoundServices>;
+  return <BoundServices activeUser={outcome.activeUser}>{children}</BoundServices>;
+}
+
+/** Props of the component that binds the context value around the shell. */
+interface BoundServicesProps {
+  /** The persona the settled start-up read from the adapter, published to every consumer. */
+  readonly activeUser: ActiveUser | null;
+
+  /** The shell and its screens, rendered inside the boundary. */
+  readonly children: ReactNode;
 }
 
 /**
  * Binds the context value once and renders the shell inside it.
  *
- * The value is memoised with no dependency list, so the adapter and the capability are read on the
- * first render of a ready session and every consumer receives the same object: a new value object
- * per render would re-render every screen under the shell whenever the provider re-rendered, and
- * `createService` would be re-consulted for no reason.
+ * The value is memoised over the start-up's persona, so the adapter and the capability are read on
+ * the first render of a ready session and every consumer receives the same object for as long as that
+ * persona stands: a new value object per render would re-render every screen under the shell whenever
+ * the provider re-rendered, and `createService` would be re-consulted for no reason. The persona is
+ * the one dependency because it is the one member that arrives from outside — a retry that settles
+ * with a different identity publishes a new value, and a retry that settles with the same one does
+ * not.
  *
  * React Query, the theme provider and the shell store are deliberately absent — `src/app/
  * providers.tsx` owns that composition, so this boundary supplies the service and nothing else
  * (AAP 0.12.1).
  */
-function BoundServices({ children }: { readonly children: ReactNode }): ReactElement {
+function BoundServices({ activeUser, children }: BoundServicesProps): ReactElement {
   const value = useMemo<ServiceContextValue>(() => {
     const service = createService();
 
-    return { service, demonstration: getDemonstrationControls(service) };
-  }, []);
+    return { service, demonstration: getDemonstrationControls(service), activeUser };
+  }, [activeUser]);
 
   return <ServiceContext.Provider value={value}>{children}</ServiceContext.Provider>;
 }
@@ -475,20 +533,43 @@ export function useService(): SiteIntelligenceService {
 }
 
 /**
- * The demonstration's role switch, or `null` when the bound adapter carries none.
+ * The demonstration's role switch and acting-persona read, or `null` when the bound adapter carries
+ * none.
  *
  * The capability sits beside the port rather than inside it, because the contracts' interface
- * declares no role-setting member. A consumer therefore asks for it rather than assuming it: a
- * `null` is the signal to render the control disabled with its reason, which is what keeps rule P-8
- * satisfied on an adapter without a role switch, and what keeps the browser-side permission checks
- * of the in-browser adapter labelled as a demonstration rather than as production authorisation
- * (rule P-3).
+ * declares neither member. A consumer therefore asks for it rather than assuming it: a `null` is the
+ * signal to render the control disabled with its reason, which is what keeps rule P-8 satisfied on an
+ * adapter without a role switch, and what keeps the browser-side permission checks of the in-browser
+ * adapter labelled as a demonstration rather than as production authorisation (rule P-3).
  *
  * @returns The capability, or `null`.
  * @throws Error - When called outside `<ServiceProvider>`; the message is for a developer.
  */
 export function useDemonstration(): DemonstrationControls | null {
   return useServiceContext().demonstration;
+}
+
+/**
+ * The persona the session acts as, as the adapter reported it when the start-up settled.
+ *
+ * Read once, in the start-up that waits for the adapter's bootstrap, so the shell can seed the role it
+ * displays from the role the adapter enforces (AAP 0.6.3 "Identity"). `null` means the bound adapter
+ * has no demonstration capability — the unconnected HTTP client leaves identity to the service it
+ * addresses — in which case there is no persona to seed and the shell keeps whatever a successful role
+ * switch gives it.
+ *
+ * This is the value the shell seeds its persona from, and it is the persona the adapter enforces
+ * permissions against: a role switch changes the adapter's persona and answers the caller that made
+ * it, and a demonstration reset puts the adapter back to its seeded persona, which is the persona this
+ * start-up read already reported. A consumer reads it to know who the session is; it must not treat
+ * the value as authority of its own, because the adapter evaluates the permission matrix against its
+ * own persona rather than against anything the interface holds (rule P-3).
+ *
+ * @returns The acting persona, or `null` when the bound adapter carries no demonstration capability.
+ * @throws Error - When called outside `<ServiceProvider>`; the message is for a developer.
+ */
+export function useActiveUser(): ActiveUser | null {
+  return useServiceContext().activeUser;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -539,7 +620,7 @@ interface WorkspaceFailureProps {
   /** The refusal the start-up settled to, printed as the service stated it. */
   readonly problem: Problem;
 
-  /** Re-runs the readiness handshake; the only thing the region can do. */
+  /** Re-runs the start-up; the only thing the region can do. */
   readonly onRetry: () => void;
 }
 
@@ -553,7 +634,7 @@ interface WorkspaceFailureProps {
  * imply a traced call that never happened (rule P-6). The block holding the heading and the two
  * messages is a `role="alert"` region, so its text is announced when it replaces the skeleton.
  *
- * One control, and it works: the retry re-runs the readiness handshake and nothing else — no write,
+ * One control, and it works: the retry re-runs the start-up and nothing else — no write,
  * no reset, no reload of state (rule P-8). The sentence beneath it names the one action that clears
  * a start-up failure the session has cached, because a fresh session is what a reload produces and
  * the region does not pretend otherwise (rule P-4: it claims nothing about the cause).

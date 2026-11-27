@@ -25,7 +25,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import type { SimLabel } from '../types';
 import { SIM_LABELS } from '../types';
-import { ChartFrame } from './chart-frame';
+import { CHART_FRAME_CAPTION_CLASSES, ChartFrame } from './chart-frame';
 import type {
   ChartFrameBaseProps,
   ChartFrameProps,
@@ -37,9 +37,10 @@ import type { TableColumn, TableSort } from './data-table';
 import { VIEW_AS_TABLE_LABELS } from './view-as-table-toggle';
 
 /*
- * The two sibling imports above are the frame's own vocabulary, not new dependencies of this suite:
- * `ChartTableSpec` speaks `TableColumn` and `TableSort`, and the toggle owns the two label strings
- * success criterion 9 quotes, so retyping them here would give that wording a second owner.
+ * The sibling imports above are the frame's own vocabulary, not new dependencies of this suite:
+ * `ChartTableSpec` speaks `TableColumn` and `TableSort`, the toggle owns the two label strings
+ * success criterion 9 quotes, and `CHART_FRAME_CAPTION_CLASSES` holds the two caption tokens the
+ * frame itself paints. Retyping any of them here would give that wording a second owner.
  */
 
 /** The two labels the control renders, read from their single owner so this suite never retypes them. */
@@ -228,8 +229,15 @@ describe('ChartFrame', () => {
 
     const caption = captionElement();
 
-    expect(within(caption).getByText(TITLE)).toHaveClass('text-16', 'text-text-primary');
-    expect(within(caption).getByText(DESCRIPTION)).toHaveClass('text-14', 'text-text-secondary');
+    /* Both caption tokens are asserted in full, and both come from the frame that owns them: the
+       type step, the weight and the text role are the frame's own decision, so a case that spelled
+       them again would break on an equivalent restyle while the token still held. */
+    expect(within(caption).getByText(TITLE)).toHaveClass(
+      ...CHART_FRAME_CAPTION_CLASSES.title.split(' '),
+    );
+    expect(within(caption).getByText(DESCRIPTION)).toHaveClass(
+      ...CHART_FRAME_CAPTION_CLASSES.description.split(' '),
+    );
     // Specification §4.3 exposes no shadow token, so the frame adds no elevation of its own.
     expect(figureElement().className).not.toMatch(/\bshadow-/);
   });
@@ -408,8 +416,14 @@ describe('ChartFrame', () => {
       render(frameElement({ description: DESCRIPTION, simLabel: SIM_LABEL }));
 
       const caption = captionElement();
-      expect(within(caption).getByText(TITLE)).toHaveClass('text-text-primary');
-      expect(within(caption).getByText(DESCRIPTION)).toHaveClass('text-text-secondary');
+      /* The same caption tokens under either theme: the two themes differ in what each role resolves
+         to, which this suite cannot read, and not in the class list the frame emits. */
+      expect(within(caption).getByText(TITLE)).toHaveClass(
+        ...CHART_FRAME_CAPTION_CLASSES.title.split(' '),
+      );
+      expect(within(caption).getByText(DESCRIPTION)).toHaveClass(
+        ...CHART_FRAME_CAPTION_CLASSES.description.split(' '),
+      );
       expect(caption.className).not.toMatch(/#[0-9a-f]{3,8}\b/i);
       expect(toggleButton()).toBeEnabled();
     },

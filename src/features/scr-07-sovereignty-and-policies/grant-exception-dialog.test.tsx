@@ -9,19 +9,25 @@
  * signature takes; the disabled submit naming each blocker in turn (rule P-8); the failed call keeping
  * the dialog open with the `Problem`'s own message and the members it carries; the in-flight state
  * refusing a second send and a withdrawal; `Enter` inside the reason field inserting a line break
- * rather than sending; and both themes rendering the same dialog.
+ * rather than sending; both themes rendering the same dialog; and, once a request is recorded, the
+ * cache entries of the reads that write touched invalidated while an unrelated entry is not.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary the component is allowed to read
- * through (rule P-2), so no seed module, adapter or query cache is involved and the suite observes
- * exactly the call the dialog makes. Every identifier below is an opaque placeholder rather than a
- * record shape, and every date is derived from the imported `DEMO_CLOCK` constant rather than typed,
- * because the `no-typed-figures` source check reads this folder (rule P-6); the permission and role
- * vocabulary is the contracts' own and is typed as such, which is what makes the fixture valid data.
+ * through (rule P-2), so no seed module and no adapter is involved and the suite observes exactly the
+ * call the dialog makes. Every render sits inside a `QueryClientProvider` holding a fresh client,
+ * because the dialog invalidates the entries a recorded request moved (AAP 0.6.2): a case seeds the
+ * keys it will inspect, acts, and then reads each entry's state off the client it rendered with. Every
+ * identifier below is an opaque placeholder rather than a record shape, and every date is derived from
+ * the imported `DEMO_CLOCK` constant rather than typed, because the `no-typed-figures` source check
+ * reads this folder (rule P-6); the permission and role vocabulary is the contracts' own and is typed
+ * as such, which is what makes the fixture valid data.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock or touches the network.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { QueryKey } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -92,8 +98,14 @@ const REQUESTER = 'requester-alpha';
 /** The correlation identifier every `Result` and `Problem` carries. */
 const TRACE_ID = 'trace-grant-exception';
 
-/** What the dialog shows when a call did not record the request. */
-type SubmitFailureShape = Problem;
+/** The `Problem` a refused request throws, in the shape the port fails with (AAP 0.2.2). */
+const REFUSAL: Problem = {
+  type: 'permission',
+  message: 'Requesting a time-boxed exception needs a permission the acting persona does not hold.',
+  traceId: TRACE_ID,
+  requiredPermission: REQUIRED_PERMISSION,
+  rolesWithPermission: ROLES_WITH_PERMISSION,
+};
 
 /** A promise a case settles by hand, so the in-flight state can be observed while it is true. */
 interface Deferred<T> {
@@ -148,9 +160,64 @@ interface DialogOptions {
   readonly secondApprovers?: readonly GrantExceptionApprover[];
 }
 
-/** Renders the dialog with the defaults a case does not override. */
-function renderDialog(options: DialogOptions = {}): void {
-  render(
+/* ---------------------------------------------------------------------------------------------
+ * The cache a recorded request invalidates — AAP 0.6.2
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The reads a recorded request moves, each with the port member its cache key begins with.
+ *
+ * `getPolicy` for the policy the request was recorded against, `getSovereigntyStatus` for the ledger
+ * counts the appended audit event moves, and `listAuditEvents` for that event itself.
+ */
+const WRITTEN_READ_KEYS: readonly { readonly member: string; readonly key: QueryKey }[] = [
+  { member: 'getPolicy', key: ['getPolicy', POLICY_ID] },
+  { member: 'getSovereigntyStatus', key: ['getSovereigntyStatus'] },
+  { member: 'listAuditEvents', key: ['listAuditEvents'] },
+];
+
+/** A cached read the request does not touch, so an over-broad invalidation cannot pass as correct. */
+const UNRELATED_KEY: QueryKey = ['getException', 'unrelated-ref'];
+
+/** Every entry a request case seeds, so the same render can be asked what moved and what did not. */
+const SEEDED_KEYS: readonly QueryKey[] = [
+  ...WRITTEN_READ_KEYS.map((entry) => entry.key),
+  UNRELATED_KEY,
+];
+
+/**
+ * A fresh cache for one case, holding an entry under each key the case will inspect.
+ *
+ * The entries are seeded before the render because the dialog itself reads nothing: what a case asks
+ * is the state of the entries the shell's screens had already cached, which is exactly what the
+ * invalidation is for. Retries are off, as every sibling suite sets them, so no entry can be retried
+ * behind a case.
+ */
+function seededQueryClient(keys: readonly QueryKey[] = []): QueryClient {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  for (const key of keys) {
+    client.setQueryData(key, null);
+  }
+
+  return client;
+}
+
+/**
+ * Renders one surface inside a fresh cache and hands that client back, so the case can read the
+ * entries it seeded.
+ */
+function renderInCache(ui: ReactElement, keys: readonly QueryKey[] = []): QueryClient {
+  const client = seededQueryClient(keys);
+
+  render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+
+  return client;
+}
+
+/** Renders the dialog with the defaults a case does not override, inside a fresh cache. */
+function renderDialog(options: DialogOptions = {}, keys: readonly QueryKey[] = []): QueryClient {
+  return renderInCache(
     <GrantExceptionDialog
       policyId={POLICY_ID}
       policyLabel={POLICY_LABEL}
@@ -158,6 +225,7 @@ function renderDialog(options: DialogOptions = {}): void {
       onSubmitted={options.onSubmitted}
       secondApprovers={options.secondApprovers ?? APPROVERS}
     />,
+    keys,
   );
 }
 
@@ -351,10 +419,40 @@ describe('GrantExceptionDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it.each(WRITTEN_READ_KEYS)(
+    'invalidates the $member read a recorded request touched, and leaves an unrelated entry alone',
+    async ({ key }) => {
+      const user = userEvent.setup();
+      const client = renderDialog({}, SEEDED_KEYS);
+
+      await completeTerms(user);
+      await user.click(screen.getByRole('button', { name: TEXT.submit }));
+
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+      expect(client.getQueryState(UNRELATED_KEY)?.isInvalidated).toBe(false);
+    },
+  );
+
+  it('invalidates nothing when the request was refused, because the write did not happen', async () => {
+    const user = userEvent.setup();
+    requestPolicyException.mockRejectedValue(REFUSAL);
+    const client = renderDialog({}, SEEDED_KEYS);
+
+    await completeTerms(user);
+    await user.click(screen.getByRole('button', { name: TEXT.submit }));
+    await screen.findByRole('alert');
+
+    for (const { key } of WRITTEN_READ_KEYS) {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+    }
+
+    expect(client.getQueryState(UNRELATED_KEY)?.isInvalidated).toBe(false);
+  });
+
   it('closes on Escape without sending anything and returns focus to the element that opened it', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<DialogHarness onClose={onClose} onSubmitted={vi.fn()} />);
+    renderInCache(<DialogHarness onClose={onClose} onSubmitted={vi.fn()} />);
 
     const opener = screen.getByRole('button', { name: 'Open the grant dialog' });
     await user.click(opener);
@@ -445,14 +543,7 @@ describe('GrantExceptionDialog', () => {
 
   it('keeps the dialog open with the Problem it caught, and lets the submit act again', async () => {
     const user = userEvent.setup();
-    const refusal: SubmitFailureShape = {
-      type: 'permission',
-      message: 'Requesting a time-boxed exception needs a permission the acting persona does not hold.',
-      traceId: TRACE_ID,
-      requiredPermission: REQUIRED_PERMISSION,
-      rolesWithPermission: ROLES_WITH_PERMISSION,
-    };
-    requestPolicyException.mockRejectedValue(refusal);
+    requestPolicyException.mockRejectedValue(REFUSAL);
     const onClose = vi.fn();
     renderDialog({ onClose });
 
@@ -464,7 +555,7 @@ describe('GrantExceptionDialog', () => {
 
     expect(screen.getByRole('dialog', { name: TEXT.heading })).toBeInTheDocument();
     expect(alert).toHaveTextContent(TEXT.failureTitle);
-    expect(alert).toHaveTextContent(refusal.message);
+    expect(alert).toHaveTextContent(REFUSAL.message);
     expect(alert).toHaveTextContent(REQUIRED_PERMISSION);
     expect(alert).toHaveTextContent(ROLES_WITH_PERMISSION.join(', '));
     expect(alert).toHaveTextContent(TRACE_ID);

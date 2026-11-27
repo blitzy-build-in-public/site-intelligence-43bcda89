@@ -23,9 +23,10 @@
  * it in both directions, `Escape` closes it through the caller and returns focus to the triggering
  * figure, and the failure path shows the service's own message with a retry that repeats the read
  * instead of substituting a figure. The 420 px dock from the 1280 px breakpoint and the full-viewport
- * overlay below it are asserted on the dialog's class list, as are the role-token surfaces: no
- * palette value, colour function or elevation appears in the markup, and both themes render the same
- * four sections.
+ * overlay below it are read from the dialog's class list and resolved there — jsdom has no layout, so
+ * that case asserts the geometry the classes ask a browser for rather than a utility's spelling — and
+ * the role-token surfaces are asserted the same way: no palette value, colour function or elevation
+ * appears in the markup, and both themes render the same four sections.
  *
  * THE SERVICE IS MOCKED AT THE PROVIDER, the one boundary the component layer is allowed to read
  * through (rule P-2). The specifier below is exactly the one `evidence-drawer.tsx` imports, because
@@ -68,6 +69,7 @@ import type {
 } from '../types';
 import type { SiteIntelligenceService } from '../services/site-intelligence-service';
 import { EVIDENCE_DRAWER_TEXT as TEXT, EvidenceDrawer, EvidenceRef } from './evidence-drawer';
+import { MONO_VALUE_CLASSES } from './mono-value';
 import { STATE_BOUNDARY_TEXT } from './state-boundary';
 
 /* ---------------------------------------------------------------------------------------------
@@ -288,6 +290,198 @@ function stubDockedViewport(): readonly string[] {
   return queries;
 }
 
+/* ---------------------------------------------------------------------------------------------
+ * The dock geometry contract
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * jsdom implements no layout: it resolves no Tailwind utility and no computed width, so the panel's
+ * geometry cannot be read off a box model here. What it can read is the class list the component
+ * applies, so the helpers below resolve that list into the geometry it asks a browser for — a width in
+ * pixels or as the whole viewport, the vertical span, and the inline edges — and the docked case
+ * asserts those resolved values instead of a utility's spelling. A restyle that keeps the geometry (an
+ * equivalent length unit, a regrouped or reordered class list, an extra component class beside the
+ * utilities) then leaves the case green, while a change to the geometry itself fails it.
+ */
+
+/** The breakpoints a Tailwind variant scopes a utility to, with the min-width each one opens at. */
+const BREAKPOINT_MIN_WIDTHS_PX = {
+  base: 0,
+  sm: 640,
+  md: 768,
+  lg: 1024,
+  xl: 1280,
+  '2xl': 1536,
+} as const;
+
+/** One breakpoint of that scale. `base` is where the list's own unscoped utilities apply. */
+type Breakpoint = keyof typeof BREAKPOINT_MIN_WIDTHS_PX;
+
+/** The width AAP §0.12.4 fixes for the docked panel, which the docked case has to fail on. */
+const DOCKED_WIDTH_PX = 420;
+
+/** The root font size in a browser's default, which a `rem` length resolves against. */
+const ROOT_FONT_SIZE_PX = 16;
+
+/** The step a bare Tailwind length counts in: its `0.25rem` spacing unit. */
+const SPACING_STEP_PX = 4;
+
+/** The width one `w-*` utility asks for: a number of pixels, or the whole viewport. */
+type WidthAsk = number | 'viewport';
+
+/** One class of a class list, split into the breakpoint it is scoped to and the utility itself. */
+interface ScopedUtility {
+  readonly breakpoint: Breakpoint;
+  readonly utility: string;
+}
+
+/** Whether a variant name is one of the breakpoints above. */
+function isBreakpoint(value: string): value is Breakpoint {
+  return value in BREAKPOINT_MIN_WIDTHS_PX;
+}
+
+/**
+ * Splits a class list into its scoped utilities, dropping every class that has no place in that scale:
+ * a non-breakpoint variant (`hover:`, `focus-visible:`) styles an interaction rather than the panel's
+ * resting geometry, a stacked variant scopes to more than the scale states, and a bare component class
+ * names styling the token layer owns. Ignoring them is what lets an extra component class sit beside
+ * the utilities without changing what a case resolves.
+ */
+function scopedUtilities(classList: string): ScopedUtility[] {
+  const scoped: ScopedUtility[] = [];
+
+  for (const entry of classList.split(/\s+/)) {
+    if (entry === '') {
+      continue;
+    }
+
+    const [first = '', ...rest] = entry.split(':');
+    if (rest.length === 0) {
+      scoped.push({ breakpoint: 'base', utility: first });
+      continue;
+    }
+
+    const [utility = ''] = rest;
+    if (rest.length > 1 || utility === '' || !isBreakpoint(first)) {
+      continue;
+    }
+
+    scoped.push({ breakpoint: first, utility });
+  }
+
+  return scoped;
+}
+
+/**
+ * The utility that wins at `breakpoint` for one family of utilities, or `undefined` when the class list
+ * states none there: of those in effect, the one scoped to the widest breakpoint, and the last listed
+ * where two at that width both apply — the order a browser's own cascade gives them. A family the list
+ * does not state stays `undefined` so the caller fails on it rather than assuming a value.
+ */
+function winningUtility(
+  classList: string,
+  breakpoint: Breakpoint,
+  matches: (utility: string) => boolean,
+): string | undefined {
+  const width = BREAKPOINT_MIN_WIDTHS_PX[breakpoint];
+
+  let winner: ScopedUtility | undefined;
+  for (const entry of scopedUtilities(classList)) {
+    const entryWidth = BREAKPOINT_MIN_WIDTHS_PX[entry.breakpoint];
+    if (!matches(entry.utility) || entryWidth > width) {
+      continue;
+    }
+    if (winner === undefined || entryWidth >= BREAKPOINT_MIN_WIDTHS_PX[winner.breakpoint]) {
+      winner = entry;
+    }
+  }
+
+  return winner?.utility;
+}
+
+/**
+ * Resolves the value of one `w-*` utility to the width a browser would apply: `full` and `screen` both
+ * mean the whole viewport for a panel laid over the page, `[<n>px]` and `[<n>rem]` are the absolute
+ * lengths one width can be stated in, and a bare number is a step of Tailwind's spacing scale. Anything
+ * else — `auto`, `min`, a fraction, a keyword this suite cannot resolve — is `undefined`, so an
+ * unfamiliar width fails the case instead of passing it unread.
+ */
+function resolveWidthValue(value: string): WidthAsk | undefined {
+  if (value === 'full' || value === 'screen') {
+    return 'viewport';
+  }
+
+  const arbitrary = /^\[(\d+(?:\.\d+)?)(px|rem)\]$/.exec(value);
+  if (arbitrary !== null) {
+    const [, magnitude = '0', unit = 'px'] = arbitrary;
+    return Number(magnitude) * (unit === 'rem' ? ROOT_FONT_SIZE_PX : 1);
+  }
+
+  if (/^\d+$/.test(value)) {
+    return Number(value) * SPACING_STEP_PX;
+  }
+
+  return undefined;
+}
+
+/** The panel's width at one breakpoint, resolved from the width utilities in effect there. */
+function dockWidthAt(classList: string, breakpoint: Breakpoint): WidthAsk | undefined {
+  const utility = winningUtility(classList, breakpoint, (entry) => entry.startsWith('w-'));
+  return utility === undefined ? undefined : resolveWidthValue(utility.slice('w-'.length));
+}
+
+/** The breakpoints at which the class list states a width utility at all, narrowest first. */
+function widthBreakpoints(classList: string): Breakpoint[] {
+  const stated = new Set<Breakpoint>();
+
+  for (const entry of scopedUtilities(classList)) {
+    if (entry.utility.startsWith('w-')) {
+      stated.add(entry.breakpoint);
+    }
+  }
+
+  return [...stated].sort(
+    (left, right) => BREAKPOINT_MIN_WIDTHS_PX[left] - BREAKPOINT_MIN_WIDTHS_PX[right],
+  );
+}
+
+/**
+ * Whether the panel asks to span the viewport vertically at `breakpoint`: `inset-y-0` or `inset-0`, or
+ * a zero `top` and a zero `bottom` together. Those are Tailwind's spellings for "no inset above or
+ * below", which is what makes the overlay cover the viewport rather than sit at a height of its own.
+ */
+function spansViewportVertically(classList: string, breakpoint: Breakpoint): boolean {
+  const winning = (family: string): string | undefined =>
+    winningUtility(classList, breakpoint, (entry) => entry.startsWith(`${family}-`));
+
+  return (
+    winning('inset-y') === 'inset-y-0' ||
+    winning('inset') === 'inset-0' ||
+    (winning('top') === 'top-0' && winning('bottom') === 'bottom-0')
+  );
+}
+
+/**
+ * The inline edges the panel asks for at `breakpoint`, each as the value its utility states, and
+ * `undefined` where the list states none. The logical pair is read with its physical equivalents
+ * accepted, because `end-0` and `right-0` both stop the panel at the inline end and `start-auto` and
+ * `left-auto` both release it from the inline start.
+ */
+function inlineEdgesAt(
+  classList: string,
+  breakpoint: Breakpoint,
+): { readonly start: string | undefined; readonly end: string | undefined } {
+  const edge = (families: readonly string[]): string | undefined => {
+    const utility = winningUtility(classList, breakpoint, (entry) =>
+      families.some((family) => entry.startsWith(`${family}-`)),
+    );
+
+    return utility === undefined ? undefined : utility.slice(utility.indexOf('-') + 1);
+  };
+
+  return { start: edge(['start', 'left']), end: edge(['end', 'right']) };
+}
+
 /**
  * Every case starts from a read that succeeds with the full record and from no theme attribute, so
  * a case that fails a call or sets a theme states that itself and leaves nothing behind for the
@@ -453,8 +647,10 @@ describe('EvidenceDrawer', () => {
     const asOf = within(source).getByText(AS_OF);
 
     expect(asOf.textContent).toBe(AS_OF);
-    expect(asOf).toHaveClass('font-mono');
-    expect(asOf).toHaveClass('tabular-nums');
+    /* The instant is a `MonoValue` timestamp, so it carries that component's whole base token — the
+       mono face and the tabular numerals AAP §0.5.3 fixes — named from the module that owns it rather
+       than respelled here, so a restyle of the token reaches this case instead of breaking it. */
+    expect(asOf).toHaveClass(...MONO_VALUE_CLASSES.base.split(' '));
     /* A reformatted instant would name a different moment from the one the stale banner and the
        disabled approval controls quote, so a locale rendering is a defect rather than a style. */
     expect(asOf.textContent).not.toMatch(/GMT|UTC|CET|CEST/);
@@ -573,15 +769,56 @@ describe('EvidenceDrawer', () => {
     renderDrawer();
 
     const dialog = await screen.findByRole('dialog', { name: TEXT.title });
+    const classes = dialog.className;
 
-    /* Below the breakpoint the drawer is the overlay the plan requires; from Tailwind's `xl`
-       (1280 px) up it is docked 420 px against the inline end, which AAP §0.12.4 fixes. */
-    expect(dialog).toHaveClass('w-full');
-    expect(dialog).toHaveClass('inset-y-0');
-    expect(dialog).toHaveClass('xl:w-[420px]');
-    expect(dialog).toHaveClass('xl:end-0');
-    expect(dialog).toHaveClass('xl:start-auto');
-    expect(dialog.className).not.toMatch(/\b(?:sm|md|lg|2xl):w-/);
+    /* Below the breakpoint the drawer is the overlay the plan requires: it covers the viewport, so it
+       is the full viewport wide and inset from top and bottom, with no sliver of page beside it. From
+       Tailwind's `xl` (1280 px) up it is docked 420 px against the inline end, which AAP §0.12.4
+       fixes. jsdom has no layout, so the geometry is read from the class list the component applies
+       and resolved there — lengths in px or rem, `full` as the viewport — rather than compared to a
+       utility's spelling. */
+    for (const below of ['base', 'sm', 'md', 'lg'] as const) {
+      expect(dockWidthAt(classes, below), `the width at ${below}`).toBe('viewport');
+      expect(spansViewportVertically(classes, below), `the vertical span at ${below}`).toBe(true);
+    }
+
+    /* One width from the docked breakpoint up, and it is AAP §0.12.4's 420 px: any other width, in any
+       unit, fails here. */
+    expect(dockWidthAt(classes, 'xl')).toBe(DOCKED_WIDTH_PX);
+    expect(dockWidthAt(classes, '2xl')).toBe(DOCKED_WIDTH_PX);
+
+    /* The two shapes the plan fixes and nothing between them: a width utility scoped to `sm`, `md`,
+       `lg` or `2xl` would give the panel a third width where it should have none. */
+    expect(widthBreakpoints(classes)).toEqual(['base', 'xl']);
+
+    /* Docked means anchored to the inline end rather than the inline start: below the breakpoint the
+       panel starts at the inline start, and from `xl` up it is released there and stopped at the end,
+       which is the edge it is 420 px wide against. */
+    expect(inlineEdgesAt(classes, 'base').start).toBe('0');
+    expect(inlineEdgesAt(classes, 'base').end).toBeUndefined();
+    expect(inlineEdgesAt(classes, 'xl').start).toBe('auto');
+    expect(inlineEdgesAt(classes, 'xl').end).toBe('0');
+  });
+
+  /* The dock case reads the geometry instead of its spelling, so the reading is pinned to both halves
+     of what that buys: the same 420 px written in another unit, in another order or beside a component
+     class resolves alike, and any other width resolves to itself so the docked assertion can fail on
+     it. A width the reader cannot resolve is reported, never silently accepted. */
+  it('resolves the docked width from the length a class states, not from the utility spelling it', () => {
+    const dockedAt = (docked: string): WidthAsk | undefined => dockWidthAt(`w-full ${docked}`, 'xl');
+
+    expect(dockedAt('xl:w-[420px]')).toBe(DOCKED_WIDTH_PX);
+    expect(dockedAt('xl:w-[26.25rem]')).toBe(DOCKED_WIDTH_PX);
+    expect(dockedAt('xl:w-105')).toBe(DOCKED_WIDTH_PX);
+    expect(dockedAt('xl:w-[400px]')).toBe(400);
+    expect(dockedAt('xl:w-[400px]')).not.toBe(DOCKED_WIDTH_PX);
+
+    /* Regrouped, reordered and with a component class beside the utilities: the resolution is the
+       same, because none of that changes the width any breakpoint applies. */
+    expect(dockWidthAt('drawer-panel xl:w-[26.25rem]  w-full', 'lg')).toBe('viewport');
+    expect(dockWidthAt('drawer-panel xl:w-[26.25rem]  w-full', 'xl')).toBe(DOCKED_WIDTH_PX);
+
+    expect(dockedAt('xl:w-auto')).toBeUndefined();
   });
 
   it('claims no modality for the docked panel and keeps its role, name, focus and Escape', async () => {
@@ -630,5 +867,44 @@ describe('EvidenceDrawer', () => {
     /* Both themes resolve the same role tokens, so a palette value, a colour function or an
        elevation in the markup would be a component colouring itself rather than a token. */
     expect(dialog.className).not.toMatch(PALETTE_CLASS_PATTERN);
+  });
+
+  it("says the read stopped when the failure carries no shape the service defines, and repeats the read on retry", async () => {
+    const user = userEvent.setup();
+    /* A rejection that carries none of the members a `Problem` has: a defect in the read rather than
+       a refusal the service shaped. `asProblem` answers `null` for it, so the drawer has no cause,
+       no permission, no roles and no trace id to print — and must still say what happened rather
+       than leave the dialog's header and close control over an empty body. */
+    getEvidence.mockImplementation(async () => {
+      throw new Error('the read ended for a reason it did not describe');
+    });
+    renderDrawer();
+
+    /* The region is waited for by its own sentence: while the call is pending the boundary shows a
+       busy region of its own, so the failure is what the status role is read from once it arrives. */
+    await screen.findByText(TEXT.unreportedFailure);
+
+    const region = screen.getByRole('status');
+
+    expect(within(region).getByText(TEXT.failureHeadline)).toBeVisible();
+    expect(within(region).getByText(TEXT.unreportedFailure)).toBeVisible();
+    /* Nothing is fabricated for a failure that reported nothing: no trace label over no identifier,
+       no borrowed trace id, and no `Problem` message the read never raised (rule P-6). */
+    expect(within(region).queryByText(TEXT.traceLabel)).toBeNull();
+    expect(within(region).queryByText(TRACE_ID)).toBeNull();
+    expect(screen.queryByText(PROBLEM.message)).toBeNull();
+    expect(getEvidence).toHaveBeenCalledTimes(1);
+    /* A failed read substitutes no figure: the sections the record would fill are absent. */
+    expect(screen.queryByRole('region', { name: TEXT.valueSection })).toBeNull();
+
+    /* The control that exists acts (rule P-8): activating it repeats the read, and the record's four
+       sections replace the failure region once the retry answers. */
+    getEvidence.mockResolvedValueOnce(envelope(FULL_EVIDENCE));
+    await user.click(screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel }));
+
+    expect(await screen.findByText(FORMULA)).toBeVisible();
+    expect(getEvidence).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(TEXT.unreportedFailure)).toBeNull();
+    expect(screen.getAllByRole('region')).toHaveLength(4);
   });
 });

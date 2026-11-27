@@ -64,8 +64,9 @@
  * trigger additionally edits the seeded event the tamper control addresses, through
  * `tamperAuditEvent`, so a verification then reports that event's position and repairs nothing; turning
  * the trigger off clears the flag and leaves the edit in place, because a repair would hide the very
- * disagreement the control exists to show. `switchRole` is the one capability the port does not carry,
- * declared in `src/services/demonstration-controls.ts`, and this class implements it from its own state.
+ * disagreement the control exists to show. The role switch and the read of the acting persona are the
+ * capability the port does not carry, declared together in
+ * `src/services/demonstration-controls.ts`, and this class implements both from its own state.
  *
  * DETERMINISM. The only state consulted is the session's; the only platform facility used is the
  * timer that makes a loading state observable. No clock, no random source and no module-level mutable
@@ -111,12 +112,11 @@
  * element-review reads are implemented because the seed holds those records, while the production plan
  * grid and the exit package are refused with a `'not-found'` naming the absent record family, because
  * no seeded module holds one and inventing a record or a figure is forbidden (rule P-6).
- * OPEN ITEM — `src/services/service-conformance.test.ts` is not in this checkout yet, so the proof
- * that this adapter satisfies the port has not been run against it. This class's public surface is
- * exactly the port's members plus the demonstration capability's `switchRole` plus `whenReady`, which
- * is the readiness promise `src/services/create-service.ts` awaits; a conformance check that compares
- * the class's keys against the two interfaces must therefore subtract both `switchRole` and
- * `whenReady`, and that file owns the comparison.
+ * OPEN ITEM — this class's public surface is exactly the port's members plus the two members the
+ * demonstration capability declares — `switchRole` and `getActiveUser` — plus `whenReady`, which is the
+ * readiness promise `src/services/create-service.ts` awaits; a conformance check that compares the
+ * class's keys against the two interfaces must subtract all three, and
+ * `src/services/service-conformance.test.ts` owns that comparison.
  */
 
 import type { ScopeFilterInput } from '../../domain/aggregation/scope';
@@ -790,9 +790,10 @@ function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandid
  * answer anyway so the popover can lift that trigger (rule P-8), and `dispatchCollection` serves a read
  * whose payload is a collection, which the `empty` trigger empties (AAP 0.12.1).
  *
- * The public surface is deliberately the port's own set plus the two names its callers need: the
- * readiness promise and the role switch. Nothing else is public, so a screen cannot reach the
- * families, the state or the chain except through the contract they were declared against.
+ * The public surface is deliberately the port's own set plus the three names its callers need: the
+ * readiness promise, the role switch and the read of the persona the session is acting as. Nothing
+ * else is public, so a screen cannot reach the families, the state or the chain except through the
+ * contract they were declared against.
  */
 export class MockBackend implements SiteIntelligenceService, DemonstrationControls {
   /**
@@ -892,9 +893,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Serves one demonstration control, which answers while the `loading` trigger is in effect.
    *
-   * `setSimulation` and `resetDemo` are how the popover lifts a trigger, and `switchRole` is how the
-   * session changes hands, so none of the three can be held: a control that never answered would leave
-   * the session pending with no way back, and rule P-8 will not have a control that cannot act.
+   * `setSimulation` and `resetDemo` are how the popover lifts a trigger, `switchRole` is how the
+   * session changes hands, and `getActiveUser` is how the shell learns who it is acting as, so none of
+   * the four can be held: a control that never answered would leave the session pending with no way
+   * back, and rule P-8 will not have a control that cannot act.
    *
    * @param work - The control's own work, given the session and the acting persona.
    * @returns The payload the control produced, inside the envelope every port member returns.
@@ -1995,6 +1997,26 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
 
       return actorOf(ctx.state);
     });
+  }
+
+  /**
+   * Reads the persona the session is acting as.
+   *
+   * `actorOf`'s own resolution of `state.activeUserId`, and nothing else: the persona's identifier and
+   * name, its role, that role's plant scope and permissions, and the home route the router sends it to.
+   * The record is therefore the identity this adapter authorises every other call against rather than a
+   * second account of it, and a demonstration reset that puts `state.activeUserId` back to the seeded
+   * persona is reported by the next read instead of leaving a caller holding the role it switched to.
+   *
+   * It goes through `dispatchControl` for the same reason `switchRole` does: it must answer while the
+   * simulation's `loading` trigger holds, so the shell can always learn who it is acting as. The read
+   * the boundary takes at start-up is this member, and it runs before any screen exists — a held read
+   * would leave that start-up pending with nothing on screen from which to lift the trigger.
+   *
+   * @returns The persona the session acts as, in the envelope every call returns.
+   */
+  async getActiveUser(): Promise<Result<ActiveUser>> {
+    return this.dispatchControl((ctx) => actorOf(ctx.state));
   }
 }
 

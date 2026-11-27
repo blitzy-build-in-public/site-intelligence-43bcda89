@@ -21,13 +21,17 @@
  * through it. The service boundary sits inside it because its own start-up wait renders the
  * accessible skeleton in place of the shell, and because a screen's first query must not run against
  * an adapter that has not finished preparing the seeded records and hashing the audit trail. The
- * theme is innermost because the density it applies follows the active role, and that role is read
- * from the store inside the service boundary. This module renders no markup of its own beyond those
- * three providers.
+ * theme is innermost because the density it applies follows the persona in force, which comes from the
+ * shell store above it and from the boundary's own start-up read — which is why the seed and the theme
+ * both sit inside the service boundary. This module renders no markup of its own beyond those three
+ * providers and the seed that writes the persona into the store.
  *
- * NO DATA LOADING HERE. The file holds no `fetch`, no port read and no query of its own: screens own
- * their reads through the cache, and the only member of the port this module's subtree touches is the
- * start-up handshake `ServiceProvider` already performs (AAP 0.12.1, AAP 0.18.1).
+ * NO DATA LOADING HERE. The file holds no `fetch`, no adapter import and no query of its own: screens
+ * own their reads through the cache, and the only value the shell reads for itself is the start-up
+ * identity, taken through the boundary's `useActiveUser()` because the persona the adapter enforces is
+ * what the theme's density, the router's entry route and the role switcher's display all describe (AAP
+ * 0.6.3 "Identity"). The handshake that produces it stays `ServiceProvider`'s own (AAP 0.12.1, AAP
+ * 0.18.1).
  *
  * Rules served:
  * - P-2: the only data boundary in the tree is `ServiceProvider`. This module imports no seed module,
@@ -50,14 +54,14 @@
  * branch below exists for a test's benefit: the simulation popover and the role switcher are product
  * features, and every browser test drives them as a reader would.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { create } from 'zustand';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
-import { ServiceProvider } from '../services/service-provider';
+import { ServiceProvider, useActiveUser } from '../services/service-provider';
 import { ThemeProvider, defaultDensityForRole } from '../theme/theme-provider';
 import type { Role } from '../types/entities';
 import type { Scope } from '../types/service';
@@ -81,17 +85,20 @@ import type { Scope } from '../types/service';
  */
 export interface ShellState {
   /**
-   * The persona the service is acting as, or `null` before the shell has established one.
+   * The persona the reader has switched to, or `null` while the session acts as the persona it was
+   * seeded with.
    *
-   * It starts `null` because the port declares no active-user read: `platform-contracts.md` §2 fixes
-   * `SiteIntelligenceService` method for method and none of its members reports the acting persona.
-   * The value therefore arrives from the one call that does report it — `switchRole` on the
-   * demonstration capability in `src/services/demonstration-controls.ts`, which
-   * `src/app/role-switcher.tsx` invokes and whose returned `ActiveUser` it hands to
-   * `setActiveRole`. Nothing depends on the value being set: the theme falls back to its comfortable
-   * density while it is `null`, and no screen derives authority from it, because the adapter evaluates
-   * the permission matrix against its own acting persona rather than trusting a caller's field
-   * (rule P-3 — the checks behind the switcher are a demonstration, not production authorisation).
+   * The field holds a selection rather than the whole identity. `src/app/role-switcher.tsx` invokes
+   * `switchRole` on the demonstration capability of `src/services/demonstration-controls.ts` and hands
+   * the returned persona's role to `setActiveRole`; `resetShell` returns the field to `null`. The
+   * persona in force is `useActiveRole()`, which answers this selection when there is one and the
+   * persona the adapter reported at start-up otherwise — so the shell displays the role the adapter
+   * enforces before anyone has switched, and again once a reset has put the adapter back (AAP 0.6.3
+   * "Identity").
+   *
+   * No screen derives authority from it: the adapter evaluates the permission matrix against its own
+   * acting persona rather than trusting a caller's field (rule P-3 — the checks behind the switcher are
+   * a demonstration, not production authorisation).
    */
   activeRole: Role | null;
 
@@ -154,6 +161,12 @@ export interface ShellState {
    * five fields — including closing the popover — so a reader who resets the demonstration sees the
    * shell as a first-time visitor does rather than keeping a selection that pointed at a record the
    * reset replaced.
+   *
+   * Returning `activeRole` to `null` also returns the shell to the session's own persona: with no
+   * selection left, `useActiveRole()` answers the persona the adapter reported at start-up, which is
+   * the seeded persona `resetDemo` puts back in the adapter. A demonstration reset therefore calls
+   * `resetShell()` once `resetDemo()` has settled, so the shell adopts the persona the adapter
+   * restored rather than continuing to display the role it had switched to.
    */
   resetShell(): void;
 }
@@ -231,15 +244,48 @@ export const useShellStore: UseBoundStore<StoreApi<ShellState>> = create<ShellSt
 }));
 
 /* ---------------------------------------------------------------------------------------------
+ * The persona in force — AAP 0.6.3 "Identity", AAP 0.12.4
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The persona in force: the one a role switch selected when there is one, otherwise the one the
+ * adapter reported at start-up.
+ *
+ * Two sources in one order, because the shell may or may not have been switched. A role switch stores
+ * the persona it returned and that selection wins while it stands; before any switch — and again once
+ * `resetShell()` has cleared the selection — the persona in force is the one the adapter reported when
+ * its start-up settled, which is the persona a fresh session acts as and the one `resetDemo` restores
+ * in the adapter (AAP 0.6.3 "Identity").
+ *
+ * Consumers that need the persona read it here: the theme's default density, the router's entry route
+ * and the role switcher's own display all describe the session that is acting, so all three take one
+ * value (AAP 0.12.4). None of them derives authority from it, because the adapter evaluates the
+ * permission matrix and the policy engine against its own persona rather than against anything the
+ * interface holds: the checks behind the switcher are a demonstration and not production
+ * authorisation (rule P-3).
+ *
+ * @returns The persona in force, or `null` when neither source has one — an adapter carrying no
+ *   demonstration capability, before any role switch.
+ */
+export function useActiveRole(): Role | null {
+  const selectedRole = useShellStore((state) => state.activeRole);
+  const activeUser = useActiveUser();
+
+  return selectedRole ?? activeUser?.role ?? null;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The query cache — AAP 0.6.2, AAP 0.12.1
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * Builds the cache every screen reads through.
  *
- * Query keys are `[method, ...args]` and a write invalidates the keys it touched; that convention is
- * applied at the call sites, which are the screens and the components that own a read. This function
- * only creates the client.
+ * Query keys are `[method, ...args]`, and the invalidation a write owes the reads it touched is issued
+ * by `invalidateAfterWrite` in `./query-cache`, which the owner of each write calls once the port has
+ * resolved it, naming the members that write moved. This function only creates the client: it fixes
+ * the key convention every screen's reads and every write's invalidation share, and it invalidates
+ * nothing itself.
  *
  * Retries and window-focus refetches are off, and both are deliberate: the demonstration is
  * deterministic (AAP 0.2.1), so a background refetch could replace a figure the reader is midway
@@ -271,20 +317,63 @@ export function createQueryClient(): QueryClient {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Applies the density the active persona starts on, and renders the theme around the shell.
+ * Seeds the shell's persona from the one the adapter reported at start-up.
  *
- * Declared as its own component rather than read inside `AppProviders`, so the role subscription sits
- * below the cache and the service boundary: a role change then re-renders the theme and the shell
+ * The guard is `activeRole === null`, and it is the whole of the rule: the shell adopts the session's
+ * persona only while it has selected none of its own, so a reader who has switched role is never
+ * overwritten with the seeded one. The same guard is what makes a demonstration reset work — once
+ * `resetDemo` has put the adapter back to its seeded persona and `resetShell()` has cleared the
+ * selection, the shell adopts the persona the adapter restored, which is that same seeded persona and
+ * not the role the reader had switched to.
+ *
+ * It runs in an effect keyed on the value rather than in the render body, and it sets the store once
+ * per distinct persona: an assignment during a render would be a state change while rendering, and the
+ * guard on `activeRole` is what keeps the effect idempotent when the value it writes re-renders it.
+ * The effect loads nothing — it copies a value already in hand into the store, which is not a query
+ * and is not the data loading AAP 0.18.1 reserves for the query cache.
+ *
+ * It renders nothing, because what it establishes is state rather than markup: the theme, the router
+ * and the role switcher read the persona in force through `useActiveRole()` on their next render.
+ *
+ * It must sit inside `<ServiceProvider>`: `useActiveUser()` is read from that boundary, and it writes
+ * the store the shell's screens read below it. `AppProviders` renders it as the boundary's first
+ * child, ahead of the theme, so the store is seeded as soon as the boundary mounts and the theme below
+ * it takes the adopted persona's density on the next render.
+ *
+ * @returns Nothing, at any render.
+ */
+function ActiveRoleSeed(): null {
+  const activeUser = useActiveUser();
+  const activeRole = useShellStore((state) => state.activeRole);
+  const setActiveRole = useShellStore((state) => state.setActiveRole);
+
+  useEffect(() => {
+    if (activeUser === null || activeRole !== null) {
+      return;
+    }
+
+    setActiveRole(activeUser.role);
+  }, [activeUser, activeRole, setActiveRole]);
+
+  return null;
+}
+
+/**
+ * Applies the density the persona in force starts on, and renders the theme around the shell.
+ *
+ * Declared as its own component rather than read inside `AppProviders`, so the persona subscription
+ * sits below the cache and the service boundary: a role change then re-renders the theme and the shell
  * under it, and leaves the provider stack that holds the adapter's start-up attempt untouched. It is
- * rendered inside the boundary, so the store it reads is the one the shell's screens read.
+ * rendered inside the boundary, so it can read the persona the adapter reported as well as the
+ * selection the shell store holds.
  *
- * Until a role is set, the theme receives no `defaultDensity` and falls back to its own comfortable
- * default. The prop is passed by spreading one of two prop objects rather than as `undefined`, because
- * `exactOptionalPropertyTypes` distinguishes an absent optional property from one explicitly set to
- * `undefined`, and the theme provider's declaration is the stricter of the two.
+ * Until a persona is in force, the theme receives no `defaultDensity` and falls back to its own
+ * comfortable default. The prop is passed by spreading one of two prop objects rather than as
+ * `undefined`, because `exactOptionalPropertyTypes` distinguishes an absent optional property from one
+ * explicitly set to `undefined`, and the theme provider's declaration is the stricter of the two.
  */
 function ShellProviders({ children }: { readonly children: ReactNode }): ReactElement {
-  const activeRole = useShellStore((state) => state.activeRole);
+  const activeRole = useActiveRole();
   const densityProps =
     activeRole === null ? {} : { defaultDensity: defaultDensityForRole(activeRole) };
 
@@ -303,8 +392,9 @@ export interface AppProvidersProps {
  * The cache is created once per mount, in a state initialiser rather than as a module-level constant,
  * so every mount begins with an empty cache and a failing query in one render cannot be seen by the
  * next. The service boundary comes next and renders the accessible skeleton while the in-browser
- * adapter prepares the seeded records; the theme comes last, around the shell, so the density it
- * applies can follow the role the shell has established.
+ * adapter prepares the seeded records; the seed of the shell's persona is its first child, so the
+ * persona the adapter reported reaches the store before the theme reads it; the theme comes last,
+ * around the shell, so the density it applies follows the persona in force.
  *
  * @param props - The shell to render inside the providers.
  * @returns The provider tree with the shell inside it.
@@ -315,6 +405,7 @@ export function AppProviders({ children }: AppProvidersProps): ReactElement {
   return (
     <QueryClientProvider client={queryClient}>
       <ServiceProvider>
+        <ActiveRoleSeed />
         <ShellProviders>{children}</ShellProviders>
       </ServiceProvider>
     </QueryClientProvider>

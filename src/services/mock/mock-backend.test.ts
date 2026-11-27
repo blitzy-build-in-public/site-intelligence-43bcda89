@@ -37,6 +37,8 @@
  * 18. the list parameters the four collection reads carry, where `limit` bounds the page, `cursor`
  *     continues from the position a previous page ended at, and `sort` orders the records by the
  *     member it names in both directions.
+ * 19. the policy exception request: the pending record SCR-07's grant flow writes, readable back
+ *     through the policy detail it names, the reset that clears it, and the reads that append nothing.
  *
  * WHY THE NODE ENVIRONMENT, MANDATORY ON THE FIRST LINE ABOVE. The bootstrap hashes the 200 seeded
  * events through `crypto.subtle.digest`, which is a platform call rather than a DOM one: under
@@ -53,10 +55,10 @@
  *   and the assistant's fixed notice arrive as the constants `./seed-loader.ts` re-exports (rule P-2).
  * - It retypes no simulation label: where a label reaches an assertion it is compared against
  *   `SIM_LABELS` from `src/types` (rule P-1).
- * - It uses no test hook. Every call goes through a member of the port plus the two members the
- *   adapter adds — `whenReady()` and `switchRole()` — and the demonstration control `setSimulation()`
- *   the popover drives. No private field is read, no global is set and no query parameter is consulted,
- *   so the behaviour asserted is the behaviour a screen meets.
+ * - It uses no test hook. Every call goes through a member of the port plus the three members the
+ *   adapter adds — `whenReady()`, `switchRole()` and `getActiveUser()` — and the demonstration control
+ *   `setSimulation()` the popover drives. No private field is read, no global is set and no query
+ *   parameter is consulted, so the behaviour asserted is the behaviour a screen meets.
  * - It names no real company, customer, carmaker or cloud product, and carries no credential-shaped
  *   text, so the scans that cover `src/**` find nothing new here (rules P-7 and B-2).
  */
@@ -75,6 +77,8 @@ import type {
   Levers,
   ListQuery,
   PolicyDetail,
+  PolicyException,
+  PolicyId,
   PpapPackage,
   Problem,
   ProductId,
@@ -85,6 +89,7 @@ import type {
   Scope,
   SolverResult,
   SourceId,
+  Timestamp,
   Topology,
   UserId,
 } from '../../types';
@@ -165,7 +170,9 @@ const OPEN_STATUS: ExceptionStatus = 'open';
  *   seeded pending approval names as eligible, which is what makes it able to decide that plan.
  * - `HEAD_OF_SUPPLY_CHAIN` holds `exception.read` across every plant, so it reads a record a
  *   single-plant persona cannot write to.
- * - `ADMINISTRATOR` lacks `document.confidential.read`, which is the redaction under test.
+ * - `ADMINISTRATOR` lacks `document.confidential.read`, which is the redaction under test, and holds
+ *   `policy.exception.request` with `policy.read` and `audit.read` beside it, which are the write the
+ *   governance case drives and the two reads it answers with.
  * - `EXTERNAL_ENGINEER` holds `evidence.read` alone: the atlas is refused to it and its evidence pins
  *   are narrowed to its own vendor's records.
  *
@@ -187,6 +194,29 @@ const NOTE_TEXT = 'Waiting on the supplier to confirm a dispatch date.';
 
 /** The comment a decision carries, which the record keeps and the trail reports. */
 const DECISION_COMMENT = 'Approved against the transferred option, with the side effect acknowledged.';
+
+/** The reason one time-boxed policy exception request carries, in a planner's own words. */
+const POLICY_EXCEPTION_REASON =
+  'The delayed air sets need a one-week deviation from the sourcing policy while the transfer lands.';
+
+/**
+ * The reason a second request against the same policy carries, which is what lets the case tell the
+ * two apart in the pending list: the record carries no requested-at member.
+ */
+const SECOND_POLICY_EXCEPTION_REASON =
+  'The following week needs the same deviation while the alternate supplier is onboarded.';
+
+/** The demonstration clock's own date one year on, which is the expiry's date token. */
+const LATER_DATE = `${Number(DEMO_CLOCK.slice(0, 4)) + 1}${DEMO_CLOCK.slice(4, 10)}`;
+
+/**
+ * The expiry a request carries: `LATER_DATE` at midnight, in the offset the constant states.
+ *
+ * The flow refuses an expiry that does not fall after the demonstration clock (AAP 0.12.4), and the
+ * contract's instants are ISO 8601 in Europe/Berlin with the offset `DEMO_CLOCK` carries (§1), so the
+ * date and the offset are both read from that constant rather than typed into the case (rule P-6).
+ */
+const EXCEPTION_EXPIRY: Timestamp = `${LATER_DATE}T00:00:00${DEMO_CLOCK.slice(-6)}`;
 
 /**
  * The first of the six seeded suggestions, character for character.
@@ -1207,6 +1237,26 @@ describe('the reset', () => {
     expect(resetReport.breaks).toEqual([]);
     expect(resetReport.eventsChecked).toBe(pristineReport.eventsChecked);
   }, CASE_TIMEOUT_MS);
+
+  it('reports the persona the session acts as, and the seeded persona again once it has reset', async () => {
+    const backend = await readyBackend();
+
+    // The read and the switch are two views of one value, which is what the boundary seeds the shell
+    // from: whatever a caller can read here is the persona every other call is authorised against, so a
+    // switch has to move both and a reset has to put both back.
+    const opening = (await backend.getActiveUser()).data;
+    const switched = (await backend.switchRole(AUDITOR)).data;
+    const afterSwitch = (await backend.getActiveUser()).data;
+
+    expect(afterSwitch).toEqual(switched);
+    expect(afterSwitch.id).not.toBe(opening.id);
+
+    await backend.resetDemo();
+
+    // The reset puts the adapter back to the persona a first visit acts as, so the read reports that
+    // persona rather than the one the switch selected.
+    expect((await backend.getActiveUser()).data).toEqual(opening);
+  }, CASE_TIMEOUT_MS);
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -1485,6 +1535,28 @@ describe('the loading trigger', () => {
     const overview = (await backend.getOverview(NO_SCOPE)).data;
 
     expect(overview.openExceptions).toBeGreaterThan(0);
+  }, CASE_TIMEOUT_MS);
+
+  it('answers the persona read while the trigger holds every served read', async () => {
+    const backend = await readyBackend();
+
+    const opening = (await backend.getActiveUser()).data;
+
+    await backend.setSimulation('loading', true);
+
+    // The precondition stated rather than assumed: under the same trigger a served read does not
+    // settle, so the answer below is a control that bypasses the hold and not a trigger that never took
+    // effect.
+    expect(await settlesWithin(backend.getOverview(NO_SCOPE), HOLD_PROBE_MS)).toBe(false);
+
+    // The shell seeds the role it displays from this read, and the start-up that takes it runs before
+    // any screen exists: a read the trigger held would leave that start-up pending with nothing on
+    // screen from which to lift the trigger (rule P-8).
+    const held = await backend.getActiveUser();
+
+    expect(held.data).toEqual(opening);
+
+    await backend.setSimulation('loading', false);
   }, CASE_TIMEOUT_MS);
 });
 
@@ -2173,3 +2245,125 @@ describe('the list parameters of the collection reads', () => {
   }, CASE_TIMEOUT_MS);
 });
 
+/* ---------------------------------------------------------------------------------------------
+ * 19. The policy exception request — SCR-07's grant flow, read back through the policy it names
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Files a time-boxed exception request against a policy, as SCR-07's grant flow does.
+ *
+ * The requester is the acting persona, which the cases set to the platform administrator: the matrix
+ * grants `policy.exception.request` to that role alone and gives it `policy.read` and `audit.read`
+ * beside, so one session files the request and reads both the policy and the trail back — while a
+ * role change would append an event of its own to the trail one case measures (contracts §7.1).
+ *
+ * @param backend - The session to write to, acting as the platform administrator.
+ * @param policyId - The policy the exception is requested against.
+ * @param reason - Why the exception is needed, in the requester's own words.
+ * @returns The pending request the adapter installed and answered with.
+ */
+async function requestException(
+  backend: MockBackend,
+  policyId: PolicyId,
+  reason: string,
+): Promise<PolicyException> {
+  const requested = await backend.requestPolicyException({
+    policyId,
+    reason,
+    expiresAt: EXCEPTION_EXPIRY,
+    secondApproverId: HEAD_OF_SUPPLY_CHAIN,
+  });
+
+  return requested.data;
+}
+
+describe('the policy exception request', () => {
+  it('answers the pending requests the grant flow recorded on the policy they name', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, ADMINISTRATOR);
+
+    const policies = (await backend.listPolicies({})).data;
+    const policy = firstOf(policies, 'policy');
+    const unrelated = policies.find((candidate) => candidate.id !== policy.id);
+
+    if (unrelated === undefined) {
+      throw new Error('The policy set holds one policy, so the case has no second policy to read.');
+    }
+
+    const first = await requestException(backend, policy.id, POLICY_EXCEPTION_REASON);
+    const second = await requestException(backend, policy.id, SECOND_POLICY_EXCEPTION_REASON);
+
+    const detail = (await backend.getPolicy(policy.id)).data;
+
+    /*
+     * The detail answers with the records the writes installed, field for field, and the newest request
+     * comes first: the session appends one record per accepted request and the record carries no
+     * requested-at member to order them by (AAP 0.12.2, AAP 0.12.4).
+     */
+    expect(detail.pendingExceptions).toEqual([second, first]);
+    expect(detail.pendingExceptions[0]).toEqual({
+      policyId: policy.id,
+      reason: SECOND_POLICY_EXCEPTION_REASON,
+      expiresAt: EXCEPTION_EXPIRY,
+      requestedBy: ADMINISTRATOR,
+      secondApproverId: HEAD_OF_SUPPLY_CHAIN,
+      status: 'pending',
+    });
+
+    // The list entry for the same policy carries the same requests, so the list and the detail read one
+    // record rather than two, and a policy nothing was requested against carries none of them.
+    const entry = (await backend.listPolicies({})).data.find(
+      (candidate) => candidate.id === policy.id,
+    );
+
+    if (entry === undefined) {
+      throw new Error(`The policy list no longer holds ${policy.id}, so the case cannot compare.`);
+    }
+
+    expect(entry.pendingExceptions).toEqual(detail.pendingExceptions);
+    expect((await backend.getPolicy(unrelated.id)).data.pendingExceptions).toEqual([]);
+  }, CASE_TIMEOUT_MS);
+
+  it('appends no audit event for the reads that answer with it', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, ADMINISTRATOR);
+
+    const policy = firstOf((await backend.listPolicies({})).data, 'policy');
+    const beforeRequest = (await backend.listAuditEvents({})).data.length;
+
+    await requestException(backend, policy.id, POLICY_EXCEPTION_REASON);
+
+    const afterRequest = (await backend.listAuditEvents({})).data.length;
+
+    // The write appends one event, once.
+    expect(afterRequest).toBe(beforeRequest + 1);
+
+    await backend.getPolicy(policy.id);
+    await backend.listPolicies({});
+
+    // The reads that return the request append nothing: one event per accepted request, and none for
+    // reading the request back (AAP 0.2.1).
+    expect((await backend.listAuditEvents({})).data.length).toBe(afterRequest);
+  }, CASE_TIMEOUT_MS);
+
+  it('clears the pending requests with the rest of the session on reset', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, ADMINISTRATOR);
+
+    const policy = firstOf((await backend.listPolicies({})).data, 'policy');
+
+    await requestException(backend, policy.id, POLICY_EXCEPTION_REASON);
+
+    expect((await backend.getPolicy(policy.id)).data.pendingExceptions).toHaveLength(1);
+
+    await backend.resetDemo();
+    await actAs(backend, ADMINISTRATOR);
+
+    // A reset restores the seeded records, the chain and the persona, and clears the session's own
+    // pending requests beside them, so the policy answers with none of them again.
+    expect((await backend.getPolicy(policy.id)).data.pendingExceptions).toEqual([]);
+  }, CASE_TIMEOUT_MS);
+});

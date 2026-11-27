@@ -29,6 +29,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SIM_LABELS } from '../types';
 import type { ScreenState, ThemeName } from '../types';
+import { MONO_VALUE_CLASSES } from './mono-value';
 import { STATE_BOUNDARY_TEXT, StateBoundary } from './state-boundary';
 import type { StateBoundaryForbidden, StateBoundaryStale } from './state-boundary';
 
@@ -156,9 +157,12 @@ describe('StateBoundary', () => {
        disabled approval controls carry in their reason (T-13's visible half). */
     expect(instant.textContent).toBe(STALE.asOf);
     expect(instant.textContent).toMatch(/\+01:00$/);
-    /* The instant goes through the one presentation formatter, so it carries the mono face the token
-       layer fixes for timestamps rather than a second formatter's opinion of it. */
-    expect(instant).toHaveClass('font-mono');
+    /* The instant goes through the one presentation formatter, so it carries the whole base token
+       that formatter applies — the mono face and the tabular numerals AAP §0.5.3 fixes for a
+       timestamp — named from the module that owns it rather than respelled here. A restyle of that
+       token therefore reaches this case instead of breaking it, and what the face resolves to stays
+       the theme layer's, which a jsdom suite cannot read. */
+    expect(instant).toHaveClass(...MONO_VALUE_CLASSES.base.split(' '));
     expect(screen.getByText(CONTENT)).toBeVisible();
   });
 

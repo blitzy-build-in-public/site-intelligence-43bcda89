@@ -20,8 +20,8 @@
  *    compatible signature.
  * 2. Surface equality. Assignability alone would also hold for an adapter that added members, so the
  *    `keyof` sets are compared in both directions as well: neither adapter omits a port member, the
- *    API client carries nothing beyond the port, and the mock backend's two extra names are stated
- *    here by name so that a third one cannot slip past unremarked.
+ *    API client carries nothing beyond the port, and the mock backend's extra names are stated here
+ *    by name so that a further one cannot slip past unremarked.
  * 3. The capability split. The role switch belongs to the demonstration capability of
  *    `src/services/demonstration-controls.ts` rather than to the port, so the mock backend is proven to
  *    implement that capability and the API client to lack it — the split AAP 0.12.1 records, proved
@@ -30,9 +30,9 @@
  * The runtime cases cover what the types cannot. A type says a member is declared, not that the object
  * a binding point receives carries it, so both instances are walked member by member; the two
  * demonstration members are then answered on the API client, which is where a member that quietly
- * turned into a request would show up as a call the platform's `fetch` recorded; the role switch is
- * shown to belong to the mock backend alone; and the mock backend's readiness promise is shown to
- * resolve with its seeded audit trail in place.
+ * turned into a request would show up as a call the platform's `fetch` recorded; the capability's two
+ * members are shown to belong to the mock backend alone; and the mock backend's readiness promise is
+ * shown to resolve with its seeded audit trail in place.
  *
  * WHAT THIS FILE DOES NOT DO. It asserts nothing about which adapter is bound — that is the one line
  * of `src/services/create-service.ts`, and rule P-2 keeps the choice there. It tests no behaviour of
@@ -218,14 +218,19 @@ type ApiClientExtras = AssertNever<Exclude<keyof ApiClient, keyof SiteIntelligen
 /**
  * The members `MockBackend` publishes besides the port's own.
  *
- * Two names, and both are stated deliberately: `whenReady` is the readiness promise the binding point
- * awaits before the first screen renders, and `switchRole` is the demonstration capability beside the
- * port. The next alias proves the pair is exact, so a third public member here is a compile error.
+ * Three names, and all are stated deliberately: `whenReady` is the readiness promise the binding point
+ * awaits before the first screen renders, `switchRole` is the demonstration's role switch, and
+ * `getActiveUser` is the acting-persona read the shell seeds its persona from. All three sit beside the
+ * port rather than in it — the capability and the readiness handshake are demonstration and
+ * construction facts the contracts' interface does not declare. The next alias proves the set is
+ * exact, so a fourth public member here is a compile error.
  */
 type MockBackendExtras = Exclude<keyof MockBackend, keyof SiteIntelligenceService>;
 
-/** The mock backend's extras are the readiness promise and the role switch, and nothing else. */
-type MockBackendExtrasAreNamed = AssertTrue<Same<MockBackendExtras, 'whenReady' | 'switchRole'>>;
+/** The mock backend's extras are the readiness promise and the capability's two members, and nothing else. */
+type MockBackendExtrasAreNamed = AssertTrue<
+  Same<MockBackendExtras, 'whenReady' | 'switchRole' | 'getActiveUser'>
+>;
 
 /** `MockBackend` implements the demonstration capability that sits beside the port. */
 type MockBackendImplementsDemonstration = AssertTrue<
@@ -390,11 +395,16 @@ describe('SiteIntelligenceService, implemented by the mock backend and the API c
 });
 
 describe('the demonstration capability beside the port', () => {
-  it('offers the role switch on the mock backend and not on the API client', async () => {
+  it('offers the role switch and the acting-persona read on the mock backend and not on the API client', async () => {
     const { mockBackend, apiClient } = await adapters();
 
     expect(typeof mockBackend.switchRole).toBe('function');
     expect('switchRole' in apiClient).toBe(false);
+
+    // The other half of the same capability: the read the shell seeds its persona from, answered by the
+    // adapter that holds the seeded personas and absent on the client that leaves identity to a service.
+    expect(typeof mockBackend.getActiveUser).toBe('function');
+    expect('getActiveUser' in apiClient).toBe(false);
   });
 
   it('is ready once its bootstrap settles, with the whole seeded trail in the chain', async () => {

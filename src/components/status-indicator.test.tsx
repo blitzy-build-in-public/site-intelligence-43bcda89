@@ -25,11 +25,24 @@ import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { PinState } from '../types';
 import {
+  MEANING_COLOUR_CLASSES,
   PENDING_CLOCK_ICON,
+  STATUS_LABEL_CLASS,
   StatusIndicator,
   meaningOf,
 } from './status-indicator';
 import type { StatusDescriptor, StatusMeaning } from './status-indicator';
+
+/*
+ * Both class tokens above come from the component, which is their one owner: the role each meaning
+ * paints, and the text role the label takes. Retyping them here would give each a second owner and
+ * break every class-list case on a restyle to an equivalent utility while the token itself held.
+ *
+ * What a token resolves to is the theme layer's (`src/theme/tokens.css`), and no case here can read
+ * that value: Vitest stubs a stylesheet's text to an empty string and jsdom resolves neither `var()`
+ * nor a Tailwind utility. The cases therefore prove which tokens reach the markup — the same ones
+ * under both themes — and leave their values to the layer that measures them.
+ */
 
 /** The six meanings, in the order the component's own maps declare them. */
 const MEANINGS = [
@@ -50,16 +63,6 @@ const PIN_STATES = [
   'stale',
   'review',
 ] as const satisfies readonly PinState[];
-
-/** The status role utility each meaning is expected to paint, restated from the theme layer. */
-const MEANING_COLOUR_CLASSES = {
-  pass: 'text-status-pass',
-  fail: 'text-status-fail',
-  warning: 'text-status-warning',
-  review: 'text-status-review',
-  empty: 'text-status-empty',
-  simulated: 'text-status-simulated',
-} as const satisfies Record<StatusMeaning, string>;
 
 /** The label a case renders, standing in for a caller's record wording. */
 const LABEL = 'Waiting on a decision';
@@ -121,24 +124,35 @@ const COLOUR_UTILITY_PREFIXES = [
 ] as const;
 
 /**
- * Every class across the rendered elements that could carry a colour, with a variant prefix
- * (`hover:`, `focus-visible:`) removed so the utility itself is what is compared.
+ * Every class in one class list that could carry a colour, with a variant prefix (`hover:`,
+ * `focus-visible:`) removed so the utility itself is what is compared.
  */
-function colourUtilitiesOf(elements: readonly Element[]): string[] {
-  return elements.flatMap((element) =>
-    (element.getAttribute('class') ?? '')
-      .split(/\s+/)
-      .filter((value) => value !== '')
-      .map((value) => value.slice(value.lastIndexOf(':') + 1))
-      .filter((utility) =>
-        COLOUR_UTILITY_PREFIXES.some((prefix) => utility.startsWith(prefix)),
-      ),
-  );
+function colourUtilitiesIn(classList: string): string[] {
+  return classList
+    .split(/\s+/)
+    .filter((value) => value !== '')
+    .map((value) => value.slice(value.lastIndexOf(':') + 1))
+    .filter((utility) =>
+      COLOUR_UTILITY_PREFIXES.some((prefix) => utility.startsWith(prefix)),
+    );
 }
 
-/** The colour-bearing classes a rendered status is allowed to carry for one meaning. */
+/** Every class across the rendered elements that could carry a colour, read as above. */
+function colourUtilitiesOf(elements: readonly Element[]): string[] {
+  return elements.flatMap((element) => colourUtilitiesIn(element.getAttribute('class') ?? ''));
+}
+
+/**
+ * The colour-bearing classes a rendered status is allowed to carry for one meaning, read from the
+ * tokens the component itself applies rather than from a copy of them: the meaning's status role, and
+ * the label's own text role. Both sides of the comparison pass through the same reader, so a token
+ * that gains or loses a colour utility reaches this expectation without the case restating it.
+ */
 function expectedColourUtilities(meaning: StatusMeaning): string[] {
-  return [MEANING_COLOUR_CLASSES[meaning], 'text-text-primary'].sort();
+  return [
+    ...colourUtilitiesIn(MEANING_COLOUR_CLASSES[meaning]),
+    ...colourUtilitiesIn(STATUS_LABEL_CLASS),
+  ].sort();
 }
 
 afterEach(() => {
@@ -158,7 +172,10 @@ describe('StatusIndicator', () => {
       expect(icon).toHaveAttribute('focusable', 'false');
       expect(label).toHaveTextContent(LABEL);
       expect(iconWrapper).toHaveClass(MEANING_COLOUR_CLASSES[meaning]);
-      expect(label).toHaveClass('text-text-primary');
+      /* The label carries the component's own label token in full — the primary text role and the
+         layout utility beside it — so a restyle of that token reaches this case rather than breaking
+         it, and the role the label wears is still asserted. */
+      expect(label).toHaveClass(...STATUS_LABEL_CLASS.split(' '));
     });
   }
 

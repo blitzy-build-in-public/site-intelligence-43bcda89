@@ -39,14 +39,21 @@
  * - `PolicyDetail.recentDecisions` lists the events the policy engine itself appended for that
  *   policy, read from the chain. Nothing is filtered by result, so a reader counts what the trail
  *   recorded rather than what this module selected.
+ * - `PolicyDetail.pendingExceptions` lists the session's own requests for that policy and nothing
+ *   else: this module keeps no second copy of them, so the list a reader sees is the record the write
+ *   installed, selected by the policy it names and by its pending status.
  *
- * WHY THE PENDING REQUEST LIVES ON THE SESSION. `requestPolicyException` records a time-boxed
- * exception as `status: 'pending'` on `MockState.policyExceptions`, beside the seeds rather than
- * inside them, because `src/seed/` publishes a fixed record set that a reset must restore exactly.
- * The request grants nothing: no policy verdict reads it, no permission is derived from it, and the
- * engine continues to evaluate the policy records and the acting persona alone. It is left pending
- * because nothing in the demonstration decides one (AAP 0.12.4, SCR-07), and `resetDemo` empties it
- * with the rest of the session.
+ * WHY THE PENDING REQUEST LIVES ON THE SESSION, AND HOW IT IS READ BACK. `requestPolicyException`
+ * records a time-boxed exception as `status: 'pending'` on `MockState.policyExceptions`, beside the
+ * seeds rather than inside them, because `src/seed/` publishes a fixed record set that a reset must
+ * restore exactly. The request grants nothing: no policy verdict reads it, no permission is derived
+ * from it, and the engine continues to evaluate the policy records and the acting persona alone. It is
+ * left pending because nothing in the demonstration decides one (AAP 0.12.4, SCR-07), and `resetDemo`
+ * empties it with the rest of the session. The request is readable back through the policy it names:
+ * `pendingExceptionsFor` below selects it for `PolicyDetail.pendingExceptions`, so the screen that
+ * made the request shows its outcome instead of leaving it to the audit trail, and the record the
+ * write installed is the one the policy returns: the session and the screen hold one value rather
+ * than two that could drift apart.
  *
  * THE PERMISSIONS, AND THE JUDGEMENT EACH REQUIRES (contracts §7.1, rules P-3 and P-8). No read here
  * is plant-scoped — declared configuration and the policy set are group-wide — so every check passes
@@ -358,17 +365,43 @@ function decisionsFor(ctx: HandlerContext, policyId: PolicyId): AuditEvent[] {
 }
 
 /**
+ * The time-boxed exception requests pending against one policy, the newest request first.
+ *
+ * A request belongs to a policy when it names that policy's identifier, and only the ones still
+ * `'pending'` are listed: nothing in the demonstration decides one, so a request a later stage granted
+ * or refused would leave this list rather than be shown as outstanding (AAP 0.12.4). The session
+ * appends one record per accepted request in the order they were made, and `PolicyException` carries
+ * no requested-at member, so the newest request is the last record the session holds for the policy and
+ * the filtered list is reversed to read newest first — the order is the session's own and no clock is
+ * consulted to derive it (AAP 0.2.1). Each record is copied, so a screen that edits what it was handed
+ * cannot alter the session's record of it.
+ *
+ * @param ctx - The call's context, whose session the pending requests are read from. The state is not modified.
+ * @param policyId - The policy the pending requests are listed for.
+ * @returns Fresh copies of the matching pending requests, newest first; empty when the policy has none.
+ */
+function pendingExceptionsFor(ctx: HandlerContext, policyId: PolicyId): PolicyException[] {
+  return ctx.state.policyExceptions
+    .filter((exception) => exception.policyId === policyId && exception.status === PENDING)
+    .map((exception) => ({ ...exception }))
+    .reverse();
+}
+
+/**
  * One policy as its list row and its detail screen show it.
  *
  * The statement is the record's own `displayText` and the evaluated flag is the record's own
  * `evaluationStatus`, so the rule a denial cites and the rule the screen prints cannot drift apart
  * and no wording is composed here (rule P-6). POL-009 comes through this path like the other four,
  * carrying `evaluated: false` because the engine never runs it: the record is shown as declared
- * configuration rather than hidden or evaluated (rule P-4).
+ * configuration rather than hidden or evaluated (rule P-4). The decisions are the events the engine
+ * appended for the policy and the pending requests are the session's own records for it, so the two
+ * halves of the detail come from the places that hold them rather than from a second copy.
  *
- * @param ctx - The call's context, whose chain the policy's decisions are read from.
+ * @param ctx - The call's context, whose chain the policy's decisions are read from and whose session
+ *   the pending requests are read from.
  * @param policy - The seeded policy record.
- * @returns The policy's display detail.
+ * @returns The policy's display detail, with its decisions and the requests pending against it.
  */
 function policyDetailOf(ctx: HandlerContext, policy: SeededPolicy): PolicyDetail {
   return {
@@ -377,6 +410,7 @@ function policyDetailOf(ctx: HandlerContext, policy: SeededPolicy): PolicyDetail
     statement: policy.displayText,
     evaluated: policy.evaluationStatus === 'evaluated',
     recentDecisions: decisionsFor(ctx, policy.id),
+    pendingExceptions: pendingExceptionsFor(ctx, policy.id),
   };
 }
 
@@ -424,8 +458,8 @@ type LedgerSortField = (typeof LEDGER_SORT_FIELDS)[number];
 /**
  * The policy members a caller may order the entries by, spelled as `sort=field:dir` names them: the
  * identifier, the title, the display statement and the flag saying whether the engine evaluates the
- * policy. `recentDecisions` is not among them, because the events an entry carries are its payload
- * rather than a value the entry is ordered by.
+ * policy. `recentDecisions` and `pendingExceptions` are not among them, because the events and the
+ * requests an entry carries are its payload rather than a value the entry is ordered by.
  */
 const POLICY_SORT_FIELDS = ['id', 'title', 'statement', 'evaluated'] as const;
 
@@ -757,9 +791,10 @@ export async function getOutboundLedger(
  * Reads the policy list: every policy the engine evaluates and the one the deployment only declares.
  *
  * The order is the record set's unless `query.sort` names another, which is the order the policy list
- * shows, and each entry carries its own statement, its evaluated flag and the decisions the engine
- * recorded for it. POL-009 comes back with the rest and is never evaluated, hidden or paraphrased: it
- * is declared configuration, and the screen prints it under `Declared, not verified` (rule P-4).
+ * shows, and each entry carries its own statement, its evaluated flag, the decisions the engine
+ * recorded for it and the requests the flow holds pending against it. POL-009 comes back with the
+ * rest and is never evaluated, hidden or paraphrased: it is declared configuration, and the screen
+ * prints it under `Declared, not verified` (rule P-4).
  *
  * The list parameters are the ones contracts §9 fixes: `sort` as `member:dir` over the entry's own
  * members, `limit` as the page's greatest length, and `cursor` as the identifier a previous page
@@ -789,8 +824,8 @@ export async function listPolicies(
 }
 
 /**
- * Reads one policy: its display statement, whether the engine evaluates it, and the decisions it
- * made, most recent first.
+ * Reads one policy: its display statement, whether the engine evaluates it, the decisions it made,
+ * most recent first, and the time-boxed exception requests pending against it, newest first.
  *
  * The statement is the record's own wording rather than a sentence composed by a screen (rule P-6),
  * so the rule a denial cites and the rule this screen shows cannot drift apart. A policy the record

@@ -94,33 +94,42 @@ export function createService(): SiteIntelligenceService {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Decides whether a value carries the demonstration capability, by the member the capability declares
+ * Decides whether a value carries the demonstration capability, by the members the capability declares
  * rather than by the adapter's class.
  *
  * A run-time check rather than a cast, because the port says nothing about the capability: a value
  * carrying it can be handed back as `DemonstrationControls`, and one without it is reported as absent
- * instead of failing when the role switcher is used. The member is looked up with `in` and then
- * checked with `typeof`, so a value carrying a non-callable `switchRole` is not mistaken for one that
- * implements the interface.
+ * instead of failing when the role switcher or the start-up identity read is used. Both members are
+ * looked up with `in` and then checked with `typeof`, so a value carrying a non-callable `switchRole`
+ * or `getActiveUser` is not mistaken for one that implements the interface, and a value carrying only
+ * one of the two is not handed back as a capability whose other half a caller would then call into
+ * nothing.
  */
 function isDemonstrationControls(candidate: unknown): candidate is DemonstrationControls {
-  if (typeof candidate !== 'object' || candidate === null || !('switchRole' in candidate)) {
+  if (
+    typeof candidate !== 'object' ||
+    candidate === null ||
+    !('switchRole' in candidate) ||
+    !('getActiveUser' in candidate)
+  ) {
     return false;
   }
 
-  const { switchRole } = candidate;
+  const { switchRole, getActiveUser } = candidate;
 
-  return typeof switchRole === 'function';
+  return typeof switchRole === 'function' && typeof getActiveUser === 'function';
 }
 
 /**
- * Returns the bound adapter's role switch, or `null` when the bound adapter carries none.
+ * Returns the bound adapter's demonstration capability, or `null` when the bound adapter carries none.
  *
- * The role switch is a demonstration control and not a member of the port (rule P-3,
+ * The capability — the role switch and the read of the persona the session acts as — is a
+ * demonstration contract and not a member of the port (rule P-3,
  * `src/services/demonstration-controls.ts`). This accessor is where a caller learns whether the bound
  * adapter has it: the in-browser adapter does, and the unconnected HTTP client leaves identity to the
  * service it addresses, so it does not. A `null` is what lets the role switcher render disabled with
- * the reason the adapter gives rather than assume a capability that may not be there (rule P-8).
+ * the reason the adapter gives rather than assume a capability that may not be there (rule P-8), and
+ * what tells the boundary that a session has no start-up persona to seed the shell with.
  *
  * @param service - The bound service to read the capability from, defaulting to the session's own.
  * @returns The capability when the adapter implements it, otherwise `null`.

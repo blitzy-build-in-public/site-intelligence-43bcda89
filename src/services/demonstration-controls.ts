@@ -1,16 +1,17 @@
 /**
  * The demonstration-only capability the service port does not carry: the role switch behind
- * `src/app/role-switcher.tsx` (AAP 0.12.1 "Demonstration capability" row, AAP 0.6.2).
+ * `src/app/role-switcher.tsx` and the read of the persona the session acts as (AAP 0.12.1
+ * "Demonstration capability" row, AAP 0.6.2, AAP 0.6.3 "Identity").
  *
  * Why it lives outside the port. `platform-contracts.md` §2 fixes `SiteIntelligenceService` method
- * for method and declares no role-setting member, so a `switchRole` added there would stop that
- * interface being the contracts' verbatim one and would leave the port no longer the single
- * vocabulary screens and adapters share (rule P-2). The capability is therefore declared once, here,
- * beside the port rather than inside it: the mock adapter implements it from its own state, and
- * `src/services/create-service.ts` exposes it next to the bound port when the adapter has it. The
- * port keeps its own two demonstration members — the simulation trigger and the demo reset, both of
- * which §2 declares — and neither is restated here, and neither is wrapped, so there is exactly one
- * declaration of each and one import path to it.
+ * for method and declares neither a role-setting member nor a read of the acting persona, so either
+ * member added there would stop that interface being the contracts' verbatim one and would leave the
+ * port no longer the single vocabulary screens and adapters share (rule P-2). The capability is
+ * therefore declared once, here, beside the port rather than inside it: the mock adapter implements
+ * it from its own state, and `src/services/create-service.ts` exposes it next to the bound port when
+ * the adapter has it. The port keeps its own two demonstration members — the simulation trigger and
+ * the demo reset, both of which §2 declares — and neither is restated here, and neither is wrapped,
+ * so there is exactly one declaration of each and one import path to it.
  *
  * What the switch is. A demonstration control, and nothing more. It changes which of the eight
  * seeded personas the adapter acts as; it grants no right of its own, because the adapter evaluates
@@ -42,13 +43,17 @@ import type { Result } from '../types/service';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The role switch the demonstration offers, exposed by `src/services/create-service.ts` beside the
- * bound port and driven by the shell's role switcher.
+ * The identity surface the demonstration offers, exposed by `src/services/create-service.ts` beside
+ * the bound port: the role switch the shell's role switcher drives, and the read of the persona the
+ * session is acting as.
  *
- * One member only. It is asynchronous because a switch is a recorded act: the adapter appends the
- * audit event contracts §6 defines for a persona change, so the resulting identity and its record
- * settle together and a caller cannot read a switched identity beside an event that was never
- * written.
+ * Two members, because one identity has two sides. A switch changes which persona the session acts
+ * as and records the change; the read reports the persona the adapter is enforcing, so the shell
+ * takes the role it displays from the same value the adapter authorises against. Both are
+ * asynchronous, and for the same reason: a switch is a recorded act, so the adapter appends the
+ * audit event contracts §6 defines for a persona change and the resulting identity settles together
+ * with its record, so a caller cannot read a switched identity beside an event that was never
+ * written; and the read is served through the envelope every member returns.
  */
 export interface DemonstrationControls {
   /**
@@ -68,4 +73,43 @@ export interface DemonstrationControls {
    * raises, for an identifier that matches no seeded persona.
    */
   switchRole(userId: UserId): Promise<Result<ActiveUser>>;
+
+  /**
+   * Reads the persona the session is acting as.
+   *
+   * The record is the adapter's own resolution of the persona it enforces: the seeded persona the
+   * session opened with, the one the last successful `switchRole` selected, or again the seeded
+   * persona once the demonstration's `resetDemo()` has put its state back. Its role, its plant scope
+   * and its permissions are therefore the ones a call is authorised against rather than a parallel
+   * copy the interface keeps, which is what AAP 0.6.3's "Identity" row describes: the adapter holds
+   * the active user and the interface never decides what a caller may do.
+   *
+   * This is the read the shell seeds its persona from, and seeding from it is what makes the persona
+   * the interface displays and the persona the adapter enforces one value. The theme's default
+   * density and the router's entry route follow the persona in force for a fresh session, before
+   * anyone has switched (AAP 0.12.4), and a demonstration reset that reverts the adapter to its
+   * seeded persona is reported by the next read instead of leaving the interface displaying a role
+   * the adapter no longer acts as.
+   *
+   * Why the read belongs here rather than on the port. `platform-contracts.md` §2 fixes
+   * `SiteIntelligenceService` method for method, so a member added there would stop that interface
+   * being the contracts' own and would leave the port no longer the single vocabulary screens and
+   * adapters share (rule P-2). The demonstration's identity surface is declared in this module, and
+   * a read of who the session acts as is the other half of the switch that changes it. A deployment
+   * replaces the whole capability with real identity and real authorisation: a real service knows its
+   * caller from the session that reached it, so no member of the production port reports one.
+   *
+   * A demonstration read with no gate of its own: the acting persona is the caller's own identity, so
+   * asking which persona the session acts as requires no permission and is refused for no role, and
+   * it appends no audit event, because reading who one is already acting as is not one of the acts
+   * contracts §6 records — contrast `switchRole`, whose event that section fixes.
+   *
+   * @returns The persona the session acts as, with the freshness and simulation metadata every
+   * result carries, so the read reaches a caller through the same envelope as every other call.
+   * @throws Problem - No cause of its own: the member reports the persona the adapter's state holds
+   * and evaluates nothing a caller sent. A session whose state named no seeded persona is a broken
+   * state rather than a caller's mistake, and the adapter reports it loudly instead of answering as
+   * an identity that does not exist.
+   */
+  getActiveUser(): Promise<Result<ActiveUser>>;
 }
