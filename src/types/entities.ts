@@ -41,31 +41,12 @@
  * - P-4: the audit records below describe an append-only hash chain and claim nothing beyond that
  *   mechanism, which the interface labels `Simulated control`.
  *
- * OPEN ITEM: `ExceptionType`, `Classification` and `Residency` stay open `string` aliases. The
- * contracts name them without enumerating their members and the inputs available in this run quote
- * only a few instances, so a closed union would either invent a member or reject a legitimate seed
- * record at compile time.
- * OPEN ITEM: only `Severity`'s `critical` is quoted by the inputs (SCR-01's "Review critical
- * exceptions"). `high`, `medium` and `low` are the remaining levels of the urgency ordering AAP
- * 0.12.1 fixes: severity, then days to impact, then revenue at risk descending.
- * OPEN ITEM: `ConfidenceLevel`'s three names are derived. The inputs fix that confidence carries a
- * level and a reason ("confidence with reason", AAP 0.12.4 SCR-04) but not the level vocabulary.
- * OPEN ITEM: `ScenarioOrigin`, `WriteBackState` and `ApprovalStatus` are derived from behaviour
- * rather than quoted — a seeded scenario labelled `Simulated data` (AAP 0.10), an all-or-nothing
- * write whose failure is recorded and may be retried without duplicating a success (AAP 0.2.2),
- * and SCR-05's three decisions.
- * OPEN ITEM: `Decision` and `DecisionAction` are declared here, beside the `Approval` that carries
- * a decision, rather than in `./service`. This folder's dependency direction is `./service` to
- * `./entities`, so declaring them there would force `Approval` to import `./service` and close a
- * second cycle.
- * OPEN ITEM: `Evidence` declares the ten members its fixing row names (AAP 0.12.2: value,
- * provenance, label, formula, inputs, upstream, downstream, confidence, missing inputs,
- * documents). Dropping one to match a stated count would lose a member the inputs require.
- * OPEN ITEM: `OperationalException.detectedAt` is derived from SCR-02's age column and SCR-03's
- * activity history, which both need the instant the exception was detected; no contracts §3 row
- * states that member by name.
- * OPEN ITEM: `AuditEvent` carries `payloadHash`, `previousHash` and `eventHash` as slots. Each is
- * computed by `src/domain/audit/*`, so neither a seed record nor a handler writes a hash value.
+ * Vocabularies the contracts name without enumerating stay open or derived, never closed:
+ * `ExceptionType`, `Classification` and `Residency` remain `string` aliases, `Severity`'s levels
+ * beyond SCR-01's quoted `critical` follow the urgency ordering AAP 0.12.1 fixes, `ConfidenceLevel`
+ * supplies the level of the pair AAP 0.12.4 fixes, and `ScenarioOrigin`, `WriteBackState` and
+ * `ApprovalStatus` follow the behaviour AAP 0.10 and AAP 0.2.2 fix. A closed union in any of them
+ * would invent a member or reject a legitimate seed record at compile time.
  */
 
 import type {
@@ -146,7 +127,7 @@ export type Provenance = 'first_party' | 'computed' | 'market_intelligence';
  * How urgently an exception needs a response.
  *
  * `critical` is quoted by SCR-01's "Review critical exceptions"; the levels around it are the ones
- * the urgency ordering of AAP 0.12.1 ranks on (see the second OPEN ITEM in this module's header).
+ * the urgency ordering of AAP 0.12.1 ranks on.
  */
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
@@ -171,8 +152,7 @@ export type FreshnessState = 'fresh' | 'stale' | 'partial' | 'unavailable';
  * How much confidence a computed figure, a scenario or a package carries.
  *
  * The level travels with a reason, never alone: SCR-04's comparison matrix shows the confidence
- * with the sentence that explains it (AAP 0.12.4). The level names are derived — see the third
- * OPEN ITEM in this module's header.
+ * with the sentence that explains it, while the three level names are derived (AAP 0.12.4).
  */
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
@@ -183,38 +163,31 @@ export type ConfidenceLevel = 'high' | 'medium' | 'low';
 /**
  * The kind of operational exception an exception record is.
  *
- * The fixing input is contracts §3, which names `ExceptionType` without listing its members. The
- * inputs available in this run quote two instances: the supply delay of `EXC-2026-1184` and the
- * quality hold of `EXC-2026-1190`.
- *
- * OPEN ITEM: the full member list is not recoverable from the inputs available in this run, so the
- * alias stays open rather than becoming a union with an invented member that would reject a
- * legitimate seed record at compile time.
+ * The fixing input is contracts §3, which names `ExceptionType` without listing its members; the
+ * inputs quote the supply delay of `EXC-2026-1184` and the quality hold of `EXC-2026-1190`. The
+ * alias therefore stays open rather than becoming a union with an invented member that would
+ * reject a legitimate seed record at compile time.
  */
 export type ExceptionType = string;
 
 /**
  * How sensitive a document is, as the classification it carries.
  *
- * The fixing input is contracts §3, which names `Classification` without listing its members. The
- * inputs available in this run quote two: `customer-confidential`, whose body never crosses the
- * service boundary for USR-04, and `eu-only`. POL-007 blocks the external reasoning model when the
- * assistant's context carries either (AAP 0.6.3).
- *
- * OPEN ITEM: the full member list is not recoverable from the inputs available in this run, so the
- * alias stays open for the reason recorded on `ExceptionType`.
+ * The fixing input is contracts §3, which names `Classification` without listing its members; the
+ * inputs quote `customer-confidential`, whose body never crosses the service boundary for USR-04,
+ * and `eu-only`. POL-007 blocks the external reasoning model when the assistant's context carries
+ * either (AAP 0.6.3). The alias stays open rather than narrowed to an invented member that would
+ * reject a legitimate seed record.
  */
 export type Classification = string;
 
 /**
  * Where a document's content may be processed.
  *
- * The fixing input is contracts §3, which names `Residency` without listing its members. The input
- * available in this run quotes the EU processing boundary, `eu-only`, which POL-007 also uses to
- * block the external reasoning model (AAP 0.6.3).
- *
- * OPEN ITEM: the full member list is not recoverable from the inputs available in this run, so the
- * alias stays open for the reason recorded on `ExceptionType`.
+ * The fixing input is contracts §3, which names `Residency` without listing its members; the input
+ * quotes the EU processing boundary, `eu-only`, which POL-007 also uses to block the external
+ * reasoning model (AAP 0.6.3). The alias stays open rather than narrowed to an invented member that
+ * would reject a legitimate seed record.
  */
 export type Residency = string;
 
@@ -415,7 +388,10 @@ export interface OperationalException {
   /** The plain-language account of what changed, as the record states it. */
   whatChanged: string;
 
-  /** When the exception was detected, which SCR-02's age column counts from. */
+  /**
+   * When the exception was detected: SCR-02's age column counts from it and SCR-03's activity
+   * history ends at it. No contracts §3 row names this member, so it is derived from those two.
+   */
   detectedAt: Timestamp;
 }
 
@@ -587,8 +563,7 @@ export interface ScenarioSet {
  * Where an approval stands, both before and after a decision.
  *
  * `changes-requested` is the state a "request changes" decision leaves behind, spelled in the
- * repository's hyphenated casing for multi-word literals (see the fourth OPEN ITEM in this
- * module's header).
+ * repository's hyphenated casing for multi-word literals.
  */
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'changes-requested';
 
@@ -600,8 +575,7 @@ export type DecisionAction = 'approve' | 'reject' | 'request-changes';
  *
  * SCR-05 offers approve, reject and request changes, and each one needs a comment (AAP 0.12.2), so
  * the comment is required rather than optional. Declared beside `Approval`, the entity that
- * carries it, to keep this folder's dependency direction one-way (see the fifth OPEN ITEM in this
- * module's header).
+ * carries it, rather than in `./service`, so this folder's dependency direction stays one-way.
  */
 export interface Decision {
   /** Which decision was taken. */

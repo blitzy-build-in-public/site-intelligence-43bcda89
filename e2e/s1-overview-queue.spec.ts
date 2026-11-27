@@ -10,7 +10,9 @@
  * a reader arrives: the queue's twelve columns in their implemented order, its default order proved
  * from the rows themselves, the computed revenue column's exact §5.3 label, the evidence drawer behind
  * a row's figure, the plant filter and a saved view, the acting role's plant scoping, and the
- * overview's four tiles, changed-since list, risk-by-plant table and two charts with their table views.
+ * overview's four tiles, changed-since list, risk-by-plant table and two charts with their table views,
+ * together with the queue those charts narrow — to a day one of the series' table-view rows states, and
+ * to the plant a revenue bar draws.
  *
  * HOW IT DRIVES THE APPLICATION. Every step is a reader's step: an option on the demonstration role
  * switcher (through `e2e/helpers/role.ts`, the suite's one persona lever), a link in the shell's
@@ -76,28 +78,27 @@ const SIMULATED_DATA_BADGE = /^Simulated data at /;
 const EVIDENCE_SUFFIX = '— open evidence';
 
 /**
- * Section 1 of the drawer, which states a figure's value and the rule that produced it.
- */
-const EVIDENCE_VALUE_SECTION = 'Value and formula';
-
-/**
  * The evidence drawer's four section captions, in the order `src/components/evidence-drawer.tsx`
  * renders them (AAP §0.12.4: value, provenance, formula and inputs, upstream and downstream, and
  * confidence).
  */
 const EVIDENCE_SECTIONS: readonly string[] = [
-  EVIDENCE_VALUE_SECTION,
+  'Value and formula',
   'Source, record and time',
   'Inputs, upstream and downstream',
   'Confidence, missing inputs and documents',
 ];
 
 /**
- * The failure region's headline, as `src/components/evidence-drawer.tsx` states it: the drawer's own
- * sentence for a read it could not complete. A figure whose evidence resolves shows it nowhere, so its
- * absence is what tells an aggregate reference apart from a reference nothing answers.
+ * The two sentences that mark a drawer whose read was refused.
+ *
+ * The first is the drawer's own headline for a failed read and the second is the service's refusal for
+ * a reference no family answers. Neither may appear behind a figure the application offers as a
+ * control: every figure, chart mark, node, arc or pin opens evidence it can show (AAP 0.2.1 F12, rule
+ * P-8). Both are restated here because a browser spec compares rendered text.
  */
 const EVIDENCE_FAILURE_HEADLINE = 'The evidence behind this figure could not be read';
+const UNRESOLVED_REFERENCE = 'No record family answers the reference';
 
 /**
  * The queue's columns in the order `src/features/scr-02-exception-queue/exception-queue-screen.tsx`
@@ -701,7 +702,7 @@ test('the queue’s plant filter narrows it, clearing it restores it, and a save
   await saveControl.click();
 
   const applyControl = savedViews.getByRole('button', {
-    name: new RegExp(`^Apply\\s*:\\s*${escapeRegExp(viewName)}$`),
+    name: new RegExp(`^Apply: ${escapeRegExp(viewName)}$`),
   });
   await expect(applyControl, 'the saved view is listed once it is saved').toBeVisible();
 
@@ -892,6 +893,55 @@ function markCounts(labels: readonly string[], context: string): number[] {
   });
 }
 
+/**
+ * The date a series mark draws, read from the mark's own accessible name.
+ *
+ * A line mark is named `<series>, <date>: <count>`, so the date is the member between the comma and the
+ * final colon. It is read rather than written out, so a day compared with the series' table view is the
+ * day the mark itself states — the record's date, not a fixture's (rule P-6).
+ *
+ * @param label - The mark's accessible name.
+ * @param context - What was being read, for the failure message.
+ * @returns The date the mark draws, in the `YYYY-MM-DD` form the name carries.
+ */
+function dayOfMarkLabel(label: string, context: string): string {
+  const match = /^[^,]+, (\d{4}-\d{2}-\d{2}): \d+$/u.exec(label);
+  const day = match?.[1];
+
+  if (day === undefined) {
+    throw new Error(
+      `${context}: mark is named ${JSON.stringify(label)}, which carries no date in its name.`,
+    );
+  }
+
+  return day;
+}
+
+/**
+ * The day a series table row's date control narrows the queue to, read from the control itself.
+ *
+ * The control is announced as `<action> <day>`: its accessible name is the sentence it carries, which
+ * begins with the action and ends with the row's own day. The day is therefore read from the control
+ * rather than written out here, so the day the queue is expected to open on is the day the row itself
+ * states (rule P-6).
+ *
+ * @param text - The control's text, which is the sentence it is named by.
+ * @param context - What was being read, for the failure message.
+ * @returns The day the control narrows to, in the `YYYY-MM-DD` form the sentence carries.
+ */
+function dayOfQueueDateControl(text: string, context: string): string {
+  const match = /^Narrow the queue to (\d{4}-\d{2}-\d{2})/u.exec(collapse(text));
+  const day = match?.[1];
+
+  if (day === undefined) {
+    throw new Error(
+      `${context}: the day control reads ${JSON.stringify(text)}, which states no day after its action.`,
+    );
+  }
+
+  return day;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * SCR-01 — the overview's figures, its two charts and the narrowing they perform
  * ------------------------------------------------------------------------------------------- */
@@ -903,10 +953,12 @@ function markCounts(labels: readonly string[], context: string): number[] {
  * open-exceptions tile's figure is compared with the number of rows the queue shows for the same scope
  * and status rather than with a typed count (rule P-6); both charts are switched to their table view
  * and the table is compared with the figures the chart draws, which is success criterion 9's "a working
- * view as table carrying the same values"; and a revenue bar is shown to narrow the queue to a strict
- * subset of the rows it held, still holding every row recorded at the plant that bar draws.
+ * view as table carrying the same values"; the date control of a series table row is shown to narrow
+ * the queue to the day that row states, with clearing that day restoring the whole queue; and a revenue
+ * bar is shown to narrow the queue to a strict subset of the rows it held, still holding every row
+ * recorded at the plant that bar draws.
  */
-test('the overview shows its tiles, changed-since list, risk-by-plant table and both charts, and its bars narrow the queue', async ({
+test('the overview shows its tiles, changed-since list, risk-by-plant table and both charts, and its day and plant controls narrow the queue', async ({
   page,
 }) => {
   await page.goto('/');
@@ -948,28 +1000,30 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
 
   await openExceptionsFigure.click();
 
-  const tileDrawer = await expectEvidenceDrawerSections(page);
+  const tileDrawer = page.getByRole('dialog', { name: 'Evidence', exact: true });
+  await expect(tileDrawer, 'a tile’s figure opens the evidence drawer').toBeVisible();
 
   /*
-   * An aggregate figure's reference — `overview:<aggregate>` — is answered by the service's evidence
-   * read from the same aggregation module the tile itself is built by, so the drawer opens on the
-   * figure's own sections: the record row quotes the reference the screen composed, the value section
-   * states the count the tile shows, and the failure region appears nowhere.
+   * The figure's reference is the composed aggregate reference (`overview:<aggregate>`), and the
+   * evidence read answers that family with the aggregate's own output, so the drawer fills all four of
+   * its sections rather than opening on a reference no record answers (AAP 0.2.1 F12, principle PR-6).
    */
-  await expect(
-    tileDrawer,
-    'the drawer states which figure it was opened for',
-  ).toContainText('overview:');
+  await expect(tileDrawer, 'the drawer states which figure it was opened for').toContainText(
+    'overview:',
+  );
+
+  for (const section of EVIDENCE_SECTIONS) {
+    await expect(
+      tileDrawer.getByRole('region', { name: section }),
+      `the ${section} section of the aggregate figure's evidence`,
+    ).toBeVisible();
+  }
 
   await expect(
-    tileDrawer.getByRole('region', { name: EVIDENCE_VALUE_SECTION }),
-    'the aggregate’s own value is stated rather than a failure',
-  ).toContainText(`${openExceptionCount} `);
-
-  await expect(
-    tileDrawer.getByText(EVIDENCE_FAILURE_HEADLINE),
-    'no failure region stands where an aggregate figure’s evidence belongs',
+    tileDrawer.getByText(EVIDENCE_FAILURE_HEADLINE, { exact: true }),
+    'an aggregate figure opens evidence that could be read',
   ).toHaveCount(0);
+  await expect(tileDrawer).not.toContainText(UNRESOLVED_REFERENCE);
 
   await page.keyboard.press('Escape');
   await expect(tileDrawer).toBeHidden();
@@ -1097,13 +1151,7 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
   const markDrawer = page.getByRole('dialog', { name: 'Evidence', exact: true });
   await expect(markDrawer, 'a date mark opens the evidence behind that day’s count').toBeVisible();
 
-  /*
-   * GAP: activating a date mark cannot narrow the queue to that day. `LineChart` exposes no
-   * activation callback for a date and `ExceptionQuery` carries no date member, so the screen — which
-   * records this as its own second gap — renders no interactive date affordance and rule P-8 forbids
-   * inventing one here. The mark's own implemented behaviour, opening its evidence, is what is
-   * asserted above; the queue narrowing that this brief requires of a date mark is not implemented.
-   */
+  /* The drawer closes on its own control here, before the flow below narrows the queue and leaves. */
   await page.keyboard.press('Escape');
   await expect(markDrawer).toBeHidden();
 
@@ -1120,22 +1168,131 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
   await expect(seriesTableView).toBeVisible();
 
   const openedValues = await tableColumnValues(seriesTableView, 'Opened');
+  const openedCounts = openedValues.map((value, index) =>
+    countIn(value, `the series table’s opened column, row ${index + 1}`),
+  );
 
   expect(
-    openedValues.map((value, index) => countIn(value, `the series table’s opened column, row ${index + 1}`)),
+    openedCounts,
     'the series’ table view carries the counts its marks draw',
   ).toEqual(markCounts(openedLabels, 'the opened series'));
 
-  await page.getByRole('button', { name: 'View as chart: Exceptions opened and resolved per day' }).click();
+  const seriesRows = await tableDataRows(seriesTableView);
+  const tableDays: string[] = [];
+
+  for (const [index, row] of seriesRows.entries()) {
+    tableDays.push(
+      dayOfQueueDateControl(
+        await textOf(row.getByRole('button', { name: /^Narrow the queue to /u })),
+        `the series table’s date control, row ${index + 1}`,
+      ),
+    );
+  }
+
+  expect(
+    tableDays,
+    'the series’ table view carries the days its marks draw, in the same order',
+  ).toEqual(openedLabels.map((label) => dayOfMarkLabel(label, 'an opened series mark')));
 
   /*
-   * A revenue bar narrows the queue to the plant it draws.
+   * A day of the series narrows the queue to that day (AAP §0.12.4's "14 days whose dates filter the
+   * queue"), and the control that performs it is the date cell of the series' table view: the mark keeps
+   * the one effect asserted above, because a second effect that navigated would unmount the evidence
+   * drawer it had just opened.
    *
-   * The narrowing is asserted as the reader gets it: the queue opens on the chosen plant's population
-   * — a strict subset of the rows the same persona saw before the bar was touched, holding every row
-   * recorded at that plant — rather than as plant-cell equality, because the plant filter also admits
-   * an exception recorded at another plant whose disruption reaches the chosen one, and such a row
-   * correctly keeps naming its own plant.
+   * The day is the row's own: the control names the action and the day, and both the day the queue's day
+   * row prints and the day this case narrows to are read from that control rather than written here, so
+   * the case types neither a date nor a count (rule P-6). Every row of the table is on screen, so the
+   * first row that counts an opened exception is the one used. The narrowing is then asserted as the
+   * reader gets it — a non-empty strict subset of the rows the same persona saw before the day was
+   * chosen — and clearing it restores exactly that set, which is the other half of rule P-8: the control
+   * that ends the narrowing performs its function rather than merely closing the row that states it.
+   */
+  const activeIndex = openedCounts.findIndex((count) => count > 0);
+
+  if (activeIndex === -1) {
+    throw new Error('The opened series counts no day, so no row can narrow the queue to one.');
+  }
+
+  const activeRow = at(seriesRows, activeIndex, 'the series table’s counted row');
+  const dayControl = activeRow.getByRole('button', { name: /^Narrow the queue to /u });
+
+  await expect(
+    dayControl,
+    'the day’s row carries the control that narrows the queue to that day',
+  ).toHaveCount(1);
+
+  const activeDay = dayOfQueueDateControl(
+    await textOf(dayControl),
+    'the series table’s counted day control',
+  );
+
+  await expect(
+    dayControl,
+    'the day’s control is named for the action it performs and the day it narrows to',
+  ).toHaveAccessibleName(`Narrow the queue to ${activeDay}`);
+
+  await dayControl.focus();
+  await expect(dayControl, 'the day’s control took the keyboard focus').toBeFocused();
+  await dayControl.press('Enter');
+
+  await expect(page, 'activating the day’s control opens the queue').toHaveURL(/\/exceptions$/);
+  await waitForQueueRows(page);
+
+  const filterGroup = regionNamed(page, 'Filters');
+  const dayRow = filterGroup.getByText(
+    new RegExp(`^Opened or resolved on ${escapeRegExp(activeDay)}$`, 'u'),
+  );
+  await expect(dayRow, 'the queue names the day it was narrowed to').toBeVisible();
+
+  await expect
+    .poll(
+      async () => {
+        const identifiers = (await queueRowPairs(page, 'Exception', 'Plant')).map((pair) => pair[0]);
+
+        return (
+          identifiers.length > 0 &&
+          identifiers.length < unscopedIdentifiers.length &&
+          identifiers.every((identifier) => unscopedIdentifiers.includes(identifier))
+        );
+      },
+      { timeout: POLL_TIMEOUT_MS },
+    )
+    .toBe(true);
+
+  const clearDay = filterGroup.getByRole('button', { name: 'Clear day' });
+  await clearDay.focus();
+  await clearDay.press('Enter');
+
+  await expect
+    .poll(
+      async () => (await queueRowPairs(page, 'Exception', 'Plant')).length,
+      { timeout: POLL_TIMEOUT_MS },
+    )
+    .toBe(unscopedIdentifiers.length);
+
+  await expect(dayRow, 'the cleared day no longer narrows the queue').toHaveCount(0);
+
+  /* Back to the overview, where the revenue bar of the next block is drawn. */
+  await primaryNavigation(page).getByRole('link', { name: 'Overview' }).click();
+  await expect(page).toHaveURL(/\/overview$/);
+
+  /*
+   * A revenue bar opens the evidence it declares — from the keyboard and from a pointer alike — and
+   * narrows the shell's plant selection to the plant it draws.
+   *
+   * The mark carries `aria-haspopup="dialog"`, so activating it opens the evidence drawer and leaves the
+   * reader on the overview: the figure's four sections are what the mark promises, and a gesture that
+   * carried the reader to another screen would discard the drawer it had just opened. The narrowing the
+   * bar performs is the shell's own plant filter, so it is asserted where a reader sees it and where it
+   * takes effect — the top bar's Plant control — and the narrowed queue is then opened the way the
+   * screen offers it, with the primary action "Review critical exceptions".
+   *
+   * The narrowed queue is asserted as the reader gets it: the queue opens on the chosen plant's
+   * population — a strict subset of the rows the same persona saw before the bar was touched, holding
+   * every row recorded at that plant — rather than as plant-cell equality, because the plant filter also
+   * admits an exception recorded at another plant whose disruption reaches the chosen one, and such a
+   * row correctly keeps naming its own plant.
    */
   const plantToNarrow = at(plantIdentifiers, 0, 'the risk-by-plant table’s first plant');
   const plantNameToNarrow = at(plantNames, 0, 'the risk-by-plant table’s first plant name');
@@ -1144,10 +1301,57 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
   });
 
   await expect(bar, 'the revenue bar of the first plant is a control').toBeVisible();
+
+  const barDialog = page.getByRole('dialog', { name: 'Evidence', exact: true });
+  const plantControl = page
+    .getByRole('group', { name: 'Scope filters', exact: true })
+    .getByRole('combobox', { name: 'Plant' });
+
+  /* The keyboard path: the mark is reachable, opens the drawer it declares, and keeps its focus return. */
   await bar.focus();
   await bar.press('Enter');
 
-  await expect(page, 'activating a revenue bar opens the queue').toHaveURL(/\/exceptions$/);
+  await expect(barDialog, 'activating a revenue bar opens the evidence it declares').toBeVisible();
+  await expect(
+    page,
+    'a mark that declares a dialog leaves the reader on the screen they activated it from',
+  ).toHaveURL(/\/overview$/);
+  await expect(bar, 'the bar the reader activated is marked as the current one').toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(
+    plantControl,
+    'the bar narrows the shell’s plant selection to the plant it draws',
+  ).toHaveValue(plantToNarrow);
+
+  await page.keyboard.press('Escape');
+  await expect(barDialog).toBeHidden();
+  await expect(
+    bar,
+    'closing the drawer returns focus to the mark that opened it',
+  ).toBeFocused();
+
+  /*
+   * The pointer path: the same mark, taken the way a reader without a keyboard takes it. The mark's
+   * whole row is its pointer target — the row it draws its focus ring across, and the row its
+   * `cursor-pointer` affordance describes — so the click is aimed at the mark itself. Playwright
+   * aims at the centre of an element's box, which on this row is a point the bar does not paint: a
+   * click there reached the graphic behind the mark, and nothing happened, until the row itself
+   * became the target.
+   */
+  await bar.click();
+  await expect(
+    barDialog,
+    'a pointer click opens the same evidence the keyboard does',
+  ).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(barDialog).toBeHidden();
+
+  /* The narrowed queue, reached through the screen's own primary action. */
+  await page.getByRole('button', { name: 'Review critical exceptions' }).click();
+  await expect(page, 'activating a revenue bar narrows the queue it opens').toHaveURL(/\/exceptions$/);
   await waitForQueueRows(page);
 
   await expect

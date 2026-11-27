@@ -38,21 +38,20 @@
  * icon, never by colour alone, and the one control shown is keyboard operable with the focus ring the
  * token layer fixes.
  *
- * OPEN ITEM — the "no exceptional state" case. `ScreenState` (`src/types/service.ts`) has exactly the
- * seven members specification §8 fixes, and a screen whose records are current and complete is in
- * none of them. AAP §0.12.4 nevertheless requires that screen to render its content inside this
- * boundary, so `state` is optional and its absence means "no exceptional state holds": the content
- * renders exactly as handed in. The seven members keep their single definition in `ScreenState`, and
- * no second union is declared here.
+ * THE "NO EXCEPTIONAL STATE" CASE. `ScreenState` (`src/types/service.ts`) has exactly the seven
+ * members specification §8 fixes, and a screen whose records are current and complete is in none of
+ * them; AAP §0.12.4 nevertheless requires that screen to render inside this boundary, so `state` is
+ * optional and its absence means the content renders exactly as handed in. The seven members keep
+ * their single definition in `ScreenState`, and no second union is declared here.
  *
- * OPEN ITEM — the records two states need. A banner or a card that named a source, a time, a
- * permission or a role would be inventing the facts that make the state actionable, so `stale` and
- * `forbidden` are required by contract whenever those two states are passed and are documented as
- * such. Without them this component states the condition in neutral words instead of guessing or
- * going silent: the stale state renders a warning that names no source and prints no instant, because
- * a banner that could name neither would assert a record the caller never supplied, and the forbidden
- * state renders a neutral notice naming no permission, no role and no trace id.
+ * THE RECORDS TWO STATES CANNOT BE DESCRIBED WITHOUT. A banner or a card that named a source, a time,
+ * a permission or a role would be inventing the facts that make the state actionable, so `stale` and
+ * `forbidden` are required by contract whenever those two states are passed. Without them this
+ * component states the condition in neutral words rather than guessing or going silent: the stale
+ * state warns naming no source and printing no instant, and the forbidden state shows a neutral
+ * notice naming no permission, no role and no trace id.
  */
+import { useId } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import type { Permission, Role, ScreenState, SourceId, Timestamp } from '../types';
@@ -92,9 +91,10 @@ export interface StateBoundaryStale {
  * The denial a forbidden screen explains, member for member the evidence a `'permission'` `Problem`
  * carries.
  *
- * The names are the service's own — `Problem.requiredPermission`, `Problem.rolesWithPermission` and
- * `Problem.traceId` — so a screen hands the failure straight through and no translation layer can
- * disagree with the service about who may act.
+ * The names are the service's own — `Problem.requiredPermission`, `Problem.rolesWithPermission`,
+ * `Problem.traceId` and `Problem.message` — so a screen hands the failure straight through and no
+ * translation layer can disagree with the service about who may act or about why the call was
+ * refused.
  */
 export interface StateBoundaryForbidden {
   /** The permission the acting role lacks, naming what the denied view or action required. */
@@ -105,6 +105,14 @@ export interface StateBoundaryForbidden {
    * reported as such rather than hidden.
    */
   readonly roles: readonly Role[];
+
+  /**
+   * The refusal's own sentence, from `Problem.message`, printed above the roles it lists. Optional,
+   * because a caller that has no sentence to quote still has the permission, the roles and the trace
+   * id to show — and the sentence is the service's rather than this boundary's, so a denial whose
+   * cause only the service knows is never described in words the boundary invented.
+   */
+  readonly reason?: string | undefined;
 
   /** The correlation identifier of the refused call, so a reader can quote it when reporting it. */
   readonly traceId: string;
@@ -369,6 +377,12 @@ export function StateBoundary({
   conflictMessage,
   forbidden,
 }: StateBoundaryProps): ReactElement {
+  /* The id the loading caption carries and the region takes its name from. Called above the
+     absent-state return so the hook runs on every render of a mounted boundary regardless of which
+     state it was handed: a hook reached only under `'loading'` would make the hook order depend on
+     the prop and break the rules of hooks. */
+  const loadingCaptionId = useId();
+
   if (state === undefined) {
     return <>{children}</>;
   }
@@ -381,14 +395,19 @@ export function StateBoundary({
         <div
           role="status"
           aria-busy="true"
-          /* The caption below is the region's visible text, and this attribute is the same string
-             exposed as the region's accessible name: without it the busy region reaches assistive
-             technology unnamed, so its arrival is not announced (rule B-3). The visible caption stays
-             in the accessibility tree, so the name is never the only place the words appear. */
-          aria-label={STATE_BOUNDARY_TEXT.loading}
+          /* The region takes its name from the caption it already renders, through the reference
+             rather than through a second copy of the words: an ARIA name computed from an element's
+             own visible text is announced once, where an `aria-label` repeating that text is a second
+             utterance of the same word in the screen-reader/browser pairs that announce both. The
+             caption keeps its place in the accessibility tree, so the name is never the only place
+             the words appear. Dropping the name instead of repointing it would leave the busy region
+             unnamed, so its arrival would not be announced at all (rule B-3). */
+          aria-labelledby={loadingCaptionId}
           className={LOADING_CLASSES}
         >
-          <span className={LOADING_CAPTION_CLASSES}>{STATE_BOUNDARY_TEXT.loading}</span>
+          <span id={loadingCaptionId} className={LOADING_CAPTION_CLASSES}>
+            {STATE_BOUNDARY_TEXT.loading}
+          </span>
           <span aria-hidden="true" className={NOTICE_STACK_CLASSES}>
             {SKELETON_BAR_WIDTHS.map((width) => (
               <span key={width} className={joinClassNames(SKELETON_BAR_CLASSES, width)} />
@@ -474,9 +493,10 @@ export function StateBoundary({
         </div>
       );
 
-    /* The acting role lacks the permission the call required. The card names the permission, the roles
-       that hold it and the trace id of the refused call, so the denial is explained rather than merely
-       reported. No retry is offered: the same call would be refused again. */
+    /* The acting role lacks the permission the call required, or the demonstration withheld the view.
+       The card prints the refusal's own sentence, the permission, the roles that hold it and the trace
+       id of the refused call, so the denial is explained rather than merely reported. No retry is
+       offered: the same call would be refused again. */
     case 'forbidden':
       if (forbidden === undefined) {
         return (
@@ -491,6 +511,7 @@ export function StateBoundary({
         <ForbiddenCard
           permission={forbidden.permission}
           roles={forbidden.roles}
+          reason={forbidden.reason}
           traceId={forbidden.traceId}
         />
       );

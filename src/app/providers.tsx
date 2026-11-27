@@ -56,7 +56,7 @@
  * branch below exists for a test's benefit: the simulation popover and the role switcher are product
  * features, and every browser test drives them as a reader would.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -283,11 +283,12 @@ export function useActiveRole(): Role | null {
 /**
  * Builds the cache every screen reads through.
  *
- * Query keys are `[method, ...args]`, and the invalidation a write owes the reads it touched is issued
- * by the owner of each write once the port has resolved it: that write calls
+ * This function fixes the key convention the whole cache follows: every read is made under
+ * `[method, ...args]`, the port member's own name first, and the invalidation a write owes the reads
+ * it touched is issued by the owner of that write once the port has resolved it — that write calls
  * `queryClient.invalidateQueries` for the members it moved, with the key window being the member's own
- * name. This function only creates the client: it fixes the key convention every screen's reads and
- * every write's invalidation share, and it invalidates nothing itself.
+ * name (AAP 0.6.2). This function only creates the client: it fixes that convention and it invalidates
+ * nothing itself.
  *
  * Retries and window-focus refetches are off, and both are deliberate: the demonstration is
  * deterministic (AAP 0.2.1), so a background refetch could replace a figure the reader is midway
@@ -319,18 +320,24 @@ export function createQueryClient(): QueryClient {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Seeds the shell's persona from the one the adapter reported at start-up.
+ * Seeds the shell's persona from the one the adapter reported when the session's start-up settled.
  *
  * The guard is `activeRole === null`, and it is the whole of the rule: the shell adopts the session's
  * persona only while it has selected none of its own, so a reader who has switched role is never
- * overwritten with the seeded one. The same guard is what makes a demonstration reset work — once
- * `resetDemo` has put the adapter back to its seeded persona and `resetShell()` has cleared the
- * selection, the shell adopts the persona the adapter restored, which is that same seeded persona and
- * not the role the reader had switched to.
+ * overwritten with the seeded one.
  *
- * It runs in an effect keyed on the value rather than in the render body, and it sets the store once
- * per distinct persona: an assignment during a render would be a state change while rendering, and the
- * guard on `activeRole` is what keeps the effect idempotent when the value it writes re-renders it.
+ * It runs at most once per session, and that is the second half of the rule rather than a detail.
+ * `Reset demo data` clears the selection through `resetShell()` and re-reads the identity without
+ * awaiting that read, so a second seeding would run while the cache still held the persona the reader
+ * had switched to and would write that persona back into the store as the shell's selection — leaving
+ * the role switcher displaying a persona the session no longer acts as, for good, because the guard
+ * above then refuses every later correction. One seeding is all the store needs: `useActiveRole()`
+ * answers the live identity while the selection is null, so after a reset the shell follows the persona
+ * the adapter restored as soon as that read lands.
+ *
+ * It runs in an effect keyed on the value rather than in the render body, and it sets the store once for
+ * the session: an assignment during a render would be a state change while rendering, and the seeding
+ * guard above is what keeps the effect idempotent when the value it writes re-renders it.
  * The effect loads nothing — it copies a value already in hand into the store, which is not a query
  * and is not the data loading AAP 0.18.1 reserves for the query cache.
  *
@@ -349,11 +356,15 @@ function ActiveRoleSeed(): null {
   const activeRole = useShellStore((state) => state.activeRole);
   const setActiveRole = useShellStore((state) => state.setActiveRole);
 
+  /** Whether this session's start-up persona has already been adopted, once and for all. */
+  const seeded = useRef(false);
+
   useEffect(() => {
-    if (activeUser === null || activeRole !== null) {
+    if (seeded.current || activeUser === null || activeRole !== null) {
       return;
     }
 
+    seeded.current = true;
     setActiveRole(activeUser.role);
   }, [activeUser, activeRole, setActiveRole]);
 

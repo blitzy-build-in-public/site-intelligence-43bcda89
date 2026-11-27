@@ -8,9 +8,7 @@
  * chokepoints", "competitor series tagged `Simulated market intelligence`", every competitor name
  * carrying the imported tag — and AAP 0.14.1's S3 row plus F13 place it in stage S3. AAP 0.8 is what
  * keeps the two families apart here, and this drawing is the part of acceptance test T-21 that
- * asserts the network overlay carries labelled series; the browser spec `e2e/s3-atlas.spec.ts`
- * belongs to another folder, so this file carries no browser test. The parent folder brief names the
- * file and its single export, `CompetitorNetwork`.
+ * asserts the network overlay carries labelled series.
  *
  * WHAT IT DRAWS, AND WHY IT IS A SCHEMATIC RATHER THAN A MAP. The bundled boundary map with its
  * projection belongs to `src/components/map-canvas.tsx`, which the canvas screen composes; this is
@@ -48,12 +46,12 @@
  * the seven fixed labels rather than inside them (AAP 0.10) — and carries no other label, so the
  * client's own reading is never presented as market intelligence.
  *
- * RULE DIVERGENCE, reported and not resolved in this file. Rule P-5 fixes the exact words of the
- * competitor tag, while AAP 0.10's companion-string row pairs that same tag with a different company
- * word. `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the rule's
- * own wording, with the rule — the highest-ranked input (AAP 0.1) — named as the winner in that
- * constant's documentation. This file imports the constant and renders it verbatim, and types no tag
- * text at all, so the resolution keeps one owner and a change to it needs one edit.
+ * Rule P-5 fixes the exact words of the competitor tag, while AAP 0.10's companion-string row pairs
+ * that same tag with a different company word. `src/types/primitives.ts` settles the pair by shipping
+ * `COMPETITOR_NAME_TAG` as the rule's own wording, with the rule — the highest-ranked input
+ * (AAP 0.1) — named as the winner in that constant's documentation. This file imports the constant
+ * and renders it verbatim, and types no tag text at all, so the resolution keeps one owner and a
+ * change to it needs one edit.
  *
  * WHAT IT DOES NOT DO. It reads no clock, sends no request (rule B-1), reads no configuration (rule
  * B-2), imports no seed record, no service and no domain module (rule P-2: every site, lane, crossing

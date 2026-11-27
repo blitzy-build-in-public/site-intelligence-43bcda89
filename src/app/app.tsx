@@ -213,8 +213,9 @@ const MAIN_CLASSES = 'flex min-w-0 flex-col gap-6 px-4 py-4';
  *
  * An entry whose `disabledReason` is `null` navigates, and it is a `NavLink` so React Router supplies
  * the `aria-current="page"` marking the entry's current appearance is painted from. An entry carrying
- * a reason cannot navigate: it renders as the application's only button, disabled, with that exact
- * reason attached — painted on hover and focus and announced as the control's description — so rule
+ * a reason cannot navigate: it renders through `ActionButton`, the one control that carries its own
+ * reason for being unable to act, disabled, with that exact reason attached — painted on hover and
+ * focus and announced as the control's description — so rule
  * P-8's explanation is reachable by keyboard rather than hidden behind a native `disabled` attribute.
  * The reason is the table's own string, never a copy of it, and the entry is never a link, so the
  * pattern a stage has not yet declared (such as `/plants/:plantId/plan`) is never followed.
@@ -232,7 +233,12 @@ function NavEntry({ item }: { readonly item: NavItem }): ReactElement {
   }
 
   return (
-    <ActionButton disabled disabledReason={item.disabledReason}>
+    /* The reason opens below its entry rather than above it. The navigation is a strip under the top
+       bar whose three group rows stack, so a hint opening above a lower row paints over the row above
+       it and hides entries a reader is comparing — "Arrives in stage S4" covered Approvals and Audit
+       trail before this. Opening away from the strip keeps every entry legible (rule P-8). It is a
+       preference: the tooltip still moves the hint to the other side when this one cannot fit it. */
+    <ActionButton disabled disabledReason={item.disabledReason} hintPlacement="bottom">
       {item.label}
     </ActionButton>
   );
@@ -298,6 +304,7 @@ export function AppShell(): ReactElement {
 
   const wallMode = useShellStore((state) => state.wallMode);
   const setSimulationOpen = useShellStore((state) => state.setSimulationOpen);
+  const simulationOpen = useShellStore((state) => state.simulationOpen);
 
   const badge = (
     <SimulatedDataBadge
@@ -305,6 +312,7 @@ export function AppShell(): ReactElement {
       onActivate={() => {
         setSimulationOpen(true);
       }}
+      expanded={simulationOpen}
     />
   );
 

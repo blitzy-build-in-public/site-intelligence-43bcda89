@@ -16,8 +16,7 @@
  *   `src/types/atlas.ts`.
  * - AAP 0.12.3's `GET /market-intelligence/atlas` row: "Forbidden for USR-08, with
  *   `requiredPermission` and `rolesWithPermission` in the `Problem`".
- * - The parent folder brief's `atlas.ts` entry, including its closing requirement that no handler
- *   sums a market-intelligence value with a first-party one (rule P-5).
+ * - No handler sums a market-intelligence value with a first-party one (rule P-5).
  *
  * WHAT IT DOES. It copies the seeded pack into the `Atlas` DTO member by member, and supplies the two
  * halves the pack deliberately omits because they are first-party records: the client's own plants,
@@ -120,7 +119,7 @@ import type {
 import type { ChokepointRecord, MarketIntelligencePack, Plant } from '../seed-loader';
 import { MARKET_PACK_VERSION } from '../seed-loader';
 import type { HandlerContext } from '../mock-state';
-import { isSimulationOn } from '../simulation';
+import { demonstrationForbiddenReason, isSimulationOn } from '../simulation';
 
 /* ---------------------------------------------------------------------------------------------
  * Fixed vocabulary — taken from its one owner, never retyped (rules P-1 and P-5)
@@ -164,23 +163,24 @@ const MARKET_INTELLIGENCE: Provenance = 'market_intelligence';
  *
  * Composed as a plain `Problem` object so a caller can narrow on `type` and read the cause without
  * unwrapping an `Error`, and it carries the two members the forbidden card renders: the permission the
- * role lacks and the roles that hold it (rule P-8). The role list comes from `rolesWith`, so the
- * sentence names who may act and cannot drift from the matrix that decided the refusal.
+ * role lacks and the roles that hold it (rule P-8). The role list comes from `rolesWith`, so the list
+ * cannot drift from the matrix that decided the refusal, while the sentence arrives whole from the
+ * caller because the demonstration's refusal and the matrix's denial state different facts.
  *
  * `traceId` is the empty string because a handler mints no correlation identifier: the adapter derives
  * the value from its own request counter and reports it in `Meta.traceId`, so a literal here would
  * either duplicate that spelling or invent one. The empty string records that the handler has none to
  * report rather than inventing a value, and the adapter is the one place that fills it in.
+ *
+ * @param message The refusal in plain words, true of the cause being reported.
+ * @returns The failure to throw.
  */
-function competitiveReadRefusal(ctx: HandlerContext): Problem {
+function competitiveReadRefusal(message: string): Problem {
   const rolesWithPermission: Role[] = rolesWith(COMPETITIVE_READ);
 
   return {
     type: 'permission',
-    message:
-      `Reading the simulated market-intelligence pack requires the ${COMPETITIVE_READ} permission, ` +
-      `and the ${ctx.actor.role} role does not hold it. The roles that hold it are ` +
-      `${rolesWithPermission.join(', ')}.`,
+    message,
     traceId: '',
     requiredPermission: COMPETITIVE_READ,
     rolesWithPermission,
@@ -194,18 +194,26 @@ function competitiveReadRefusal(ctx: HandlerContext): Problem {
  * The matrix is evaluated by `hasPermission`, not by reading `actor.permissions`, so the refusal comes
  * from the one authority both adapters share (AAP 0.6.2). The atlas read is not plant-scoped — the pack
  * describes competitors rather than a record of the client's own — so the subject is `null`. The
- * forbidden trigger produces the same `Problem` rather than a different one, so the screen state the
- * popover demonstrates is the state a real refusal produces.
+ * forbidden trigger refuses the call with the demonstration's own sentence, because the role holding
+ * the permission is refused by the control rather than by the matrix (rules P-3, P-4), while a genuine
+ * denial names the permission the role does not hold and the roles that do (rule P-8).
  *
  * @param ctx - The session's state and the persona the call acts as.
  * @throws Problem - `type: 'permission'`, carrying the permission and the roles that hold it.
  */
 function assertCompetitiveRead(ctx: HandlerContext): void {
-  const refusedByControl = isSimulationOn(ctx.state, 'forbidden');
-  const refusedByMatrix = !hasPermission(ctx.actor.role, COMPETITIVE_READ, null, ctx.actor);
+  if (isSimulationOn(ctx.state, 'forbidden')) {
+    throw competitiveReadRefusal(
+      demonstrationForbiddenReason(ctx.actor.role, COMPETITIVE_READ),
+    );
+  }
 
-  if (refusedByControl || refusedByMatrix) {
-    throw competitiveReadRefusal(ctx);
+  if (!hasPermission(ctx.actor.role, COMPETITIVE_READ, null, ctx.actor)) {
+    throw competitiveReadRefusal(
+      `Reading the simulated market-intelligence pack requires the ${COMPETITIVE_READ} permission, ` +
+        `and the ${ctx.actor.role} role does not hold it. The roles that hold it are ` +
+        `${rolesWith(COMPETITIVE_READ).join(', ')}.`,
+    );
   }
 }
 

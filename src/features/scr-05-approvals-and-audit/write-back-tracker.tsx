@@ -20,19 +20,17 @@
  * disabled with the sentence that says so, a step that is not failed carries no retry control at
  * all rather than a dead one, and a caller that supplies no handler gets no control.
  *
- * OPEN ITEM: `WriteBack` (contracts §3) declares `sequence`, `system`, `recordRef`, `description`
- * and `state` — and no failure-message member and no timestamp member. On a failed step the record's
- * own `description` is therefore the only text it carries, so that description is what is shown and
- * {@link WRITE_BACK_TAG} sits in the same step, below the rows that name the target system, the
- * state and the record it writes — the same step as the failure's own message, which is what AAP
- * 0.2.2 requires of a failed write-back; no failure message and no instant is printed that the
- * record does not hold. A member added to `WriteBack` is rendered here on the day it exists; nothing
- * needs inventing meanwhile.
- * OPEN ITEM: the record carries no identifier beyond `recordRef`, so that reference is the value the
- * caller's retry handler receives as its `writeBackId`, and the step's own `sequence` — its declared
- * position in the write-back — is the reconciliation key rather than the array index, so a step that
- * changes state after a retry re-renders the same list item in place instead of appending a second
- * row (AAP 0.2.2: a retry never duplicates a success record).
+ * WHAT `WriteBack` DOES NOT CARRY (contracts §3). The record declares `sequence`, `system`, `recordRef`,
+ * `description` and `state` — no failure-message member and no timestamp member — so on a failed step
+ * the record's own `description` is the only text there is, and that description is what is shown with
+ * {@link WRITE_BACK_TAG} in the same step, which is what AAP 0.2.2 requires of a failed write-back. No
+ * failure message and no instant is printed that the record does not hold.
+ *
+ * WHAT THE STEP IS KEYED BY. The record carries no identifier beyond `recordRef`, so that reference is
+ * the value the caller's retry handler receives as its `writeBackId`, and the step's own `sequence` —
+ * its declared position in the write-back — is the reconciliation key rather than the array index, so a
+ * step that changes state after a retry re-renders the same list item in place instead of appending a
+ * second row (AAP 0.2.2: a retry never duplicates a success record).
  */
 
 import type { ReactElement, ReactNode } from 'react';

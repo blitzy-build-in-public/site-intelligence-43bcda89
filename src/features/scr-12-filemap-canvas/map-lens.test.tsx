@@ -147,6 +147,7 @@ const PIN_STATE_WORDS = {
 const FAMILY_OF_KIND = {
   plant: 'Plant',
   supplier: 'Supplier',
+  material: 'Material',
   origin: 'Tier-2 origin',
   customer: 'Customer',
 } as const satisfies Record<TopologyNodeKind, string>;
@@ -165,15 +166,16 @@ function pinCounts(stated: Partial<PinCounts>): PinCounts {
 }
 
 /**
- * An eight-node network: two nodes of every family, one lane chain from a tier-2 origin through a
- * supplier and a plant to a customer, and pin counts that between them cover each of the six
- * `PinState` members.
+ * A nine-node network: two nodes of every family, one material at the site it is bought from, one lane
+ * chain from a tier-2 origin through a supplier, that material and a plant to a customer, and pin counts
+ * that between them cover each of the six `PinState` members.
  *
  * The coordinates sit across Europe, the Gulf of Mexico and Japan so every node lands inside the world
  * view at every zoom level. One plant carries counts of zero in every state and one supplier is absent
- * from `pinsByNode` altogether, so both readings of "no evidence pins" are exercised. The lanes are a
- * single chain whose direction is stated upstream to downstream, which is what lets the table view's
- * neighbour column be asserted from the fixture rather than from the drawing.
+ * from `pinsByNode` altogether, so both readings of "no evidence pins" are exercised; the material is
+ * absent from it too, because no evidence pin is attached to a material record. The lanes are a single
+ * chain whose direction is stated upstream to downstream, which is what lets the table view's neighbour
+ * column be asserted from the fixture rather than from the drawing.
  */
 const TOPOLOGY: Topology = {
   plants: [
@@ -210,6 +212,16 @@ const TOPOLOGY: Topology = {
       latitude: 57.7,
       longitude: 11.97,
       productIds: ['product-two'],
+    },
+  ],
+  materials: [
+    {
+      id: 'node-material',
+      kind: 'material',
+      label: 'Cold-rolled coil',
+      latitude: 48.14,
+      longitude: 11.58,
+      productIds: ['product-one'],
     },
   ],
   origins: [
@@ -250,7 +262,8 @@ const TOPOLOGY: Topology = {
   ],
   lanes: [
     { fromId: 'node-origin', toId: 'node-supplier' },
-    { fromId: 'node-supplier', toId: 'node-plant' },
+    { fromId: 'node-supplier', toId: 'node-material' },
+    { fromId: 'node-material', toId: 'node-plant' },
     { fromId: 'node-plant', toId: 'node-customer' },
   ],
   pinsByNode: {
@@ -263,11 +276,13 @@ const TOPOLOGY: Topology = {
 
 /**
  * Every node of the payload in the order both representations state it: the plants the network serves,
- * then the suppliers that feed them, the tier-2 origins behind those suppliers, and the customers.
+ * then the suppliers that feed them, the materials those suppliers sell, the tier-2 origins behind those
+ * suppliers, and the customers.
  */
 const NODES: readonly TopologyNode[] = [
   ...TOPOLOGY.plants,
   ...TOPOLOGY.suppliers,
+  ...TOPOLOGY.materials,
   ...TOPOLOGY.origins,
   ...TOPOLOGY.customers,
 ];

@@ -13,14 +13,14 @@
  * in stage S3, AAP 0.12.3 assigns the read `GET /market-intelligence/atlas` the permission
  * `competitive.read`, and AAP 0.12.1 with contracts §11 fix the chokepoint brief the export
  * downloads. Acceptance test T-21 asserts the banner, the overlay, the labelled series and the
- * chokepoint table against this screen; the browser spec `e2e/s3-atlas.spec.ts` belongs to another
- * folder, so this file carries no browser test.
+ * chokepoint table against this screen.
  *
  * WHAT THIS FILE OWNS AND WHAT IT HANDS TO ITS SIBLINGS. It is the listener of the `/competitive`
- * route and the composer of two siblings: {@link CompetitorNetwork}, which draws the sites, lanes
- * and crossings, and {@link ChokepointTable}, which lists them. Both are presentational and take
- * their records as props. This file owns the one read, the two selectors, the pack banner, the two
- * chart frames, the legend and the export, and nothing else.
+ * route and the composer of three siblings: {@link ChokepointAlertStrip}, which alerts on the
+ * crossings the pack records, {@link CompetitorNetwork}, which draws the sites, lanes and crossings,
+ * and {@link ChokepointTable}, which lists them. All three are presentational and take their records
+ * as props. This file owns the one read, the two selectors, the pack banner, the alert strip's
+ * wording, the two chart frames, the legend and the export, and nothing else.
  *
  * RULE P-5 IS THE GOVERNING RULE HERE, AND IT IS STRUCTURAL RATHER THAN REVIEWED. Market
  * intelligence is never blended with a first-party record in one number. The payload keeps the two
@@ -33,13 +33,12 @@
  * market-intelligence member of `SIM_LABELS`, both imported from `../../types` and never spelled
  * here; the client's series carries `CLIENT_SELF_ASSESSMENT_LABEL` and no second label.
  *
- * RULE DIVERGENCE, REPORTED AND NOT RESOLVED IN THIS FILE (the same note `src/components/legend.tsx`
- * and `./competitor-network.tsx` carry). Rule P-5's text fixes one company word for the competitor
- * tag while AAP 0.10's companion-string row pairs the same tag with a different one;
- * `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the rule's own
- * wording, naming the rule — the highest-ranked input (AAP 0.1) — as the winner in that constant's
- * documentation. This file imports the constant and renders it verbatim, so a change to the
- * resolution needs one edit in the types layer and none here.
+ * THE COMPETITOR TAG CARRIES THE RULE'S OWN WORDING (the same note `src/components/legend.tsx` and
+ * `./competitor-network.tsx` carry). Rule P-5 fixes one company word for the competitor tag while AAP
+ * 0.10's companion-string row pairs the same tag with a different one; `src/types/primitives.ts` settles
+ * the pair by shipping `COMPETITOR_NAME_TAG` as the rule's own wording, naming the rule — the
+ * highest-ranked input (AAP 0.1) — as the winner in that constant's documentation. This file imports the
+ * constant and renders it verbatim, so the resolution is one edit in the types layer.
  *
  * NOTHING HERE IS COMPUTED, FORMATTED OR TYPED (rules P-6, P-2). Every figure, name and identifier
  * on the surface arrives from `getAtlas()` through the port: the class list, the series' scores, the
@@ -82,9 +81,9 @@
  * 2. `RadarChart` and `Legend` expose no selected-series prop, so the entity in view cannot be
  *    highlighted inside either. It is stated in visible words beside the selector group and carried
  *    by the active control's variant — the device `filemap-canvas-screen.tsx` uses for its lens
- *    switch. The radar draws the payload's series exactly as supplied and its vertices stay plain
- *    marks: `AtlasSeries` carries no record reference, so no vertex opens evidence, and a vertex
- *    that only restated the selection would be a focus stop with nothing behind it (rule P-8).
+ *    switch. Each vertex does open its series' evidence: `evidenceRefFor` below names the series by
+ *    `atlas:<seriesId>`, the reference the evidence read resolves to the pack's own scores, provenance
+ *    and label, so a reader reaches the record behind the arc from the mark itself (AAP 0.2.1 F12).
  * 3. `ActionButton` (`src/components/tooltip.tsx`) forwards neither `aria-pressed` nor
  *    `aria-current`, so the active class and the active entity are marked by the variant and by the
  *    caption rather than programmatically. Recorded here rather than patched, because the shared
@@ -126,8 +125,13 @@ import { Legend } from '../../components/legend';
 import type { LegendEntry } from '../../components/legend';
 import { PageHeader } from '../../components/page-header';
 import { RadarChart } from '../../components/radar-chart';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
 import {
@@ -135,7 +139,6 @@ import {
   CLIENT_SELF_ASSESSMENT_LABEL,
   COMPETITOR_NAME_TAG,
   SIM_LABELS,
-  SOURCE_LABELS,
 } from '../../types';
 import type {
   Atlas,
@@ -144,14 +147,17 @@ import type {
   AtlasSite,
   Chokepoint,
   ExportPayload,
-  Freshness,
-  FreshnessState,
-  Problem,
   RadarAxis,
   Result,
   Scope,
-  ScreenState,
+  SourceId,
 } from '../../types';
+import {
+  ChokepointAlertStrip,
+  DEFAULT_DESCRIPTION as CHOKEPOINT_ALERT_DESCRIPTION,
+  DEFAULT_EMPTY_MESSAGE as CHOKEPOINT_ALERT_EMPTY,
+  DEFAULT_TITLE as CHOKEPOINT_ALERT_TITLE,
+} from './chokepoint-alert-strip';
 import { ChokepointTable } from './chokepoint-table';
 import { CompetitorNetwork } from './competitor-network';
 
@@ -212,9 +218,10 @@ export const COMPETITIVE_ATLAS_TEXT = {
   /**
    * The sentence printed after the class in view, stating what that class does and does not narrow.
    *
-   * The pack records no product-class member on a competitor network (see gap 1 in the module note),
-   * so a reader told only "in view" could believe the competitors were filtered. This sentence says
-   * what happened instead, which is the honesty rule P-5 and rule P-4 both ask for.
+   * The pack records no product-class member on a competitor network (see the module note on what the
+   * atlas read does not expose), so a reader told only "in view" could believe the competitors were
+   * filtered. This sentence says what happened instead, which is the honesty rule P-5 and rule P-4 both
+   * ask for.
    */
   classCaptionDetail:
     'The pack records no product class on a competitor network, so every competitor it holds stays in view.',
@@ -256,6 +263,25 @@ export const COMPETITIVE_ATLAS_TEXT = {
 
   /** The heading of the card holding the chokepoint table. */
   chokepointCardTitle: 'Shared chokepoints',
+
+  /**
+   * The heading, the description and the empty sentence of the chokepoint alert strip that leads the
+   * atlas content.
+   *
+   * The band renders the three through the wording its own module owns and exports, imported at the
+   * top of this file, so the sentence stating where the figures live — the alerts state the pack's
+   * contention account, the table below adds the overlap and each competitor's buffer days — has one
+   * owner and a change to it reaches this screen without a second edit. The band leads the content
+   * because the crossings the pack records come before the figures drawn over them, which is the
+   * order AAP 0.14.1's S3 row and AAP 0.7's S3 stage row fix for stage S3.
+   */
+  chokepointAlertCardTitle: CHOKEPOINT_ALERT_TITLE,
+
+  /** What the alert strip says it carries, printed above the alerts. */
+  chokepointAlertDescription: CHOKEPOINT_ALERT_DESCRIPTION,
+
+  /** What the alert strip says when the pack records no crossing to alert on. */
+  chokepointAlertEmpty: CHOKEPOINT_ALERT_EMPTY,
 
   /** The accessible name of the chokepoint table, rendered as the table's caption. */
   chokepointTableCaption:
@@ -357,6 +383,30 @@ const NO_SCOPE: Scope = { plants: [], products: [] };
  * would invent one (rules P-6, P-5).
  */
 const NO_SCORE_MARKER = '—';
+
+/**
+ * The root of the evidence references the radar's vertices carry: `atlas:<seriesId>`.
+ *
+ * The reference names the radar series rather than a record, because a resilience score is a
+ * market-intelligence reading the pack states rather than a record's field, and the evidence read
+ * resolves that family from the same `getAtlas` payload this screen drew (AAP 0.2.1 F12, rule P-5).
+ */
+const ATLAS_REF_ROOT = 'atlas';
+
+/**
+ * The evidence reference one radar vertex opens: the root, a colon, then the series' own identifier.
+ *
+ * Declared at module scope so its identity is stable across renders: `RadarChart` draws a vertex as a
+ * control when this mapper resolves a reference for it, and a mapper rebuilt on every render would
+ * rebuild the marks with it. The series' identifier is the only member the reference needs, because
+ * one payload carries one series and every vertex of it opens that series' scores.
+ *
+ * @param seriesId - The identifier of the series whose vertex was activated.
+ * @returns The reference the evidence read resolves to that series' evidence.
+ */
+function atlasRef(seriesId: string): string {
+  return `${ATLAS_REF_ROOT}:${seriesId}`;
+}
 
 /* ---------------------------------------------------------------------------------------------
  * Layout, built from role tokens and the 4 px grid only
@@ -745,164 +795,6 @@ function networkTableOf(atlas: Atlas): ChartTableSpec<NetworkTableRow> {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The seven states, derived in one place from the read
- * ------------------------------------------------------------------------------------------- */
-
-/** What the state derivation reads: the query's settled facts and its freshness report. */
-interface ScreenStateInput {
-  /** Whether the atlas read is still pending. */
-  readonly pending: boolean;
-
-  /** The refusal or rejection the read ended in, when it ended in one. */
-  readonly error: unknown;
-
-  /** The freshness report of the settled read, when it settled. */
-  readonly freshness: readonly Freshness[] | undefined;
-
-  /** Whether the settled payload holds anything to draw. */
-  readonly hasContent: boolean;
-}
-
-/**
- * Whether a value is the service's own typed failure.
- *
- * A service call fails by throwing its `Problem` (contracts §2) and the query cache hands that same
- * value back as an `unknown` error, so its three required members are checked before the value is
- * treated as one. A rejection in another shape is a defect in the read rather than a refusal, and
- * the boundary then reports it as an unreachable source rather than printing a member nobody raised.
- *
- * @param error - The value the read rejected with.
- * @returns Whether the value is a `Problem`.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return typeof type === 'string' && typeof message === 'string' && typeof traceId === 'string';
-}
-
-/**
- * Whether a source in the read's freshness report answered in the state asked about.
- *
- * @param freshness - The read's freshness report.
- * @param state - The state to look for.
- * @returns Whether a source reported it.
- */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/**
- * The source behind a stale atlas, with the display name to print and the instant it last answered.
- *
- * The market pack is looked for first, because it is the source the atlas is read from; another stale
- * source is reported when the pack is current. The label comes from `SOURCE_LABELS`, the map that owns
- * the six display names, so the banner and the top bar's pill say the same words about the same
- * source.
- *
- * @param freshness - The read's freshness report.
- * @returns The record the banner names, or `undefined` when no source is stale.
- */
-function staleSourceOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const pack = freshness.find((entry) => entry.source === 'market-pack' && entry.state === 'stale');
-  const stale = pack ?? freshness.find((entry) => entry.state === 'stale');
-
-  if (stale === undefined) {
-    return undefined;
-  }
-
-  return {
-    source: stale.source,
-    label: SOURCE_LABELS[stale.source],
-    asOf: stale.asOf,
-  };
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the read was refused for another reason.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold
- * it and the trace identifier of the refused call. A refusal that named no permission supplies no card
- * rather than one naming a permission nobody was refused for.
- *
- * @param error - The value the read rejected with.
- * @returns The denial, or `undefined`.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * The state this screen's records are in, or `undefined` when no exceptional state holds.
- *
- * The precedence is the one AAP §0.12.4 and the boundary's own contract fix: a refusal is reported
- * before a failure, a failure before the pending read, the sources' own reports before the payload's
- * emptiness, and emptiness last, because a pack with nothing in it is a real answer rather than a
- * fault. `ScreenState` carries exactly specification §8's seven members and no healthy member, so a
- * current and complete read returns `undefined`, which `StateBoundary` renders as its content alone.
- *
- * @param input - The query's settled facts and its freshness report.
- * @returns The state to render, or `undefined` for no exceptional state.
- */
-function deriveScreenState({
-  pending,
-  error,
-  freshness,
-  hasContent,
-}: ScreenStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    if (error.type === 'permission') {
-      return 'forbidden';
-    }
-
-    return error.type === 'validation' ? 'conflict' : 'offline';
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (pending || freshness === undefined) {
-    return 'loading';
-  }
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleSourceOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return hasContent ? undefined : 'empty';
-}
-
-/* ---------------------------------------------------------------------------------------------
  * The download — a browser-built file, never a request
  * ------------------------------------------------------------------------------------------- */
 
@@ -943,6 +835,20 @@ function offerDownload(payload: ExportPayload): void {
     URL.revokeObjectURL(url);
   }, 0);
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * The source the atlas is read from
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The one source every figure on this surface arrives from, named once so the stale notice prefers it.
+ *
+ * The pack's own currency is what a reader compares the competitor series and the chokepoints against,
+ * so a notice that named another aged source first would describe the figure's own source second. The
+ * literal is the `SourceId` member `src/types/sources.ts` declares, typed here rather than left as a
+ * bare string so a renamed source fails this file's compilation.
+ */
+const ATLAS_SOURCE: SourceId = 'market-pack';
 
 /* ---------------------------------------------------------------------------------------------
  * Props
@@ -988,9 +894,9 @@ export interface CompetitiveAtlasScreenProps {
  * and never a copy of service data.
  *
  * @param props - The shell's selection. See {@link CompetitiveAtlasScreenProps}.
- * @returns The header with its export action, the pack banner, the selectors, the radar with its
- *   legend, the network view and the chokepoint table, all but the banner inside the state boundary
- *   the read settled to.
+ * @returns The header with its export action, the pack banner, the chokepoint alert strip, the
+ *   selectors, the radar with its legend, the network view and the chokepoint table, all but the
+ *   banner inside the state boundary the read settled to.
  */
 export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): ReactElement {
   const service = useService();
@@ -1049,13 +955,20 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
 
   const freshness = atlasQuery.data?.meta.freshness;
   const hasContent = series.length > 0 && chokepoints.length > 0;
+
+  /*
+   * The read's own facts, plus this screen's reading of the pack: the figures all arrive from the
+   * market pack, so the stale notice names it first, and the surface has something to draw only once
+   * both the competitor series and the chokepoints have arrived.
+   */
   const state = deriveScreenState({
-    pending: atlasQuery.isPending,
+    isPending: atlasQuery.isPending,
     error: atlasQuery.error,
     freshness,
+    staleSourcePreference: ATLAS_SOURCE,
     hasContent,
   });
-  const staleRecord = freshness === undefined ? undefined : staleSourceOf(freshness);
+  const staleRecord = freshness === undefined ? undefined : staleSourceOf(freshness, ATLAS_SOURCE);
   const forbiddenRecord = forbiddenOf(atlasQuery.error);
 
   /** Asks the port for the atlas again, which is what the boundary's retry control does. */
@@ -1151,6 +1064,16 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
       >
         {atlas === undefined || networkTable === null ? null : (
           <>
+            {/* The alert strip leads the atlas content: AAP 0.14.1's S3 row and AAP 0.7's S3 stage row
+                place it in this stage, and a reader meets the crossings the pack records before the
+                figures drawn over them. It is presentational and holds no control (rule P-8). */}
+            <ChokepointAlertStrip
+              chokepoints={chokepoints}
+              title={COMPETITIVE_ATLAS_TEXT.chokepointAlertCardTitle}
+              description={COMPETITIVE_ATLAS_TEXT.chokepointAlertDescription}
+              emptyMessage={COMPETITIVE_ATLAS_TEXT.chokepointAlertEmpty}
+            />
+
             <Card title={COMPETITIVE_ATLAS_TEXT.selectorTitle}>
               <div className={SELECTOR_ROW_CLASSES}>
                 <div
@@ -1215,11 +1138,7 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                 description={COMPETITIVE_ATLAS_TEXT.radarFigureDescription}
                 tableRows={radarTable}
               >
-                <RadarChart
-                  axes={axes}
-                  series={series}
-                  evidenceRefFor={noEvidenceReference}
-                />
+                <RadarChart axes={axes} series={series} evidenceRefFor={atlasRef} />
               </ChartFrame>
               {/* The radar draws no legend of its own, so the series are described beside it from the
                   same payload data (rule P-5). */}
@@ -1287,18 +1206,4 @@ function exportReasonFor(facts: {
   }
 
   return null;
-}
-
-/**
- * The evidence reference a radar vertex would open, absent for every mark.
- *
- * `AtlasSeries` carries no record reference of its own, so no record stands behind a series' score in
- * this payload, and `RadarChart`'s `evidenceRefFor` is required and treats `undefined` as the honest
- * answer: the vertex stays a plain mark, rather than a control claiming evidence it cannot show
- * (rule P-8). Declared once at module scope so the mapper's identity is stable across renders.
- *
- * @returns `undefined`, for every series and axis.
- */
-function noEvidenceReference(): string | undefined {
-  return undefined;
 }

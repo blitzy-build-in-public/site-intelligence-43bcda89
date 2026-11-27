@@ -11,16 +11,18 @@
  * because a banner that reformatted it would name a different moment from the one the controls carry.
  * The two controls the boundary can render are driven by the keyboard alone (rule B-3), and a state
  * handed none of its optional payloads still renders — degrading to the content or to a neutral notice
- * rather than throwing or asserting a record the caller never supplied. Both themes are exercised on
- * the state that carries the most wording, so a banner that resolved a colour itself would fail here
- * rather than in one theme only. Every control the boundary can render exists only when a handler was
- * supplied (rule P-8), and no state spells a simulation label of its own, because `Simulated data`
- * belongs to the shell's badge (rule P-1).
+ * rather than throwing or asserting a record the caller never supplied. The loading region is named by
+ * the caption it renders rather than by a label repeating those words, so the same word reaches a
+ * reader once while the region is still announced as busy, and two mounted boundaries keep a caption
+ * id each (rule B-3). Both themes are exercised on the state that carries the most wording, so a
+ * banner that resolved a colour itself would fail here rather than in one theme only. Every control
+ * the boundary can render exists only when a handler was supplied (rule P-8), and no state spells a
+ * simulation label of its own, because `Simulated data` belongs to the shell's badge (rule P-1).
  *
- * The permission, the roles and the instant below are this suite's own caller-level input, standing
- * for values a service `Problem` and a `Result.meta` supply at run time: the component types none of
- * them itself (rule P-6). Nothing here hashes or reads the clock, so the jsdom environment that
- * `vite.config.ts` sets by default applies.
+ * The permission, the roles, the refusal's own sentence and the instant below are this suite's own
+ * caller-level input, standing for values a service `Problem` and a `Result.meta` supply at run time:
+ * the component types none of them itself (rule P-6). Nothing here hashes or reads the clock, so the
+ * jsdom environment that `vite.config.ts` sets by default applies.
  */
 
 import { render, screen } from '@testing-library/react';
@@ -43,10 +45,14 @@ const STALE: StateBoundaryStale = {
   asOf: '2026-11-28T06:00:00+01:00',
 };
 
+/** The refusal's own sentence a denial may carry, as a `'permission'` `Problem`'s message states it. */
+const FORBIDDEN_REASON = 'The demonstration withheld this view, which the acting role may read.';
+
 /** A denial shaped like the evidence a `'permission'` `Problem` carries. */
 const FORBIDDEN: StateBoundaryForbidden = {
   permission: 'approval.decide',
   roles: ['plant-manager', 'head-of-supply-chain'],
+  reason: FORBIDDEN_REASON,
   traceId: 'trace-1a2b3c4d',
 };
 
@@ -110,12 +116,51 @@ describe('StateBoundary', () => {
     );
 
     const region = screen.getByRole('status');
+    const caption = screen.getByText(STATE_BOUNDARY_TEXT.loading);
 
     expect(region).toHaveAttribute('aria-busy', 'true');
     /* The region's accessible name is the caption a reader hears, so the busy state is announced
        rather than merely rendered (rule B-3). */
     expect(region).toHaveAccessibleName(STATE_BOUNDARY_TEXT.loading);
+    /* One name and one utterance: the name is computed from the caption element the region renders,
+       so the same word is not supplied twice. A label repeating that caption is the second utterance
+       a reader hears as "Loading, Loading", so the region carries no label of its own. */
+    expect(region).not.toHaveAttribute('aria-label');
+    expect(caption).toBeVisible();
+    expect(region).toContainElement(caption);
+    expect(region.getAttribute('aria-labelledby')).toBe(caption.id);
     expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
+  });
+
+  it('T-17 names each loading region by its own caption when two boundaries are mounted', () => {
+    render(
+      <>
+        <StateBoundary state="loading">
+          <p>{CONTENT}</p>
+        </StateBoundary>
+        <StateBoundary state="loading">
+          <p>{CONTENT}</p>
+        </StateBoundary>
+      </>,
+    );
+
+    const regions = screen.getAllByRole('status');
+    const nameIds = regions.map((region) => region.getAttribute('aria-labelledby') ?? '');
+
+    expect(regions).toHaveLength(2);
+    /* Two mounted boundaries must not share one caption id: a repeated id would name both regions
+       from the first boundary's caption, so the uniqueness `useId` supplies is what keeps each
+       region's announcement its own (rule B-3). */
+    expect(nameIds).not.toContain('');
+    expect(new Set(nameIds).size).toBe(2);
+
+    for (const region of regions) {
+      const caption = document.getElementById(region.getAttribute('aria-labelledby') ?? '');
+
+      expect(caption).not.toBeNull();
+      expect(region).toContainElement(caption);
+      expect(caption).toHaveTextContent(STATE_BOUNDARY_TEXT.loading);
+    }
   });
 
   it("T-17 shows the caller's empty message and withholds the content when empty", () => {
@@ -277,7 +322,7 @@ describe('StateBoundary', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('T-17 renders the forbidden card with the permission, roles and trace id it was handed', () => {
+  it('T-17 renders the forbidden card with the permission, roles, sentence and trace id it was handed', () => {
     render(
       <StateBoundary state="forbidden" forbidden={FORBIDDEN}>
         <p>{CONTENT}</p>
@@ -293,6 +338,9 @@ describe('StateBoundary', () => {
     expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       ...FORBIDDEN.roles,
     ]);
+    /* The refusal's own sentence is handed through with the rest of the failure, so the card explains
+       the cause the service reported rather than one this boundary would have composed. */
+    expect(screen.getByText(FORBIDDEN_REASON)).toBeVisible();
     expect(screen.getByText(FORBIDDEN.traceId)).toBeVisible();
     expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
   });

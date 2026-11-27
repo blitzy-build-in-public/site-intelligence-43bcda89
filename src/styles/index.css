@@ -52,6 +52,31 @@
     color: var(--color-text-primary, var(--palette-text-primary));
   }
 
+  /* AAP §0.12.4: the evidence drawer is docked from 1280 px and an overlay below it. The drawer is
+     portalled to <body> and fixed to the viewport's inline end, so the column it occupies is reserved
+     here, on the body, for as long as a docked drawer holds the attribute the component sets on the
+     document element: the page narrows into the remaining width instead of running on underneath the
+     panel. The width is stated once, and is the 420 px the panel's `xl:w-[420px]` class asks for.
+     It is stated in px because the panel's own width is a px length: a rem reservation would resolve
+     against the root font size while the panel would not, so a reader whose default font size is not
+     16 px would get a page mis-reserved by exactly that ratio — content under the panel at a smaller
+     root size, a blank gutter at a larger one. The breakpoint below stays in rem, because it belongs
+     to the tailwind scale the panel's `xl:` variant and the drawer's docked query both resolve
+     against, and both of those move together with the root font size. */
+  :root {
+    --evidence-drawer-dock-width: 420px;
+  }
+
+  /* The same 80rem breakpoint the class list's `xl:` variants and the drawer's own docked query
+     resolve against, so the column is reserved exactly while the panel is docked and never while it
+     is the full-viewport overlay. padding-inline-end is the logical edge, as the panel's `end-0` is,
+     so the space is reserved on the correct side in either writing direction. */
+  @media (min-width: 80rem) {
+    html[data-evidence-docked] body {
+      padding-inline-end: var(--evidence-drawer-dock-width);
+    }
+  }
+
   /* rule B-3: every control shows a focus ring, including one authored without the
      focus-visible utilities. A control that carries them still wins, because the
      utilities layer is declared after base. */

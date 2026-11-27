@@ -46,17 +46,12 @@
  *   no domain module, no React.
  * - B-1: it names no address, because the map is drawn from the bundled boundary file.
  *
- * OPEN ITEM: `Chokepoint.overlap` is a bare `number`. SCR-13 fixes the column but not whether the
- * market pack states overlap as a fraction or a percentage, and no rounding rule for it is stated in
- * the inputs available in this run, so the scale stays with the record that supplies the value and
- * the table renders the number as it arrives.
- * OPEN ITEM: `AtlasSeries.values` carries positions aligned to `Atlas.radarAxes` and no axis name,
- * so a reordered axis list cannot silently relabel a score. Whether a resilience score runs to 5 or
- * to 100 is a chart concern owned by `src/components/radar-chart.tsx`, so this module states the
- * alignment and not the range.
- * OPEN ITEM: `AtlasSite.latitude` and `AtlasSite.longitude` are decimal degrees in the order the
- * bundled Natural Earth boundaries use, which is the convention the inputs imply without stating;
- * the sign convention is documented here rather than enforced by a branded type.
+ * `Chokepoint.overlap` is a bare `number` because SCR-13 fixes the column and not whether the pack
+ * states overlap as a fraction or a percentage, so the scale belongs to the supplying record.
+ * `AtlasSeries.values` aligns to `Atlas.radarAxes` by index with no axis name, so a reordered list
+ * cannot relabel a score, and its range is a chart concern of `src/components/radar-chart.tsx`.
+ * Coordinates are decimal degrees in the order the bundled Natural Earth boundaries use, with the
+ * sign convention documented rather than branded.
  */
 
 import type { ChokepointId, CompetitorId, ProductId, SimLabel } from './primitives';

@@ -40,13 +40,15 @@
  * the state are both read from the citation's own freshness record, so a chip cannot print one
  * source's name beside another source's state.
  *
- * THE DISCLOSURE KEEPS THE ANSWER'S WORKING (AAP §0.12.4). A native `<button type="button">` carries
- * `aria-expanded` and, while the panel exists, `aria-controls` naming an id from `useId()`, so the
- * relationship between the control and the panel it reveals is exposed exactly while that panel
- * exists — the shape `./evidence-drawer.tsx` uses for its own trigger. The panel lists the queries the
- * answer ran and the model the service named, each in the mono face, and the inputs the answer is
- * missing under the label `Missing inputs`. Nothing in it is a live call: the model identifier is
- * catalogue text and no request leaves this page to contact it (rule B-1).
+ * THE DISCLOSURE KEEPS THE ANSWER'S WORKING (AAP §0.12.4). The control is `Button` from
+ * `src/components`, the owner of the `<button>` element AAP §0.5.2 permits only inside the component
+ * that owns it; it carries `type="button"`, `aria-expanded` and, while the panel exists,
+ * `aria-controls` naming an id from `useId()`, so the relationship between the control and the panel
+ * it reveals is exposed exactly while that panel exists — the shape `./evidence-drawer.tsx` uses for
+ * its own trigger. The panel lists the queries the answer ran and the model the service named, each
+ * in the mono face, and the inputs the answer is missing under the label `Missing inputs`. Nothing in
+ * it is a live call: the model identifier is catalogue text and no request leaves this page to
+ * contact it (rule B-1).
  *
  * EMPTY AND ABSENT MEMBERS RENDER NOTHING. An answer with no citation, no query, no missing input or
  * no model shows no chip, no row and no empty region, and never a placeholder value — not a dash that
@@ -84,6 +86,7 @@
 import { useId, useState } from 'react';
 import type { ReactElement } from 'react';
 
+import { Button } from '../../components/button';
 import { EvidenceRef } from '../../components/evidence-drawer';
 import { freshnessMeaning } from '../../components/freshness-pill';
 import { MonoValue } from '../../components/mono-value';
@@ -336,7 +339,7 @@ export function AssistantAnswer({ answer }: AssistantAnswerProps): ReactElement 
 
       {hasDetail ? (
         <div className={DETAIL_REGION_CLASSES}>
-          <button
+          <Button
             type="button"
             aria-expanded={isDetailOpen}
             aria-controls={isDetailOpen ? detailId : undefined}
@@ -348,7 +351,7 @@ export function AssistantAnswer({ answer }: AssistantAnswerProps): ReactElement 
             {isDetailOpen
               ? ASSISTANT_ANSWER_TEXT.detailHide
               : ASSISTANT_ANSWER_TEXT.detailShow}
-          </button>
+          </Button>
 
           {isDetailOpen ? (
             <dl id={detailId} className={DETAIL_LIST_CLASSES}>

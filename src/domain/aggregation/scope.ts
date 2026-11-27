@@ -32,9 +32,10 @@
  *   its own.
  *
  * How a resolved `Scope` reads — the one reading a caller may rely on:
- * - `plants: []` means *nothing is in scope*, never "all plants". `plantScopeFor` never returns an
- *   empty list, so a resolved plants member is empty only when the selection put every plant outside
- *   the role's scope. The "All plants" selection is resolved here, once, into the role's explicit
+ * - `plants: []` means *nothing is in scope*, never "all plants". `plantScopeFor` answers a non-empty
+ *   list for every role the matrix declares, and nothing for a key it does not own, so a resolved
+ *   plants member is empty only when the selection put every plant outside the role's scope or the
+ *   role reaches no plant at all. The "All plants" selection is resolved here, once, into the role's explicit
  *   plants, and that is what makes the two readings distinguishable downstream: a caller filters with
  *   `scope.plants.includes(record.plantId)` and leaks nothing when the array is empty.
  * - `products: []` keeps the input convention and means "all products", because the product selection
@@ -65,11 +66,11 @@
  *   handles are the synthetic records of the seed.
  * - B-1 and B-2: the module contacts no host, addresses none and reads no configuration.
  *
- * OPEN ITEM: a selection naming an identifier that is not one of the seed's plants or products is not
- * rejected here. For plants it resolves to an empty array, because such a value is outside every
- * role's scope — the same honest answer an out-of-scope plant gets; for products it is passed through
- * and surfaces as an empty result at the reader. Validating the universe would need a copy of the
- * record set, which rule P-2 keeps out of this module.
+ * An unknown identifier is not widened. A selection naming an identifier that is not one of the seed's
+ * plants or products is not rejected here: for plants it resolves to an empty array, because such a
+ * value is outside every role's scope — the same honest answer an out-of-scope plant gets — and for
+ * products it is passed through and surfaces as an empty result at the reader. Validating the universe
+ * would need a copy of the record set, which rule P-2 keeps out of this module.
  */
 
 import type { Role, Scope } from '../../types';

@@ -655,9 +655,8 @@ test('T-11 POL-007 blocks the external model and one click switches to the in-bo
 
   /*
    * The refusal appends a policy-actor event, and it is followed here through the interface a reader would
-   * use: the persona lever selects the role whose home route reads the chain (contracts §7.1 grants
-   * `audit.read` to the auditor alone among the planning personas), and the audit trail is then opened
-   * through its navigation entry.
+   * use: the persona lever selects the auditor, whose entry route is the audit trail itself (AAP 0.12.4),
+   * and the trail is then opened through its navigation entry.
    */
   await switchRole(page, 'USR-06');
 

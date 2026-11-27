@@ -19,9 +19,10 @@
  * one-click switch re-asks on the in-boundary model; a permission refusal renders the forbidden card;
  * any other rejection renders the offline notice with a retry that repeats the read; a question
  * outside the script renders whatever text the service returned; a disabled control carries a reason
- * a keyboard user can read; all seven screen states render; the route mounts the product eyebrow, one
- * level-one heading and the screen's single primary action; and both themes render the same content
- * from role tokens.
+ * a keyboard user can read; the model selector carries an `id` and a `name` beside the legend that
+ * names it; all seven screen states render; the route mounts the product eyebrow, one level-one
+ * heading and the screen's single primary action; and both themes render the same content from role
+ * tokens.
  * The browser halves of `T-10` and `T-11` are `e2e/s1-assistant.spec.ts`, and axe is `T-16` in
  * `e2e/s1-keyboard-and-axe.spec.ts`: `@axe-core/playwright` is browser-only and the project declares
  * no jest-axe dependency, so no accessibility scan can run here. This suite proves instead the
@@ -56,11 +57,13 @@
  *
  * TWO RECORDED DIVERGENCES. (1) The plan names one test module for five source files, so this file
  * carries all five contracts; a later stage that splits them makes that split its own decision.
- * (2) `'conflict'` has no assistant path at all: the family's only `'validation'` refusal is a
- * request that carried no question, which is a malformed request rather than a record that moved
- * under the reader (`src/services/mock/handlers/assistant.ts` as `assistant-panel.tsx` records it).
- * The state is therefore proven through `AssistantPanelBody`, which renders it when handed it, and
- * this suite fabricates no service signal to reach it through the connected panel.
+ * (2) `'conflict'` has no reachable assistant path: the family's only `'validation'` refusal is a
+ * request that carried no question, which is a malformed request rather than a record that moved under
+ * the reader (`src/services/mock/handlers/assistant.ts`, as `assistant-panel.tsx` describes it). The
+ * state mapping is one owner for every screen (`src/components/screen-state.ts`), so a `'validation'`
+ * refusal does reach the panel as `'conflict'` exactly as it does its siblings; the state is proven
+ * through `AssistantPanelBody`, which renders it when handed it, and this suite fabricates no service
+ * signal to reach it through the connected panel.
  *
  * THE PARTIAL NOTICE'S SENTENCE COMES FROM THE RECORD. `AssistantPanelBody` derives the detail its
  * partial notice prints from the missing inputs the answer carries and hands it to `StateBoundary`,
@@ -757,6 +760,26 @@ describe('ModelSelector', () => {
     expect(onSelect).toHaveBeenCalledWith(EXTERNAL_ID);
   });
 
+  /* A field carries an identity as well as a name, and this select gets its name from the legend
+     through `aria-labelledby`, which leaves the element itself unidentified for anything keyed on
+     `id` or `name` — a browser's autofill and the diagnostics that report an unnamed form field among
+     them. Both are asserted because they answer different questions: the `id` tells this select apart
+     from any other on the page, and the `name` identifies the field rather than the entry chosen. */
+  it('carries the identity a form field needs, beside the legend that names it', () => {
+    renderWithProviders(
+      <ModelSelector
+        catalogue={CATALOGUE}
+        selectedModelId={IN_BOUNDARY_ID}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const select = screen.getByRole('combobox');
+
+    expect(select.id).not.toBe('');
+    expect(select.getAttribute('name')).toMatch(/\S/);
+  });
+
   it('explains a selector that cannot act through the description its focus carries', () => {
     renderWithProviders(
       <ModelSelector
@@ -850,8 +873,9 @@ const SCREEN_STATES: readonly ScreenState[] = [
  *
  * `Record<ScreenState, …>` is the exhaustiveness proof: a member added to the union leaves this map
  * incomplete and the file fails to type-check, which is the failure the suite wants rather than a
- * state that silently renders nothing. `'conflict'` is reachable only here — the assistant's own
- * paths map no signal to it (see the module note) — so it is proven by handing the body the state.
+ * state that silently renders nothing. `'conflict'` is proven only here — no assistant read raises the
+ * `'validation'` refusal that produces it (see the module note) — so it is proven by handing the body
+ * the state.
  */
 const STATE_CASES: Readonly<Record<ScreenState, () => Promise<void> | void>> = {
   loading: () => {

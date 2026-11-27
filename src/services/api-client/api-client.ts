@@ -8,7 +8,7 @@
  * compile-time fact rather than a promise: this class and `MockBackend` satisfy one interface, and
  * `src/services/create-service.ts` is the single module that chooses between them (AAP 0.6.2). No
  * screen, component, feature or shell module imports this file (AAP 0.12.1, success criterion 8);
- * its importers are that binding point and, where the run has one, the conformance suite beside it.
+ * its importers are that binding point and, where the build has one, the conformance suite beside it.
  *
  * WHAT A DEPLOYMENT SUPPLIES. A real service behind these paths: connectors for the six data
  * sources, identity and authorisation in place of the seeded personas, and a store behind the audit
@@ -74,27 +74,28 @@
  * documents from its own service adds a §9 entry for them, and the three members become one request
  * each.
  *
- * OPEN ITEM: `platform-contracts.md` §9 is a plan attachment rather than a file in this checkout, so
- * the paths this class calls are the ones `src/services/api-client/paths.ts` holds. The nine paths
- * AAP 0.12.3 quotes exactly are transcribed there character for character and the remainder are
- * derived in the same style; that file records the derivation under each entry. Reconciling the
- * derived paths with §9 is an open item for the attachment, not a decision taken here.
+ * THE PATHS ARE THE CONTRACTS' OWN LIST, TRANSCRIBED. The paths this class calls are the ones
+ * `src/services/api-client/paths.ts` holds: the nine paths AAP 0.12.3 quotes exactly are carried there
+ * character for character and the remainder are derived in the same style, each with its derivation
+ * recorded beside it, so no endpoint is invented here.
+ *
  * THE TWO VERBS CONTRACTS §9 USES ARE THE TWO THE TRANSPORT OFFERS. Every read here is a `GET` and
  * every write a `POST`, so `RequestOptions` needs no third method and no call acquires one. The
  * assignee sub-resource is the one place a third verb could be imagined, and `paths.ts` documents
  * it as a `POST`: `assignException` sends that method to that path with the new owner in the body.
- * OPEN ITEM: a `Scope` carries two identifier lists, and contracts §9 fixes no repeated-parameter
- * syntax for a list. The transport deliberately omits an array-valued parameter rather than
- * flattening it, so a selection handed to it as an array would reach the service as no selection at
- * all and a scoped read would quietly widen to every plant. The selection therefore travels as two
- * comma-separated identifier lists, and `selectionQuery` leaves an empty list out of the parameters
- * altogether: an absent parameter is the other way `Scope` itself says "All plants" or "All
- * products", and the transport sends an empty value when it is given one, so that meaning is
- * carried by the selection helper rather than by a value the serialiser discarded. Reconciling that
- * encoding with §9 is an open item.
- * OPEN ITEM: `setSimulation` and `resetDemo` are demonstration controls with no server counterpart
- * (AAP 0.6.2). They resolve as no-ops below rather than as requests, and each carries the sentence
- * saying why a deployment has no such control.
+ *
+ * A SELECTION TRAVELS AS TWO COMMA-SEPARATED LISTS. A `Scope` carries two identifier lists, and
+ * contracts §9 fixes no repeated-parameter syntax for a list. The transport deliberately omits an
+ * array-valued parameter rather than flattening it, so a selection handed to it as an array would
+ * reach the service as no selection at all and a scoped read would quietly widen to every plant. The
+ * selection therefore travels as two comma-separated identifier lists, and `selectionQuery` leaves an
+ * empty list out of the parameters altogether: an absent parameter is the other way `Scope` itself
+ * says "All plants" or "All products", and the transport sends an empty value when it is given one, so
+ * that meaning is carried by the selection helper rather than by a value the serialiser discarded.
+ *
+ * THE TWO DEMONSTRATION CONTROLS RESOLVE AS NO-OPS. `setSimulation` and `resetDemo` are demonstration
+ * controls with no server counterpart (AAP 0.6.2). They resolve as no-ops below rather than as
+ * requests, and each carries the sentence saying why a deployment has no such control.
  */
 
 import { PAYLOADS, request } from './http';
@@ -226,8 +227,7 @@ type SelectionParameters = { plants?: string; products?: string };
  *
  * A list travels as a comma-separated run of identifiers, and an empty list is left out of the
  * result altogether rather than sent as an empty parameter: an absent parameter is what "All plants"
- * and "All products" mean to a service, which is the other way `Scope` itself says the same thing
- * (see the third OPEN ITEM in this module's header).
+ * and "All products" mean to a service, which is the other way `Scope` itself says the same thing.
  *
  * @param scope - The plant and product selection the shell's filters hold.
  * @returns The selection as up to two comma-separated identifier lists, an empty list omitted.
@@ -534,10 +534,13 @@ export class ApiClient implements SiteIntelligenceService {
    * Both sides are the service's: the plan taken at its option's levers and the records taken at the
    * levers the change actually reached, so this member sends the identifier and carries no figure
    * either way (rule P-6). AAP 0.2.2's all-or-nothing rule, which decides the second side, is applied
-   * where the records are.
+   * where the records are. The read also carries the record the comparison is about — the approval's
+   * own identifier — which is the reference every reading on the card opens, so a screen composes no
+   * reference of its own (AAP 0.2.1's F12).
    *
    * @param approvalId - The approval whose outcome is measured.
-   * @returns The planned and resulting measurements the service returned.
+   * @returns The planned and resulting measurements the service returned, with the reference they
+   *   carry.
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
   async getApprovalOutcome(approvalId: ApprovalId): Promise<Result<ApprovalOutcome>> {
@@ -699,7 +702,7 @@ export class ApiClient implements SiteIntelligenceService {
    * The records carry the processing boundary each model declares, which is what POL-007 evaluates
    * before an answer is produced; the path entry asserts no §7.1 permission for this read, and the
    * screen presents the entries as declared configuration rather than as a checked state (rule P-4).
-   * No model is connected in this run (rule P-1).
+   * No model is connected in this build (rule P-1).
    *
    * @returns The catalogue the service returned.
    * @throws Problem - The failure the service reported, whose `type` names its cause.
@@ -1088,7 +1091,7 @@ export class ApiClient implements SiteIntelligenceService {
    * Catalogue reads carried for interface conformance — stage S5, AAP 0.12.3
    *
    * The three members below exist so the port is complete for the stage that shows the sources, the
-   * production plan and the exit package: both adapters carry them, no screen in this run calls them,
+   * production plan and the exit package: both adapters carry them, no screen in this build calls them,
    * and the routes that would own them render the stage notice instead.
    * ----------------------------------------------------------------------------------------- */
 

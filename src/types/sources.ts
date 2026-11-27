@@ -20,8 +20,8 @@
  * service refuses both with a `Problem` naming the source and its as-of time, and every screen
  * offering those controls renders the stale banner and disables them with the same reason
  * (AAP 0.2.1, T-13). That one source is named once, by `APPROVAL_GATE_SOURCE` below, so the refusal,
- * the stale trigger and the banner read one value. The S5 data-source screen is outside this run's scope (AAP 0.14.2) and its
- * route renders the stage notice, so nothing here describes a screen.
+ * the stale trigger and the banner read one value. The S5 data-source screen is outside this scope
+ * (AAP 0.14.2) and its route renders the stage notice, so nothing here describes a screen.
  *
  * `SourceHealth` and `Freshness` in `./entities` report the same three facts, and only one of them
  * carries a printable name. A service response's `Meta.freshness` carries `Freshness` — the
@@ -44,15 +44,12 @@
  * product, vendor or cloud service name), and B-2 (a source carries no connection detail, because no
  * connector exists).
  *
- * OPEN ITEM: the order of the six is the specification's and no type can enforce it. The handler
- * that builds the catalogue supplies ERP, MES, Scheduling, PLM and QMS, Transport, Market pack in
- * that order; the catalogue is a list rather than a map keyed by `SourceId` precisely because a map
- * would not preserve it.
- * OPEN ITEM: `SourceHealth.label` must equal `SOURCE_LABELS[source]`, a pairing no type can enforce
- * while a pill prints one field. The handler fills both from the map, so a record cannot print a
- * name that contradicts its own key.
- * OPEN ITEM: `asOf` must be an instant the seed supplies and never a reading of the system clock,
- * which no type can enforce; the seed supplies every instant (rule P-6, determinism).
+ * The order of the six is the specification's and no type enforces it: the catalogue is a list
+ * rather than a map keyed by `SourceId` precisely because a map would not preserve it, and the
+ * handler supplies ERP, MES, Scheduling, PLM and QMS, Transport, Market pack in that order.
+ * `SourceHealth.label` must equal `SOURCE_LABELS[source]`, a pairing no type enforces, so the
+ * handler fills both from the map and no record can print a name contradicting its own key.
+ * `asOf` is an instant the seed supplies, never a reading of the system clock (rule P-6).
  */
 
 import type { SourceId, Timestamp } from './primitives';

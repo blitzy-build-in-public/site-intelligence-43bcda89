@@ -7,25 +7,22 @@
  *   directs that it be defined in types next to them, fixing none of its
  *   members. AAP 0.12.2 names "the exit package sections" as the type's
  *   content, so each member below is derived from that statement alone.
- * - AAP 0.12.3 and 0.14.2 place the exit package and its screen in stage S5,
- *   which this run does not build: the port's S5 endpoints exist on both
- *   adapters for interface conformance and are never invoked, and the route
- *   renders the stage notice. This module therefore exists so the port
- *   type-checks; no screen, handler or download builder consumes it yet.
+ * - AAP 0.12.3 and 0.14.2 place the exit package and its screen in stage S5:
+ *   the port's S5 endpoints exist on both adapters for interface conformance
+ *   and are never invoked, and the route renders the stage notice. This module
+ *   therefore exists so the port type-checks; no screen, handler or download
+ *   builder consumes it yet.
  *
  * A section names the records it packages and holds none of their content, so
  * the package stays an exit artefact rather than a second rendering of the
  * workspace or a second source of truth beside the seed records.
  *
- * OPEN ITEM: the section list, each section's heading and the order the screen
- * prints the sections in are seed record content; this module deliberately
- * types none of them, so the seed remains their single source (rule P-6).
- * OPEN ITEM: `generatedAt` must be the constant demonstration clock instant of
- * contracts §1 rather than a reading of the system clock, which no type can
- * enforce; the handler supplies the constant value (AAP 0.2.1, determinism).
- * OPEN ITEM: the package carries no manifest, preview, licensing or packaging
- * format shape. Each belongs to a screen this run does not build, and declaring
- * one here would describe behaviour no input fixes.
+ * The section list, each section's heading and the order they print in are seed
+ * record content, so this module types none of them (rule P-6). `generatedAt`
+ * is the constant demonstration clock instant of contracts §1, never a reading
+ * of the system clock (AAP 0.2.1, determinism), and the handler supplies it. The
+ * package carries no manifest, preview, licensing or packaging format shape,
+ * because each belongs to the S5 screen and no input fixes one.
  */
 
 import type { Timestamp } from './primitives';
@@ -68,8 +65,7 @@ export interface ExitPackageSection {
  * The exit package itself.
  *
  * It exists so the service interface can declare the stage S5 exit-package
- * endpoint without inventing its vocabulary; nothing in this run assembles or
- * displays one.
+ * endpoint without inventing its vocabulary; no code assembles or displays one.
  */
 export interface ExitPackage {
   /**

@@ -6,10 +6,11 @@
  * `DEMO_CLOCK` fixes it (rules P-1 and P-6); the `simulated` status role marks the badge with an icon
  * and a label as well as a colour, so its meaning never rests on colour alone (rule B-3); with an
  * activation callback the root is a real button with an accessible name containing its visible label,
- * `aria-haspopup="dialog"`, a 24x24 px target and a `focus-visible` ring, activated from the keyboard
- * and the pointer; without one it is a non-interactive span with the same content and no focus stop
- * anywhere (rule P-8); and the one class list serves both themes through role tokens alone, so no
- * palette literal, `rgb()` value or shadow reaches the badge in either theme.
+ * `aria-haspopup="dialog"`, the popover's open state as `aria-expanded` whenever the caller supplies
+ * it, a 24x24 px target and a `focus-visible` ring, activated from the keyboard and the pointer; with
+ * no callback it is a non-interactive span with the same content, no popup state of any kind and no
+ * focus stop anywhere (rule P-8); and the one class list serves both themes through role tokens alone,
+ * so no palette literal, `rgb()` value or shadow reaches the badge in either theme.
  *
  * A reported limit of this suite: the shell-placement assertion AAP §0.10 describes — that the badge
  * is rendered in the shell *outside* the router outlet, so no route can omit it — cannot live here.
@@ -214,6 +215,22 @@ describe('SimulatedDataBadge', () => {
     expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
+  /* Rule B-3 and the disclosure contract the button declares: a control that names a popup reports
+     whether it is open, and a non-control reports neither because it opens nothing. The state is
+     passed here on purpose — a caller can hold it while the badge is not a control — so the case
+     proves the attribute never reaches the span. */
+  it('declares no aria-expanded on the non-interactive span, even when a state arrives', () => {
+    const { container } = render(<SimulatedDataBadge label={LABEL} expanded={true} />);
+
+    const root = container.firstElementChild;
+    if (!(root instanceof HTMLElement)) {
+      throw new Error('the badge rendered nothing to read');
+    }
+
+    expect(root.tagName).toBe('SPAN');
+    expect(root).not.toHaveAttribute('aria-expanded');
+  });
+
   /* The non-control state must not wear a control's hover, pressed or focus styling either: a ring on
      something that cannot be activated would promise a response that never comes. */
   it('dresses the non-interactive state without any control-only utility', () => {
@@ -232,6 +249,9 @@ describe('SimulatedDataBadge', () => {
     expect(root.tagName).toBe('BUTTON');
     expect(root).toHaveAttribute('type', 'button');
     expect(root).toHaveAttribute('aria-haspopup', 'dialog');
+    /* No state supplied means no state announced: the attribute is absent rather than `false`, so a
+       caller that cannot know the popover's state does not announce a collapsed one. */
+    expect(root).not.toHaveAttribute('aria-expanded');
     expect(root).toHaveAccessibleName(`${LABEL} at ${DEMO_CLOCK}`);
 
     for (const utility of [...REQUIRED_CONTROL_UTILITIES, ...FOCUS_RING_UTILITIES]) {
@@ -242,6 +262,18 @@ describe('SimulatedDataBadge', () => {
        from a reduced-motion session rather than shortened within it. */
     expect(root.className).toContain('motion-safe:transition-colors');
   });
+
+  /* The button declares the dialog it opens, so it also reports that dialog's state: the shell
+     supplies the popover's real open state and either value reaches `aria-expanded` as the string a
+     reader hears. Both values are asserted rather than one, because a component that passed only the
+     open case would still leave a reader unable to tell a closed popover from an absent one. */
+  for (const expanded of [false, true]) {
+    it(`reports aria-expanded="${expanded}" on the button when the shell supplies that state`, () => {
+      render(<SimulatedDataBadge label={LABEL} onActivate={vi.fn()} expanded={expanded} />);
+
+      expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', String(expanded));
+    });
+  }
 
   /* A keyboard user reaches the badge by tabbing and activates it with `Enter` or `Space`, and the
      pointer does the same. All three call the callback the shell supplied, exactly once each. */

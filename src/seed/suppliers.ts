@@ -63,9 +63,9 @@
  * - P-2: this folder is read only by `src/services/mock/seed-loader.ts`, and this module imports
  *   only the identifier types of `src/types`.
  *
- * OPEN ITEM: no member dates the delivery series. The interface AAP fixes carries the readings
- * only, and the seed fixes them as the six months ending November 2026 — the month before the
- * demonstration clock of contracts §1 — oldest first.
+ * No member dates the delivery series: the interface AAP fixes carries the readings only, and the
+ * seed fixes them as the six months ending November 2026 — the month before the demonstration clock
+ * of contracts §1 — oldest first.
  *
  * The origin keys in the table are `./origins.ts`'s: that module owns the `ORG-…` identifiers, and its
  * `supplierIds` name every supplier above, so the "Behind it" column reads the lane set back — each

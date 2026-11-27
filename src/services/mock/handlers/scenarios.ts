@@ -17,23 +17,25 @@
  * time and total, added cost, line idle days, revenue delayed, the run-out, the daily closing-stock
  * series, the per-order results, the constraint check and its messages, the side effects, the
  * write-backs and the levers. This module adds a scenario's identity — identifier, exception, name and
- * origin — attaches the confidence the exception record carries, and ranks the options. It computes no
- * measure, no difference and no ranking figure of its own (rule P-6), rounds nothing (the solver rounds
- * line idle days once, half up to two decimals, per contracts §4 rule 5), and states no currency amount,
- * no lever volume and no record identifier as a typed value.
+ * origin — attaches the confidence the exception record carries, ranks the options, and computes one
+ * difference of its own: `protectedRevenueOf`, the delayed revenue a position avoids, which is the set's
+ * unmitigated delayed revenue less that position's own residual (AAP 0.8, rule P-6). It computes no
+ * measure and no ranking figure of its own, rounds nothing (the solver rounds line idle days once, half
+ * up to two decimals, per contracts §4 rule 5), and states no currency amount, no lever volume and no
+ * record identifier as a typed value.
  *
  * WHAT THE OPTION SET HOLDS, AND WHERE IT COMES FROM. AAP 0.7's T-04 row fixes four rows for this
  * case and AAP 0.8 fixes what they are, and the positions those rows stand at are record content:
  * `src/seed/exception-scenarios.ts` publishes `SOLVER_OPTION_SETS`, one row per position carrying the
- * identifier its column takes, the words it is labelled with, the levers it is measured at and the
- * revenue the plan protects. This module reads them through the session's state, measures each at its
- * own levers with one `solveSupplyDelay` call and serves the set in the seed's order — the baseline
- * first, because the seed states it, then the positions that follow it, the recommended plan and the
- * one the constraint check rejects. An exception whose positions no record states keeps the
- * derivation this module has always made: the do-nothing baseline AAP 0.8 fixes by name, then each
- * lever set the seeded trail's `custom solve` events record (`src/seed/audit-events.ts`), in the
- * trail's order. No row carries a measure, so every figure a column shows is the solver's output for
- * that column's own levers at call time (rule P-6).
+ * identifier its column takes, the words it is labelled with and the levers it is measured at. This
+ * module reads them through the session's state, measures each at its own levers with one
+ * `solveSupplyDelay` call and serves the set in the seed's order — the baseline first, because the
+ * seed states it, then the positions that follow it, the recommended plan and the one the constraint
+ * check rejects. An exception whose positions no record states keeps the derivation this module has
+ * always made: the do-nothing baseline AAP 0.8 fixes by name, then each lever set the seeded trail's
+ * `custom solve` events record (`src/seed/audit-events.ts`), in the trail's order. No row carries a
+ * measure, so every figure a column shows is the solver's output for that column's own levers at call
+ * time (rule P-6).
  *
  * WHY AN UNSEEDED OPTION'S IDENTIFIER COMES FROM THE SEEDED PLAN. Where the records state a set's
  * positions, each option keeps the identifier its row states and nothing is derived. Where they do
@@ -52,12 +54,13 @@
  * the first passing option stands — no third key is invented. The trade-off is narrative text carrying
  * numbers, and AAP 0.8 fixes how it is written: the seeded row of the recommended position carries the
  * sentence as a template with a brace per figure, and this module fills each brace from the
- * measurement it just took and from the record's own protected revenue. Every amount renders through
- * the one prose formatter the assistant's answers already use — `renderAmount` from
- * `../assistant-script.ts` — so one convention serves both narrative surfaces and no second formatter
- * exists. A position that carries no template, and a measurement that carries no side effect for a
- * brace the template names, leave the sentence empty rather than printing a zero: `tradeOffFor` states
- * why.
+ * measurement it just took and from the delayed revenue that measurement avoids, which
+ * `protectedRevenueOf` computes as the set's unmitigated delayed revenue less the option's own
+ * residual. Every amount renders through the one prose formatter the assistant's answers already use —
+ * `renderAmount` from `../assistant-script.ts` — so one convention serves both narrative surfaces and
+ * no second formatter exists. A position that carries no template, and a measurement that carries no
+ * side effect for a brace the template names, leave the sentence empty rather than printing a zero:
+ * `tradeOffFor` states why.
  *
  * THE SEEDED SETS ARE RETURNED AS THEY STAND. For `EXC-2026-1185`, `EXC-2026-1187` and `EXC-2026-1195`
  * the option columns are seed records rather than solver output, so they are served unchanged, in a copy
@@ -65,6 +68,14 @@
  * and the CSV export label each column `Simulated data` from the fixed label set, so no label is typed
  * here (rule P-1, AAP 0.10). They are never re-solved — a shipped option re-measured here would be a
  * second answer to the same question.
+ *
+ * ONE OPTION BY REFERENCE, FOR THE EVIDENCE READ. `scenarioForReference` answers the option an evidence
+ * reference names out of the same sets this module serves a screen: `handlers/evidence.ts` calls it
+ * after the sets the dataset ships and before it reports that no record answers a reference. A column
+ * measured from an exception's own case is a record the dataset does not hold, so without this answer
+ * the drawer behind a comparison figure would open on a failure instead of on the record behind the
+ * figure (AAP 0.12.4, F12). The lookup reads and refuses nothing: it evaluates no permission, writes
+ * nothing, and answers `undefined` for a reference no set names, for the caller to refuse.
  *
  * WHAT IT DOES NOT DO. It renders nothing, formats nothing, opens no address (rule B-1) and reads no
  * configuration or credential (rule B-2). It holds no record of its own: every value comes from the
@@ -90,17 +101,21 @@
  *   applied by the components and the export that render a column, from `src/types/primitives.ts`.
  * - P-2: records are reached through `ctx.state` and the sibling `../seed-loader.ts` type surface only,
  *   and the module imports no seed record, no React, no screen, no app module and no API client.
- * - P-3, P-8: verdicts come from `ctx.actor`, and a refusal carries `requiredPermission` and
- *   `rolesWithPermission`; a breached option carries the solver's own messages, which is what a screen
- *   shows as "Cannot compute" with the reason.
+ * - P-3, P-8: verdicts come from `ctx.actor`; a permission refusal carries `requiredPermission` and
+ *   `rolesWithPermission`, while a record the role's read does not reach is a `'not-found'` failure
+ *   naming the exception and the scope, as the exception family reports it; a breached option carries
+ *   the solver's own messages, which is what a screen shows as "Cannot compute" with the reason.
  * - P-4: no wording claims that a plan establishes anything, and the sandbox demonstrates a mechanism
  *   without asserting a property of a live system.
- * - P-6: no currency literal, no lever volume, no record identifier and no rounding of its own; the
- *   expected results of `platform-seed-data.md` are fixtures this module neither holds nor reads.
+ * - P-6: no currency literal, no lever volume, no record identifier and no rounding of its own. The one
+ *   difference it takes is `protectedRevenueOf`'s, reasoned from the measurements the records produce,
+ *   and the expected results of `platform-seed-data.md` are fixtures this module neither holds nor
+ *   reads.
  * - P-7: only the seed's synthetic records and the workspace's own words for its two levers.
  * - B-1, B-2: no request leaves for any host, and nothing here reads configuration or a credential.
  */
 
+import { resolveScope } from '../../../domain/aggregation/scope';
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
 import { solveSupplyDelay } from '../../../domain/solver/solve-supply-delay';
 import type {
@@ -121,14 +136,15 @@ import type {
   ScenarioId,
   ScenarioOrigin,
   ScenarioSet,
+  Scope,
   SolverCase,
   SolverResult,
 } from '../../../types';
 import { renderAmount } from '../assistant-script';
 import type { HandlerContext, MockState } from '../mock-state';
 import type { ExceptionScenarioSeed, SeededSolverOption } from '../seed-loader';
-import { isSimulationOn } from '../simulation';
-import { appendAuditEvent, traceIdFor } from './audit';
+import { demonstrationForbiddenReason, isSimulationOn } from '../simulation';
+import { appendAuditEvent } from './audit';
 
 /* ---------------------------------------------------------------------------------------------
  * The fixed values this family addresses — contracts §1, contracts §7.1, AAP 0.8
@@ -236,7 +252,7 @@ const PLACEHOLDER_CLOSE = '}';
  * itself, and those roles — which is what a forbidden card prints and what a disabled control's
  * explanation names instead of only refusing (rule P-8).
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param permission - The permission the call required.
  * @param reason - The reason in plain words, naming what the call would have done.
  * @returns The `Problem` to throw, built per call so the role list is the matrix's current answer.
@@ -247,7 +263,7 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, reason: 
   return {
     type: 'permission',
     message: `${reason} That needs the ${permission} permission, which the roles ${roles.join(', ')} hold.`,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     requiredPermission: permission,
     rolesWithPermission: roles,
   };
@@ -260,12 +276,12 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, reason: 
  * the reason names the reference rather than reporting an empty result: a screen shows "Cannot compute"
  * with the reason and recommends nothing (AAP 0.8), and a reader is owed the identifier that failed.
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param reason - The reason in plain words, naming the reference that does not resolve.
  * @returns The `Problem` to throw.
  */
 function notFoundProblem(ctx: HandlerContext, reason: string): Problem {
-  return { type: 'not-found', message: reason, traceId: traceIdFor(ctx.state) };
+  return { type: 'not-found', message: reason, traceId: ctx.traceId };
 }
 
 /**
@@ -276,12 +292,12 @@ function notFoundProblem(ctx: HandlerContext, reason: string): Problem {
  * disagree about the recommendation rule. The module reports such a state instead of choosing between
  * two records, because a choice made here would be a figure the records do not state (rule P-6).
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param reason - The reason in plain words, naming the records that disagree.
  * @returns The `Problem` to throw.
  */
 function validationProblem(ctx: HandlerContext, reason: string): Problem {
-  return { type: 'validation', message: reason, traceId: traceIdFor(ctx.state) };
+  return { type: 'validation', message: reason, traceId: ctx.traceId };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -294,33 +310,71 @@ function validationProblem(ctx: HandlerContext, reason: string): Problem {
  * The trigger stands for a session-wide refusal rather than for a fact about the acting role, so it is
  * checked before the matrix and produces the same failure shape: a screen renders one forbidden card
  * whether the refusal came from the role switcher's persona or from the simulation popover (AAP 0.12.4,
- * T-17).
+ * T-17). Its sentence is `demonstrationForbiddenReason`'s, because the role refused here may hold the
+ * permission the call requires (rules P-3, P-4).
  *
  * @param ctx - The call's context: the state its triggers are read from.
  * @param permission - The permission the refused call required, carried into the failure.
- * @param reason - The reason in plain words for the refused call.
  * @throws Problem - A `'permission'` failure naming the permission and its holders.
  */
-function assertNotForbidden(ctx: HandlerContext, permission: Permission, reason: string): void {
+function assertNotForbidden(ctx: HandlerContext, permission: Permission): void {
   if (isSimulationOn(ctx.state, 'forbidden')) {
-    throw permissionProblem(ctx, permission, reason);
+    throw permissionProblem(
+      ctx,
+      permission,
+      demonstrationForbiddenReason(ctx.actor.role, permission),
+    );
   }
 }
 
 /**
- * Refuses the call unless the acting persona may perform a permission on this exception.
+ * Says whether an exception is one the acting role's read reaches.
  *
- * The exception record is the subject, because §7.1 scopes a verdict by plant: a role limited to one
- * plant may not read or measure an option of another plant's exception, and the persona's own scope
- * narrows its role's where it is narrower. A refusal names the permission and the roles that hold it
- * (rule P-8), and the checks behind it are a demonstration control rather than production authorisation
- * (rule P-3).
+ * `handlers/exceptions.ts` owns this rule and applies it to every exception read and every write on
+ * one; it is restated here because AAP 0.12.1 fixes this folder at one module per read/write family
+ * with no shared helper beside them, and because the comparison read has to place a record by the same
+ * reach the investigation screen opened it with — a comparison that withheld an exception its own
+ * investigation serves would answer one question two ways. The plant the exception lands on admits it,
+ * and so does any plant it also affects; nothing here widens the rule past those two members, and an
+ * empty scope admits nothing rather than everything.
  *
- * @param ctx - The call's context: the persona the check is made for.
+ * @param exception - The exception to place.
+ * @param scope - The acting role's resolved scope.
+ * @returns `true` when the exception, or a plant it also affects, is inside the scope.
+ */
+function landsInScope(exception: OperationalException, scope: Scope): boolean {
+  if (scope.plants.includes(exception.plantId)) {
+    return true;
+  }
+
+  return exception.alsoAffectsPlantIds.some((plantId) => scope.plants.includes(plantId));
+}
+
+/**
+ * Refuses the call unless the acting persona holds the permission and reaches this exception.
+ *
+ * Two checks, in the order the exceptions family applies them, because a permission a role does not
+ * hold and a record the role's read does not cover are two different answers that a screen shows
+ * differently (AAP 0.12.4, rule P-8):
+ *
+ * 1. The matrix hold. Whether the role holds the permission at all is asked with no subject, so the
+ *    plant scoping of contracts §7.1 is left to the reach below. A role without the permission is
+ *    refused with the `'permission'` failure a forbidden card renders, naming the permission and the
+ *    roles that do hold it.
+ * 2. The reach. Whether the exception is one this role's read covers is `landsInScope`'s answer, the
+ *    rule `handlers/exceptions.ts` owns. A record outside it is refused as `'not-found'`, because the
+ *    role holds the permission and the read simply does not cover that record.
+ *
+ * Asking the matrix about the exception itself would collapse the two: the matrix reads only the plant
+ * a record is laid on, while an exception also reaches every plant it affects, so a planner whose
+ * plant the disruption reaches would be refused an option set the investigation screen serves her.
+ *
+ * @param ctx - The call's context: the persona both checks are made for.
  * @param permission - The permission the call requires.
- * @param exception - The exception the call is about, read for its plant.
- * @param reason - The reason in plain words for the refusal.
- * @throws Problem - A `'permission'` failure naming the permission and its holders.
+ * @param exception - The exception the call is about, read for the reach.
+ * @param reason - The reason in plain words for a role that lacks the permission.
+ * @throws Problem - A `'permission'` failure naming the permission and its holders, or a `'not-found'`
+ *   failure naming the exception and the acting role's plant scope.
  */
 function assertPermitted(
   ctx: HandlerContext,
@@ -328,9 +382,21 @@ function assertPermitted(
   exception: OperationalException,
   reason: string,
 ): void {
-  if (!hasPermission(ctx.actor.role, permission, exception, ctx.actor)) {
+  if (!hasPermission(ctx.actor.role, permission, null, ctx.actor)) {
     throw permissionProblem(ctx, permission, reason);
   }
+
+  const scope = resolveScope({}, ctx.actor.role);
+
+  if (landsInScope(exception, scope)) {
+    return;
+  }
+
+  throw notFoundProblem(
+    ctx,
+    `Exception ${exception.id} is outside the acting role's plant scope (${scope.plants.join(', ')}), ` +
+      'so it is not part of this read.',
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -629,9 +695,6 @@ interface CandidateOption {
 
   /** The trade-off template the seeded row carries, or `undefined` when it carries none. */
   readonly tradeOffTemplate: string | undefined;
-
-  /** The revenue the plan at this position protects, or `undefined` when the seed states no position. */
-  readonly protectedRevenueEur: Money | undefined;
 }
 
 /**
@@ -684,7 +747,6 @@ function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): Candid
       levers: { ...option.levers },
       name: option.name,
       tradeOffTemplate: option.tradeOffTemplate,
-      protectedRevenueEur: option.protectedRevenueEur,
     }));
   }
 
@@ -712,7 +774,6 @@ function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): Candid
       levers,
       name: undefined,
       tradeOffTemplate: undefined,
-      protectedRevenueEur: undefined,
     });
   }
 
@@ -732,7 +793,6 @@ function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): Candid
       levers: BASELINE_LEVERS,
       name: undefined,
       tradeOffTemplate: undefined,
-      protectedRevenueEur: undefined,
     },
     ...recordedOptions,
   ];
@@ -899,7 +959,7 @@ function rejectedOf(scenarios: readonly Scenario[]): Rejected[] {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The trade-off sentence — AAP 0.8, rule P-6
+ * The protected revenue and the trade-off sentence — AAP 0.8, rule P-6
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -924,6 +984,43 @@ function fillTemplate(template: string, values: Readonly<Record<string, string>>
 }
 
 /**
+ * The delayed revenue one option protects: what the set's unmitigated position leaves, less the delay
+ * this option still leaves.
+ *
+ * AAP 0.8 states an approval's protected revenue as the delayed revenue a plan avoids, and the records
+ * measure both ends of that difference. An option's `revenueDelayedEur` is the units it leaves late
+ * priced at their own orders' prices, so pulling a lever can only lower it: the set's greatest
+ * `revenueDelayedEur` is the position no lever improves on — the path the disruption takes with nothing
+ * done, which a set measured from a case holds as the baseline `candidateOptions` lists first at both
+ * levers unpulled, and a seeded set holds as the option that leaves the whole delay in place — and this
+ * option's own figure is what it still leaves late. Subtracting the second from the first is the delay
+ * the option buys back, and the position that repeats the unmitigated path protects nothing, which is
+ * what a plan that changes nothing is worth.
+ *
+ * The greatest figure is read from the set the option came from rather than from a member a record
+ * types, so the trade-off sentence's last figure and an approval's `protectedRevenueEur` are one
+ * arithmetic over one set of measurements (rule P-6). The difference is floored at none of it, so a set
+ * that measured nothing worse than this option reports no protection rather than a negative figure.
+ *
+ * @param scenario - The option whose protected revenue is wanted.
+ * @param scenarios - The options of the set that option stands in.
+ * @returns The delayed revenue the option avoids, in euro.
+ */
+export function protectedRevenueOf(scenario: Scenario, scenarios: readonly Scenario[]): Money {
+  let unmitigatedEur: Money = 0;
+
+  for (const option of scenarios) {
+    if (option.revenueDelayedEur > unmitigatedEur) {
+      unmitigatedEur = option.revenueDelayedEur;
+    }
+  }
+
+  const avoidedEur = unmitigatedEur - scenario.revenueDelayedEur;
+
+  return avoidedEur > 0 ? avoidedEur : 0;
+}
+
+/**
  * The trade-off the recommended option makes, with its own measured figures written into the sentence
  * the record states for it.
  *
@@ -931,23 +1028,27 @@ function fillTemplate(template: string, values: Readonly<Record<string, string>>
  * supply, and the figures in it are computed, so this function fills a template it was handed and authors
  * nothing. The spent figure and the deferral are the recommended option's own measurement —
  * `addedCostEur`, and the first side effect's `kitsDelayed`, `valueDeferredEur` and `daysDeferred` — while
- * the protected revenue is the figure the seeded row states for the plan. Every amount renders through
- * the one prose formatter the assistant's answers use, so a figure reads the same in both sentences.
+ * the protected revenue is the difference `protectedRevenueOf` computes from that same set. Every amount
+ * renders through the one prose formatter the assistant's answers use, so a figure reads the same in
+ * both sentences.
  *
- * An option that carries no template states no trade-off, and a measurement that carries no side effect
- * leaves the deferral's braces without a value: the sentence is then returned empty rather than filled
- * with a zero, because "defers 0 kits" would state a fact the measurement never produced. The same holds
- * for any brace the template names and this function has no value for.
+ * An option that carries no template states no trade-off, and so does an option the set holds no
+ * measurement for. A measurement that carries no side effect leaves the deferral's braces without a
+ * value: the sentence is then returned empty rather than filled with a zero, because "defers 0 kits"
+ * would state a fact the measurement never produced. The same holds for any brace the template names
+ * and this function has no value for.
  *
  * @param option - The candidate option the recommendation picked, or `undefined` when it picked none.
- * @param scenario - That option's measurement, or `undefined` when the recommendation picked none.
+ * @param scenarios - The measurements of the set that option stands in, which the protected figure is
+ *   read from.
  * @returns The filled trade-off sentence, or the empty trade-off when no sentence can be stated.
  */
-function tradeOffFor(option: CandidateOption | undefined, scenario: Scenario | undefined): string {
+function tradeOffFor(option: CandidateOption | undefined, scenarios: readonly Scenario[]): string {
   const template = option === undefined ? undefined : option.tradeOffTemplate;
-  const protectedRevenueEur = option === undefined ? undefined : option.protectedRevenueEur;
+  const scenario =
+    option === undefined ? undefined : scenarios.find((candidate) => candidate.id === option.id);
 
-  if (template === undefined || protectedRevenueEur === undefined || scenario === undefined) {
+  if (template === undefined || scenario === undefined) {
     return NO_TRADE_OFF;
   }
 
@@ -963,7 +1064,7 @@ function tradeOffFor(option: CandidateOption | undefined, scenario: Scenario | u
       kitsDeferred: renderAmount(effect.kitsDelayed),
       valueDeferredEur: renderAmount(effect.valueDeferredEur),
       daysDeferred: renderAmount(effect.daysDeferred),
-      protectedRevenueEur: renderAmount(protectedRevenueEur),
+      protectedRevenueEur: renderAmount(protectedRevenueOf(scenario, scenarios)),
     }) ?? NO_TRADE_OFF
   );
 }
@@ -1063,8 +1164,9 @@ function emptyScenarioSet(ctx: HandlerContext, exceptionId: ExceptionId): Scenar
  * One `solveSupplyDelay` call per candidate option, each wrapped with its identity and labelled with the
  * name its record states where there is one, and the set assembled around them: the recommendation the
  * contracts rule picks, the rule's wording as the seed states it, the trade-off that recommendation
- * states with its braces filled from the option's own measurement, and the options the rule had to leave
- * out. No figure is derived here — every measure in the returned set is the solver's own output for the
+ * states with its braces filled from the option's own measurement and from the protected revenue
+ * `protectedRevenueOf` computes over those same measurements, and the options the rule had to leave out.
+ * No measure is derived here — every measure in the returned set is the solver's own output for the
  * lever position the option stands at.
  *
  * @param ctx - The call's context, whose records supply the case, the positions and the confidence.
@@ -1109,19 +1211,100 @@ function computedScenarioSet(ctx: HandlerContext, exception: OperationalExceptio
     recommendationRule: recommendationRuleOf(ctx),
     tradeOff: tradeOffFor(
       options.find((option) => option.id === recommendedId),
-      scenarios.find((scenario) => scenario.id === recommendedId),
+      scenarios,
     ),
     rejected: rejectedOf(scenarios),
   };
 }
 
 /**
+ * The options the records state for one exception, as the comparison read would serve them.
+ *
+ * Two sources, in the order `getScenarioSet` takes them: the set the dataset ships for the exception,
+ * which is served as it stands, and otherwise the set measured from the exception's own solver case. An
+ * exception that states neither — no shipped set and no case, or a case the loaded records do not hold —
+ * states no option, which is the empty list here rather than a failure.
+ *
+ * A set the records cannot produce is answered as no options for the same reason: the measurement can
+ * refuse (a trail whose positions occupy every letter of the `SCN-nnnn-x` form, a case the records do
+ * not hold), and the caller is a search for one identifier rather than the read that reports such a
+ * refusal, so an exception whose set cannot be produced simply names nothing. Nothing is written or
+ * audited by the measurement.
+ *
+ * @param ctx - The call's context, whose records supply the case, the positions and the confidence.
+ * @param exception - The exception whose options are wanted.
+ * @returns The shipped or measured options, or an empty list when the records state none for it.
+ */
+function optionsOf(ctx: HandlerContext, exception: OperationalException): readonly Scenario[] {
+  const shipped = seededSetFor(ctx.state, exception.id);
+
+  if (shipped !== undefined) {
+    return shipped.scenarios;
+  }
+
+  if (exception.solverCaseId === undefined) {
+    return [];
+  }
+
+  try {
+    return computedScenarioSet(ctx, exception).scenarios;
+  } catch {
+    // The records cannot produce this exception's set, so it names no option a reference could be
+    // answered with. The failure is not this lookup's to report: the caller asks which option a
+    // reference names and answers the reference itself when none does.
+    return [];
+  }
+}
+
+/**
+ * The option one evidence reference names, out of the option sets the records state.
+ *
+ * `handlers/evidence.ts` resolves a `SCN-` reference with this, after the sets the dataset ships and
+ * before it reports that no record answers the reference. The comparison screen's columns are measured
+ * from an exception's own solver case rather than shipped as records, so an option a figure belongs to
+ * is often one the dataset does not hold: without this answer the drawer behind a comparison or sandbox
+ * figure would open on its failure region instead of on the record behind the figure (AAP 0.12.4, F12;
+ * principle PR-6 — every figure opens its evidence).
+ *
+ * THE EXCEPTION IS FOUND FROM THE RECORDS, NOT FROM THE REFERENCE. Contracts §1 fixes the form
+ * `SCN-nnnn-x`, and the number in it is not a key any record is addressed by: which exception a
+ * reference belongs to is what the option sets themselves state, so every exception is asked what its
+ * set names, in the records' own order.
+ *
+ * IT REFUSES NOTHING AND DECIDES NOTHING. No permission is evaluated here, so a reference naming an
+ * option of an exception outside the acting role's plant scope resolves like any other and the evidence
+ * read's own refusal decides what the reader may open; nothing is written or audited; and a reference no
+ * set names is answered `undefined` rather than as a failure, as a reference to a shipped option the
+ * records do not hold is.
+ *
+ * @param ctx - The call's context, whose records state the option sets. The state is not modified.
+ * @param scenarioId - The identifier the reference names.
+ * @returns The option that identifier names, or `undefined` when no option set states one.
+ */
+export function scenarioForReference(
+  ctx: HandlerContext,
+  scenarioId: ScenarioId,
+): Scenario | undefined {
+  for (const exception of ctx.state.records.exceptions) {
+    const found = optionsOf(ctx, exception).find((candidate) => candidate.id === scenarioId);
+
+    if (found !== undefined) {
+      return found;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Reads every option measured for one exception: the columns, the recommended option with the rule that
  * picked it, and the options set aside with the constraint that blocked each.
  *
- * Four paths, in this order. A session with the forbidden trigger in effect is refused with a permission
- * failure before anything is read. An identifier no record answers is a not-found failure naming it. A
- * dataset that ships options for the exception returns them unchanged, with `origin: 'seeded'` preserved
+ * The refusals come first, in this order: the forbidden trigger, as a permission failure before anything
+ * is read; an identifier no record answers, as a not-found failure naming it; a role that does not hold
+ * `exception.read` at all, as a permission failure naming the roles that do; and an exception outside
+ * the acting role's plant scope, as a not-found failure naming the exception and that scope. A dataset
+ * that ships options for the exception then returns them unchanged, with `origin: 'seeded'` preserved
  * so each column carries `Simulated data` from the fixed label set. Otherwise the options the records
  * state are measured from the exception's own case; an exception with no case at all answers with an
  * empty set, which is the comparison screen's empty state rather than a failure.
@@ -1136,11 +1319,7 @@ export async function getScenarioSet(
   ctx: HandlerContext,
   exceptionId: ExceptionId,
 ): Promise<ScenarioSet> {
-  assertNotForbidden(
-    ctx,
-    EXCEPTION_READ,
-    `The options measured for ${exceptionId} are not readable in this state.`,
-  );
+  assertNotForbidden(ctx, EXCEPTION_READ);
 
   const exception = exceptionOrThrow(ctx, exceptionId);
 
@@ -1232,19 +1411,15 @@ function sandboxIdentifier(ctx: HandlerContext, exceptionId: ExceptionId): Scena
  * @param levers - The lever position the caller asked for.
  * @returns The measured scenario.
  * @throws Problem - A `'permission'` failure when the call may not be served, a `'not-found'` failure when
- *   the exception or its case does not resolve, or a `'validation'` failure when the set cannot be
- *   identified.
+ *   the exception or its case does not resolve or lies outside the acting role's plant scope, or a
+ *   `'validation'` failure when the set cannot be identified.
  */
 export async function solveScenarioSandbox(
   ctx: HandlerContext,
   exceptionId: ExceptionId,
   levers: Levers,
 ): Promise<Scenario> {
-  assertNotForbidden(
-    ctx,
-    SCENARIO_CREATE,
-    `An option of ${exceptionId} cannot be measured in this state.`,
-  );
+  assertNotForbidden(ctx, SCENARIO_CREATE);
 
   const exception = exceptionOrThrow(ctx, exceptionId);
 

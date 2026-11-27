@@ -133,7 +133,8 @@ import type { FilemapCanvasScreenProps } from './filemap-canvas-screen';
  * Typed as a `Pick` of the port rather than as a shape of this file's own, so the stub cannot drift
  * from the interface: a member the screen starts to call that the stub does not carry fails the type
  * check here instead of arriving at run time as a call on `undefined`. The screen is the only reader
- * of these eight, and no other member of `SiteIntelligenceService` answers a surface this suite mounts.
+ * of these eight — the last is the drawer's own read, asked for whichever reference the screen gave
+ * a figure — and no other member of `SiteIntelligenceService` answers a surface this suite mounts.
  */
 type CanvasPort = Pick<
   SiteIntelligenceService,
@@ -258,15 +259,16 @@ function dayAfter(date: IsoDate): IsoDate {
 const NO_PINS: PinCounts = { empty: 0, pending: 0, pass: 0, fail: 0, stale: 0, review: 0 };
 
 /**
- * An eight-node network: two nodes of every family, one lane chain from a tier-2 origin through a
- * supplier and a plant to a customer, and pin counts that between them cover each of the six
- * `PinState` members.
+ * A nine-node network: two nodes of every family, one material at the site it is bought from, one lane
+ * chain from a tier-2 origin through a supplier, that material and a plant to a customer, and pin counts
+ * that between them cover each of the six `PinState` members.
  *
  * The coordinates sit across Europe, the Gulf of Mexico and Japan so every node lands inside the world
  * view, and the plant the canvas opens on carries both a product and a stale pin, so the staged
  * `Open part` control and a non-empty pin summary are both reachable. One plant carries counts of zero
  * in every state and one supplier is absent from `pinsByNode` altogether, so both readings of "no
- * evidence pins" are exercised by the real drawing rather than asserted from a shape.
+ * evidence pins" are exercised by the real drawing rather than asserted from a shape; the material is
+ * absent from it too, because no evidence pin is attached to a material record.
  */
 const TOPOLOGY: Topology = {
   plants: [
@@ -303,6 +305,16 @@ const TOPOLOGY: Topology = {
       latitude: 57.7,
       longitude: 11.97,
       productIds: ['product-two'],
+    },
+  ],
+  materials: [
+    {
+      id: 'node-material',
+      kind: 'material',
+      label: 'Cold-rolled coil',
+      latitude: 48.14,
+      longitude: 11.58,
+      productIds: ['product-one'],
     },
   ],
   origins: [
@@ -343,7 +355,8 @@ const TOPOLOGY: Topology = {
   ],
   lanes: [
     { fromId: 'node-origin', toId: 'node-supplier' },
-    { fromId: 'node-supplier', toId: 'node-plant' },
+    { fromId: 'node-supplier', toId: 'node-material' },
+    { fromId: 'node-material', toId: 'node-plant' },
     { fromId: 'node-plant', toId: 'node-customer' },
   ],
   pinsByNode: {
@@ -361,6 +374,7 @@ const TOPOLOGY: Topology = {
 const EMPTY_TOPOLOGY: Topology = {
   plants: [],
   suppliers: [],
+  materials: [],
   origins: [],
   customers: [],
   lanes: [],
@@ -551,6 +565,28 @@ function figureShown(tile: RibbonTile): string {
 /** The confidence the record states, in the one place this file writes it. */
 const CONFIDENCE: Confidence = { level: 'high', reason: 'A reason the record states' };
 
+/**
+ * The evidence the drawer renders for whichever reference a case opens.
+ *
+ * The cases below assert which reference the screen asked the service for, and one of them asserts
+ * that the drawer prints this payload's value and formula character for character — the record the
+ * service supplied rather than a failure region. One payload therefore serves them all and states no
+ * figure of its own: the strings are this file's own words and the one §5.3 label a computed reading
+ * carries arrives from `SIM_LABELS` (rule P-6, rule P-1).
+ */
+const EVIDENCE: Evidence = {
+  value: 'the reading the evidence read returned',
+  provenance: 'computed',
+  label: SIM_LABELS[1],
+  formula: 'The rule the contracts state for this reading, quoted by the read.',
+  inputs: ['input-one'],
+  upstream: ['record-one'],
+  downstream: [],
+  confidence: CONFIDENCE,
+  missingInputs: [],
+  documents: [],
+};
+
 /** The projected series the dock draws: two points derived from the demonstration clock. */
 const STOCK_SERIES: DailyClosingStockPoint[] = [
   { date: CLOCK_DATE, units: 140 },
@@ -661,26 +697,6 @@ const EMPTY_OPTION_SET: ScenarioSet = {
   recommendationRule: 'A rule the record states',
   tradeOff: 'A trade-off the record states',
   rejected: [],
-};
-
-/**
- * The evidence one activated node's record resolves to, as the drawer's read returns it.
- *
- * Every member is a sentence rather than a figure, because the case asserts that the drawer opens on the
- * record the service supplied instead of on a failure region: the value and the formula are printed
- * character for character, so the fixture is what a reader would see (rule P-6).
- */
-const EVIDENCE: Evidence = {
-  value: 'A value the record states',
-  provenance: 'first_party',
-  label: SIM_LABELS[0],
-  formula: 'A rule the record states',
-  inputs: ['an input the record states'],
-  upstream: ['an upstream record'],
-  downstream: ['a downstream record'],
-  confidence: CONFIDENCE,
-  missingInputs: [],
-  documents: [],
 };
 
 /* ---------------------------------------------------------------------------------------------
@@ -1267,6 +1283,37 @@ describe('FilemapCanvasScreen', () => {
     expect(within(drawer).getByText(EVIDENCE.formula)).toBeInTheDocument();
     expect(within(drawer).getByText(EVIDENCE_DRAWER_TEXT.valueSection)).toBeInTheDocument();
     expect(screen.queryByText(EVIDENCE_DRAWER_TEXT.failureHeadline)).not.toBeInTheDocument();
+  });
+
+  it('names the aggregate and the shell selection in the reference a ribbon figure opens', async () => {
+    const user = userEvent.setup();
+    const plant = TOPOLOGY.plants[0];
+
+    if (plant === undefined) {
+      throw new Error('the topology fixture holds no plant node, so the case cannot run.');
+    }
+
+    renderScreen({ scope: { plants: [plant.id], products: [] } });
+
+    const ribbon = await screen.findByRole('group', { name: UI.ribbon });
+    const caption = TILE_CAPTIONS['revenue-at-risk'];
+
+    if (caption === undefined) {
+      throw new Error('the suite states no caption for the revenue tile, so the case cannot run.');
+    }
+
+    const tile = within(ribbon).getByRole('region', { name: caption });
+
+    await user.click(within(tile).getByRole('button'));
+    await screen.findByRole('dialog');
+
+    const reference = String(port.getEvidence.mock.calls[0]?.[0]);
+
+    // The tile's figure has no record of its own, so the reference names the aggregate and the
+    // selection the tiles were read under, and the read resolves that figure over those filters
+    // (AAP 0.2.1 F12).
+    expect(reference.startsWith('canvas:revenue-at-risk')).toBe(true);
+    expect(reference).toContain(`plants=${plant.id}`);
   });
 
   it('arms the graph lens’s scenario preview from the selected exception’s own option set', async () => {

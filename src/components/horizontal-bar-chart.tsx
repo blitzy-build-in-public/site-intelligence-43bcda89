@@ -35,11 +35,14 @@
  * KEYBOARD AND FOCUS — rule B-3, WCAG 2.2 AA. Each mark is a `<g role="button" tabIndex={0}>` whose
  * accessible name states the category, the value and, where the datum carries one, the exact §5.3
  * simulation label (`SimLabel`, so rule P-1 is a type rather than a habit and the chart never decides
- * which label applies). `Enter` and `Space` activate it, the pointer activates it, and because an SVG
- * element receives no visible focus ring from the browser, each mark draws its own in
- * `--color-focus-ring` — the same 2 px ring the rest of the application shows on `:focus-visible`,
- * drawn above the mark so the bar cannot paint over it. The selected mark is marked by a thicker
- * stroke and `aria-current` as well as by nothing else, so its state never rests on colour alone.
+ * which label applies). `Enter` and `Space` activate it, and the pointer activates it anywhere in the
+ * row: the mark paints a row-wide transparent target beneath everything it draws
+ * ({@link POINTER_TARGET_FILL}), so the hit area matches the `cursor-pointer` affordance it carries
+ * and the ring it draws across the whole row. Because an SVG element receives no visible focus ring
+ * from the browser, each mark draws its own in `--color-focus-ring` — the same 2 px ring the rest of
+ * the application shows on `:focus-visible`, drawn above the mark so the bar cannot paint over it.
+ * The selected mark is marked by a thicker stroke and `aria-current` as well as by nothing else, so
+ * its state never rests on colour alone.
  *
  * WHAT IT DOES WHEN IT CANNOT DRAW. An empty `bars` array renders nothing at all, exactly as
  * `./legend.tsx` renders nothing for an empty legend: the seven states are the calling screen's
@@ -384,6 +387,23 @@ const FOCUS_RING_CLASSES =
 /** The mark's second focus cue, for the engines that paint an outline on a focused SVG group. */
 const MARK_FOCUS_CLASSES = 'focus-visible:outline-2 focus-visible:outline-focus-ring';
 
+/**
+ * The paint on a mark's row-wide pointer target, and the one constant here that is a paint attribute
+ * rather than a class: the row a mark draws is the control, so a pointer has to land anywhere in it,
+ * including the empty track beside a short bar.
+ *
+ * `transparent` rather than `none` is the whole of why this works. An SVG hit test follows the
+ * default `visiblePainted` rule, under which a shape painted `none` is not hit at all while a shape
+ * painted transparent is hit across its interior — so a row-wide target painted `none` would leave
+ * the mark exactly as inert as no target at all. `./line-chart.tsx` gives each of its points the same
+ * target for the same reason (`HIT_RADIUS`, `fill="transparent"`).
+ *
+ * It is an attribute, never a `fill-transparent` utility: `src/theme/tokens.css` resets the palette
+ * with `--color-*: initial`, so that utility would resolve no colour and emit no rule. No palette
+ * value is involved either way — `transparent` is a paint keyword, not a colour the theme owns.
+ */
+const POINTER_TARGET_FILL = 'transparent';
+
 /** The bar of the selected mark: a thicker stroke in the primary text role, so the state is not colour alone. */
 const ACTIVE_BAR_CLASSES = 'stroke-text-primary stroke-2';
 
@@ -495,6 +515,14 @@ export function HorizontalBarChart({
                 handleKeyDown(event, datum);
               }}
             >
+              <rect
+                x={0}
+                y={rowTop}
+                width={CHART_WIDTH}
+                height={ROW_HEIGHT}
+                fill={POINTER_TARGET_FILL}
+                aria-hidden="true"
+              />
               <text
                 className={LABEL_CLASSES}
                 x={0}

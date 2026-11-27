@@ -51,23 +51,20 @@
  * - B-1 and B-2: it contacts nothing, reads no configuration and holds no credential-shaped literal,
  *   because it derives its answer from records that are already in hand.
  *
- * OPEN ITEM: the inputs fix that the canvas ribbon carries six computed tiles (AAP 0.12.1, AAP 0.12.4)
- * without listing them, so the six below are chosen from the aggregates this folder already computes,
- * in this order: `open-exceptions` reading `Overview.openExceptions`, `critical-exceptions` counting
- * the rows handed in whose severity is `'critical'`, `revenue-at-risk` reading
- * `Overview.revenueAtRiskEur`, `customer-orders-at-risk` reading `Overview.customerOrdersAtRisk`,
- * `median-hours-to-approved-plan` reading `Overview.medianHoursToApprovedPlan`, and `plants-in-scope`
- * reading the length of `Overview.byPlant`. A consumer — `src/services/mock/handlers/topology.ts`,
- * the SCR-12 handlers or `src/features/scr-12-filemap-canvas/canvas-ribbon.tsx` — may reorder these
- * six, but may not supply a number of its own, add a seventh tile or add a member to `Overview`: the
- * set is closed until an input names the specification's own list.
- * OPEN ITEM: `ExceptionRow.daysToImpact` and `ExceptionRow.revenueAtRiskEur` are required numbers in
- * `src/types/screen-dto.ts`, so a guard for an absent value is never needed to satisfy the types. The
- * comparison still reads both through `Number.isFinite`, because a row assembled from a partially
- * filled aggregate can carry `NaN`, and a `NaN` operand makes every comparison against it false and
- * would silently leave two rows in the order the sort happened to visit them. A non-finite value is
- * therefore given an explicit place — last among its severity for days to impact, last among its day
- * group for revenue — rather than being allowed to corrupt the order.
+ * The six ribbon tiles (AAP 0.12.1, AAP 0.12.4). The inputs fix the ribbon at six computed tiles
+ * without listing them, so the set is `open-exceptions` reading `Overview.openExceptions`,
+ * `critical-exceptions` counting the rows handed in whose severity is `'critical'`, `revenue-at-risk`,
+ * `customer-orders-at-risk` and `median-hours-to-approved-plan` reading the `Overview` member each
+ * names, and `plants-in-scope` reading the length of `byPlant`. A consumer may reorder the six, but may
+ * not supply a number of its own, add a seventh tile or add a member to `Overview`: the set is closed.
+ *
+ * The two compared measures. `ExceptionRow.daysToImpact` and `ExceptionRow.revenueAtRiskEur` are
+ * required numbers in `src/types/screen-dto.ts`, so no guard for an absent value is needed to satisfy
+ * the types; the comparison still reads both through `Number.isFinite`, because a row assembled from a
+ * partially filled aggregate can carry `NaN`, and a `NaN` operand makes every comparison against it
+ * false and would silently leave two rows in the order the sort happened to visit them. A non-finite
+ * value therefore takes an explicit place — last among its severity for days to impact, last among its
+ * day group for revenue — rather than corrupting the order.
  */
 
 import type { ExceptionId, ExceptionRow, Overview, RibbonTile, Severity } from '../../types';
@@ -137,7 +134,7 @@ function compareNumbers(left: number, right: number): number {
  *
  * The types say these members are numbers, so this guard never changes a value that a caller could
  * legitimately pass; it exists for the `NaN` a partially filled aggregate can carry, which would
- * otherwise make every comparison against it false (see the second OPEN ITEM in the module header).
+ * otherwise make every comparison against it false.
  */
 function comparableOr(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value) ? value : fallback;
@@ -277,8 +274,8 @@ function countAtHeadOfUrgency(rows: readonly ExceptionRow[]): number {
  * caller reads that provenance to decide what the tile opens and which label it renders; the label
  * itself is the rendering component's (rule P-1).
  *
- * The six tiles, and the aggregate each reports, are named in the first OPEN ITEM of the module
- * header, together with a consumer's freedom to reorder them.
+ * The six tiles, and the aggregate each reports, are named in the module header, together with a
+ * consumer's freedom to reorder them.
  *
  * @param overview The overview aggregate the caller already computed, read and not modified.
  * @param rows The rows the caller assembled for the same scope, read and not modified. Only the

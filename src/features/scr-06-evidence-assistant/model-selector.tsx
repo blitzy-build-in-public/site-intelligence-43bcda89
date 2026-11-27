@@ -13,19 +13,27 @@
  * the label and the version. Nothing of that vocabulary is typed here, so a catalogue record that
  * changes reaches the interface unchanged (rule P-6).
  *
+ * The `<select>` carries an accessible name and an element identity, and the two arrive from
+ * different places. The name comes from the `<legend>` through `aria-labelledby`, which is why it
+ * paints no `<label>` and no `aria-label` of its own: one text, one owner. The identity is the
+ * element's own — an `id` from `useId()`, so two selectors on one page cannot collide, and a fixed
+ * `name` for the field rather than for the entry chosen in it — because a browser keys a form field
+ * on these attributes and reports an element that has neither as one it cannot identify.
+ *
  * The boundary is declared configuration: it is the value the service's policy check reads, and it
  * says where an answer would be composed rather than that one was. The control therefore renders
  * no connection state, no endpoint and no provider — the external entry is a catalogue entry, not a
  * destination.
  *
- * The catalogue carries no per-entry availability member (recorded as an open item in
- * `src/types/models.ts`), so an individually unavailable entry is not expressible by the current
- * contract. The only disabling this control expresses is its `disabled` prop, and the field's
- * explanation of that state is rendered as text beside the control rather than as a hint that only
- * a pointer reveals.
+ * The catalogue carries no per-entry availability member, so an individually unavailable entry is
+ * not expressible by the current contract. The only disabling this control expresses is its
+ * `disabled` prop, and the field's explanation of that state is rendered as text beside the control
+ * rather than as a hint that only a pointer reveals.
  */
 import { useId } from 'react';
-import type { ChangeEvent, ReactElement } from 'react';
+import type { ReactElement } from 'react';
+
+import { SelectField } from '../../components/select-field';
 import type { ModelCatalogue, ModelEntry } from '../../types';
 
 /** The props of {@link ModelSelector}. */
@@ -64,6 +72,15 @@ export interface ModelSelectorProps {
  * it and the `<select>` takes its accessible name from that same element.
  */
 const CONTROL_NAME = 'Answer model';
+
+/**
+ * The field's own `name`: the attribute that identifies the form field rather than the entry chosen
+ * in it. Fixed, because it names the control the assistant panel offers and not a catalogue record,
+ * which is why it is not derived from the selection — a browser that keys a field on its name would
+ * otherwise see a different field after every option chosen. It is never the accessible name; the
+ * legend supplies that through `aria-labelledby`.
+ */
+const CONTROL_FIELD_NAME = 'answer-model';
 
 /** The fieldset is the control's box in the calling screen's layout; it adds no surface of its own. */
 const FIELD_SET_CLASSES = 'min-w-0';
@@ -137,12 +154,15 @@ function optionTextOf(entry: ModelEntry): string {
 /**
  * Renders the model catalogue as one labelled list, and reports the chosen entry upward.
  *
- * A `<fieldset>` with a `<legend>` names the group, and a single native `<select>` inside it offers
- * the entries. The native control is chosen over the application's `ActionButton` pattern for the
+ * A `<fieldset>` with a `<legend>` names the group, and the one select field inside it offers the
+ * entries. The `<select>` element belongs to `SelectField` in `src/components`, which owns it under
+ * AAP §0.5.2 — a raw `<select>` is permitted only inside the component that owns it, so this module
+ * composes that component and supplies the entries, their order and their text rather than writing
+ * the element itself. A select rather than the application's `ActionButton` pattern is chosen for the
  * reason that pattern exists: a button commits one action, while this control offers a list, and the
  * browser's own list keeps every entry reachable by keyboard and by a screen reader's forms mode.
  *
- * A disabled `<select>` takes the native `disabled` attribute rather than the `aria-disabled`
+ * A disabled select takes the native `disabled` attribute rather than the `aria-disabled`
  * treatment `ActionButton` uses, because a select's popup cannot be made inert by an attribute:
  * leaving the element operable and discarding the change would announce a control that lies about
  * its state. Rule P-8's explanation is therefore painted as visible text beside the control for as
@@ -163,6 +183,7 @@ export function ModelSelector({
   disabledReason,
 }: ModelSelectorProps): ReactElement | null {
   const legendId = useId();
+  const selectId = useId();
   const reasonId = useId();
 
   const cannotAct = disabled === true;
@@ -182,29 +203,25 @@ export function ModelSelector({
     return null;
   }
 
-  const handleChange = (event: ChangeEvent<HTMLSelectElement>): void => {
-    onSelect(event.currentTarget.value);
-  };
-
   return (
     <fieldset className={FIELD_SET_CLASSES}>
       <legend id={legendId} className={LEGEND_CLASSES}>
         {CONTROL_NAME}
       </legend>
-      <select
+      <SelectField
+        id={selectId}
+        name={CONTROL_FIELD_NAME}
         className={SELECT_CLASSES}
         aria-labelledby={legendId}
         aria-describedby={cannotAct ? reasonId : undefined}
         value={selectedModelId}
         disabled={cannotAct}
-        onChange={handleChange}
-      >
-        {catalogue.models.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {optionTextOf(entry)}
-          </option>
-        ))}
-      </select>
+        onChange={onSelect}
+        options={catalogue.models.map((entry) => ({
+          value: entry.id,
+          label: optionTextOf(entry),
+        }))}
+      />
       {cannotAct ? (
         <p id={reasonId} className={REASON_CLASSES}>
           {reason}

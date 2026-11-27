@@ -32,12 +32,12 @@
  * they exist to hold the screen against that one fixture row.
  *
  * WHAT IS DELIBERATELY NOT ASSERTED, AND WHY.
- * - GAP — the shaded idle window. AAP 0.12.4's SCR-03 row asks the chart to shade it, and the records
- *   cannot support it: the solver states the number of idle days, not the span they fall in, so a band
- *   would be a measure this application invented, which rule P-6 forbids. `investigation-screen.tsx`
- *   records the omission as its own open item and passes no bands. The requirement is therefore reported
- *   as a gap rather than asserted here, because an assertion could only pass on a figure the records do
- *   not hold; the rest of T-03 is asserted in full around it.
+ * - The shaded idle window, asserted in the screen's own suite rather than here. AAP 0.12.4's SCR-03
+ *   row asks the chart to shade it, and `investigation-screen.tsx` does: the span is the days the
+ *   payload's own closing-stock series reads as zero, from its first such date to its last, labelled
+ *   in the screen's own words. That is a range of the record's dates rather than a measure of them, so
+ *   it is read off the drawn figure in `investigation-screen.test.tsx`, and this spec keeps to the
+ *   readings, the marks and the window, which are what T-03 exists to prove.
  * - A scenario switch on this screen. The investigation plots the option the service designates beside
  *   the baseline and offers no control to choose another; choosing one belongs to SCR-04. T-03's
  *   "changes the series without changing the window" is asserted in the form the screen delivers: two
@@ -95,8 +95,8 @@ const SCREEN_COPY = {
   /** The queue's table caption, which is also its accessible name. */
   queueCaption: 'Exception queue',
 
-  /** The queue's row action for opening one exception (`: <id>` is appended for the row's own name). */
-  rowOpen: /^Open\s*:/,
+  /** The queue's row action for opening one exception, named `Open: <id>` for the row it acts on. */
+  rowOpen: /^Open: /,
 
   /** The queue's revenue column, whose figure opens the evidence behind it. */
   queueRevenueColumn: 'Revenue at risk',
@@ -189,13 +189,28 @@ const SCREEN_COPY = {
   /** The shell's badge, whose accessible name is the label followed by the demonstration clock. */
   badgeName: /^Simulated data at /,
 
-  /** The evidence drawer: its own name, the two sections this spec reads and the fields inside them. */
+  /** The evidence drawer: its own name, its four sections and the fields inside them. */
   drawerName: 'Evidence',
   valueSection: 'Value and formula',
   formulaLabel: 'Formula',
+  sourceSection: 'Source, record and time',
   linksSection: 'Inputs, upstream and downstream',
   inputsLabel: 'Inputs',
+  judgementSection: 'Confidence, missing inputs and documents',
 } as const;
+
+/**
+ * The drawer's four section captions, in the order the drawer renders them.
+ *
+ * Held once so a case that reads all four and a case that reads one of them cannot disagree about the
+ * wording (AAP §0.12.4's four sections, principle PR-6).
+ */
+const EVIDENCE_SECTIONS: readonly string[] = [
+  SCREEN_COPY.valueSection,
+  SCREEN_COPY.sourceSection,
+  SCREEN_COPY.linksSection,
+  SCREEN_COPY.judgementSection,
+];
 
 /* ---------------------------------------------------------------------------------------------
  * Reading the document: text, cells and readings
@@ -728,8 +743,10 @@ function nodeEvidenceControl(chainNode: Locator): Locator {
  * The header's three record facts and the computed days to impact are asserted first, then the
  * record's own account of the change, then the impact chain — which must run from the purchase order
  * through the material and the production line to the customer orders, in that order and with all four
- * kinds present — and finally that one node's control opens its evidence and hands focus back on
- * `Escape` (rule B-3: a keyboard reader is returned where they were, not to the top of the page).
+ * kinds present — and finally that a node's control opens its evidence, that the material node states
+ * all four of the drawer's sections, and that `Escape` hands focus back to the node (rule B-3: a
+ * keyboard reader is returned where they were, not to the top of the page; AAP 0.2.1 F12: a node opens
+ * the record behind it).
  */
 test('T-02 the investigation states what changed and what the disruption touches', async ({ page }) => {
   await openCaseException(page);
@@ -809,6 +826,36 @@ test('T-02 the investigation states what changed and what the disruption touches
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
   await expect(firstNode).toBeFocused();
+
+  /* The chain's second kind opens the same four sections: a material is a record of its own, and the
+     node offers it as a control, so the drawer states its value, its source, the records around it and
+     its confidence rather than a reference no record answers (AAP 0.2.1 F12). */
+  const materialIndex = kinds.indexOf('material');
+
+  if (materialIndex < 0) {
+    throw new Error('The impact chain states no material node, so the case cannot run.');
+  }
+
+  const materialNode = nodeEvidenceControl(nodes.nth(materialIndex));
+
+  await expect(materialNode).toBeVisible();
+  await materialNode.focus();
+  await materialNode.press('Enter');
+
+  const materialDrawer = evidenceDrawer(page);
+
+  await expect(materialDrawer).toBeVisible();
+
+  for (const section of EVIDENCE_SECTIONS) {
+    await expect(
+      materialDrawer.getByText(section, { exact: true }),
+      `the material node's evidence states its “${section}” section`,
+    ).toBeVisible();
+  }
+
+  await page.keyboard.press('Escape');
+  await expect(materialDrawer).toBeHidden();
+  await expect(materialNode).toBeFocused();
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -824,9 +871,9 @@ test('T-02 the investigation states what changed and what the disruption touches
  * the table's own date column and is checked against the promise dates the records state, so a
  * projection that lost a day or shifted its span fails without this file holding a date of its own.
  *
- * GAP, reported rather than asserted: the shaded idle window. See this file's header — the records
- * state the number of idle days, not the span they fall in, so no band can be drawn without inventing a
- * measure (rule P-6).
+ * The shaded idle window is read off the drawn figure in `investigation-screen.test.tsx`: the span is
+ * the days the payload's own closing series reads as zero, a range of the record's dates rather than a
+ * measure of them (rule P-6).
  */
 test('T-03 the projected closing stock never falls below zero', async ({ page }) => {
   await openCaseException(page);
@@ -847,9 +894,8 @@ test('T-03 the projected closing stock never falls below zero', async ({ page })
     figure.locator('svg text').filter({ hasText: SCREEN_COPY.zeroReference }).first(),
   ).toBeVisible();
 
-  /* GAP, reported rather than asserted: no shaded idle window is drawn. The records state the number of
-     idle days and not the span they fall in, so a band here would be a measure rule P-6 forbids this
-     application to invent. `investigation-screen.tsx` carries the same finding as its open item. */
+  /* The shaded idle window is asserted in `investigation-screen.test.tsx`, where the shade and its label
+     are read off the drawn figure; the span is a range of the record's own dates, not a measure of them. */
 
   /* Every promised date is marked, and each marker carries the order it belongs to. */
   const orders = await readAffectedOrders(page);

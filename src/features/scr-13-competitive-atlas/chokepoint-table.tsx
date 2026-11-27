@@ -34,12 +34,12 @@
  * P-7 forbids. Both competitor columns read that one list in the record's own order, and the buffer
  * column repeats the identifier beside each day count, so no figure is left unattributed.
  *
- * RULE DIVERGENCE, reported and not resolved in this file. Rule P-5's text pairs a competitor name
- * with one tag word, while AAP 0.10's companion-string row pairs the same tag with a different
- * second word. `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the
- * rule's own wording, with the rule — the highest-ranked input (AAP 0.1) — named as the winner in
- * that constant's documentation. This file imports the constant and renders it verbatim, and types
- * no tag text at all, so the resolution keeps one owner and a change to it needs one edit.
+ * The competitor tag is imported here and never worded. Rule P-5's text pairs a competitor name with
+ * one tag word, while AAP 0.10's companion-string row pairs the same tag with a different second
+ * word. `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the rule's
+ * own wording, with the rule — the highest-ranked input (AAP 0.1) — named as the winner in that
+ * constant's documentation. This file imports the constant and renders it verbatim, and types no tag
+ * text at all, so the resolution keeps one owner and a change to it needs one edit.
  *
  * Accessibility (rule B-3). The `<table>`, its caption, its `scope="col"` headers and its `J`/`K` row
  * cursor all come from `src/components/data-table.tsx`, the application's only table vocabulary, and

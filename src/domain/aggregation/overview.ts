@@ -29,6 +29,13 @@
  * open count. Each is computed from the records handed in, and each returned collection is freshly
  * built.
  *
+ * ONE RULE THE SERIES AND THE QUEUE SHARE IS EXPORTED ON ITS OWN. `openedOrResolvedOn(exception,
+ * history, day)` states when an exception is one of the entries the fourteen-day series counts on a
+ * day, and it is what the mock adapter's day filter reads, so the queue a reader narrows by date keeps
+ * exactly the exceptions the mark that narrowed it counted (AAP 0.12.4, AAP 0.2.1). It is a pure
+ * predicate over records — no clock, no state — and the aggregate's counts state the same rule, so
+ * neither can be changed without the other's tests noticing.
+ *
  * Where the figures come from. Every euro is computed by `revenueAtRisk` from the affected lines
  * `resolveAffectedLines` derives, and no revenue figure is summed a second way here: the by-plant rows
  * are a partition of the same per-exception amounts, so the revenue tile and the rows add up to the
@@ -52,9 +59,10 @@
  * - P-5: every value here is a first-party figure computed from first-party records. Nothing in this
  *   module reads a market-intelligence value, so no tile, row, series point or change can blend the
  *   two provenances.
- * - P-2: it imports the shared types, one rounding helper, one calendar helper and the exception
+ * - P-2: it imports the shared types, one rounding helper, the calendar module and the exception
  *   aggregates — no seed record, no adapter, no service module and no React — so it cannot become a
- *   second data boundary.
+ *   second data boundary. Every calendar date it needs comes from `src/domain/solver/calendar.ts`,
+ *   the pure core's single civil-date implementation, and none is derived here.
  * - P-1: it emits no label and no `SimLabel`; the component that renders a tile or a chart mark applies
  *   the `Simulated calculation` label.
  * - P-3: the scope handed in reflects the demonstration's browser-side role scoping. This module
@@ -79,42 +87,37 @@
  * `PlantRiskRow`, because a material record names the products it goes into and no plant: a per-plant
  * share would read a plant into records that do not carry one.
  *
- * OPEN ITEM — what "since your last visit" dates from. No record carries the instant of a user's
- * previous visit and the bundle carries none, so the window is the demonstration's own reading of the
- * phrase: the activity from the start of the most recent working day before the as-of date through the
- * as-of instant. The working calendar is the one contracts §1 fixes, so a visit on a Monday covers the
- * preceding Friday instead of an empty weekend, and the whole window is derived from `asOf` alone —
- * no clock is read and nothing is persisted. Persisting a real last-visit instant would move the window
- * to a stored fact the inputs do not define.
+ * The last-visit window. No record carries the instant of a user's previous visit, so "since your last
+ * visit" dates from the start of the most recent working day before the as-of date through the as-of
+ * instant. The working calendar is the one contracts §1 fixes, so a visit on a Monday covers the
+ * preceding Friday instead of an empty weekend, and the window is derived from `asOf` alone: no clock
+ * is read and nothing is persisted.
  *
- * OPEN ITEM — the order book's type. The brief names `CustomerOrder` among the imported entity types,
- * but `src/types` declares no such type: `AffectedLine` and the exception aggregate's `OrderBookEntry`
- * are the record shapes a customer order appears as, and `ExceptionAggregateInput.customerOrders` —
- * inherited by this module's bundle — is the order book the affected-line derivation reads. No second
- * order type is declared here.
+ * The order book. A customer order reaches this module as an `AffectedLine` or as the exception
+ * aggregate's `OrderBookEntry`, and `ExceptionAggregateInput.customerOrders` — inherited by this
+ * module's bundle — is the order book the affected-line derivation reads. `src/types` declares no
+ * separate order type, and none is declared here.
  *
- * OPEN ITEM — the plant a reached exception is grouped under. The queue admits an exception that lands
- * on a plant in scope *or* reaches one through `alsoAffectsPlantIds`, and the overview must narrow
- * identically (AAP 0.2.1), while the by-plant rows must add up to the tiles. Both hold when each
- * admitted exception is grouped under exactly one plant: the plant it lands on when that plant is in
- * scope, otherwise the first plant in scope that it reaches, in the record's own order. No exception is
- * therefore counted twice, and none admitted by the queue is missing from the overview.
+ * The plant a reached exception is grouped under. The queue admits an exception that lands on a plant
+ * in scope *or* reaches one through `alsoAffectsPlantIds`, and the by-plant rows must add up to the
+ * tiles, so each admitted exception is grouped under exactly one plant: the one it lands on when that
+ * plant is in scope, otherwise the first plant in scope that it reaches, in the record's own order. No
+ * exception is counted twice and none the queue admits is missing here (AAP 0.2.1).
  *
- * OPEN ITEM — the median's two conventions. AAP 0.8 fixes "the middle value of the qualifying history
- * records" without stating the even-count case, so an even number of qualifying plans takes the
- * arithmetic mean of the two middle values, which is why the member is presented unrounded. With no
- * qualifying record the member is `0`, the identity of an empty set rather than a business reading of
- * zero hours.
+ * The median's two conventions. AAP 0.8 fixes "the middle value of the qualifying history records" and
+ * states no even-count case, so an even number of qualifying plans takes the arithmetic mean of the two
+ * middle values, which is why the member is presented unrounded; with no qualifying record the member is
+ * `0`, the identity of an empty set rather than a business reading of zero hours.
  *
- * OPEN ITEM — the series counts one side from the record and the other from the trail. An exception's
- * own record dates its detection (`detectedAt`), so the opened count reads that member and no exception
- * is missing from it; an exception record carries no resolved-at member, so the resolved count reads
- * the activity trail's `resolved` records. The series is a run of calendar days — the chart's dates are
- * the queue filter's own keys, so a skipped weekend would leave a gap in the axis where the queue has a
- * date to offer — and both counts are whole exceptions.
+ * The series counts one side from the record and the other from the trail. An exception's own
+ * `detectedAt` dates its detection, so the opened count reads that member and no exception is missing
+ * from it; an exception record carries no resolved-at member, so the resolved count reads the activity
+ * trail's `resolved` records. The days are calendar days, because the chart's dates are the queue
+ * filter's own keys and a skipped weekend would leave a gap in an axis the queue has a date for, and
+ * both counts are whole exceptions.
  *
- * OPEN ITEM — the two record shapes declared here. A plant's name and an activity record's own text are
- * record content this module reads, and `src/types` declares no plant record and no activity record.
+ * The two record shapes declared here. A plant's name and an activity record's own text are record
+ * content this module reads, and `src/types` declares neither a plant record nor an activity record, so
  * `NamedPlant` and `ActivityRecord` below are the minimal shapes of the call, in the manner of
  * `PricedProduct` and `OrderBookEntry` in `./exceptions` and `ScopeFilterInput` in `./scope`: a full
  * plant record and a full exception-history record are both assignable to them, so the adapter passes
@@ -141,9 +144,18 @@ import type {
   Timestamp,
 } from '../../types';
 import type { BaselineView, ExceptionAggregateInput } from './exceptions';
-import { isWorkingDay } from '../solver/calendar';
+import { calendarDateOf, isWorkingDay, shiftIsoDate } from '../solver/calendar';
 import { halfUp2, wholePercent } from '../solver/rounding';
-import { baselineViewFor, resolveAffectedLines, revenueAtRisk } from './exceptions';
+// The queue's row-admission predicates are stated once, in `./exceptions`, and imported here: the
+// exception queue and this overview read one pair of predicates, so a change to product admission
+// cannot leave a narrowed queue and a narrowed overview describing different populations (AAP 0.2.1).
+import {
+  admitsProducts,
+  baselineViewFor,
+  productIdsOf,
+  resolveAffectedLines,
+  revenueAtRisk,
+} from './exceptions';
 
 /* ---------------------------------------------------------------------------------------------
  * A. Structural constants
@@ -163,12 +175,6 @@ const MINUTES_PER_HOUR = 60;
  * hours the fourth tile is measured in.
  */
 const MILLIS_PER_HOUR = MILLIS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR;
-
-/**
- * Characters an `IsoDate` occupies at the head of an ISO 8601 instant, which is where an instant states
- * the calendar date it falls on in its own offset.
- */
-const ISO_DATE_LENGTH = 10;
 
 /**
  * Days the opened-and-resolved series reports, the fourteen days `platform-specification.md` SCR-01
@@ -217,8 +223,7 @@ const RESOLVED_ACTION = 'resolved';
  *
  * Declared here rather than in `src/types` because it is not a contracts type but the minimal shape of
  * the call; the plant records of `src/seed/plants.ts` are richer (`lines`, coordinates, capacity) and
- * assignable to it, so the adapter passes them through without mapping them. See the module header's
- * last OPEN ITEM.
+ * assignable to it, so the adapter passes them through without mapping them.
  */
 export interface NamedPlant {
   /** The plant's identifier, one of `PLT-RGB`, `PLT-BRN`, `PLT-QRO` or `PLT-RAK`. */
@@ -235,7 +240,7 @@ export interface NamedPlant {
  * Declared here rather than in `src/types` for the same reason as `NamedPlant`: it is not a contracts
  * type but the minimal shape of the call, and the material records of `src/seed/materials.ts` are
  * richer — name, primary supplier, origin, unit cost, lead time — and assignable to it, so the adapter
- * passes them through without mapping them (see the module header's last OPEN ITEM).
+ * passes them through without mapping them.
  */
 export interface SourcedMaterial {
   /** The material's identifier, `MAT-` followed by its own key. */
@@ -258,7 +263,7 @@ export interface SourcedMaterial {
  * `src/seed/exception-history.ts` owns the fuller record — its own key and the actor — and is
  * assignable to this shape. Two members are read here and no more: `occurredAt` dates an activity for
  * the changed-since list, the median and the resolved count, and `note` is the account the list shows
- * as its detail (see the module header's last OPEN ITEM).
+ * as its detail.
  */
 export interface ActivityRecord {
   /** The exception the activity happened on. */
@@ -329,199 +334,14 @@ export interface OverviewInput extends ExceptionAggregateInput {
  * ------------------------------------------------------------------------------------------- */
 
 /*
- * Pure civil-date arithmetic. The by-plant rows, the series and the changed-since window need
- * calendar dates shifted by whole days, and this module derives them by integer arithmetic over the
- * Gregorian calendar rather than through a `Date` object: a `Date` built from an instant reads the
- * host's time zone unless every accessor is the UTC one, and a date that depends on nothing but the
- * argument is what AAP 0.18.2 means by determinism. The two conversions below are Howard Hinnant's
- * `days_from_civil` and `civil_from_days`, the reference implementation of the same conversion the
- * C++20 calendar library uses, which is why their constants are named rather than inlined.
+ * The civil-date arithmetic itself lives in `../solver/calendar`, the pure core's one implementation
+ * of it: `calendarDateOf` reads the calendar date a record's own instant states, `shiftIsoDate` moves
+ * a date by whole days, and `isWorkingDay` answers the working calendar contracts §1 fixes. This
+ * module expresses the series' fourteen days and the changed-since window through those functions
+ * rather than through copies of its own, so a correction to a leap rule, a month length or a date
+ * format is made once. What stays here is what concerns an instant rather than a calendar date — an
+ * elapsed-time measurement, and the code-unit ordering every non-date ordering of this module uses.
  */
-
-/** Years in one era of the proleptic Gregorian calendar. */
-const YEARS_PER_ERA = 400;
-
-/** Days in one era: four centuries, with their three skipped leap days already removed. */
-const DAYS_PER_ERA = 146_097;
-
-/** Days in a common year. */
-const DAYS_PER_YEAR = 365;
-
-/** Days in four years, the cycle the leap rule repeats over. */
-const DAYS_PER_LEAP_CYCLE = 1_460;
-
-/** Days in a century of the leap rule, one leap day of which the century rule removes. */
-const DAYS_PER_CENTURY_CYCLE = 36_524;
-
-/** Days in four centuries less one, the largest value inside one era. */
-const DAYS_PER_ERA_LESS_ONE = 146_096;
-
-/** Years between two leap days, except where a century skips one. */
-const YEARS_PER_LEAP_CYCLE = 4;
-
-/** Years in a century, one of which is not a leap year. */
-const YEARS_PER_CENTURY = 100;
-
-/**
- * Day number of the first day of the March-based year zero, which is where the conversion below starts
- * counting: the value that turns a day number into a count of days from 1 January 1970.
- */
-const EPOCH_DAY_NUMBER = 719_468;
-
-/**
- * Width of a month in the March-based month numbering the conversions use: every month after February
- * has 30 or 31 days, and the 153-day cycle of five months is what makes that regular.
- */
-const MARCH_BASED_MONTH_WIDTH = 153;
-
-/** Months the March-based numbering shifts a calendar month by. */
-const MONTHS_AFTER_FEBRUARY = 3;
-
-/** Number of month parts in an `IsoDate`, which is `YYYY-MM-DD`. */
-const DATE_PART_COUNT = 3;
-
-/** Accepted shape of the year part of an `IsoDate`. */
-const YEAR_FORMAT = /^\d{4}$/;
-
-/** Accepted shape of the month and of the day part of an `IsoDate`. */
-const MONTH_DAY_FORMAT = /^\d{2}$/;
-
-/** Width the year is padded to when a day number is rendered back to an `IsoDate`. */
-const YEAR_WIDTH = 4;
-
-/** Width the month and the day are padded to when a day number is rendered back to an `IsoDate`. */
-const MONTH_DAY_WIDTH = 2;
-
-/**
- * Counts the days from 1 January 1970 to a civil date.
- *
- * @param year The calendar year.
- * @param month The calendar month, from 1 to 12.
- * @param day The day of the month, from 1 upwards.
- * @returns The day number, negative before 1970.
- */
-function daysFromCivil(year: number, month: number, day: number): number {
-  const shiftedYear = month <= 2 ? year - 1 : year;
-  const era = Math.floor(shiftedYear / YEARS_PER_ERA);
-  const yearOfEra = shiftedYear - era * YEARS_PER_ERA;
-  const shiftedMonth = month + (month > 2 ? -MONTHS_AFTER_FEBRUARY : 9);
-  const dayOfYear = Math.floor((MARCH_BASED_MONTH_WIDTH * shiftedMonth + 2) / 5) + day - 1;
-  const dayOfEra =
-    yearOfEra * DAYS_PER_YEAR +
-    Math.floor(yearOfEra / YEARS_PER_LEAP_CYCLE) -
-    Math.floor(yearOfEra / YEARS_PER_CENTURY) +
-    dayOfYear;
-
-  return era * DAYS_PER_ERA + dayOfEra - EPOCH_DAY_NUMBER;
-}
-
-/**
- * Reads a day number back as a civil date.
- *
- * @param dayNumber The day number to read, in the scale `daysFromCivil` produces.
- * @returns The year, month and day that day number names.
- */
-function civilFromDays(dayNumber: number): { year: number; month: number; day: number } {
-  const shiftedDay = dayNumber + EPOCH_DAY_NUMBER;
-  const era = Math.floor(shiftedDay / DAYS_PER_ERA);
-  const dayOfEra = shiftedDay - era * DAYS_PER_ERA;
-  const yearOfEra = Math.floor(
-    (dayOfEra -
-      Math.floor(dayOfEra / DAYS_PER_LEAP_CYCLE) +
-      Math.floor(dayOfEra / DAYS_PER_CENTURY_CYCLE) -
-      Math.floor(dayOfEra / DAYS_PER_ERA_LESS_ONE)) /
-      DAYS_PER_YEAR,
-  );
-  const year = yearOfEra + era * YEARS_PER_ERA;
-  const dayOfYear =
-    dayOfEra -
-    (DAYS_PER_YEAR * yearOfEra +
-      Math.floor(yearOfEra / YEARS_PER_LEAP_CYCLE) -
-      Math.floor(yearOfEra / YEARS_PER_CENTURY));
-  const shiftedMonth = Math.floor((5 * dayOfYear + 2) / MARCH_BASED_MONTH_WIDTH);
-  const day = dayOfYear - Math.floor((MARCH_BASED_MONTH_WIDTH * shiftedMonth + 2) / 5) + 1;
-  const month = shiftedMonth + (shiftedMonth < 10 ? MONTHS_AFTER_FEBRUARY : -9);
-
-  return { year: month <= 2 ? year + 1 : year, month, day };
-}
-
-/**
- * Renders a day number as an `IsoDate`.
- *
- * @param dayNumber The day number to render.
- * @returns The calendar date as `YYYY-MM-DD`.
- */
-function isoDateFromDayNumber(dayNumber: number): IsoDate {
-  const civil = civilFromDays(dayNumber);
-  const year = String(civil.year).padStart(YEAR_WIDTH, '0');
-  const month = String(civil.month).padStart(MONTH_DAY_WIDTH, '0');
-  const day = String(civil.day).padStart(MONTH_DAY_WIDTH, '0');
-
-  return `${year}-${month}-${day}`;
-}
-
-/**
- * Reads an `IsoDate` as a day number, rejecting every string that is not a real calendar date.
- *
- * The parts are checked for shape first, because `noUncheckedIndexedAccess` leaves each one possibly
- * absent, and then by round trip: a value the calendar would roll forward (30 February, a thirteenth
- * month) does not render back to the text it came from, so it is rejected rather than relabelled.
- *
- * @param date The date to read, expected as `YYYY-MM-DD`.
- * @returns The day number, or `null` when the text is not a well-formed calendar date.
- */
-function dayNumberFromIsoDate(date: IsoDate): number | null {
-  const parts = date.split('-');
-
-  if (parts.length !== DATE_PART_COUNT) {
-    return null;
-  }
-
-  const yearPart = parts[0];
-  const monthPart = parts[1];
-  const dayPart = parts[2];
-
-  if (yearPart === undefined || monthPart === undefined || dayPart === undefined) {
-    return null;
-  }
-
-  if (!YEAR_FORMAT.test(yearPart) || !MONTH_DAY_FORMAT.test(monthPart) || !MONTH_DAY_FORMAT.test(dayPart)) {
-    return null;
-  }
-
-  const dayNumber = daysFromCivil(Number(yearPart), Number(monthPart), Number(dayPart));
-
-  return isoDateFromDayNumber(dayNumber) === date ? dayNumber : null;
-}
-
-/**
- * Shifts a calendar date by a whole number of days.
- *
- * @param date The date to shift, as `YYYY-MM-DD`.
- * @param days The days to move it by, negative to move backwards.
- * @returns The shifted date, or `null` when the argument is not a well-formed calendar date.
- */
-function shiftIsoDate(date: IsoDate, days: number): IsoDate | null {
-  const dayNumber = dayNumberFromIsoDate(date);
-
-  return dayNumber === null ? null : isoDateFromDayNumber(dayNumber + days);
-}
-
-/**
- * Reads the calendar date an instant falls on, in the offset the instant states.
- *
- * An instant is ISO 8601 with an offset (contracts §1), so its first ten characters are the calendar
- * date at the place the record was written — the application's time zone — whatever the host's own
- * zone reads. Nothing is converted and no clock is consulted.
- *
- * @param instant The instant to read, as ISO 8601 with an offset.
- * @returns That calendar date, or `null` when the opening characters are not a well-formed date.
- */
-function calendarDateOf(instant: Timestamp): IsoDate | null {
-  const date = instant.slice(0, ISO_DATE_LENGTH);
-
-  return date.length === ISO_DATE_LENGTH && dayNumberFromIsoDate(date) !== null ? date : null;
-}
 
 /**
  * Compares two strings by code unit, ascending.
@@ -594,7 +414,7 @@ function previousWorkingDay(date: IsoDate): IsoDate | null {
  * AAP 0.8 fixes "the middle value of the qualifying history records" for the fourth tile and leaves the
  * even-count case open: with an even number of plans the value is the arithmetic mean of the two middle
  * durations, which is why the member is presented unrounded. With no qualifying plan the answer is the
- * empty set's identity rather than a reading of zero hours (see the module header's OPEN ITEM).
+ * empty set's identity rather than a reading of zero hours.
  *
  * @param durations The qualifying durations, in any order.
  * @returns The median duration, unrounded, or `NO_QUALIFYING_MEDIAN` for an empty set.
@@ -659,8 +479,7 @@ interface ScopedException {
  * `null` means the resolved scope admits no plant the exception touches, which is the queue's own
  * admission test read the other way round: `src/domain/aggregation/exceptions.ts` admits an exception
  * whose landing plant or any reached plant is selected, and this function names that same plant so the
- * grouping can be built from one decision (AAP 0.2.1, and the module header's OPEN ITEM on the quarter a
- * reached exception is grouped in).
+ * grouping can be built from one decision (AAP 0.2.1).
  *
  * A resolved `plants` member is never read as "all plants": `resolveScope` states that an empty array
  * means nothing is in scope, so a selection outside the acting role's scope yields no rows rather than
@@ -686,55 +505,14 @@ function assignedPlantOf(exception: OperationalException, scope: Scope): PlantId
 }
 
 /**
- * Lists the distinct products a set of affected lines names, in the order the lines state them.
- *
- * The product selection admits or excludes a whole exception by these identifiers, so the list a caller
- * filters on and the lines its revenue is computed from are the same records. First-appearance order is
- * what makes the list a function of the record rather than of a sorting accident.
- *
- * @param lines The affected lines of one exception.
- * @returns The distinct product identifiers those lines name, in first-appearance order.
- */
-function productIdsOf(lines: readonly AffectedLine[]): ProductId[] {
-  const productIds: ProductId[] = [];
-
-  for (const line of lines) {
-    if (!productIds.includes(line.productId)) {
-      productIds.push(line.productId);
-    }
-  }
-
-  return productIds;
-}
-
-/**
- * Says whether the product selection admits an exception's products.
- *
- * An empty `products` member is the "All products" selection, which admits every exception — the reading
- * `resolveScope` states for the product member. A named selection admits an exception naming at least one
- * of the selected products and excludes one naming none of them, so an overview filtered to a product
- * describes the same exceptions the queue would show under that filter.
- *
- * @param productIds The products the exception's affected lines name.
- * @param scope The resolved scope, whose products member is the product selection.
- * @returns `true` when no product is selected, or when the exception names one of the selected products.
- */
-function admitsProducts(productIds: readonly ProductId[], scope: Scope): boolean {
-  if (scope.products.length === 0) {
-    return true;
-  }
-
-  return productIds.some((productId) => scope.products.includes(productId));
-}
-
-/**
  * Collects the exceptions the resolved scope admits, each with the plant it is grouped under.
  *
  * The two filters are the queue's own: the plant selection, applied through `assignedPlantOf`, and the
  * product selection, applied through `admitsProducts` over the products the exception's affected lines
- * name. `src/domain/aggregation/exceptions.ts` keeps those two predicates private, so they are stated
- * again here rather than imported; both modules read the one `Scope` that `./scope` resolved, which is
- * what keeps a narrowed queue and a narrowed overview describing the same population (AAP 0.2.1).
+ * name. Both that predicate and `productIdsOf` are imported from `./exceptions`, where they are stated
+ * once: the queue and the overview read one pair, so a change to product admission cannot leave the two
+ * describing different populations. Both modules also read the one `Scope` that `./scope` resolved
+ * (AAP 0.2.1).
  *
  * The affected lines are derived once per admitted exception, which is why this module can count the
  * customer orders a tile reports and then value the same lines without resolving them twice. Ordering:
@@ -963,7 +741,7 @@ function approvedPlanHours(
  * its current status — a plan approved on an exception that has since been resolved is a real
  * measurement of how long approval took, and excluding it would bias the tile towards the exceptions
  * still open. The middle value is unrounded, as AAP 0.8 fixes it, and an empty population returns the
- * empty set's identity rather than a reading of zero hours (see the module header's OPEN ITEM).
+ * empty set's identity rather than a reading of zero hours.
  *
  * @param scoped The exceptions the scope admits.
  * @param historyByException The trail, grouped by the exception each activity belongs to.
@@ -1043,12 +821,53 @@ function plantRows(
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * Says whether one exception is an entry the fourteen-day series counts on one calendar day.
+ *
+ * This is the series' own rule, stated once and exported, so the counts and the queue's day filter
+ * cannot drift apart: an exception counts on a day when its record was detected that day — the
+ * `detectedAt` member every exception carries, which dates the opened count — or when its activity
+ * trail holds a `resolved` record that day, which is where the resolved count reads it. A day is a
+ * calendar date read from the instant in
+ * that instant's own offset, through the same {@link calendarDateOf} the counts use, so no time zone,
+ * locale or clock of the host can move an exception to another day. A day that is not a well-formed
+ * calendar date matches nothing rather than throwing: it is a caller's malformed filter, and the read
+ * it narrows answers with no rows.
+ *
+ * The history is the whole activity trail rather than this exception's slice, because that is the shape
+ * the adapter holds and the trail is small; every record that is not this exception's resolution on
+ * this day is ignored without being indexed.
+ *
+ * @param exception - The exception to place on the day.
+ * @param history - The activity trail the resolved side is read from.
+ * @param day - The calendar date to test, as `YYYY-MM-DD`.
+ * @returns `true` when the exception was opened or resolved on that day.
+ */
+export function openedOrResolvedOn(
+  exception: OperationalException,
+  history: readonly ActivityRecord[],
+  day: IsoDate,
+): boolean {
+  if (calendarDateOf(exception.detectedAt) === day) {
+    return true;
+  }
+
+  return history.some(
+    (record) =>
+      record.exceptionId === exception.id &&
+      record.action === RESOLVED_ACTION &&
+      calendarDateOf(record.occurredAt) === day,
+  );
+}
+
+/**
  * Counts the exceptions opened and resolved on each of the fourteen days ending on the as-of date.
  *
  * The opened count reads each exception record's own `detectedAt`, which every exception carries, so no
  * exception is missing from it; the resolved count reads the activity trail's `resolved` records, because
- * an exception record carries no resolved-at member (see the module header's OPEN ITEM on the series).
+ * an exception record carries no resolved-at member.
  * Both are counts of whole exceptions and both are restricted to the exceptions the scope admits.
+ * {@link openedOrResolvedOn} states that rule for one day at a time and is what the queue's day filter
+ * reads; this function states it as the two counts a chart draws, over one sweep of the records.
  *
  * The days are calendar days, ascending, ending on the as-of date and derived from that instant alone, so
  * the series is the same length on every run and its last point is the day the demonstration clock stands

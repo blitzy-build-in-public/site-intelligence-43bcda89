@@ -10,7 +10,7 @@
  * The page's own contract is checked beside it: one level-one heading and no other heading level
  * (rule B-3, since `PageHeader` is the only owner of the `h1`, and the `Card` beneath it is
  * untitled), and a working router link back to the exception queue whose accessible name and href
- * are the module's own exported constants (rule P-8). The link's appearance is the two class lists
+ * are the application's own exported constants (rule P-8). The link's appearance is the two class lists
  * `src/components/tooltip.tsx` exports, composed rather than restated, so its hover, pressed and
  * focus states are the ones the application's buttons and the not-found page share.
  *
@@ -25,9 +25,9 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import { CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from '../components/tooltip';
+import { EXCEPTION_QUEUE_PATH } from '../types';
 import type { StageNoticePageProps } from './stage-notice-page';
 import {
-  EXCEPTION_QUEUE_PATH,
   STAGE_NOTICE_LINK_LABEL,
   StageNoticePage,
   stageNoticeSentence,

@@ -7,12 +7,15 @@
  * markup: the twelve columns AAP fixes appear in its order with the actions cell after them; the rows
  * arrive in the order the service returned them, because the queue's default order is the service's
  * (`sortUrgent`) and a screen that re-sorted would disagree with the overview computed over the same
- * records; each filter reaches the port once with the member it narrowed; the two row writes go
- * through the port exactly once; the confirm of the dismissal dialog is disabled with its reason
- * until a reason exists (rule P-8) and the dialog closes only once the write settles; the empty and
+ * records; each filter reaches the port once with the member it narrowed; the day the screen is handed
+ * reaches the port as the query's own member and is cleared by the control that states it; the two row
+ * writes go through the port exactly once; the confirm of the dismissal dialog is disabled with its
+ * reason until a reason exists (rule P-8) and the dialog closes only once the write settles; the empty and
  * forbidden states render the boundary's own surfaces with the caller's sentence and the refusal's
  * evidence; `J`, `K` and `Enter` drive the row cursor; a saved view restores the filter set it holds;
- * and the queue renders in Command and in Paper.
+ * each figure a row shows — revenue at risk, days to impact and age — is a trigger whose activation
+ * opens that exception's evidence (AAP §0.12.4, functional requirement F12, principle PR-6); and the
+ * queue renders in Command and in Paper.
  *
  * HOW THE SERVICE IS REACHED. The provider module is replaced, not the port: `vi.mock` swaps
  * `../../services/service-provider` for the three hooks the screen reads, backed by one hoisted stub
@@ -66,9 +69,11 @@ import type { ReactElement } from 'react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { SOURCE_IDS } from '../../types';
 import type {
   ActiveUser,
+  Evidence,
   ExceptionQuery,
   ExceptionRow,
   Freshness,
@@ -81,6 +86,7 @@ import type {
   ThemeName,
 } from '../../types';
 import { EXCEPTION_QUEUE_TEXT, ExceptionQueueScreen } from './exception-queue-screen';
+import type { ExceptionQueueScreenProps } from './exception-queue-screen';
 
 /* ---------------------------------------------------------------------------------------------
  * The stubbed provider
@@ -91,18 +97,20 @@ import { EXCEPTION_QUEUE_TEXT, ExceptionQueueScreen } from './exception-queue-sc
  *
  * `vi.mock` is hoisted above the imports, so the factory that returns the three hooks may only close
  * over bindings that exist before the graph runs — hence `vi.hoisted`. The stub holds one `vi.fn` per
- * port member the screen calls: `listExceptions` for both reads, `assignException` and
- * `dismissException` for the two writes. Each is named exactly as `SiteIntelligenceService` names it,
- * and the port's type is applied at the mock boundary below, so the double cannot drift from the
- * contract it stands for without a compile error at that one point.
+ * port member the screen reaches: `listExceptions` for both reads, `assignException` and
+ * `dismissException` for the two writes, and `getEvidence` for the evidence drawer a row's figure opens.
+ * Each is named exactly as `SiteIntelligenceService` names it, and the port's type is applied at the
+ * mock boundary below, so the double cannot drift from the contract it stands for without a compile
+ * error at that one point.
  */
 const stub = vi.hoisted(() => {
   const listExceptions = vi.fn();
   const assignException = vi.fn();
   const dismissException = vi.fn();
+  const getEvidence = vi.fn();
 
   return {
-    service: { listExceptions, assignException, dismissException },
+    service: { listExceptions, assignException, dismissException, getEvidence },
     /** The persona the provider reports, or `null` for a session the adapter cannot name. */
     activeUser: null as ActiveUser | null,
   };
@@ -115,11 +123,12 @@ const stub = vi.hoisted(() => {
  * `useDemonstration()` nothing: the queue reads no demonstration control, and a `null` capability is
  * the shape the provider documents for an adapter that carries none.
  *
- * The double carries the three members this screen calls and no others: re-declaring the port's other
- * members as do-nothing mocks would claim the queue reaches them, so a member the screen started to
- * read would fail at the call site instead of quietly returning nothing. The factory is left untyped
- * at this boundary for the same reason the double is small — a mock is not the port, and the screen is
- * compiled against the port's own types wherever it calls one.
+ * The double carries the four members the rendered tree reaches and no others: the three the screen
+ * itself calls, plus the `getEvidence` read `evidence-drawer.tsx` makes once a row's figure is
+ * activated. Re-declaring the port's other members as do-nothing mocks would claim the queue reaches
+ * them, so a member the screen started to read would fail at the call site instead of quietly returning
+ * nothing. The factory is left untyped at this boundary for the same reason the double is small — a mock
+ * is not the port, and the screen is compiled against the port's own types wherever it calls one.
  */
 vi.mock('../../services/service-provider', () => ({
   useService: () => stub.service,
@@ -133,6 +142,14 @@ vi.mock('../../services/service-provider', () => ({
 
 /** The instant the records below were last read, in the application's time zone. */
 const AS_OF = '2026-12-03T06:00:00+01:00';
+
+/**
+ * The calendar day those instants fall on, derived from the instant rather than written out.
+ *
+ * The day-filter case hands the screen this date the way the queue's route does, and asserts it reaches
+ * the port unchanged, so no date literal is typed into a feature folder (rule P-6).
+ */
+const THE_DAY = AS_OF.slice(0, 10);
 
 /** The route the shell mounts the queue on. */
 const QUEUE_ROUTE = '/exceptions';
@@ -278,6 +295,27 @@ const ROW_C = buildRow({
 /** The rows the default stub returns, in the order the service returned them. */
 const ROWS: readonly ExceptionRow[] = [ROW_A, ROW_B, ROW_C];
 
+/**
+ * The evidence record every figure of a row opens, shaped as `getEvidence` resolves it.
+ *
+ * The drawer prints the record's own fields and computes nothing (rule P-6), so this is what a case
+ * reads back: the reference the cell carried sits beside it in the drawer's record row, which is how a
+ * case proves the figure opened *this* row's evidence rather than another's. No amount, identifier or
+ * instant is typed here — the suite supplies the record, exactly as the adapter would at run time.
+ */
+const FIGURE_EVIDENCE: Evidence = {
+  value: 'the figure this reference answers',
+  provenance: 'computed',
+  label: CALCULATED_LABEL,
+  formula: 'one record over another, by the rule that owns the figure',
+  inputs: [],
+  upstream: [],
+  downstream: [],
+  confidence: { level: 'high', reason: 'the records behind it were read in full' },
+  missingInputs: [],
+  documents: [],
+};
+
 /** The refusal a session without `exception.read` receives, shaped as the port documents it. */
 const PERMISSION_PROBLEM: Problem = {
   type: 'permission',
@@ -318,7 +356,7 @@ function setUpUser(): UserEvent {
  * with `gcTime: 0` makes every read settle once and request its records again when it is re-read,
  * which is what lets a write be observed by the reads it invalidated.
  */
-function renderQueue(): void {
+function renderQueue(props: ExceptionQueueScreenProps = {}): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -326,7 +364,7 @@ function renderQueue(): void {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[QUEUE_ROUTE]}>
-        <ExceptionQueueScreen />
+        <ExceptionQueueScreen {...props} />
         <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -365,6 +403,24 @@ function rowAt(index: number): HTMLElement {
 /** The header cells in drawn order. */
 function headerCells(): HTMLElement[] {
   return within(queueTable()).getAllByRole('columnheader');
+}
+
+/**
+ * One row's cell for the column a header names.
+ *
+ * The column is located by the header the queue drew rather than by a position written into the case, so
+ * a column added ahead of it cannot move an assertion onto a different figure; the row is the element a
+ * reader's assistive technology reads, and the cell is its own role inside it (rule B-3).
+ */
+function cellIn(row: HTMLElement, column: string): HTMLElement {
+  const index = headerCells().findIndex((header) => header.textContent?.trim() === column);
+  const cell = index === -1 ? undefined : within(row).getAllByRole('cell')[index];
+
+  if (cell === undefined) {
+    throw new Error(`The queue drew no cell in the “${column}” column.`);
+  }
+
+  return cell;
 }
 
 /** The identifier each data row carries in its first cell, in drawn order. */
@@ -439,6 +495,28 @@ const FILTER_CASES: readonly FilterCase[] = [
   { label: EXCEPTION_QUEUE_TEXT.ownerFilter, member: 'ownerId', value: OWNER_B },
 ];
 
+/** One figure a queue row shows: the column it sits in and the reading that column prints. */
+interface FigureCellCase {
+  /** The column's visible header, which is also how the case locates its cell. */
+  readonly column: string;
+
+  /** The reading the cell prints, derived from the row the case reads (rule P-6). */
+  readonly reading: string;
+}
+
+/**
+ * The two figures a row shows besides the computed revenue, one case each.
+ *
+ * Both readings are derived from the first supplied row rather than typed here (rule P-6), and the age
+ * reading is that row's duration as the column presents it. The revenue cell has carried its evidence
+ * wrapper from the start; these two cells carried the same readings as bare text, with no way to reach
+ * the evidence behind them, which is the contract these cases now hold (AAP 0.12.4, F12, PR-6).
+ */
+const FIGURE_CELL_CASES: readonly FigureCellCase[] = [
+  { column: EXCEPTION_QUEUE_TEXT.columnDaysToImpact, reading: String(ROW_A.daysToImpact) },
+  { column: EXCEPTION_QUEUE_TEXT.columnAge, reading: String(ROW_A.ageHours) },
+];
+
 /* ---------------------------------------------------------------------------------------------
  * The suite
  * ------------------------------------------------------------------------------------------- */
@@ -446,10 +524,10 @@ const FILTER_CASES: readonly FilterCase[] = [
 describe('ExceptionQueueScreen', () => {
   /*
    * Every case starts from the same service double: one persona the adapter can name, three
-   * exceptions in an order that is not severity-then-days, and two writes that succeed. The unmount
-   * between cases is registered globally by `tests/setup.ts`, which is the `cleanup` Testing Library
-   * arms once it finds a global `afterEach`; the theme attribute is cleared here because a case sets
-   * it before rendering.
+   * exceptions in an order that is not severity-then-days, two writes that succeed and the evidence
+   * record a row's figure opens. The unmount between cases is registered globally by `tests/setup.ts`,
+   * which is the `cleanup` Testing Library arms once it finds a global `afterEach`; the theme attribute
+   * is cleared here because a case sets it before rendering.
    */
   beforeEach(() => {
     vi.clearAllMocks();
@@ -459,6 +537,7 @@ describe('ExceptionQueueScreen', () => {
     stub.service.listExceptions.mockResolvedValue(ok([...ROWS]));
     stub.service.assignException.mockResolvedValue(ok({ ownerId: ACTIVE_USER.id }));
     stub.service.dismissException.mockResolvedValue(ok({ id: ROW_A_ID }));
+    stub.service.getEvidence.mockResolvedValue(ok(FIGURE_EVIDENCE));
   });
 
   it('draws the twelve specified columns in order, with the actions cell after them', async () => {
@@ -510,6 +589,46 @@ describe('ExceptionQueueScreen', () => {
     expect(screen.getAllByText(CALCULATED_LABEL)).toHaveLength(1);
   });
 
+  /**
+   * Each figure the row shows is a control that opens that exception's evidence.
+   *
+   * AAP 0.12.4 makes every figure on screen an `EvidenceRef` and principle PR-6 makes every figure
+   * answerable for its source, record, time, freshness and formula, so a reading printed as bare text
+   * leaves the reader no way to reach the record behind it. The two cases below cover the figures the
+   * revenue cell's wrapper did not: days to impact and age. Each asserts that the reading is still
+   * printed as the record and `formatHours` present it, that the trigger's accessible name carries that
+   * visible reading and then says what activating it does (WCAG 2.2 SC 2.5.3, rule B-3), and that
+   * activating it opens the drawer bound to this row's own identifier rather than to another row's.
+   */
+  it.each(FIGURE_CELL_CASES)(
+    'opens the row’s evidence from its $column figure, named for the reading it shows',
+    async ({ column, reading }) => {
+      const user = setUpUser();
+      renderQueue();
+      await awaitQueue();
+
+      const cell = cellIn(rowAt(0), column);
+
+      /* The wrapper changes nothing about the reading: it is still the figure the record holds. */
+      expect(cell).toHaveTextContent(reading);
+
+      const trigger = within(cell).getByRole('button');
+
+      expect(trigger).toHaveAccessibleName(new RegExp(`^${reading}`));
+      expect(trigger).toHaveAccessibleName(new RegExp(`${EVIDENCE_DRAWER_TEXT.openSuffix}$`));
+      expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+
+      await user.click(trigger);
+
+      const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+      /* The drawer prints the reference the figure carried, so this row's record is the one shown. */
+      expect(within(drawer).getAllByText(ROW_A.id).length).toBeGreaterThan(0);
+      expect(stub.service.getEvidence).toHaveBeenCalledTimes(1);
+      expect(stub.service.getEvidence).toHaveBeenCalledWith(ROW_A.id);
+    },
+  );
+
   it('draws the rows in the order the service returned them, re-sorting nothing', async () => {
     renderQueue();
     await awaitQueue();
@@ -552,6 +671,59 @@ describe('ExceptionQueueScreen', () => {
       expect(readCount()).toBe(readsBefore + 1);
     });
     expect(lastQuery()).toMatchObject({ supplierId: SUPPLIER_ID });
+  });
+
+  it('reads the queue narrowed to the day it is handed, clears that day, and tells the shell it did', async () => {
+    const user = setUpUser();
+    const onDayCleared = vi.fn<() => void>();
+
+    renderQueue({ initialQuery: { date: THE_DAY }, onDayCleared });
+    await awaitQueue();
+
+    /*
+     * The day reaches the port as the query's own member, with no other constraint beside it: the second
+     * read is the options read, which the screen issues unfiltered on purpose.
+     */
+    const issuedQueries = stub.service.listExceptions.mock.calls.map(
+      (call) => call[0] as ExceptionQuery,
+    );
+
+    expect(issuedQueries).toContainEqual({ date: THE_DAY });
+
+    /*
+     * One row inside the Filters group says which day the read keeps and offers the control that leaves
+     * it (rule P-8). It is not a seventh filter control: the six fields beneath it are the only filter
+     * controls the group holds, which is what AAP 0.12.4's SCR-02 row fixes.
+     */
+    const filters = screen.getByRole('region', { name: EXCEPTION_QUEUE_TEXT.filterGroup });
+    const daySentence = `${EXCEPTION_QUEUE_TEXT.dayNarrowing} ${THE_DAY}`;
+
+    expect(within(filters).getByText(daySentence)).toBeVisible();
+
+    const clear = within(filters).getByRole('button', { name: EXCEPTION_QUEUE_TEXT.clearDay });
+    const readsBefore = readCount();
+
+    clear.focus();
+    expect(clear).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    /*
+     * The whole queue is read again — one more read, carrying no constraint at all — and the row that
+     * named the day is gone from the page, so the control did what it says rather than merely closing
+     * itself (rule P-8).
+     */
+    await waitFor(() => {
+      expect(readCount()).toBe(readsBefore + 1);
+    });
+
+    expect(lastQuery()).toEqual({});
+    expect(within(filters).queryByText(daySentence)).toBeNull();
+
+    /*
+     * The shell is told exactly once, so the entry that carried the day stops stating a narrowing the
+     * reader has ended and a reload of it opens the whole queue instead of narrowing it again.
+     */
+    expect(onDayCleared).toHaveBeenCalledTimes(1);
   });
 
   it('assigns a row to the acting persona once, then reads the queue again', async () => {

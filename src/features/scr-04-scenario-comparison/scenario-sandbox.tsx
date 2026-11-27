@@ -43,14 +43,22 @@
  *
  * WHAT IT SAYS ABOUT ITSELF. Every measure carries the specification §5.3 label `Simulated
  * calculation` on itself, through `StatusIndicator` with `meaning="simulated"`, because each one is a
- * computed figure — a page-level badge does not label an individual figure (rule P-1). The panel's
- * own sentence names what the control does and what it does not: the values are measured here, and
- * choosing them automatically is the optimisation service's work, which the pilot brings. Nothing in
- * this file claims that a measurement is an outcome, that anything was verified, that the reader's
- * data is confined or that the record cannot be altered (rule P-4).
+ * computed figure — a page-level badge does not label an individual figure (rule P-1). Every measure
+ * also opens its evidence: its value is rendered inside the shared `EvidenceRef`, carrying the
+ * identifier of the option the sandbox duplicates — the record whose case, levers and confidence
+ * produced every figure here, and the reference the comparison matrix's cells carry for the same
+ * measures — so a reader reaches the drawer from the figure itself rather than from a control beside
+ * the block, and the drawer opens on a record the service answers (AAP §0.12.4, §0.5.2, F12). The
+ * name the duplicate itself carries is the measurement's, and a reference to it would name nothing:
+ * {@link MeasuredRegionProps} states why. The panel's own sentence names what the
+ * control does and what it does not: the values are measured here, and choosing them automatically
+ * is the optimisation service's work, which the pilot brings. Nothing in this file claims that a
+ * measurement is an outcome, that anything was verified, that the reader's data is confined or that
+ * the record cannot be altered (rule P-4).
  *
- * ACCESSIBILITY. Two labelled native number inputs inside a named `<fieldset>` (rule B-3), each with
- * a visible label, a 24x24 px minimum target, the 2 px `--color-focus-ring` indicator on
+ * ACCESSIBILITY. Two labelled number fields composed through `TextField` inside a named `<fieldset>`
+ * (rule B-3), each with a visible label, a 24x24 px minimum target, the 2 px
+ * `--color-focus-ring` indicator on
  * `:focus-visible`, and `Enter` submitting the recompute from inside either field. A field holding
  * something that is not a number is marked `aria-invalid` and described by the visible sentence that
  * says so, and the recompute control explains in text why it cannot act. Every outcome is written
@@ -65,33 +73,35 @@
  * available to select (rules B-1, B-3). No credential and no environment read appears in the file
  * (rule B-2), and no wording names a company, a customer, a carmaker or a cloud product (rule P-7).
  *
- * OPEN ITEM — the lever bounds are not reachable from here. `LeverConstraint` (a maximum and a step)
- * sits on `SolverCase`, and no member of the port's scenario reads — neither `getScenarioSet` nor
- * `solveScenario` — carries one, so this component cannot put `min`, `max` or `step` on its inputs
- * from the record and deliberately states none of them rather than typing a bound of its own. The
- * bounds are still enforced: the solver applies them and reports every breach in
- * `constraintMessages`, which is what the reader sees. Leaving the fields unbounded is also what
- * keeps a breach demonstrable at all — a control that could not be pushed past its maximum could
- * never show the failing option AAP 0.12.3 describes.
+ * THE LEVER BOUNDS ARE NOT REACHABLE FROM HERE. `LeverConstraint` (a maximum and a step) sits on
+ * `SolverCase`, and no member of the port's scenario reads — neither `getScenarioSet` nor
+ * `solveScenario` — carries one, so this component states no `min`, `max` or `step` on its inputs rather
+ * than typing a bound of its own. The bounds are still enforced: the solver applies them and reports
+ * every breach in `constraintMessages`, which is what the reader sees, and a field left unbounded is
+ * what keeps a breach demonstrable at all (AAP 0.12.3).
  *
- * OPEN ITEM — the inputs are native. AAP 0.5.2 gives a raw `<input>` to the component that owns it,
- * and the component layer exposes no input primitive; this file may not create one, so it renders
- * the platform's own number input with the token-built class list {@link INPUT_CLASSES} declares.
- * That is the same choice `model-selector.tsx` and `exception-queue-screen.tsx` already make for
- * their own fields.
+ * THE INPUTS ARE COMPOSED, NOT WRITTEN HERE. AAP 0.5.2 gives a raw `<input>` to the component that
+ * owns it, and `TextField` in `src/components` is that owner for a single-line field: it renders the
+ * platform's number input and owns its type, its controlled value and its change contract, which
+ * reports the field's new text as one string rather than the DOM event. Every native prop this panel
+ * needs — the `id` the label is bound to, the two `aria-*` attributes and the `Enter` handler — is
+ * forwarded by the primitive untouched. This file therefore composes it with the token-built class
+ * list {@link INPUT_CLASSES} declares instead of rendering the element itself, and the lever bounds
+ * stay where the solver enforces them: no bound is typed here.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import type {
-  ChangeEvent,
   KeyboardEvent as ReactKeyboardEvent,
   ReactElement,
   ReactNode,
 } from 'react';
 
+import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
+import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
 import { SIM_LABELS } from '../../types';
@@ -131,10 +141,11 @@ export const SANDBOX_RECOMPUTE_DELAY_MS = 300;
  * None of them is a specification string: the fixed §5.3 simulation labels are read from
  * `SIM_LABELS` at their own positions, `Cannot compute` is imported from the comparison matrix, and
  * the measure names are the matrix's own rows. What is written here is this surface's own vocabulary
- * — the panel's caption, the sentence explaining what the control measures, the lever group's name,
- * the three reasons a control cannot act, the two states of an outcome, and the two field labels of
- * a refusal. None carries a figure, an amount, a date or a record identifier (rule P-6), and none
- * claims a capability the demonstration does not implement (rule P-4).
+ * — the panel's caption, the sentence explaining what the control measures, the sentence naming what a
+ * measure's evidence opens, the lever group's name, the three reasons a control cannot act, the two
+ * states of an outcome, and the two field labels of a refusal. None carries a figure, an amount, a date
+ * or a record identifier (rule P-6), and none claims a capability the demonstration does not implement
+ * (rule P-4).
  */
 export const SCENARIO_SANDBOX_TEXT = {
   /** The panel's caption: what the block does, named in the caption text role. */
@@ -145,6 +156,16 @@ export const SCENARIO_SANDBOX_TEXT = {
    * replace the reader's own input, so the control never reads as a live optimisation service.
    */
   note: 'Measures a duplicate of the selected option at the lever values below, from the exception’s own solver case. Choosing those values automatically arrives with the optimisation service in the pilot.',
+
+  /**
+   * What a measure's evidence trigger opens. The duplicate is a measurement the service holds no
+   * record of, while the option it was measured from is one the records state, so the trigger names
+   * that option: a reader who follows a figure to its evidence reaches a record, the rule that
+   * computes it and the inputs behind it, rather than a reference nothing answers.
+   */
+  evidenceSubject:
+    'Each measure above opens the evidence of the option this duplicate is measured from: its record, ' +
+    'the rule that computes it and the inputs it was measured with.',
 
   /** The name of the group of lever fields. */
   legend: 'Lever values',
@@ -506,7 +527,11 @@ interface MeasureRow {
   readonly id: string;
   /** The visible measure name, taken from the comparison matrix so both surfaces say the same. */
   readonly label: string;
-  /** How the measure is drawn. It reads the record's field and computes nothing. */
+  /**
+   * How the measure is drawn: it reads the record's field and computes and formats nothing. The figure
+   * it returns is what {@link MeasureList} wraps in the row's evidence trigger, so the trigger carries
+   * one reference for all seven rows instead of each row naming its own.
+   */
   readonly render: (scenario: Scenario) => ReactNode;
 }
 
@@ -521,6 +546,10 @@ interface MeasureRow {
  * which this panel leaves to the column the caller adds from `onRecomputed`. Each row reads exactly
  * the `Scenario` member that states it — money through the application's one money formatter, every
  * count as the record's own number with no rounding and no unit conversion (rule P-6).
+ *
+ * Every figure a row draws is wrapped in the evidence trigger by {@link MeasureList}, with the
+ * duplicated option's reference, because each of them is a computed figure and every figure on screen
+ * opens its evidence (AAP §0.12.4, F12).
  */
 const MEASURE_ROWS: readonly MeasureRow[] = [
   {
@@ -620,6 +649,32 @@ interface ScenarioRecordProps {
 }
 
 /**
+ * Props of the surfaces that render one measured option together with the record its figures open.
+ *
+ * The two records are different on purpose, and neither is the other's stand-in. `scenario` is the
+ * measurement: the copy the adapter minted for this request, whose members are the figures on screen.
+ * `evidenceRef` is the option that measurement was taken from, which is the record the evidence behind
+ * those figures belongs to — its case was measured, its formula produced the arithmetic, its upstream
+ * records supplied the inputs and its confidence is the one the payload states.
+ */
+interface MeasuredRegionProps {
+  /** The option exactly as the service returned it. Nothing here derives a member from it. */
+  readonly scenario: Scenario;
+
+  /**
+   * The identifier every measure opens its evidence on: the duplicated option's own.
+   *
+   * It is the option the sandbox duplicated rather than the duplicate itself, because the duplicate is
+   * a measurement the adapter assembled for this request and not a record the service holds: a
+   * reference to its identifier resolves to nothing, and a drawer opened on it would report that no
+   * record answers it instead of showing the record behind the figures. The duplicated option is that
+   * record, and the comparison matrix's cells carry the same reference for the same measures, so a
+   * sandbox figure and a matrix cell open one record.
+   */
+  readonly evidenceRef: ScenarioId;
+}
+
+/**
  * The recomputed option's identity: the identifier the adapter gave the duplicate, its own name, and
  * the lever values the figures beneath it were measured at.
  */
@@ -641,20 +696,32 @@ function ResultHeader({ scenario }: ScenarioRecordProps): ReactElement {
  * The label sits on every row rather than once for the block: rule P-1 asks it of each computed
  * figure, and a reader who meets one number in isolation — a screenshot, a zoomed panel, a row read
  * aloud — still learns what it is.
+ *
+ * Each value is wrapped in the shared evidence trigger with the duplicated option's reference, so the
+ * figure itself opens the record behind it (AAP §0.12.4, F12). The wrap sits here rather than in each
+ * row so all seven rows carry one reference and none can be missed when a row is added. The label sits
+ * beside that trigger and never inside it: it describes the figure rather than being part of the
+ * value, and keeping it out leaves the control's accessible name the value a reader would say.
  */
-function MeasureList({ scenario }: ScenarioRecordProps): ReactElement {
+function MeasureList({ scenario, evidenceRef }: MeasuredRegionProps): ReactElement {
   return (
-    <dl className={MEASURE_LIST_CLASSES}>
-      {MEASURE_ROWS.map((row) => (
-        <div key={row.id} className={MEASURE_ROW_CLASSES}>
-          <dt className={MEASURE_LABEL_CLASSES}>{row.label}</dt>
-          <dd className={MEASURE_VALUE_CLASSES}>
-            {row.render(scenario)}
-            <StatusIndicator meaning="simulated" label={CALCULATED_SIM_LABEL} />
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <>
+      <dl className={MEASURE_LIST_CLASSES}>
+        {MEASURE_ROWS.map((row) => (
+          <div key={row.id} className={MEASURE_ROW_CLASSES}>
+            <dt className={MEASURE_LABEL_CLASSES}>{row.label}</dt>
+            <dd className={MEASURE_VALUE_CLASSES}>
+              <EvidenceRef ref={evidenceRef}>{row.render(scenario)}</EvidenceRef>
+              <StatusIndicator meaning="simulated" label={CALCULATED_SIM_LABEL} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {/* The reference every row opens is the duplicated option's, so the panel says whose record the
+          drawer behind these figures shows rather than leaving the duplicate's own identifier to imply
+          a record the session does not hold. */}
+      <p className={NOTE_CLASSES}>{SCENARIO_SANDBOX_TEXT.evidenceSubject}</p>
+    </>
   );
 }
 
@@ -664,9 +731,10 @@ function MeasureList({ scenario }: ScenarioRecordProps): ReactElement {
  * A failed constraint check hides every figure and states {@link CANNOT_COMPUTE_LABEL} with the
  * record's own messages instead — showing some figures beside the breach would suggest the others
  * were computed (AAP §0.8). The word is the comparison matrix's, so the sandbox and the option's
- * column cannot disagree about what a refused measurement is called.
+ * column cannot disagree about what a refused measurement is called. That branch renders no measure
+ * row and therefore no evidence trigger: it states no figure for a trigger to open.
  */
-function ResultRegion({ scenario }: ScenarioRecordProps): ReactElement {
+function ResultRegion({ scenario, evidenceRef }: MeasuredRegionProps): ReactElement {
   if (scenario.constraintCheck === 'fail') {
     return (
       <div className={STACK_TIGHT_CLASSES}>
@@ -688,7 +756,7 @@ function ResultRegion({ scenario }: ScenarioRecordProps): ReactElement {
   return (
     <div className={STACK_TIGHT_CLASSES}>
       <ResultHeader scenario={scenario} />
-      <MeasureList scenario={scenario} />
+      <MeasureList scenario={scenario} evidenceRef={evidenceRef} />
     </div>
   );
 }
@@ -955,12 +1023,12 @@ export function ScenarioSandbox({
   }
 
   /** Records one keystroke in the draft, then queues the request it will become. */
-  function handleLeverChange(field: keyof Levers, event: ChangeEvent<HTMLInputElement>): void {
+  function handleLeverChange(field: keyof Levers, value: string): void {
     if (!hasOption || draft === null) {
       return;
     }
 
-    const next: LeverDraft = { ...draft, [field]: event.currentTarget.value };
+    const next: LeverDraft = { ...draft, [field]: value };
 
     setDraftState({ scenarioId: scenario.id, values: next });
     scheduleRequest(targetOf(scenario), next);
@@ -1002,20 +1070,20 @@ export function ScenarioSandbox({
                     <label htmlFor={inputId} className={LABEL_CLASSES}>
                       {field}
                     </label>
-                    {/* A native number input, and deliberately without `min`, `max` or `step`: the
-                        component layer exposes no input primitive this file may reuse or create,
-                        and the record the port returns carries no bound for either lever. The
-                        solver holds the bounds and reports every breach as the messages this
-                        control renders, so a bound typed here would be a second, unchecked one. */}
-                    <input
+                    {/* A number field composed through `TextField`, and deliberately without `min`,
+                        `max` or `step`: the record the port returns carries no bound for either
+                        lever. The solver holds the bounds and reports every breach as the messages
+                        this control renders, so a bound typed here would be a second, unchecked
+                        one. */}
+                    <TextField
                       id={inputId}
                       type="number"
                       className={INPUT_CLASSES}
                       value={draft[field]}
                       aria-invalid={isInvalid ? true : undefined}
                       aria-describedby={isInvalid ? invalidDescriptionId : undefined}
-                      onChange={(event) => {
-                        handleLeverChange(field, event);
+                      onChange={(value) => {
+                        handleLeverChange(field, value);
                       }}
                       onKeyDown={handleLeverKeyDown}
                     />
@@ -1055,8 +1123,12 @@ export function ScenarioSandbox({
           {isPending || failure === null ? null : (
             <FailureRegion failure={failure} onRetry={recomputeNow} />
           )}
-          {isPending || failure !== null || result === null ? null : (
-            <ResultRegion scenario={result} />
+          {/* A settled answer is always an answer to the option in the register, so the duplicated
+              option's identifier is present whenever there is a result: the guard says so for the
+              compiler, and the reference the measures open is that option rather than the record the
+              adapter minted for this request. */}
+          {isPending || failure !== null || result === null || optionId === null ? null : (
+            <ResultRegion scenario={result} evidenceRef={optionId} />
           )}
           {isPending || failure !== null || result !== null ? null : (
             <p className={NOTE_CLASSES}>{SCENARIO_SANDBOX_TEXT.idle}</p>

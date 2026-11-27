@@ -18,6 +18,8 @@
  * simulation control, so it carries no simulation label), P-6 (no figure is stated here) and P-8
  * (it always performs its function, so it is never disabled and needs no disabled reason).
  */
+import { useId } from 'react';
+
 import { THEME_LABELS, useTheme } from './theme-provider';
 import type { Theme } from './theme-provider';
 
@@ -25,6 +27,13 @@ import type { Theme } from './theme-provider';
  * The theme in effect, shown beside the control as plain text rather than as a second control:
  * reading which theme is on is not an action, so it takes no target size and no focus stop.
  * `text-text-caption` is the caption role, which each theme measures against its own ground.
+ *
+ * The id it carries is what the switch's `aria-describedby` points at, so the theme in effect is
+ * announced with the control — `<name>, button, <theme in effect>` — instead of being a neighbouring
+ * word a screen reader reaches on its own. It is a description and not a pressed state because the
+ * button's name and visible label already state the theme it offers: `aria-pressed` on a control whose
+ * name flips from `paper` to `command` would contradict that name and reverse its meaning at every
+ * switch, while the description adds the one fact the name leaves out.
  */
 const CURRENT_THEME_CLASSES = 'font-mono text-12 text-text-caption';
 
@@ -64,18 +73,23 @@ function otherTheme(theme: Theme): Theme {
  * It renders one native `<button>`, so `Enter` and `Space` activate it and the browser owns the
  * keyboard behaviour; no key handler, `tabIndex` or `role` is declared. Its accessible name reads
  * `Switch colour theme: <target>` while its visible label is `<target>` alone, so the name contains
- * the visible label (WCAG 2.2 SC 2.5.3) and a role-and-name query finds it in either theme.
+ * the visible label (WCAG 2.2 SC 2.5.3) and a role-and-name query finds it in either theme. Its
+ * description is the theme in effect, so a reader is told the state as well as the action.
  */
 export function ThemeSwitch() {
   const { theme, setTheme } = useTheme();
+  const currentThemeId = useId();
   const next = otherTheme(theme);
 
   return (
     <div className="flex items-center gap-1">
-      <span className={CURRENT_THEME_CLASSES}>{THEME_LABELS[theme]}</span>
+      <span id={currentThemeId} className={CURRENT_THEME_CLASSES}>
+        {THEME_LABELS[theme]}
+      </span>
       <button
         type="button"
         aria-label={`Switch colour theme: ${THEME_LABELS[next]}`}
+        aria-describedby={currentThemeId}
         className={SWITCH_CLASSES}
         onClick={() => {
           setTheme(next);

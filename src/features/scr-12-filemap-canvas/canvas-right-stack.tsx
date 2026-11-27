@@ -63,7 +63,7 @@
  * configuration is read and no credential exists in the file.
  *
  * KEYBOARD, SEMANTICS AND THEMES — rule B-3. Each group is a real `<ul>` of `<li>` items so four rows
- * announce as four items, and each row acts through `ActionButton`, the application's only button: a
+ * announce as four items, and each row acts through `ActionButton`, the action control: a
  * native `button`, a 24x24 px minimum target, the 2 px focus ring of the token layer, and a visible
  * label completed by a visually hidden suffix that names the record the control acts on, so a screen
  * reader user hears which exception a row's control opens (WCAG 2.2 SC 2.5.3 and SC 2.4.4). Every row
@@ -75,7 +75,12 @@ import { Fragment } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
-import { SIM_LABELS, SOURCE_LABELS } from '../../types';
+/*
+ * An exception's own detail page answers beneath `EXCEPTION_QUEUE_PATH`, which has one declaration, in
+ * `src/types/routes.ts` (AAP 0.12.4), shared with this module's screen and the shell; the identifier
+ * that completes the pattern is the record's own.
+ */
+import { EXCEPTION_QUEUE_PATH, SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type {
   ExceptionId,
   ExceptionRow,
@@ -329,11 +334,11 @@ export interface ProductHealthFigure {
 /**
  * One product's health card, in the display shape this component consumes.
  *
- * Reported gap: no product-health payload is declared in `src/types` or on the port, so these members
- * are the component's own display contract rather than a shared domain type (see the module note). The
- * screen builds a row per product from the records and aggregates it already holds: the product's own
- * identifier and name, the state in the shared status vocabulary when the payload states one, and the
- * figures with their captions, references and labels.
+ * No product-health payload is declared in `src/types` or on the port, so these members are the
+ * component's own display contract rather than a shared domain type. The screen builds a row per
+ * product from the records and aggregates it already holds: the product's own identifier and name,
+ * the state in the shared status vocabulary when the payload states one, and the figures with their
+ * captions, references and labels.
  */
 export interface ProductHealthRow {
   /** The product's identifier from the record, rendered in the mono face. */
@@ -392,15 +397,6 @@ export interface CanvasRightStackProps {
 /* ---------------------------------------------------------------------------------------------
  * The pieces one row is built from
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * The route an exception's own detail page answers on.
- *
- * AAP §0.12.4 fixes the shape `/exceptions/:exceptionId`, and the identifier that completes it is the
- * record's own. The path is a route this module navigates to, not a record value, so it is written
- * once here rather than repeated at the call site.
- */
-const EXCEPTIONS_PATH = '/exceptions';
 
 /** Props of the caption-and-value pair every field of a card renders. */
 interface FieldProps {
@@ -634,7 +630,7 @@ export function CanvasRightStack({
      still gets a working control rather than an inert one. */
   const activate = (exceptionId: ExceptionId): void => {
     if (onSelectException === undefined) {
-      void navigate(`${EXCEPTIONS_PATH}/${exceptionId}`);
+      void navigate(`${EXCEPTION_QUEUE_PATH}/${exceptionId}`);
       return;
     }
 

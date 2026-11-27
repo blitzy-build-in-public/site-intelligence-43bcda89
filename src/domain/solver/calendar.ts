@@ -8,16 +8,26 @@
  * a readiness or an urgency figure spans days.
  *
  * Every function here is pure and total. A date arrives and leaves as an `IsoDate` (`YYYY-MM-DD`) —
- * never a `Date`, never a `Timestamp` with an offset, never a millisecond count, because the solver's
- * arithmetic and the records it works from are plain calendar dates. Nothing reads the clock, the
- * host time zone or a locale: every computation runs on the UTC timestamp `Date.UTC` returns, so a
- * machine in any time zone gets the same answer and a date never shifts by a day across a time-zone
- * or daylight-saving boundary. A malformed date yields the neutral value documented on each function
- * rather than a throw, so the solver's own input validation is what reports a bad case, naming the
- * offending input in its constraint messages.
+ * never a `Date`, never a millisecond count, because the solver's arithmetic and the records it works
+ * from are plain calendar dates. The one function that reads a record's instant, `calendarDateOf`,
+ * only reads the calendar date that record itself states: nothing is converted to the host time zone
+ * and no `Date` parses it. Nothing reads the clock, the host time zone or a locale: every computation
+ * runs on the UTC timestamp `Date.UTC` returns, so a machine in any time zone gets the same answer and
+ * a date never shifts by a day across a time-zone or daylight-saving boundary. A malformed input
+ * yields the neutral value documented on each function rather than a throw, so the solver's own input
+ * validation is what reports a bad case, naming the offending input in its constraint messages.
+ *
+ * This module is the pure core's one civil-date implementation. A day number counts whole days from
+ * 1 January 1970, and the four functions below are the only place a calendar date becomes a day
+ * number, a day number becomes a date, a date moves by whole days, or an instant is read as the date
+ * it states — so `../aggregation/overview` and `../aggregation/ledger`, which need the same
+ * arithmetic for the fourteen-day series, the changed-since window and the ledger's thirty days,
+ * express it through these functions rather than through their own copies. A correction to a leap
+ * rule, a month length or a date format is therefore made once, here, and every module that dates a
+ * record answers identically.
  */
 
-import type { IsoDate } from '../../types';
+import type { IsoDate, Timestamp } from '../../types';
 
 /** Millisecond length of one civil day, the step every walk over the calendar takes. */
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -51,6 +61,12 @@ const YEAR_WIDTH = 4;
 
 /** Width the month and the day are padded to when a UTC timestamp is rendered back to an `IsoDate`. */
 const MONTH_DAY_WIDTH = 2;
+
+/**
+ * Characters an `IsoDate` occupies at the head of an ISO 8601 instant, which is where an instant
+ * states the calendar date it falls on in its own offset.
+ */
+const ISO_DATE_LENGTH = 10;
 
 /**
  * Renders a UTC timestamp as an `IsoDate`.
@@ -234,4 +250,73 @@ export function workingDaysInRange(from: IsoDate, to: IsoDate): IsoDate[] {
   }
 
   return workingDays;
+}
+
+/**
+ * Counts the days from 1 January 1970 to a calendar date.
+ *
+ * A day number is the calendar's own unit: it moves by exactly one at every midnight, so moving a
+ * date by whole days is addition on it and comparing two of them orders two dates. The value is `0`
+ * on 1 January 1970 itself and negative before it. Validity is the round trip `toUtcMillis` applies,
+ * so a date the calendar would roll forward — 30 February, a thirteenth month, a thirty-first day of
+ * a thirty-day month — is rejected here rather than relabelled, and no caller has to re-test a date's
+ * shape or the length of its month.
+ *
+ * @param date The date to read, as `YYYY-MM-DD`.
+ * @returns The day number, or `null` when the text is not a well-formed calendar date.
+ */
+export function dayNumberFromIsoDate(date: IsoDate): number | null {
+  const millis = toUtcMillis(date);
+
+  return millis === null ? null : millis / DAY_MS;
+}
+
+/**
+ * Renders a day number as an `IsoDate`.
+ *
+ * The inverse of `dayNumberFromIsoDate` for every date that function accepts: the day number becomes
+ * a UTC timestamp again and is rendered from that timestamp's UTC fields, so no host zone can shift
+ * the answer by a day.
+ *
+ * @param dayNumber The day number to render, counted from 1 January 1970 in the scale
+ *   `dayNumberFromIsoDate` produces, negative before it.
+ * @returns The calendar date it names, as `YYYY-MM-DD`.
+ */
+export function isoDateFromDayNumber(dayNumber: number): IsoDate {
+  return formatIsoDate(dayNumber * DAY_MS);
+}
+
+/**
+ * Shifts a calendar date by a whole number of days.
+ *
+ * The day-number conversion is what makes the shift exact: adding days to a day number crosses month
+ * and year boundaries, the leap day of a leap February included, without a month-length table. The
+ * overview's fourteen-day series and its changed-since window are both built with it.
+ *
+ * @param date The date to shift, as `YYYY-MM-DD`.
+ * @param days The days to move it by, negative to move backwards.
+ * @returns The shifted date, or `null` when the argument is not a well-formed calendar date.
+ */
+export function shiftIsoDate(date: IsoDate, days: number): IsoDate | null {
+  const dayNumber = dayNumberFromIsoDate(date);
+
+  return dayNumber === null ? null : isoDateFromDayNumber(dayNumber + days);
+}
+
+/**
+ * Reads the calendar date an instant falls on, in the offset the instant states.
+ *
+ * An instant is ISO 8601 with an offset (contracts §1), so its opening ten characters are the calendar
+ * date at the place the record was written — the application's time zone — whatever the host's own
+ * zone reads. That date is then held to the calendar, so an instant opening with 30 February states no
+ * day rather than a day rolled into March. Nothing is converted, no `Date` parses the instant and no
+ * clock is consulted: the record's own text is the whole of the input.
+ *
+ * @param instant The instant to read, as ISO 8601 with an offset.
+ * @returns That calendar date, or `null` when the opening characters are not a well-formed date.
+ */
+export function calendarDateOf(instant: Timestamp): IsoDate | null {
+  const date = instant.slice(0, ISO_DATE_LENGTH);
+
+  return date.length === ISO_DATE_LENGTH && dayNumberFromIsoDate(date) !== null ? date : null;
 }

@@ -10,9 +10,9 @@
  *   member is added that no input states.
  * - AAP 0.12.2 lists `PlanGrid` as declared for interface completeness and as surfaced by no S1-S3
  *   screen. The production plan screen, SCR-09, belongs to stage S5, which AAP 0.14.2 places out of
- *   this run's scope; the route `/plants/:plantId/plan` renders the stage notice instead. This
- *   module therefore types the grid so the port and the seed type-check for the stage that builds
- *   the screen, and it describes no screen: no screen object for SCR-09 exists anywhere.
+ *   scope; the route `/plants/:plantId/plan` renders the stage notice instead. This module
+ *   therefore types the grid so the port and the seed type-check for the stage that builds the
+ *   screen, and it describes no screen: no screen object for SCR-09 exists anywhere.
  * - AAP 0.12.1 fixes the Monday-to-Friday calendar in `src/domain/solver/calendar.ts` and says the
  *   grid carries results. No working-day rule, shift arithmetic or capacity rule belongs here, and
  *   none is declared.
@@ -26,15 +26,12 @@
  * the typed service interface, so this module imports nothing but the shared primitives and reaches
  * no seed, service or domain module).
  *
- * OPEN ITEM: the horizon's length, the set of rows and every `units` value are seed content the S5
- * run supplies. This run's seed holds no plan record, so this module types none of those values.
- * OPEN ITEM: a cell names no product, although one line can build more than one product (AAP
- * 0.12.2). No input states a product dimension on a plan cell, so none is added; a screen that needs
- * one adds it together with its consumer.
- * OPEN ITEM: no capacity, shift or plan-status member exists, because no input fixes a plan rule or
- * a plan state. A cell states a date and planned output, and nothing else.
- * OPEN ITEM: that a row's cells align to the grid's horizon by date is an invariant no type can
- * express; the handler that builds the grid keeps it.
+ * The horizon's length, the set of rows and every `units` value are seed content the S5 stage
+ * supplies, so this module types none of them. A cell names no product, although one line can build
+ * more than one product (AAP 0.12.2); no input fixes a product dimension on a plan cell. No
+ * capacity, shift or plan-status member exists, because no input fixes a plan rule or a plan state.
+ * That a row's cells align to the grid's horizon by date is an invariant no type can express, so
+ * the handler that builds the grid keeps it.
  */
 import type { IsoDate, LineId, PlantId } from './primitives';
 

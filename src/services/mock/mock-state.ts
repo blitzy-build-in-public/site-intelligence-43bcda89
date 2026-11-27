@@ -66,7 +66,7 @@
  * same state; a second `createMockState()` call is a second state, which is what a test comparing a
  * fresh state against a reset one needs, and it never re-hashes the first.
  *
- * OPEN ITEM — which persona the demonstration opens as. The inputs fix each persona's home route
+ * WHICH PERSONA THE DEMONSTRATION OPENS AS. The inputs fix each persona's home route
  * (specification §3, AAP 0.12.4) but not which of the eight is active on load, so the seed's own order
  * decides: the first record of `records.users` is the persona the session acts as, which is `USR-01`,
  * the material planner. No rule beyond that ordering is invented here, and a persona list that changes
@@ -195,25 +195,32 @@ export interface MockState {
   policyExceptions: PolicyException[];
 
   /**
-   * How many calls the adapter has served, from which `Meta.traceId` is derived.
+   * The number of the last ticket the adapter took, from which the next call's `Meta.traceId` is spelled.
    *
    * A counter rather than a clock or a random source, so the trace identifier of the n-th call is the
-   * same in every run of the demonstration (AAP 0.18.2). The counter starts at its initial value and
-   * the adapter increments it; how the identifier is spelled from it is the adapter's own decision,
-   * and the seeded trail already occupies the `TRC-000nnn` and `TRC-9nnnnn` blocks, so the block a
-   * live call draws from is chosen where the identifier is formatted.
+   * same in every run of the demonstration (AAP 0.18.2). The adapter takes a call's ticket here once,
+   * at the call's entry and before it awaits anything, and a call's identifier is spelled from that
+   * number and never from this member again — the counter moves under a call that is in flight, so a
+   * second read of it would let a neighbouring call's ticket reach a result, a refusal or an event.
+   * The counter starts at its initial value and the adapter advances it; how the identifier is spelled
+   * from the ticket is the adapter's own decision, and the seeded trail already occupies the `TRC-000nnn`
+   * and `TRC-9nnnnn` blocks, so the block a live call draws from is chosen where the identifier is
+   * formatted.
    */
   requestCount: number;
 }
 
 /**
- * What one handler receives: the session's state together with the persona the call acts as.
+ * What one handler receives: the session's state, the persona the call acts as and the call's own
+ * correlation identifier.
  *
- * The pair travels together so a handler can neither read a record without knowing who is reading it
- * nor resolve a different actor halfway through. The adapter builds it once per call from
- * `state.activeUserId`, resolving the persona against the contracts §7.1 matrix so `actor.permissions`
- * and `actor.plantIds` are the ones that role holds rather than a caller's claim; both members are
- * references, so a handler that edits `state` is editing the session the next call reads.
+ * The three travel together so a handler can neither read a record without knowing who is reading it
+ * nor resolve a different actor halfway through, and so every refusal and every event of one call
+ * quotes one identifier. The adapter builds the context once per call from `state.activeUserId` and
+ * from the ticket it takes at the call's entry, resolving the persona against the contracts §7.1 matrix
+ * so `actor.permissions` and `actor.plantIds` are the ones that role holds rather than a caller's
+ * claim. `state` and `actor` are references, so a handler that edits `state` is editing the session the
+ * next call reads; `traceId` is the call's own value and nothing can change it.
  */
 export interface HandlerContext {
   /** The session's mutable state, by reference. */
@@ -221,6 +228,15 @@ export interface HandlerContext {
 
   /** The persona the call acts as, resolved from the state rather than supplied by a caller. */
   readonly actor: ActiveUser;
+
+  /**
+   * The call's correlation identifier, minted once by the adapter from the ticket it took at entry.
+   *
+   * Every refusal this call raises and every event it appends quotes this value rather than reading the
+   * session's counter again, because that counter is advanced by whichever call entered next and a
+   * second read would stamp one call's record with another call's identifier (AAP 0.18.1).
+   */
+  readonly traceId: string;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -381,7 +397,10 @@ export async function createMockState(): Promise<MockState> {
  * The write queue is the one member left as it stands. It holds no seeded value to put back, and a
  * section already in flight on the chain being replaced still has to be able to release it, so
  * swapping the queue here would leave that section — and every append waiting behind it — waiting on
- * a release that never comes.
+ * a release that never comes. The queue is instead how the reset is serialised: the adapter calls this
+ * function inside a section of it (`MockBackend.resetDemo`), so the chain installed here and the chain
+ * an append hashes are never two different arrays, and a verification of the chain a reader meets
+ * afterwards reports no break the reset caused.
  *
  * @param state The session to restore. It is modified in place.
  */

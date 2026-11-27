@@ -48,10 +48,19 @@
  * operable by pointer and by `Enter` or `Space`, with a ring in the `focus-ring` role drawn around the
  * mark and revealed by a keyboard focus, a hover or a press, so the pointer has the indicator the
  * keyboard already had. A vertex that can do nothing stays a plain `<circle>`, so rule P-8 is never
- * broken by a control with nothing behind it.
+ * broken by a control with nothing behind it. WHAT A POINTER MEANS is resolved by distance: two
+ * series' readings on one axis can sit closer together than two invisible targets, so a pointer
+ * activation opens the mark nearest the pointer among that axis's marks rather than the mark whose
+ * target received the event, and the outline polygons take no pointer events at all, so a shape that
+ * performs nothing never swallows an aim. `Enter` and `Space` are exact, because focus lands on one
+ * mark alone.
  */
 import { useState } from 'react';
-import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type {
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from 'react';
 
 import { CLIENT_SELF_ASSESSMENT_LABEL, COMPETITOR_NAME_TAG } from '../types';
 import type { AtlasSeries, RadarAxis } from '../types';
@@ -126,12 +135,15 @@ export interface RadarChartProps {
    * shape the requirement has.
    *
    * WHAT A RETURNED REFERENCE MUST BE. One the service's `getEvidence` read resolves, which selects a
-   * family by identifier prefix and looks the record up by its exact identifier: `PPAP-`, `EXC-`,
-   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`. `AtlasSeries` carries no record
-   * reference of its own, so which record stands behind a series' score is the calling screen's to
-   * name. A reference this chart composed, or one naming a record the service does not hold, would
-   * open a drawer reporting the not-found refusal for that reference instead of the record behind the
-   * mark.
+   * family by its own shape and looks the record up by its exact identifier: the composed aggregates
+   * (`overview:`, `canvas:`), one atlas series as `atlas:<seriesId>`, the nine record families
+   * `PPAP-`, `EXC-`, `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`, the policy family
+   * `POL-`, the seven node families, and a declared outbound endpoint by the endpoint string its own
+   * ledger row states. A series' scores are a market-intelligence record, so the calling screen names
+   * the series as `atlas:<seriesId>` and the read answers with the pack's own scores, provenance and
+   * label; a reference this chart composed would put the service's routing table here, and one naming
+   * a series the pack does not hold would open a drawer reporting the not-found refusal instead of the
+   * mark's evidence.
    *
    * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind that reading. The
    * vertex then stays a plain dot, which reports the series' selection through
@@ -443,6 +455,25 @@ function pointListOf(points: readonly ChartPoint[]): string {
   return points.map((point) => `${roundCoordinate(point.x)},${roundCoordinate(point.y)}`).join(' ');
 }
 
+/**
+ * One series' mark on one axis, as the pointer's own resolution reads it.
+ *
+ * The mark's point is the geometry the drawing already places, and its evidence reference is the one
+ * the caller's mapper resolved for that series on that axis, so a pointer activation opens the
+ * reference of the mark the pointer is nearest rather than the reference of the mark whose invisible
+ * target happened to sit on top.
+ */
+interface AxisMark {
+  /** The series the mark belongs to. */
+  readonly seriesId: string;
+
+  /** The point on the drawing's grid, in the SVG's own user units. */
+  readonly point: ChartPoint;
+
+  /** The evidence reference the caller resolved for this series on this axis, or `null`. */
+  readonly evidenceRef: string | null;
+}
+
 /** One vertex of a series' polygon, with everything its mark and its accessible name need. */
 interface SeriesVertex {
   /** The axis the vertex sits on, which is what an evidence collection is asked for. */
@@ -479,6 +510,116 @@ function verticesOf(one: AtlasSeries, axes: readonly RadarAxis[]): readonly Seri
   }
 
   return vertices;
+}
+
+/**
+ * The mark a pointer at one point on the drawing means: the nearest of an axis's marks, or `null`
+ * when the axis carries none.
+ *
+ * WHY THE NEAREST RATHER THAN THE ONE ON TOP. A vertex's invisible target is far larger than the dot a
+ * reader aims at, and two series' readings on one axis can sit closer together than two targets, so the
+ * topmost target can belong to a series the reader did not point at — a control that would then open
+ * another figure's evidence (rule P-8). Comparing the pointer's distance to each mark's own dot answers
+ * with the reading the pointer is over, and it stays a reading of the payload: nothing is added,
+ * averaged or re-scored here.
+ *
+ * A tie keeps the first mark the payload listed, so the answer is deterministic for one pointer
+ * position and one payload (AAP 0.18.2).
+ *
+ * @param marks - The axis's marks, in the order the payload lists its series.
+ * @param at - The pointer's position in the drawing's user units.
+ * @returns The nearest mark, or `null` when the axis carries none.
+ */
+function nearestMarkOf(marks: readonly AxisMark[], at: ChartPoint): AxisMark | null {
+  let nearest: AxisMark | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const mark of marks) {
+    const distance = Math.hypot(mark.point.x - at.x, mark.point.y - at.y);
+
+    if (distance < nearestDistance) {
+      nearest = mark;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
+/**
+ * Where a pointer event happened, in the drawing's own user units, or `null` when the platform cannot
+ * report it.
+ *
+ * The `viewBox` scales the drawing into whatever width the CSS gives it, so a client coordinate is not
+ * a coordinate on the grid until it is mapped through the element's own transformation. `getScreenCTM`
+ * is what a browser states that transformation with; an environment that implements no layout (a jsdom
+ * test, a reader activating the mark from the keyboard) has none, and `null` is then the honest answer:
+ * the caller falls back to the mark that received the event, which is the one the reader aimed at.
+ *
+ * The screen-to-user mapping is the inverse of the six-member matrix, computed here in scalars rather
+ * than through a matrix object's own inverse: the arithmetic is four multiplications, it needs nothing
+ * the platform may not implement, and a degenerate (zero-determinant) transformation is reported as
+ * absent instead of dividing by zero.
+ *
+ * @param event - The pointer event on the activated mark.
+ * @returns The point in user units, or `null` when it cannot be established.
+ */
+function pointerInUserUnits(event: ReactMouseEvent<SVGGElement>): ChartPoint | null {
+  const svg = event.currentTarget.ownerSVGElement;
+  const matrix = svg === null ? null : (svg.getScreenCTM?.() ?? null);
+
+  if (matrix === null) {
+    return null;
+  }
+
+  const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+
+  if (determinant === 0) {
+    return null;
+  }
+
+  const dx = event.clientX - matrix.e;
+  const dy = event.clientY - matrix.f;
+  const x = (matrix.d * dx - matrix.c * dy) / determinant;
+  const y = (matrix.a * dy - matrix.b * dx) / determinant;
+
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
+/**
+ * Every series' marks, grouped by the axis they sit on.
+ *
+ * Built from the same `verticesOf` the layers draw with, so the pointer's resolution and the drawing
+ * cannot describe different geometry. The build is a handful of assertions and a handful of vertices,
+ * so it runs per render rather than being memoised: the map depends on the payload and the caller's
+ * mapper alone, and a stale memo of either would point a control at another figure's evidence.
+ *
+ * @param series - The series the chart draws, in the order the payload lists them.
+ * @param axes - The axes the series' values align to.
+ * @param evidenceRefFor - The caller's mapper, asked once per vertex.
+ * @returns One entry per axis that carries a mark, in the payload's order.
+ */
+function marksByAxisOf(
+  series: readonly AtlasSeries[],
+  axes: readonly RadarAxis[],
+  evidenceRefFor: (seriesId: string, axisId: string) => string | undefined,
+): ReadonlyMap<string, readonly AxisMark[]> {
+  const byAxis = new Map<string, AxisMark[]>();
+
+  for (const one of series) {
+    for (const vertex of verticesOf(one, axes)) {
+      const marks = byAxis.get(vertex.axisId) ?? [];
+
+      marks.push({
+        seriesId: one.id,
+        point: vertex.point,
+        evidenceRef: evidenceRefFor(one.id, vertex.axisId) ?? null,
+      });
+      byAxis.set(vertex.axisId, marks);
+    }
+  }
+
+  return byAxis;
 }
 
 /** The two lines one series prints beside the drawing: its name and its companion label. */
@@ -537,6 +678,18 @@ interface SeriesLayerProps {
   readonly onActivate: ((seriesId: string) => void) | undefined;
   /** Reports one activated vertex to the chart, which owns the evidence it has open. */
   readonly onVertexActivate: (seriesId: string, evidenceRef: string | null) => void;
+  /**
+   * Reports a pointer activation with the mark that received it.
+   *
+   * The chart resolves which series' mark the pointer actually means — a neighbour's invisible target
+   * can sit over this one — so the layer hands up the event, the series it drew and the axis, and never
+   * decides the answer itself.
+   */
+  readonly onPointerActivate: (
+    event: ReactMouseEvent<SVGGElement>,
+    seriesId: string,
+    axisId: string,
+  ) => void;
 }
 
 /**
@@ -552,6 +705,11 @@ interface SeriesLayerProps {
  * cannot resolve, on a series no handler reports, is drawn as a plain dot: a dot that took focus and
  * then did nothing would be a control that cannot act (rule P-8), and the drawing still shows every
  * reading it holds.
+ *
+ * WHO DECIDES WHICH MARK A POINTER MEANS. The layer reports a pointer activation with its event, the
+ * series it drew and the axis, and the chart resolves the mark nearest the pointer among that axis's
+ * marks: a neighbour's wider invisible target can sit over the dot a reader aimed at, and the layer
+ * cannot see its neighbours' geometry. `Enter` and `Space` are the mark's own, because focus is exact.
  */
 function SeriesLayer({
   series,
@@ -560,6 +718,7 @@ function SeriesLayer({
   evidenceRefFor,
   onActivate,
   onVertexActivate,
+  onPointerActivate,
 }: SeriesLayerProps): JSX.Element | null {
   const vertices = verticesOf(series, axes);
 
@@ -596,7 +755,9 @@ function SeriesLayer({
         tabIndex={0}
         aria-label={vertex.label}
         {...(evidenceRef === null ? {} : { 'aria-haspopup': 'dialog' as const })}
-        onClick={activate}
+        onClick={(event: ReactMouseEvent<SVGGElement>) => {
+          onPointerActivate(event, series.id, vertex.axisId);
+        }}
         onKeyDown={(event: ReactKeyboardEvent<SVGGElement>) => {
           if (!isActivationKey(event)) {
             return;
@@ -636,11 +797,17 @@ function SeriesLayer({
 
   return (
     <g>
+      {/*
+        The outline never takes the pointer: it is a reading drawn around the marks, and a click that
+        landed on it would be swallowed by a shape that performs nothing — the reader would aim at a
+        mark and get silence. Every activation is a mark's (rule P-8).
+      */}
       <polygon
         points={pointListOf(vertices.map((vertex) => vertex.point))}
         fillOpacity={SERIES_AREA_OPACITY}
         strokeWidth={SERIES_STROKE_WIDTH}
         strokeLinejoin="round"
+        pointerEvents="none"
         className={`${tone.area} ${tone.line}`}
       />
       {vertices.map(renderMark)}
@@ -680,12 +847,38 @@ export function RadarChart({
 
   const viewHeight = LABEL_BAND_TOP + series.length * SERIES_LABEL_ROW_HEIGHT + LABEL_BAND_PADDING;
 
+  const marksByAxis = marksByAxisOf(series, axes, evidenceRefFor);
+
   function activateVertex(seriesId: string, evidenceRef: string | null): void {
     onActivate?.(seriesId);
 
     if (evidenceRef !== null) {
       setOpenEvidenceRef(evidenceRef);
     }
+  }
+
+  /**
+   * Activates the mark a pointer means on one axis.
+   *
+   * A pointer activation is answered with the mark nearest the pointer rather than with the mark whose
+   * invisible target received the event, because a neighbour's target can sit over the dot a reader
+   * aimed at (see `nearestMarkOf`). Where the environment cannot report where the pointer landed, the
+   * mark that received the event answers, which is the mark the reader pointed at.
+   */
+  function activatePointer(
+    event: ReactMouseEvent<SVGGElement>,
+    seriesId: string,
+    axisId: string,
+  ): void {
+    const at = pointerInUserUnits(event);
+    const nearest = at === null ? null : nearestMarkOf(marksByAxis.get(axisId) ?? [], at);
+
+    if (nearest === null) {
+      activateVertex(seriesId, evidenceRefFor(seriesId, axisId) ?? null);
+      return;
+    }
+
+    activateVertex(nearest.seriesId, nearest.evidenceRef);
   }
 
   return (
@@ -735,6 +928,7 @@ export function RadarChart({
             evidenceRefFor={evidenceRefFor}
             onActivate={onActivate}
             onVertexActivate={activateVertex}
+            onPointerActivate={activatePointer}
           />
         ))}
 

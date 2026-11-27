@@ -12,7 +12,10 @@
  * nested in a paragraph is markup a browser reparses. Its modality claim follows its presentation
  * (AAP §0.12.4): jsdom implements no media query at all, so every case here renders the overlay that
  * covers the viewport and claims `aria-modal`, and the one case that stubs the docked media query
- * renders the panel docked beside a page that stays readable, which claims none. The record's four
+ * renders the panel docked beside a page that stays readable, which claims none. The column a docked
+ * drawer occupies is reserved on the document element for as long as it is open — the attribute the
+ * stylesheet pads the body from — and ref-counted, so the two drawers a case opens together hold it
+ * until the last of them closes, while the overlay reserves nothing at all. The record's four
  * sections are asserted as named regions with the record's own value, formula,
  * provenance, freshness, links, confidence, missing inputs and documents inside them, and a record
  * that carries no content for a section is asserted to render no region at all rather than an empty
@@ -290,6 +293,23 @@ function stubDockedViewport(): readonly string[] {
   return queries;
 }
 
+/**
+ * One member of a query's result, for the case below that has two drawers open at once.
+ *
+ * `noUncheckedIndexedAccess` types every index read as possibly absent, and a query's result is
+ * asserted to have the length the case expects before this is called: an element missing here is a
+ * failure of the case's own setup, so it is reported as one instead of being cast into the type the
+ * assertion below it wants.
+ */
+function elementAt<T extends HTMLElement>(elements: readonly T[], index: number): T {
+  const element = elements[index];
+  if (element === undefined) {
+    throw new Error(`the case expected an element at index ${index}`);
+  }
+
+  return element;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The dock geometry contract
  * ------------------------------------------------------------------------------------------- */
@@ -319,6 +339,15 @@ type Breakpoint = keyof typeof BREAKPOINT_MIN_WIDTHS_PX;
 
 /** The width AAP §0.12.4 fixes for the docked panel, which the docked case has to fail on. */
 const DOCKED_WIDTH_PX = 420;
+
+/**
+ * The attribute a docked drawer sets on the document element while it holds the column it occupies.
+ *
+ * The drawer is portalled to `document.body` and fixed to the viewport, so the space the page
+ * reserves for it cannot be a class on an element the drawer renders: it is this attribute, which
+ * `src/styles/index.css` pads the body from and this suite reads on `<html>` (AAP §0.12.4).
+ */
+const DOCKED_COLUMN_ATTRIBUTE = 'data-evidence-docked';
 
 /** The root font size in a browser's default, which a `rem` length resolves against. */
 const ROOT_FONT_SIZE_PX = 16;
@@ -493,11 +522,13 @@ beforeEach(() => {
 });
 
 /**
- * Takes the theme attribute off `<html>` again, so one theme case cannot colour the next, and removes
- * any stubbed global — the docked case's `matchMedia` — so it cannot colour a case either.
+ * Takes the theme attribute off `<html>` again, so one theme case cannot colour the next, releases
+ * any docked column a drawer still held when its case ended, and removes any stubbed global — the
+ * docked case's `matchMedia` — so it cannot colour a case either.
  */
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
+  document.documentElement.removeAttribute(DOCKED_COLUMN_ATTRIBUTE);
   vi.unstubAllGlobals();
 });
 
@@ -515,6 +546,22 @@ describe('EvidenceRef', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     /* The relationship to the dialog is exposed exactly while the dialog exists. */
     expect(trigger).not.toHaveAttribute('aria-controls');
+  });
+
+  it('positions the hidden completion inside the trigger, so it cannot escape a scrolling ancestor', () => {
+    render(withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>));
+
+    const trigger = screen.getByRole('button');
+
+    /*
+     * The hidden completion of the accessible name is `sr-only`, which is `position: absolute`. jsdom
+     * computes no layout, so what a case can observe is the class that gives it a containing block: a
+     * trigger without one lets that span resolve against the initial containing block, and a figure in
+     * a table that scrolls sideways would then widen the whole document instead of scrolling inside
+     * its own card (measured at a 375 px viewport on SCR-07).
+     */
+    expect(trigger.className.split(' ')).toContain('relative');
+    expect(screen.getByText(TEXT.openSuffix).className.split(' ')).toContain('sr-only');
   });
 
   it('opens a modal dialog named by its own heading from the keyboard alone', async () => {
@@ -851,6 +898,66 @@ describe('EvidenceDrawer', () => {
 
     await user.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('reserves the docked column while a drawer is docked, and gives it back when the last one closes', async () => {
+    const user = userEvent.setup();
+
+    /* The overlay reserves nothing: below the breakpoint the panel covers the viewport, so the page
+       underneath is narrowed for nobody. jsdom implements no media query, so a drawer rendered
+       without the stub above is the overlay, and it leaves the document as it found it. */
+    const overlay = render(
+      withQueryCache(<EvidenceDrawer evidenceRef={REFERENCE} onClose={() => undefined} />),
+    );
+    await screen.findByRole('dialog', { name: TEXT.title });
+
+    expect(document.documentElement).not.toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
+
+    overlay.unmount();
+
+    expect(document.documentElement).not.toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
+
+    /* From the breakpoint up the panel occupies a column of its own, which the page beside it
+       reserves through the attribute the stylesheet pads the body from. It is read on the document
+       element because the reservation has to reach a body the drawer does not render, and two
+       figures may be open at once: the docked drawer claims no modality, so nothing closes the first
+       when the second opens. */
+    stubDockedViewport();
+    render(
+      withQueryCache(
+        <>
+          <EvidenceRef ref={`${REFERENCE}-first`}>{FIGURE}</EvidenceRef>
+          <EvidenceRef ref={`${REFERENCE}-second`}>{FIGURE}</EvidenceRef>
+        </>,
+      ),
+    );
+
+    const triggers = screen.getAllByRole('button', { name: new RegExp(`${TEXT.openSuffix}$`) });
+    expect(triggers).toHaveLength(2);
+
+    await user.click(elementAt(triggers, 0));
+    expect(document.documentElement).toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
+
+    await user.click(elementAt(triggers, 1));
+    expect(screen.getAllByRole('dialog', { name: TEXT.title })).toHaveLength(2);
+    expect(document.documentElement).toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
+
+    /* The first drawer to close gives back its own hold and no more: the column stays reserved for
+       the drawer still open beside the page, which is what a ref count buys over a flag. */
+    await user.click(elementAt(screen.getAllByRole('button', { name: TEXT.closeLabel }), 0));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('dialog', { name: TEXT.title })).toHaveLength(1);
+    });
+    expect(document.documentElement).toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
+
+    /* The last drawer to close releases the column, and no reservation is left on the document. */
+    await user.click(elementAt(screen.getAllByRole('button', { name: TEXT.closeLabel }), 0));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: TEXT.title })).toBeNull();
+    });
+    expect(document.documentElement).not.toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
   });
 
   it.each(THEMES)('renders the same four sections under the %s theme', async (theme) => {

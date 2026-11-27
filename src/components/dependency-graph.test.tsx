@@ -15,9 +15,9 @@
  *
  * THE FIXTURE IS SYNTHETIC AND DELIBERATELY PLAIN. Its identifiers carry no domain prefix, because
  * rule P-6 keeps domain identifiers out of `src/components` — tests included — and the suite only
- * needs five nodes, five lanes and two pin tallies to exercise every branch: a lane whose downstream
- * node the payload does not hold, a node with several pin states, a node with one, a node with none,
- * and a customer whose product reach is empty.
+ * needs six nodes, six lanes and two pin tallies to exercise every branch: a lane whose downstream
+ * node the payload does not hold, a node with several pin states, a node with one, a node with none, a
+ * material beside the supplier it is bought from, and a customer whose product reach is empty.
  *
  * THE EVIDENCE DRAWER IS MOCKED. The real drawer reads the service through `useQuery`, so mounting it
  * would test the service provider rather than this lens. The mock records the reference it was handed,
@@ -72,6 +72,7 @@ const SUPPLIER_WITHOUT_PINS = makeNode('supplier-two', 'supplier', 'Second tier 
 ]);
 const PLANT = makeNode('plant-main', 'plant', 'Main assembly site', ['product-one', 'product-two']);
 const CUSTOMER = makeNode('customer-harbour', 'customer', 'Harbour works');
+const MATERIAL = makeNode('material-sheet', 'material', 'Rolled sheet', ['product-two']);
 
 /**
  * Three pin tallies: one node whose breakdown fits its box, one with a single pin, and one whose
@@ -87,12 +88,14 @@ const PINS_BY_NODE: Record<string, PinCounts> = {
 const TOPOLOGY: Topology = {
   origins: [ORIGIN],
   suppliers: [SUPPLIER_WITH_PINS, SUPPLIER_WITHOUT_PINS],
+  materials: [MATERIAL],
   plants: [PLANT],
   customers: [CUSTOMER],
   lanes: [
     { fromId: 'origin-north', toId: 'supplier-one' },
     { fromId: 'supplier-one', toId: 'plant-main' },
-    { fromId: 'supplier-two', toId: 'plant-main' },
+    { fromId: 'supplier-two', toId: 'material-sheet' },
+    { fromId: 'material-sheet', toId: 'plant-main' },
     { fromId: 'plant-main', toId: 'customer-harbour' },
     { fromId: 'plant-main', toId: 'node-not-in-the-payload' },
   ],
@@ -103,6 +106,7 @@ const TOPOLOGY: Topology = {
 const NODE_COUNT =
   TOPOLOGY.origins.length +
   TOPOLOGY.suppliers.length +
+  TOPOLOGY.materials.length +
   TOPOLOGY.plants.length +
   TOPOLOGY.customers.length;
 
@@ -274,6 +278,11 @@ describe('DependencyGraph lanes', () => {
     const emptyLanes = DEPENDENCY_GRAPH_LANES.filter((lane) => lane.kind === null);
 
     expect(screen.getAllByText(DEPENDENCY_GRAPH_TEXT.emptyLane)).toHaveLength(emptyLanes.length);
+    // The Materials lane is a family of the payload now, so its column holds the material node the
+    // payload carries instead of the empty note.
+    expect(
+      screen.getByRole('button', { name: /^Rolled sheet, Material node, / }),
+    ).toBeInTheDocument();
     // No node of the payload may be placed in a lane its family does not name.
     expect(screen.getAllByRole('button', { name: / node, / })).toHaveLength(NODE_COUNT);
   });
@@ -394,6 +403,7 @@ describe('DependencyGraph nodes', () => {
       topology: {
         origins: [],
         suppliers: [],
+        materials: [],
         plants: [],
         customers: [],
         lanes: [],

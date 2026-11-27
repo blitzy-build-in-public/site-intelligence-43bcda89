@@ -902,6 +902,10 @@ export const PAYLOADS = {
     members: {
       planned: true,
       resulting: true,
+      /* The record the two measurements belong to, so every reading the card prints opens the
+         evidence drawer on that record rather than on a reference a screen composed (AAP §0.2.1's
+         F12, rule P-6). */
+      evidenceRef: true,
     },
   } satisfies PayloadShape<ApprovalOutcome>,
 
@@ -1152,6 +1156,7 @@ export const PAYLOADS = {
     members: {
       plants: true,
       suppliers: true,
+      materials: true,
       origins: true,
       customers: true,
       lanes: true,

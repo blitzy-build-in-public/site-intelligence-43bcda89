@@ -67,28 +67,34 @@
  *   or vendor name is written here.
  * - B-1 and B-2: it contacts no host, addresses none and reads no configuration.
  *
- * OPEN ITEM — the as-of instant. AAP 0.12.1 fixes the signature as `computeExceptionRows(records,
- * scope)`, which carries no clock, while `ExceptionRow` declares `ageHours` and `freshness`. Both are
- * therefore carried inside the record bundle the caller passes as `records`: `asOf` is the
- * demonstration clock and `freshness` is the source state the adapter attaches to the read, exactly
- * as `src/types/screen-dto.ts` describes it. Neither is read from a global.
+ * The as-of instant. AAP 0.12.1 fixes the signature as `computeExceptionRows(records, scope)`, which
+ * carries no clock, while `ExceptionRow` declares `ageHours` and `freshness`, so both are carried
+ * inside the record bundle the caller passes as `records`: `asOf` is the demonstration clock and
+ * `freshness` is the source state the adapter attaches to the read, exactly as
+ * `src/types/screen-dto.ts` describes it. Neither is read from a global.
  *
- * OPEN ITEM — the by-plant grouping. AAP 0.8's row for this module also names "the by-plant
- * grouping", while AAP 0.12.1 gives the by-plant rows to `overview.ts` as `Overview.byPlant`, and
- * `ExceptionRow` has no grouped member. No field is added here and no second grouping is computed:
+ * The by-plant grouping. AAP 0.8's row for this module also names "the by-plant grouping", while AAP
+ * 0.12.1 gives the by-plant rows to `overview.ts` as `Overview.byPlant`, and `ExceptionRow` has no
+ * grouped member, so no field is added here and no second grouping is computed:
  * `src/domain/aggregation/overview.ts` groups the very rows this module returns, so the grouping has
  * one home beside the tiles that carry it.
  *
- * OPEN ITEM — the members a row does not carry. `ExceptionRow` has no `alsoAffectsPlantIds`, no
- * `confidence`, no `missingInputs`, no `whatChanged` and no evidence reference, so a consumer reads
- * those from the exception record through the service rather than from the row. Adding them here
- * would put record content on a projection of twelve fixed members (AAP 0.12.2).
+ * The members a row does not carry. `ExceptionRow` has no `alsoAffectsPlantIds`, no `confidence`, no
+ * `missingInputs`, no `whatChanged` and no evidence reference, so a consumer reads those from the
+ * exception record through the service rather than from the row: adding them here would put record
+ * content on a projection of twelve fixed members (AAP 0.12.2).
  *
- * OPEN ITEM — an unpriceable line. A line whose product has no record in the bundle cannot be valued,
- * and the aggregate refuses rather than reporting a figure it could not compute: `revenueAtRisk`
- * throws an `Error` naming the exception and the product. Every other input is normalised instead of
- * refused (see `resolveAffectedLines`), because a unit count is record content that may legitimately
- * read as none while a missing price is a caller that did not pass the records the rule requires.
+ * AN UNPRICEABLE LINE IS A TYPED REFUSAL. A line whose product has no record in the bundle cannot be
+ * valued, and the aggregate refuses rather than reporting a figure it could not compute. The refusal is
+ * `UnpriceableLineError`, which carries the exception and the product so the caller learns which record
+ * it did not pass, and the mock adapter reports it as a `'validation'` `Problem` naming that cause and
+ * the call's trace identifier (AAP 0.2.2, AAP 0.12.3). It is raised rather than returned because
+ * AAP 0.12.1 fixes `revenueAtRisk` to answer a `Money` and `computeExceptionRows` to answer
+ * `ExceptionRow[]`, and AAP 0.12.2 fixes `ExceptionRow` with a required `revenueAtRiskEur` and no
+ * failure member, so neither result has an honest place to carry an outcome. Every other input is
+ * normalised instead of refused (see `resolveAffectedLines`), because a unit count is record content
+ * that may legitimately read as none while a missing price is a caller that did not pass the records
+ * the rule requires.
  */
 
 import type {
@@ -495,33 +501,64 @@ export function resolveAffectedLines(
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Reads the unit price of one product from the records the aggregate was handed.
+ * The refusal a valuation raises when an affected line names a product the record bundle does not
+ * carry.
  *
- * A product the view does not carry is a caller error rather than a missing record: AAP 0.8 values a
- * line at the product's price, and an aggregate that substituted a price of its own would report a
- * figure rule P-6 forbids it to compute. The error names the exception and the product so the caller can
- * see which record it did not pass.
+ * A plain `Error` would leave the adapter nothing to classify, so the refusal would cross the service
+ * port untyped. This class is the aggregate's own name for that refusal: it carries the two
+ * identifiers a reader needs — the exception whose line named the product and the product itself — and
+ * the mock adapter reports it once, at the boundary, as a `'validation'` `Problem` carrying this
+ * message and the call's trace identifier (AAP 0.2.2, AAP 0.12.3). A caller can therefore narrow it
+ * with `instanceof` and read which record it did not pass, and nothing reaches a screen as a bare
+ * exception.
+ *
+ * @remarks
+ * It is the module's only refusal. Every other input is normalised into a reading, as
+ * `resolveAffectedLines` documents, because a record value absent from the arithmetic (`usableUnits`)
+ * is not the same thing as a record the caller did not hand in.
+ */
+export class UnpriceableLineError extends Error {
+  /** The exception whose affected line names the unpriceable product. */
+  readonly exceptionId: ExceptionId;
+
+  /** The product the record bundle carries no unit price for. */
+  readonly productId: ProductId;
+
+  /**
+   * @param exceptionId The exception whose affected line names the product.
+   * @param productId The product the record bundle carries no unit price for.
+   */
+  constructor(exceptionId: ExceptionId, productId: ProductId) {
+    super(
+      `No product record for ${productId}, which an affected line of ${exceptionId} names, so its revenue cannot be computed.`,
+    );
+    this.name = 'UnpriceableLineError';
+    this.exceptionId = exceptionId;
+    this.productId = productId;
+  }
+}
+
+/**
+ * Reads the unit price of one product from the records the aggregate was handed, or answers `null`.
+ *
+ * A product the view does not carry cannot be priced: AAP 0.8 values a line at the product's price, and
+ * an aggregate that substituted a price of its own would report a figure rule P-6 forbids it to
+ * compute. The decision this function answers is therefore "no price" — `null` — rather than an
+ * exception, and `sumRevenue` turns that decision into the typed refusal naming the exception and the
+ * product, so the refusal is raised at the one place that knows the total cannot be completed.
  *
  * @param products The unit prices the baseline view carries.
- * @param exceptionId The exception whose line names the product, for the error's message.
  * @param productId The product to price.
- * @returns That product's unit price in euro.
- * @throws Error when the prices carry no product with that identifier.
+ * @returns That product's unit price in euro, or `null` when the prices carry no such product.
  */
-function priceOf(
-  products: readonly PricedProduct[],
-  exceptionId: ExceptionId,
-  productId: ProductId,
-): Money {
+function priceOf(products: readonly PricedProduct[], productId: ProductId): Money | null {
   for (const product of products) {
     if (product.id === productId) {
       return product.priceEur;
     }
   }
 
-  throw new Error(
-    `No product record for ${productId}, which an affected line of ${exceptionId} names, so its revenue cannot be computed.`,
-  );
+  return null;
 }
 
 /**
@@ -532,10 +569,12 @@ function priceOf(
  * the one rounding helper the codebase has.
  *
  * @param products The unit prices the baseline view carries, read for the product each line names.
- * @param exceptionId The exception the lines belong to, for the error a missing price raises.
+ * @param exceptionId The exception the lines belong to, which the refusal names.
  * @param lines The affected lines to value.
  * @returns The revenue at risk in euro, at most two decimals.
- * @throws Error when a line names a product the prices do not carry.
+ * @throws UnpriceableLineError when a line names a product the prices do not carry, since the total
+ *   cannot be completed without inventing that line's price. The refusal carries the exception and the
+ *   product, and the adapter reports it as a `'validation'` `Problem`.
  */
 function sumRevenue(
   products: readonly PricedProduct[],
@@ -545,7 +584,13 @@ function sumRevenue(
   let total = 0;
 
   for (const line of lines) {
-    total += line.unitsAtRisk * priceOf(products, exceptionId, line.productId);
+    const price = priceOf(products, line.productId);
+
+    if (price === null) {
+      throw new UnpriceableLineError(exceptionId, line.productId);
+    }
+
+    total += line.unitsAtRisk * price;
   }
 
   return halfUp2(total);
@@ -571,7 +616,9 @@ function sumRevenue(
  *   supplied, and the records the lines are read from. This is the second argument the AAP names; build
  *   it with `baselineViewFor`.
  * @returns The revenue at risk in euro, at most two decimals.
- * @throws Error when an affected line names a product the prices do not carry.
+ * @throws UnpriceableLineError when an affected line names a product the prices do not carry. The
+ *   refusal carries the exception and the product, and the adapter reports it as a `'validation'`
+ *   `Problem` naming that cause, so nothing untyped leaves the aggregate (AAP 0.2.2).
  */
 export function revenueAtRisk(
   exception: OperationalException,
@@ -611,18 +658,25 @@ function isInScope(exception: OperationalException, scope: Scope): boolean {
 }
 
 /**
- * Says whether the product selection admits an exception's products.
+ * Says whether the product selection admits the products a record's affected lines name.
  *
- * An empty `products` member is the "All products" selection, which admits every row — that is the
- * reading `resolveScope` states for the product member. A named selection admits a row that names at
- * least one of the selected products, and excludes a row that names none of them, because a queue
- * filtered to a product must not show a row that does not concern it.
+ * Exported because product admission is one rule with one owner. The exception queue
+ * (`computeExceptionRows` below) and the overview (`./overview`) narrow by the same pair of predicates,
+ * which `./overview` imports rather than restating, so a narrowed queue and a narrowed overview
+ * describe the same population (AAP 0.2.1).
  *
- * @param productIds The products the row names.
+ * An empty `products` member is the "All products" selection, which admits every record — that is the
+ * reading `resolveScope` states for the product member. A named selection admits a record that names at
+ * least one of the selected products, and excludes a record that names none of them, because a queue
+ * filtered to a product must not show a record that does not concern it, and an overview filtered to
+ * that product must not count one either.
+ *
+ * @param productIds The products the record names: an exception's affected lines, as `productIdsOf`
+ *   lists them, or a material record's own `productIds` when the overview measures readiness.
  * @param scope The resolved scope, whose products member is the product selection.
- * @returns `true` when no product is selected, or when the row names one of the selected products.
+ * @returns `true` when no product is selected, or when the record names one of the selected products.
  */
-function admitsProducts(productIds: readonly ProductId[], scope: Scope): boolean {
+export function admitsProducts(productIds: readonly ProductId[], scope: Scope): boolean {
   if (scope.products.length === 0) {
     return true;
   }
@@ -631,16 +685,20 @@ function admitsProducts(productIds: readonly ProductId[], scope: Scope): boolean
 }
 
 /**
- * Lists the distinct products a set of affected lines names, in the order the lines state them.
+ * Lists the distinct products the affected lines of one record name, in the order the lines state them.
  *
- * The row's `productIds` and the product filter that admits the row are read from the same list, so a
- * row can never be admitted for one product and shown with another. First-appearance order is what
- * makes the list a function of the record rather than of a sorting accident.
+ * The list is what the product selection is applied to — by the queue's `computeExceptionRows` and by
+ * the overview, which imports this function and `admitsProducts` — so the identifiers a caller filters
+ * on and the lines a record's revenue is computed from are the same records: a record can never be
+ * admitted for one product and shown with another. One statement of the pair for both modules is what
+ * keeps a narrowed queue and a narrowed overview describing the same population (AAP 0.2.1).
+ * First-appearance order is what makes the list a function of the record rather than of a sorting
+ * accident.
  *
- * @param lines The affected lines the row carries.
+ * @param lines The affected lines the record carries, as `resolveAffectedLines` derives them.
  * @returns The distinct product identifiers the lines name, in first-appearance order.
  */
-function productIdsOf(lines: readonly AffectedLine[]): ProductId[] {
+export function productIdsOf(lines: readonly AffectedLine[]): ProductId[] {
   const productIds: ProductId[] = [];
 
   for (const line of lines) {
@@ -748,8 +806,10 @@ function compareIdentifiers(left: ExceptionId, right: ExceptionId): number {
  * @param scope The resolved scope, from `./scope`'s `resolveScope`. Its `plants` member empty means
  *   nothing is in scope.
  * @returns The queue rows, one per in-scope exception, in ascending identifier order.
- * @throws Error when an in-scope exception names a product the bundle does not carry, since its
- *   revenue could not be computed.
+ * @throws UnpriceableLineError when an in-scope exception names a product the bundle does not carry,
+ *   since its revenue could not be computed. The refusal names the exception and the product, and the
+ *   adapter reports it as a `'validation'` `Problem`, so the read is refused rather than a row carrying
+ *   a figure nothing computed.
  */
 export function computeExceptionRows(
   records: ExceptionAggregateInput,

@@ -115,6 +115,8 @@ vi.mock('../services/service-provider', () => {
     useService: () => service,
     useDemonstration: () => null,
     useActiveUser: () => null,
+    /* The identity cache key the role switcher writes into; the shell renders that control. */
+    ACTIVE_USER_QUERY_KEY: ['getActiveUser'],
   };
 });
 

@@ -10,7 +10,9 @@
  * computation taken at call time. That split is what makes rule P-6 structural rather than a habit.
  * The words live where a record is authored; the figures are computed where the arithmetic is
  * testable; neither module can slide into the other's job, and nothing here holds a sentence, a
- * currency amount or a record identifier of its own.
+ * currency amount or a record identifier of its own. The one diagnostic an unscripted answer lists
+ * as missing is the seed's record text, re-exported through `./seed-loader.ts`, so it is quoted here
+ * rather than authored here.
  *
  * WHAT A PLACEHOLDER RESOLVES TO, AND FROM WHERE. Each token names the value it needs, and each is
  * computed from the records the seeded question itself cites:
@@ -27,6 +29,13 @@
  *   read: that exception record's own text and its own list, joined as the records write lists;
  * - the catalogue entry the model selector offers, and the label that marks the workspace's
  *   simulated figures: the catalogue's default entry and the demonstration-wide label.
+ *
+ * A BODY THE ACTING PERSONA MAY NOT READ NEVER REACHES A PLACEHOLDER — AAP 0.2.1, AAP 0.12.3. The
+ * document-terms resolution above quotes a record's body, and one seeded question's template carries
+ * it, so the assistant's handler refuses a question citing a customer-confidential document the acting
+ * role cannot open before it calls a builder at all: every resolution below runs only for a question
+ * the policy allowed and the body redaction released, and the refusal that stops the others quotes no
+ * part of the body it withholds (`requireCitedDocumentBodies` in `./handlers/assistant.ts`).
  *
  * CITATIONS, AND WHY AN ANSWER THAT CANNOT BE CITED IS WITHHELD. Each cited record becomes a
  * `Citation` carrying the reference, the source it came from and that source's current freshness,
@@ -50,18 +59,21 @@
  * same answer words for words (AAP 0.18.2). The only mutable values in the module are the two local
  * solver measurements one fill memoises and the query list it fills.
  *
- * OPEN ITEM — the currency marker of an amount an answer states. The sentence states the amount with
- * its grouping and at most two decimals but without a currency marker, because the marker is
- * presentation that `src/components/mono-value.tsx` owns (the note on `Money` in
- * `src/types/primitives.ts` says so explicitly) and rule P-6 admits no currency literal in a service
- * module. A component renders an amount with its code; a sentence composed before rendering carries
- * the grouped figure. A record's own body that states an amount together with its code is quoted as it
- * stands, because that text is the record's content rather than a figure composed here.
+ * AN AMOUNT CARRIES NO CURRENCY MARKER. The sentence states the amount with its grouping and at most
+ * two decimals but without a currency marker, because the marker is presentation that
+ * `src/components/mono-value.tsx` owns (the note on `Money` in `src/types/primitives.ts` says so
+ * explicitly) and rule P-6 admits no currency literal in a service module. A component renders an
+ * amount with its code; a sentence composed before rendering carries the grouped figure. A record's own
+ * body that states an amount together with its code is quoted as it stands, because that text is the
+ * record's content rather than a figure composed here.
  *
- * OPEN ITEM — the wording of the unscripted answer's `missing` entry. Contracts §10 requires the
- * field to name what the answer lacked, and no seed record supplies that diagnostic, because the
- * notice itself is the record. The entry is therefore authored here and states the one thing the
- * demonstration is missing: a seeded question covering the one asked.
+ * THE UNSCRIPTED DIAGNOSTIC IS THE SEED'S TEXT, REACHED THROUGH THE LOADER — contracts §10, AAP 0.8.
+ * Contracts §10 requires an answer's `missing` list to name what the answer lacked, and that
+ * diagnostic is assistant text rather than a computed value, so `src/seed/assistant-questions.ts`
+ * authors it beside the notice it belongs to and this module imports it from the sibling
+ * `./seed-loader.ts` exactly as it imports the notice (rule P-2). This module therefore still holds no
+ * sentence of its own: the one line an unscripted answer lists as missing is a record's text, quoted
+ * as the seed writes it.
  *
  * Rules this module is built to satisfy:
  * - P-6: no figure, currency amount, identifier or expected result is typed below. Every number comes
@@ -103,7 +115,7 @@ import type {
   SolverResult,
   SourceId,
 } from '../../types';
-import { UNSCRIPTED_NOTICE } from './seed-loader';
+import { UNSCRIPTED_MISSING_INPUT, UNSCRIPTED_NOTICE } from './seed-loader';
 import type {
   AssistantQuestion,
   AssistantQuestionRecord,
@@ -172,8 +184,8 @@ const SOURCE_BY_RECORD_KIND: Readonly<Record<AssistantQuestionRecordKind, Source
  * rendering 2 of the four the single money-format record in `src/components/mono-value.tsx` states,
  * and that record holds why an answer's amounts are written this way. The formatter renders a value
  * and never rounds one — `halfUp2` fixed the scale, and rounding belongs to
- * `src/domain/solver/rounding.ts` alone (AAP 0.8) — and the marker is not part of the text (see the
- * OPEN ITEM on the marker in the module header).
+ * `src/domain/solver/rounding.ts` alone (AAP 0.8) — and the marker is not part of the rendered text,
+ * because `src/components/mono-value.tsx` owns the currency marker of every amount the interface shows.
  */
 const AMOUNT_PROSE = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
@@ -208,17 +220,6 @@ const PLACEHOLDER_TOKENS = {
   modelLabel: 'modellabel',
   simulationLabel: 'simulationlabel',
 } as const;
-
-/**
- * What the unscripted answer's `missing` list names.
- *
- * Contracts §10 requires that list to state which inputs the answer lacked, and the fixed notice
- * itself is a seed record, so the diagnostic cannot be a record's text. It states the one input the
- * demonstration is missing for a question outside its script: a seeded question that covers it. The
- * string is a diagnostic line the assistant's expander lists, never a second answer sentence.
- */
-const UNSCRIPTED_MISSING_INPUT =
-  'A seeded question covering the one asked, which the demonstration does not hold.';
 
 /* ---------------------------------------------------------------------------------------------
  * B. Looking a cited reference up in the record set — rule P-2
@@ -503,7 +504,7 @@ function renderCount(value: number): string {
 
 /**
  * Renders one amount for a sentence, with the grouping and at most two decimals the prose convention
- * uses and without a currency marker (see the OPEN ITEM on the marker in the module header).
+ * uses and without a currency marker, which `src/components/mono-value.tsx` owns.
  *
  * One prose formatter serves both of the application's narrative surfaces: an answer and the
  * comparison screen's trade-off sentence are the same kind of prose, so `handlers/scenarios.ts` fills
@@ -830,7 +831,8 @@ export function answerQuestion(ctx: HandlerContext, questionId: string): Answer 
  * panel (rule P-1). It cites no record, because it answers nothing from the records; it runs no query,
  * because it read none; and its `missing` list names the one input the demonstration would need to
  * answer at all, which is what makes `partial` true — the type's own invariant, since that member is
- * true exactly when the list is not empty.
+ * true exactly when the list is not empty. Both strings are the seed's own text, re-exported through
+ * `./seed-loader.ts`, so this function composes no sentence of its own.
  *
  * The model it names is the catalogue's default entry, the one the selector offers: no model composed
  * this text, and the identifier is the record's own rather than one typed here.

@@ -1,7 +1,7 @@
 /**
  * The outbound ledger of SCR-07: one row per endpoint the deployment declares, printing that
  * endpoint's declared purpose and state beside the last attempt on record and the two counts the
- * audit trail supports over the trailing thirty days.
+ * audit trail supports over the trailing `LEDGER_WINDOW_DAYS` days.
  *
  * Fixing inputs:
  * - AAP 0.12.4's SCR-07 row fixes the columns and their order — endpoint, purpose, state, last
@@ -24,26 +24,29 @@
  * neither half is presented as the other.
  *
  * TRANSPORT, NOT COMPUTATION (rule P-6). Every cell value comes from the row it is handed. The column
- * headers and the fallback sentence are the only text this module authors, and none of them carries a
- * figure. No endpoint, count, instant or identifier is typed here, so the opaque hosts a reader sees
- * are record content that arrived through the service.
+ * headers and the fallback sentence are the only text this module authors, and the one argument among
+ * them — the length of the window both counts cover — is read from `LEDGER_WINDOW_DAYS`, the constant
+ * the ledger aggregate measures its window with, rather than typed. No endpoint, count, instant or
+ * identifier is typed here, so the opaque hosts a reader sees are record content that arrived through
+ * the service.
  *
- * REPORTED DIVERGENCE — the two count columns do not go through `MonoValue`. Its `MonoValueKind` is
+ * WHY THE COUNT COLUMNS DO NOT GO THROUGH `MonoValue`. Its `MonoValueKind` is
  * `money | id | timestamp | hash`, with no integer member, and that union belongs to
- * `src/components/mono-value.tsx`. Widening it from a feature file would give the codebase a second
- * formatting vocabulary beside the one AAP 0.8 makes the only presentation owner, so each count is
- * printed as plain numeric text in the mono face with tabular numerals — the presentation the token
- * layer fixes for figures that align down a column — and the union stays as it is.
+ * `src/components/mono-value.tsx`; widening it from a feature file would give the codebase a second
+ * formatting vocabulary beside the one AAP 0.8 makes the only presentation owner. Each count is
+ * therefore plain numeric text in the mono face with tabular numerals — the presentation the token layer
+ * fixes for figures that align down a column — and the union stays as it is.
  *
- * REPORTED GAP — `LedgerRow` carries no evidence reference (contracts §3 fixes its six members), so a
- * count here cannot open the evidence drawer the way a tile's figure does. The row's shape is not
- * widened from a screen component; the counts are associated with the region's visible label instead.
- * Should the contracts ever give the row a reference, that cell becomes an `EvidenceRef` and nothing
- * else in this file changes.
+ * THE COUNTS OPEN THEIR EVIDENCE — AAP 0.2.1 F12, principle PR-6. `LedgerRow` carries no evidence
+ * reference (contracts §3 fixes its six members), so the row's own endpoint is the reference: the
+ * declared configuration holds it once per row, it is the row key, and `getEvidence` resolves it to the
+ * aggregate that produced both counts. `EvidenceRef` wraps each count in the control that opens that
+ * payload, so the figure a reader doubts is the figure they can open, and this component still counts
+ * nothing of its own.
  *
- * REPORTED DIVERGENCE — `StatusMeaning` is imported from `src/components/status-indicator.tsx`, the
- * module that declares and exports it. No module in `src/types` owns that union, so this file takes the
- * same route `src/components/freshness-pill.tsx` takes to the same vocabulary.
+ * WHY `StatusMeaning` COMES FROM THE COMPONENT LAYER. `src/components/status-indicator.tsx` declares and
+ * exports that union, no module in `src/types` owns it, and this file takes the same route
+ * `src/components/freshness-pill.tsx` takes to the same vocabulary.
  *
  * Rules this module is built to satisfy:
  * - B-1: it renders from props only. An endpoint is record text printed through `MonoValue`; it is
@@ -69,9 +72,11 @@ import type { ReactElement } from 'react';
 import { Card } from '../../components/card';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
+import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
+import { LEDGER_WINDOW_DAYS } from '../../types';
 import type { LedgerRow, SimLabel } from '../../types';
 
 /** Props of {@link OutboundLedger}. */
@@ -171,6 +176,20 @@ export function ledgerStateMeaning(state: LedgerRow['state']): StatusMeaning {
 const DEFAULT_EMPTY_MESSAGE = 'The ledger records no outbound endpoint for this deployment.';
 
 /**
+ * The two count columns' headers, each naming the window the figure beneath it covers.
+ *
+ * The length comes from `LEDGER_WINDOW_DAYS`, the constant the ledger aggregate measures its window
+ * with, so a column states the window the aggregate counted rather than a length this component chose
+ * (rule P-6). A header reading only `Allowed` left the window to the section heading, which a reader
+ * arriving at the column by keyboard or by table navigation may never pass, and it is the window that
+ * makes the count mean anything.
+ */
+const ALLOWED_HEADER = `Allowed, ${LEDGER_WINDOW_DAYS} days`;
+
+/** The blocked count's header, naming the same window for the same reason. */
+const BLOCKED_HEADER = `Blocked, ${LEDGER_WINDOW_DAYS} days`;
+
+/**
  * What the last-attempt cell shows for an endpoint the trail records no attempt against.
  *
  * `LedgerRow.lastAttempt` is `null` for such a row, and a dash states that absence. A substituted date
@@ -213,18 +232,31 @@ const MARKER_CLASSES = 'text-text-secondary';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One count cell: the aggregate's own number, tied to the region's visible calculation label.
+ * One count cell: the aggregate's own number, opening the evidence of the endpoint it counts for, and
+ * tied to the region's visible calculation label.
  *
- * `aria-describedby` is the programmatic half of the association the label row makes visually, so a
+ * Both halves matter and neither replaces the other. `EvidenceRef` makes the computation behind the
+ * figure reachable — the reference is the row's own endpoint, which is what `getEvidence` resolves to
+ * the ledger aggregate that produced the number (AAP 0.2.1 F12, principle PR-6) — while
+ * `aria-describedby` keeps the programmatic half of the association the label row makes visually, so a
  * reader who arrives at a figure without having read the row above the table still learns that the
  * number is a computed figure rather than a declared one (rule P-1). The count is printed as it
- * arrived: it is already a whole number counted by the aggregate, and nothing is formatted onto it.
+ * arrived: it is already a whole number counted by the aggregate, and nothing is formatted onto it
+ * here.
+ *
+ * @param count - The aggregate's count for this column of this row, printed verbatim.
+ * @param endpoint - The row's declared endpoint, which is the reference the drawer resolves.
+ * @param simLabelId - The id of the region's visible calculation `SimLabel`, so the figure is
+ *   described by it.
+ * @returns The count cell, as the drawer control that opens its evidence.
  */
-function countCell(count: number, simLabelId: string): ReactElement {
+function countCell(count: number, endpoint: string, simLabelId: string): ReactElement {
   return (
-    <span className={COUNT_CLASSES} aria-describedby={simLabelId}>
-      {count}
-    </span>
+    <EvidenceRef ref={endpoint}>
+      <span className={COUNT_CLASSES} aria-describedby={simLabelId}>
+        {count}
+      </span>
+    </EvidenceRef>
   );
 }
 
@@ -353,15 +385,15 @@ export function OutboundLedger({
     },
     {
       id: 'allowed',
-      header: 'Allowed',
+      header: ALLOWED_HEADER,
       align: 'end',
-      render: (row) => countCell(row.allowed, simLabelId),
+      render: (row) => countCell(row.allowed, row.endpoint, simLabelId),
     },
     {
       id: 'blocked',
-      header: 'Blocked',
+      header: BLOCKED_HEADER,
       align: 'end',
-      render: (row) => countCell(row.blocked, simLabelId),
+      render: (row) => countCell(row.blocked, row.endpoint, simLabelId),
     },
   ];
 

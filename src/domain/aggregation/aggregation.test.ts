@@ -111,12 +111,13 @@ import {
   computeExceptionRows,
   resolveAffectedLines,
   revenueAtRisk,
+  UnpriceableLineError,
   type BaselineSolve,
   type ExceptionAggregateInput,
   type OrderBookEntry,
   type PricedProduct,
 } from './exceptions';
-import { computeLedger } from './ledger';
+import { computeLedger, UnlocatableClockError } from './ledger';
 import {
   computeOverview,
   type ActivityRecord,
@@ -940,10 +941,21 @@ describe('revenueAtRisk', () => {
 
   it('refuses rather than inventing a price for a product the records do not carry', () => {
     const bundleWithoutProductA: ExceptionAggregateInput = { ...RECORD_BUNDLE, products: [PRODUCT_B] };
+    const baseline = baselineViewFor(bundleWithoutProductA, EXCEPTION_FIRST);
+    let refusal: UnpriceableLineError | null = null;
 
-    expect(() =>
-      revenueAtRisk(EXCEPTION_FIRST, baselineViewFor(bundleWithoutProductA, EXCEPTION_FIRST)),
-    ).toThrow(PRODUCT_A.id);
+    try {
+      revenueAtRisk(EXCEPTION_FIRST, baseline);
+    } catch (error) {
+      if (!(error instanceof UnpriceableLineError)) {
+        throw error;
+      }
+      refusal = error;
+    }
+
+    expect(refusal).toBeInstanceOf(UnpriceableLineError);
+    expect(refusal?.exceptionId).toBe(EXCEPTION_FIRST.id);
+    expect(refusal?.productId).toBe(PRODUCT_A.id);
   });
 });
 
@@ -1666,10 +1678,52 @@ describe('computeLedger', () => {
     expect(blockedEndpoint.blocked).toBe(0);
   });
 
-  it('refuses a clock that is not an ISO 8601 instant, since no window follows from it', () => {
-    expect(() => computeLedger(LEDGER_EVENTS, DECLARED_LEDGER, 'not-an-instant')).toThrow(
-      RangeError,
+  it.each([
+    '2026-11-31T09:00:00+01:00',
+    '2026-02-29T09:00:00+01:00',
+    '2026-12-02T24:00:00+01:00',
+    '2026-12-02T09:00:00+99:99',
+  ])('counts neither column, and records no attempt, for an event recorded at %s', (timestamp) => {
+    // The day an event falls on comes from the solver's one civil-date implementation, so a value that
+    // names no day it can place — 31 November, 29 February of a common year, an hour past the last, an
+    // offset no zone announces — is assigned to no window and ordered against no instant. The event is
+    // therefore invisible to both columns rather than mis-dated into one.
+    const unplaceable = [
+      probeEvent({
+        sequence: 9,
+        id: 'AUD-PROBE-UNPLACEABLE',
+        timestamp,
+        objectRef: ENDPOINT_BLOCKED,
+        result: 'blocked',
+      }),
+    ];
+
+    const blockedEndpoint = ledgerRowOf(
+      computeLedger(unplaceable, DECLARED_LEDGER, DEMO_CLOCK),
+      ENDPOINT_BLOCKED,
     );
+
+    expect(blockedEndpoint.allowed).toBe(0);
+    expect(blockedEndpoint.blocked).toBe(0);
+    expect(blockedEndpoint.lastAttempt).toBeNull();
+  });
+
+  it('refuses a clock that is not an ISO 8601 instant, since no window follows from it', () => {
+    const malformedClock = 'not-an-instant';
+    let refusal: UnlocatableClockError | null = null;
+
+    try {
+      computeLedger(LEDGER_EVENTS, DECLARED_LEDGER, malformedClock);
+    } catch (error) {
+      if (!(error instanceof UnlocatableClockError)) {
+        throw error;
+      }
+      refusal = error;
+    }
+
+    expect(refusal).toBeInstanceOf(UnlocatableClockError);
+    expect(refusal?.clock).toBe(malformedClock);
+    expect(refusal?.message).toContain(malformedClock);
   });
 });
 

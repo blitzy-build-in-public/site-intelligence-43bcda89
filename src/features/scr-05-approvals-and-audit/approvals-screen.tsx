@@ -38,13 +38,14 @@
  * page-level badge does not stand in for a column's own label. The label is read from `SIM_LABELS`
  * rather than retyped, so a reworded label reaches every surface at once.
  *
- * THE SEVEN STATES — AAP 0.12.4, `platform-specification.md` §8. {@link deriveScreenState} is the one
- * place this screen decides which state its records are in, from the query's own settled facts: a
- * permission refusal is `forbidden`, a validation refusal is `conflict`, any other rejection and the
- * `unavailable` report are `offline`, a pending read is `loading`, an aged order book is `stale`, an
- * incomplete one or a record missing a member the inbox shows is `partial`, and a resolved empty list
- * is `empty`. `StateBoundary` owns what each state looks like, so this file composes no banner, no
- * skeleton and no denial card of its own.
+ * THE SEVEN STATES — AAP 0.12.4, `platform-specification.md` §8. `src/components/screen-state.ts` is
+ * the one place any screen decides which state its records are in, and this screen hands it the
+ * query's own settled facts: a permission refusal is `forbidden`, a validation refusal is `conflict`,
+ * an identifier no record answers is `empty`, a `policy` or `simulated-write-back` refusal and any
+ * rejection that is not the port's `Problem` are `offline`, a pending read is `loading`, an aged order
+ * book is `stale`, an incomplete one or a record missing a member the inbox shows is `partial`, and a
+ * resolved empty list is `empty`. `StateBoundary` owns what each state looks like, so this file
+ * composes no banner, no skeleton and no denial card of its own.
  *
  * Rules this file is built to satisfy:
  * - P-1: the two computed columns carry `Simulated calculation` from `SIM_LABELS`; nothing presents a
@@ -71,29 +72,18 @@
  *   colour together, and every colour is a role token of `src/theme/tokens.css`, so both themes keep
  *   the contrast the specification measured.
  *
- * OPEN ITEM — no colocated test. AAP 0.13.1 names `approval-detail-screen.test.tsx`,
- * `write-back-tracker.test.tsx` and `audit-screen.test.tsx` for this folder and does not name an
- * `approvals-screen.test.tsx`, so this file adds none: its behaviour is exercised end to end by
- * `e2e/s1-approvals-audit.spec.ts` (T-07 and T-09), which reaches the inbox through the navigation and
- * opens a row, and by the detail screen's own suite once a row has been opened. Recorded here rather
- * than resolved by adding a file the plan does not name.
+ * THE RETURN TYPE IS `ReactElement`. The plan writes the signature as `JSX.Element`; this file states
+ * `ReactElement`, the form the sibling audit screen and the shared components use, because the two are
+ * the same type under this repository's `react-jsx` configuration.
  *
- * OPEN ITEM — the return type. The plan writes the signature as `JSX.Element`; this file states
- * `ReactElement`, the form every shared component and the sibling audit screen of this folder use,
- * because the two are the same type under this repository's `react-jsx` configuration and one spelling
- * in a folder is worth more than two.
+ * THE FRESHNESS COLUMN NAMES ONE SOURCE. `Approval` carries no freshness member of its own (contracts §3
+ * gives it none), so the column reports the entry for `APPROVAL_GATE_SOURCE` — the one source that gates
+ * `requestApproval` and `decideApproval` — and the cell, the stale banner and the service's own refusal
+ * describe one source (AAP 0.2.1). `FreshnessPill` is not composed because its prop is `SourceHealth`,
+ * the catalogue shape carrying a printable `label`, while `Meta.freshness` carries `Freshness`, so the
+ * cell composes `StatusIndicator` and `MonoValue`, the primitives that pill itself uses.
  *
- * OPEN ITEM — the freshness column. `Approval` carries no freshness member of its own: contracts §3
- * does not give it one, and the freshness a reader needs is the state of the source the figure was
- * read from, which `Result.meta` reports for the call (AAP 0.2.1). The column therefore reports the
- * entry for `APPROVAL_GATE_SOURCE` — the one source that gates `requestApproval` and `decideApproval`
- * — so the cell, the stale banner and the service's own refusal all describe one source rather than
- * three that agree only until the gate moves. `FreshnessPill` is not composed here because its prop is
- * `SourceHealth`, the catalogue shape that carries a printable `label`, while `Meta.freshness` carries
- * `Freshness`; the cell composes the same primitives the pill does (`StatusIndicator` for the meaning
- * and its state token, `MonoValue` for the instant) instead of a second indicator or a second mapping.
- *
- * OPEN ITEM — refreshing after a decision. This screen's query re-reads on mount and relies on the
+ * REFRESHING AFTER A DECISION. This screen's query re-reads on mount and relies on the
  * invalidation the detail screen performs after a decision (AAP 0.6.2): the detail screen invalidates
  * the reads its decision moved, which matches every cached `listApprovals` entry by key prefix.
  * Window-focus refetching is off for the whole application by `src/app/providers.tsx`'s deliberate
@@ -112,8 +102,8 @@ import { EvidenceRef } from '../../components/evidence-drawer';
 import { freshnessMeaning } from '../../components/freshness-pill';
 import { MonoValue } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
+import { deriveScreenState, forbiddenOf, staleSourceOf } from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { useService } from '../../services/service-provider';
@@ -123,11 +113,8 @@ import type {
   ApprovalStatus,
   Freshness,
   ListQuery,
-  Problem,
-  ProblemType,
   Result,
   Scope,
-  ScreenState,
   SimLabel,
 } from '../../types';
 
@@ -375,78 +362,6 @@ function orderRows(rows: readonly Approval[], sort: TableSort | null): readonly 
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The failure a read can produce — platform-contracts.md §2, AAP 0.12.3
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The causes a `Problem` names, quoted as `ProblemType` spells them.
- *
- * Declared beside the guard rather than imported as a value, because `ProblemType` is a type in
- * `src/types/service.ts`: this list is typed against that union, so a cause the union gains or loses
- * fails this file's compilation instead of letting the guard accept a failure it does not describe.
- */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const satisfies readonly ProblemType[];
-
-/**
- * Whether a rejection is the port's typed failure rather than something the platform threw.
- *
- * A `Problem` is thrown rather than returned (AAP 0.12.3), so a screen that catches a read has to tell
- * the two apart before it can name a cause. Every member checked here is one a `Problem` declares, so a
- * `TypeError` from a broken module reaches the offline rendering rather than being read as a permission
- * refusal it never carried.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
-
-/**
- * The denial the forbidden rendering explains, or `undefined` when the failure was not a permission
- * refusal.
- *
- * The evidence is the failure's own: the permission the acting role lacks, the roles that hold it and
- * the correlation identifier of the refused call. A refusal that named no permission supplies no
- * record rather than one naming a permission nobody was refused for.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/* ---------------------------------------------------------------------------------------------
  * The freshness report, and the members a row needs
  * ------------------------------------------------------------------------------------------- */
 
@@ -461,24 +376,6 @@ function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
  */
 function gateFreshnessOf(freshness: readonly Freshness[]): Freshness | undefined {
   return freshness.find((entry) => entry.source === APPROVAL_GATE_SOURCE);
-}
-
-/**
- * The record the boundary's stale banner names, or `undefined` unless the gating source reports
- * `stale`.
- *
- * The banner prints the source's display name, from `SOURCE_LABELS`, and the instant it last answered,
- * both as the record states them, so the freshness column and the banner cannot describe the staleness
- * differently (AAP 0.2.1, T-13). Nothing is derived from the instant — no age and no duration
- * (rule P-6). A source that did not answer at all is the offline condition
- * {@link deriveScreenState} reports, which is why only `stale` produces this record.
- */
-function staleOrderBookOf(gate: Freshness | undefined): StateBoundaryStale | undefined {
-  if (gate === undefined || gate.state !== 'stale') {
-    return undefined;
-  }
-
-  return { source: gate.source, label: SOURCE_LABELS[gate.source], asOf: gate.asOf };
 }
 
 /**
@@ -498,99 +395,6 @@ function isMeasurable(approval: Approval): boolean {
     Number.isFinite(approval.addedCostEur) &&
     Number.isFinite(approval.protectedRevenueEur)
   );
-}
-
-/** What {@link deriveScreenState} reads: what the read settled to. */
-interface ScreenStateInput {
-  /** Whether the read has not answered yet. */
-  readonly isPending: boolean;
-
-  /** What the read rejected with, or `null` while it has not. */
-  readonly error: unknown;
-
-  /** The read's result, or `undefined` until it settles. */
-  readonly result: Result<Approval[]> | undefined;
-}
-
-/**
- * The one place this screen decides which of the seven states its records are in.
- *
- * The failure side comes first and is fixed by the cause a `Problem` names: a permission refusal is
- * `forbidden`, a validation refusal is `conflict`, and every other rejection — the port's own remaining
- * causes and anything the platform threw — is `offline`, because nothing answered for the content. A
- * pending read is `loading`.
- *
- * The record side then reads the freshness report the result itself carries, and each member is
- * rendered as the condition it describes rather than folded into one:
- * - `unavailable` → `offline`: the source did not answer, so the figures on screen are not a reading
- *   of the present. This is the state the simulation popover's offline trigger produces, which is why
- *   it is not reported as an aged-but-readable order book.
- * - `stale` → `stale`: the source answered and what it answered has aged, so the figures stay on
- *   screen under the banner that names the source and its as-of time (AAP 0.2.1, T-13).
- * - `partial` → `partial`: the source answered incompletely, so the figures are shown with the notice
- *   that the read was not whole.
- * - absent → `partial`: the report carried no entry for the gating source, which is a member this
- *   screen needs and did not receive.
- *
- * Then an empty list is `empty`, and a list holding a record without a member the inbox shows is
- * `partial`. Every other case returns `undefined`, the boundary's documented "no exceptional state
- * holds", and the content renders exactly as handed in.
- *
- * One deliberate difference from a plain reading of the plan's precedence: `unavailable` is reported as
- * `offline` rather than as `stale`. The plan collapses every non-fresh report into `stale`, while
- * `platform-specification.md` §8 requires the seven states to be present on every screen and
- * `src/services/mock/simulation.ts` produces the offline state by reporting every source
- * `unavailable` because nothing answered. Reporting a source that never answered as a merely aged one
- * would leave this screen's offline rendering unreachable and would describe the data as readable when
- * it is not, so the higher-ranked requirement decides.
- *
- * Its input is the query's own settled facts rather than a flag of this screen's, so the state cannot
- * disagree with the read it describes and no effect is needed to keep the two in step.
- */
-function deriveScreenState({
-  isPending,
-  error,
-  result,
-}: ScreenStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    if (error.type === 'permission') {
-      return 'forbidden';
-    }
-
-    return error.type === 'validation' ? 'conflict' : 'offline';
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const gate = gateFreshnessOf(result.meta.freshness);
-
-  if (gate === undefined) {
-    return 'partial';
-  }
-
-  if (gate.state === 'unavailable') {
-    return 'offline';
-  }
-
-  if (gate.state === 'stale') {
-    return 'stale';
-  }
-
-  if (gate.state === 'partial') {
-    return 'partial';
-  }
-
-  if (result.data.length === 0) {
-    return 'empty';
-  }
-
-  return result.data.some((approval) => !isMeasurable(approval)) ? 'partial' : undefined;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -758,12 +562,28 @@ export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
   const rows = useMemo(() => orderRows(result?.data ?? [], sort), [result, sort]);
   const columns = useMemo(() => buildColumns(gate), [gate]);
 
+  /*
+   * The read's own facts, plus this screen's facts about itself. The approval-gate source is the one
+   * `requestApproval` and `decideApproval` refuse on when it is stale or unavailable, so the stale
+   * notice names it first (AAP 0.2.1, T-13). A report carrying no entry for that source is a member
+   * this screen needs and did not receive, and a list holding a record without a member the inbox shows
+   * is a record the columns render as it arrived — either way the payload reports itself incomplete,
+   * which the boundary states above the table rather than leaving a silent blank cell.
+   */
+  const payloadIncomplete =
+    result !== undefined &&
+    (gate === undefined || result.data.some((approval) => !isMeasurable(approval)));
+
   const state = deriveScreenState({
     isPending: approvalsQuery.isPending,
     error: approvalsQuery.error,
-    result,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    payloadReportsPartial: payloadIncomplete,
+    hasContent: (result?.data.length ?? 0) > 0,
   });
-  const staleRecord = staleOrderBookOf(gate);
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord = forbiddenOf(approvalsQuery.error);
 
   const retryRead = (): void => {

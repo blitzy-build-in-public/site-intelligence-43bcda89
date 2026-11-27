@@ -34,6 +34,7 @@ import { Link } from 'react-router';
 import { Card } from '../components/card';
 import { PageHeader } from '../components/page-header';
 import { CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from '../components/tooltip';
+import { EXCEPTION_QUEUE_PATH } from '../types/routes';
 
 /** The page's title, and the text of the one heading the page renders. */
 const NOT_FOUND_TITLE = 'Page not found';
@@ -45,9 +46,6 @@ const NOT_FOUND_TITLE = 'Page not found';
  * nothing about a record, a system or a capability (rule P-4).
  */
 const NOT_FOUND_SENTENCE = 'This address does not match a page in this demonstration.';
-
-/** The route the page sends a reader to: the exception queue, the demonstration's working surface. */
-const EXCEPTIONS_PATH = '/exceptions';
 
 /**
  * The link's text.
@@ -90,7 +88,7 @@ export function NotFoundPage(): ReactElement {
       <PageHeader title={NOT_FOUND_TITLE} />
       <Card as="div">
         <p className="text-14 break-words text-text-secondary">{NOT_FOUND_SENTENCE}</p>
-        <Link className={EXCEPTIONS_LINK_CLASSES} to={EXCEPTIONS_PATH}>
+        <Link className={EXCEPTIONS_LINK_CLASSES} to={EXCEPTION_QUEUE_PATH}>
           {EXCEPTIONS_LINK_LABEL}
         </Link>
       </Card>

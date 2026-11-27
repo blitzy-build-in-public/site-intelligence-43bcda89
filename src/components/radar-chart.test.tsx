@@ -11,7 +11,8 @@
  * and score, opening the evidence the caller's required mapper resolved and reporting the series it
  * picked; a vertex the mapper cannot resolve left a plain mark rather than a control (rule P-8); the
  * ordinal a colour is selected by; a polygon's fill and stroke read from the one chart tone table the
- * other surfaces resolve too; and both themes.
+ * other surfaces resolve too; an outline that takes no pointer events and a pointer that opens the
+ * mark nearest it rather than the neighbour whose larger target received the click; and both themes.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `./evidence-drawer.tsx` reads
  * through (rule P-2), so no seed module, adapter or hash chain is involved and the suite observes
@@ -25,7 +26,7 @@
  * clock or touches the network.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -606,6 +607,47 @@ describe('RadarChart', () => {
 
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('keeps every series outline out of the pointer’s way, so no shape swallows an aim', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    expect(polygons()).toHaveLength(SERIES.length);
+
+    /* The outline is a reading drawn around the marks, not a control: a click on it must fall through. */
+    for (const polygon of polygons()) {
+      expect(polygon).toHaveAttribute('pointer-events', 'none');
+    }
+  });
+
+  it('opens the mark nearest the pointer when a neighbour’s target received the event', async () => {
+    renderChart({ evidenceRefFor: (seriesId: string) => `atlas:${seriesId}` });
+
+    /* The layout a browser reports: one user unit per client pixel and no offset, so a click's client
+       coordinates are the drawing's own. */
+    Object.defineProperty(svgElement(), 'getScreenCTM', {
+      configurable: true,
+      value: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) as unknown as DOMMatrix,
+    });
+
+    const [clientPolygon] = polygons();
+    const axisIndex = 1;
+    const clientDot = clientPolygon === undefined ? undefined : pointsOf(clientPolygon)[axisIndex];
+
+    if (clientDot === undefined) {
+      throw new Error('the client polygon carries no vertex on the axis this case points at');
+    }
+
+    /* A neighbour whose larger invisible target covers that dot receives the pointer instead. */
+    const neighbour = screen.getByRole('button', { name: vertexName(COMPETITOR_ALPHA, axisIndex) });
+
+    fireEvent.click(neighbour, { clientX: clientDot.x, clientY: clientDot.y });
+
+    expect(
+      await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title }),
+    ).toBeInTheDocument();
+    expect(getEvidence).toHaveBeenCalledWith(`atlas:${CLIENT_SERIES.id}`);
+  });
+
 
   it('leaves every vertex a plain mark when the mapper resolves no record for it', () => {
     renderChart({ evidenceRefFor: NO_VERTEX_EVIDENCE });

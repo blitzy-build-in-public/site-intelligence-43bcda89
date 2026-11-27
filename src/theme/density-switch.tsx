@@ -15,6 +15,8 @@
  * for the other five personas, and a chosen density winning over that default) and AAP 0.13.1 (the
  * file's place in `src/theme/`).
  */
+import { useId } from 'react';
+
 import { DENSITY_LABELS, useTheme } from './theme-provider';
 import type { Density } from './theme-provider';
 
@@ -24,6 +26,13 @@ const SWITCH_LAYOUT_CLASSES = 'flex items-center gap-1';
 /**
  * The density currently in effect: the caption text role in the tabular face, so the two states of
  * the control are told apart by a word and not by colour alone (rule B-3).
+ *
+ * The id it carries is what the switch's `aria-describedby` points at, so the density in effect is
+ * announced with the control — `<name>, button, <density in effect>` — instead of being a neighbouring
+ * word a screen reader reaches on its own. It is a description and not a pressed state because the
+ * button's name and visible label already state the density it offers: `aria-pressed` on a control
+ * whose name flips from `comfortable` to `compact` would contradict that name and reverse its meaning
+ * at every switch, while the description adds the one fact the name leaves out.
  */
 const CURRENT_DENSITY_CLASSES = 'font-mono text-12 text-text-caption';
 
@@ -57,7 +66,8 @@ const DENSITY_BUTTON_CLASSES = [
  * browser owns the keyboard behaviour; it is never disabled, because choosing how tightly to read a
  * table always performs its function. Its accessible name is
  * `Switch row density: <the density it offers>`, which contains the visible label word for word, so
- * the words a user reads and the words a screen reader announces agree (WCAG 2.2 SC 2.5.3).
+ * the words a user reads and the words a screen reader announces agree (WCAG 2.2 SC 2.5.3), and its
+ * description is the density in effect, so a reader is told the state as well as the action.
  *
  * The density a persona starts on, and a density the reader has chosen taking precedence over it,
  * are the provider's work (AAP 0.12.4); this export is the switch AAP 0.13.1 places in `src/theme/`.
@@ -66,14 +76,18 @@ const DENSITY_BUTTON_CLASSES = [
  */
 export function DensitySwitch() {
   const { density, setDensity } = useTheme();
+  const currentDensityId = useId();
   const next: Density = density === 'compact' ? 'comfortable' : 'compact';
 
   return (
     <div className={SWITCH_LAYOUT_CLASSES}>
-      <span className={CURRENT_DENSITY_CLASSES}>{DENSITY_LABELS[density]}</span>
+      <span id={currentDensityId} className={CURRENT_DENSITY_CLASSES}>
+        {DENSITY_LABELS[density]}
+      </span>
       <button
         type="button"
         aria-label={`Switch row density: ${DENSITY_LABELS[next]}`}
+        aria-describedby={currentDensityId}
         className={DENSITY_BUTTON_CLASSES}
         onClick={() => {
           setDensity(next);

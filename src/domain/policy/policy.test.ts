@@ -14,15 +14,16 @@
  *   customer-confidential body and an external supplier engineer never reaches another vendor's
  *   material — of which the first is a matrix cell asserted below. AAP 0.12.3 fixes the atlas as
  *   forbidden for the external supplier engineer, and AAP 0.12.4 fixes `exception.read` for the four
- *   personas whose home route is the canvas.
+ *   personas whose home route is the canvas, with the `audit.read` that route's bottom dock needs for
+ *   its five latest events.
  * - AAP 0.7 and AAP 0.13.1 place the suite beside its subject; AAP 0.15.1 lists it as a
  *   High-priority row.
  *
  * What it proves: the whole matrix, cell by cell. All 8 roles x 14 permissions = 112 cells are
- * compared with `MATRIX`, a literal transcribed from the table `permissions.ts` implements, because
- * `platform-contracts.md` §7.1 is not readable in this run: without an expectation held apart from
- * the module, a flipped cell flips the answer and the expectation together and passes. The 11 cells
- * an AAP fact attests are named one by one beside it, in `HELD_CELLS` and `WITHHELD_CELLS`. It also
+ * compared with `MATRIX`, a literal stated apart from the table `permissions.ts` implements, because an
+ * expectation read back out of the module under test would let a flipped cell flip the answer and the
+ * expectation together and pass. The 15 cells an AAP fact attests are named one by one beside it, in
+ * `HELD_CELLS` and `WITHHELD_CELLS`. It also
  * proves the plant scope in both directions, the holder list `rolesWith` returns for every
  * permission, the allow and the deny path of every evaluated rule, POL-009's `notApplicable`, and the
  * invariants every decision keeps — a defined outcome, a rule and a non-empty reason on each denial,
@@ -375,13 +376,12 @@ function approvalRequest(
  * independent of the functions under test, so a cell granted where this table withholds it — or
  * withheld where this table grants it — fails whichever way the table moved.
  *
- * Authored from the table the module implements rather than from the contracts themselves:
- * `platform-contracts.md` §7.1 is not readable in this run, so this literal pins the implementation's
- * documented derivation, the OPEN ITEM at `permissions.ts:27-31`, and reproduces its arithmetic — 42
- * cells granted and therefore 70 denied. The permissions of each role appear in the order that file
- * lists them, so the two tables can be diffed line by line. A supplied §7.1 supersedes that table and
- * this literal together. The 11 cells an AAP fact attests are named separately in `HELD_CELLS` and
- * `WITHHELD_CELLS` below; the other 101 are pinned here and nowhere else.
+ * The literal reproduces the matrix's arithmetic — 46 cells granted and therefore 66 denied — and the
+ * permissions of each role appear in the order `src/domain/policy/permissions.ts` lists them, so the
+ * two tables can be diffed line by line. `platform-contracts.md` §7.1 is the authority for every cell
+ * and supersedes that table and this literal together. The 15 cells an AAP fact attests are named
+ * separately in `HELD_CELLS` and `WITHHELD_CELLS` below; the other 97 are pinned here and nowhere
+ * else.
  *
  * Annotated rather than written `as const satisfies`, so `MATRIX[role]` reads as `readonly
  * Permission[]` and a value of type `Role` indexes it directly. The annotation keeps the proof the
@@ -396,6 +396,7 @@ const MATRIX: Readonly<Record<Role, readonly Permission[]>> = {
     'scenario.create',
     'approval.request',
     'document.confidential.read',
+    'audit.read',
     'evidence.read',
   ],
   'plant-manager': [
@@ -413,6 +414,7 @@ const MATRIX: Readonly<Record<Role, readonly Permission[]>> = {
     'approval.request',
     'approval.decide',
     'document.confidential.read',
+    'audit.read',
     'evidence.read',
     'competitive.read',
   ],
@@ -430,10 +432,17 @@ const MATRIX: Readonly<Record<Role, readonly Permission[]>> = {
     'exception.work',
     'scenario.create',
     'approval.request',
+    'audit.read',
     'evidence.read',
   ],
   auditor: ['exception.read', 'audit.read', 'sovereignty.read', 'policy.read', 'evidence.read'],
-  'supplier-quality-engineer': ['exception.read', 'exception.work', 'evidence.read', 'evidence.review'],
+  'supplier-quality-engineer': [
+    'exception.read',
+    'exception.work',
+    'audit.read',
+    'evidence.read',
+    'evidence.review',
+  ],
   'external-supplier-engineer': ['evidence.read'],
 };
 
@@ -450,10 +459,13 @@ const MATRIX: Readonly<Record<Role, readonly Permission[]>> = {
  * `/admin/sovereignty` and the exception it grants (SCR-07), and its `audit.read` is what lets that
  * home screen's "Export evidence pack" carry the chain's verification; and `exception.read` for the
  * material planner, the head of supply chain, the production planner and the supplier quality engineer
- * is what lets those four personas reach the queue from the canvas (AAP 0.12.4).
+ * is what lets those four personas reach the queue from the canvas (AAP 0.12.4); and the `audit.read`
+ * those same four hold is the trail SCR-12's bottom dock shows, which AAP 0.12.4's row gives as "the
+ * five latest audit events" beside the selected exception's projected stock, with no caveat about the
+ * role reading them.
  *
- * These nine cells and the two withheld cells below are the 11 cells an AAP fact attests by name;
- * `MATRIX` above pins the remaining 101 of the 112, so nothing here is the whole of the coverage.
+ * These thirteen cells and the two withheld cells below are the 15 cells an AAP fact attests by name;
+ * `MATRIX` above pins the remaining 97 of the 112, so nothing here is the whole of the coverage.
  */
 const HELD_CELLS: Array<[role: Role, permission: Permission]> = [
   ['plant-manager', 'approval.decide'],
@@ -465,6 +477,10 @@ const HELD_CELLS: Array<[role: Role, permission: Permission]> = [
   ['head-of-supply-chain', 'exception.read'],
   ['production-planner', 'exception.read'],
   ['supplier-quality-engineer', 'exception.read'],
+  ['material-planner', 'audit.read'],
+  ['head-of-supply-chain', 'audit.read'],
+  ['production-planner', 'audit.read'],
+  ['supplier-quality-engineer', 'audit.read'],
 ];
 
 /**
@@ -661,10 +677,10 @@ describe('permissions', () => {
       }
     }
 
-    // The literal's own arithmetic, restated from `permissions.ts:29-31`: 42 cells granted and
-    // therefore 70 denied. A transcription that mirrored one role's list into another or dropped a
+    // The literal's own arithmetic, restated from `permissions.ts:29-31`: 46 cells granted and
+    // therefore 66 denied. A transcription that mirrored one role's list into another or dropped a
     // cell fails here even where the module under test agrees with what was written.
-    expect(grantedCells).toBe(42);
+    expect(grantedCells).toBe(46);
   });
 
   it.each(HELD_CELLS)('grants %s the %s permission', (role, permission) => {
@@ -744,15 +760,40 @@ describe('permissions', () => {
     ).toBe(false);
   });
 
-  it('narrows nothing when the acting persona declares no plant scope of its own', () => {
+  it("denies every plant when the acting persona's own scope names none", () => {
+    // The effective scope is the intersection of the role's plant scope and the persona's own, so a
+    // granted scope that names no plant is nothing rather than "no narrowing": the persona reaches no
+    // plant and the call is denied, which is what makes an empty scope fail closed. The deliberate
+    // asymmetry is with the shell's plant filter, where an empty selection means "All plants": that
+    // member is the user's choice of what to look at, never a scope a role was granted.
     const unscoped = actorFor('head-of-supply-chain', []);
 
     for (const plantId of PLANTS) {
       expect(
         hasPermission('head-of-supply-chain', 'exception.read', subjectAt(plantId), unscoped),
-      ).toBe(true);
+      ).toBe(false);
     }
   });
+
+  it.each(['__proto__', 'constructor', 'toString', 'not-a-role'])(
+    'answers the role key %s, which the tables do not own, with a denial instead of throwing',
+    (key) => {
+      // Both tables are plain objects, so an unguarded read of one of these keys resolves up the
+      // prototype chain — `'__proto__'` yields `Object.prototype`, which is neither a permission list
+      // nor iterable as one — and a function that promises "false in every other case" has to answer
+      // such a key rather than throw for it. A key the tables do not own holds no permission and is
+      // scoped to no plant.
+      const role = key as unknown as Role;
+      const plantManager = actorFor('plant-manager');
+
+      for (const plantId of PLANTS) {
+        expect(hasPermission(role, 'exception.read', subjectAt(plantId), plantManager)).toBe(false);
+      }
+
+      expect(hasPermission(role, 'exception.read', null, plantManager)).toBe(false);
+      expect(plantScopeFor(role)).toEqual([]);
+    },
+  );
 
   it.each([...ALL_PERMISSIONS])('names exactly the roles the matrix literal grants %s', (permission) => {
     const holders = rolesWith(permission);

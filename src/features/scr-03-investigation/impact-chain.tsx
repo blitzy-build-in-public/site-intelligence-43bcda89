@@ -49,13 +49,16 @@
  * supplied (rule P-7). It fetches no asset and reads no configuration value (rules B-1, B-2), and it
  * keeps no state and runs no effect, so a re-render of the screen re-renders the same chain.
  *
- * HOW EVERY NODE FINDS ITS RECORD — AAP 0.2.1 F12. `EvidenceRef` resolves a reference through the
- * service's evidence read, which answers all four kinds the chain draws: the purchase order and the
- * customer order by their own identifiers, and the material and the production line from the records
- * behind them. This component therefore renders every node as the record it names and knows nothing
- * about record families — testing a prefix here would put the service's routing table inside a
- * presentational component — and activating any node of the chain opens the drawer on that record's
- * own value, formula, inputs and provenance.
+ * EVERY NODE'S RECORD RESOLVES — AAP §0.2.1 F12. The evidence read behind `EvidenceRef` resolves a
+ * reference to a package, exception, scenario, approval, audit event, evidence pin, document, customer
+ * order, purchase order, plant, supplier, origin, customer, material, production line, product or
+ * radar series. The four kinds this chain draws are all among them: a purchase order and a customer
+ * order by their own identifiers, and a material and a production line by theirs, which the read
+ * answers from the records the session holds. Every node is therefore the record it names, and this
+ * component knows no record family: a prefix test here would put the service's routing table inside a
+ * presentational component, so the reference is passed through untouched — whether the drawer finds
+ * that record is the read's answer rather than a rule of this component's, so no node is hidden
+ * behind a second rule about which nodes are clickable.
  */
 import { ArrowDown } from '@phosphor-icons/react';
 import type { ReactElement } from 'react';

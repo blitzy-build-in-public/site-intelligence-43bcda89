@@ -1,6 +1,7 @@
 /**
- * Model catalogue vocabulary: the four placeholder models of the demonstration
- * and the processing boundary each one sits behind.
+ * Model catalogue vocabulary: the four placeholder models of the demonstration,
+ * the processing boundary each one sits behind and, where the deployment declares
+ * one, the outbound destination an inference through the entry would reach.
  *
  * Fixing inputs:
  * - `platform-contracts.md` §3 declares `ModelCatalogue` among the core types
@@ -13,23 +14,24 @@
  * - AAP 0.12.4 SCR-06 consumes this vocabulary in stage S1: the assistant's
  *   model selector offers the in-boundary model and an external reasoning
  *   model, and the POL-007 block card offers a one-click switch to the
- *   in-boundary model. The S5 model screen is out of this run's scope and
- *   renders the stage notice, so nothing here describes that screen.
+ *   in-boundary model. The S5 model screen is out of scope and renders the
+ *   stage notice, so nothing here describes that screen.
+ * - AAP 0.6.3's "Outbound endpoints" row and AAP 0.8 fix what `endpoint`
+ *   carries: the ledger counts a policy's blocked audit events by `objectRef`
+ *   over the endpoints the sovereignty record declares, so an entry that has a
+ *   declared destination publishes it here and that destination is the object
+ *   reference the entry's refusal records.
  *
  * The boundary is declared configuration. Where it surfaces in the interface it
  * carries the label "Declared, not verified" (rule P-4), and it states what the
  * deployment declares rather than what it establishes.
  *
- * OPEN ITEM: the four identifiers, labels and versions are seed record content
- * in `src/seed/models.ts`; this module deliberately types none of them, so the
- * seed remains their single source (rule P-6). The seed's entry order is the
- * order the selector lists them in.
- * OPEN ITEM: `ModelCatalogue.defaultModelId` has to equal one entry's `id`, an
- * invariant no type can express; the mock adapter's handler enforces it.
- * OPEN ITEM: the catalogue carries no per-model availability member. POL-007
- * evaluates the boundary at call time, so whether an external model may answer
- * a particular context is a policy decision on the query, not a property of the
- * entry.
+ * The four identifiers, labels and versions are seed record content in
+ * `src/seed/models.ts`, so this module types none of them (rule P-6), and the
+ * seed's order is the selector's. `ModelCatalogue.defaultModelId` must equal one
+ * entry's `id`, which no type can express and the handler enforces. The
+ * catalogue carries no per-model availability member: POL-007 evaluates the
+ * boundary at call time, so availability is a policy decision on the query.
  */
 
 /**
@@ -51,7 +53,8 @@ export type ModelBoundary = 'in-boundary' | 'external';
  * `id` gives the model an identity the selector can select and the audit
  * payload can name, `label` is the printable form, `version` is the version the
  * record declares, and `boundary` is the POL-007 input. EXT-REASONING-01 is the
- * `'external'` one.
+ * `'external'` one. `endpoint` is the outbound destination the deployment
+ * declares for an entry, and only that one entry declares it.
  */
 export interface ModelEntry {
   /**
@@ -73,6 +76,24 @@ export interface ModelEntry {
    * Boundary POL-007 evaluates for this entry.
    */
   boundary: ModelBoundary;
+
+  /**
+   * The outbound endpoint an inference through this entry would reach, where the deployment declares
+   * one.
+   *
+   * Present only on an entry whose destination the deployment declares — the external reasoning
+   * entry — and absent on the in-boundary entries, which reach no destination outside the boundary.
+   * The value is what a refusal of this entry is counted against: the outbound ledger counts a
+   * policy's blocked audit events in the last 30 days by `objectRef`, over the endpoints the
+   * sovereignty record declares (AAP 0.6.3, AAP 0.8), so the refusal of a question put to this entry
+   * records this endpoint as its object reference while the event's payload keeps the model
+   * identifier and the boundary.
+   *
+   * The entry is never contacted: POL-007 decides before any request is made, no model is connected
+   * (rule P-1), and every declared destination is a reserved `.example` host that resolves nowhere
+   * (rule B-1). The seed record owns the value, so this module types none of it (rule P-6).
+   */
+  endpoint?: string;
 }
 
 /**

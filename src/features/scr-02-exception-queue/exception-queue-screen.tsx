@@ -1,6 +1,7 @@
 /**
  * SCR-02, the exception queue of stage S1: the table a planner works from, the six filters that narrow
- * it, the three row actions and the filter sets kept for the session.
+ * it, the day the overview may have narrowed it to, the three row actions and the filter sets kept for
+ * the session.
  *
  * Fixing inputs. AAP 0.12.4's SCR-02 row fixes everything below: "Table of identifier, type, title,
  * products, plant, severity, revenue at risk, days to impact, status, owner, age, freshness; filters
@@ -30,11 +31,12 @@
  * `DataTable`, which owns `aria-sort`; nothing here compares two rows.
  *
  * THE SEVEN STATES. The queue renders inside `StateBoundary`, and which state its records are in is
- * decided in one place, {@link deriveScreenState}, from what the read settled to: a thrown `Problem`
- * first (a permission refusal is the forbidden card, a validation refusal a record that moved, anything
- * else a source that did not answer), then the freshness report the result itself carries, then an
- * answer holding no rows. The emptied queue of the demonstration's own control reaches this screen as an
- * empty answer from that same read, so the state is read from the service and never from a local flag.
+ * decided in one place, `src/components/screen-state.ts`, from what the read settled to: a thrown
+ * `Problem` first (a permission refusal is the forbidden card, a validation refusal a record that
+ * moved, an identifier no record answers the empty state, and a suppressed answer a source that did
+ * not answer), then the freshness report the result itself carries, then an answer holding no rows.
+ * The emptied queue of the demonstration's own control reaches this screen as an empty answer from
+ * that same read, so the state is read from the service and never from a local flag.
  *
  * THE FILTERS. Five are enumerated and one is typed. `ExceptionRow` carries the exception's type, plant,
  * severity, status and owner, so those five selects are filled from the values a read of the same list
@@ -44,6 +46,19 @@
  * receives. The option values come from the same read issued with no filters, cached under its own key:
  * a filtered read cannot supply them, because a filter removes from its answer exactly the values it
  * excluded, and a select that lost its other options after one selection could not be changed again.
+ *
+ * THE DAY THE QUEUE WAS NARROWED TO, WHICH IS NOT A SEVENTH FILTER. A reader who activates a day on
+ * SCR-01's series arrives here with that date in the entry's location state, which the route reads back
+ * and hands in as `initialQuery.date`; the screen holds it beside the six filters and sends it as
+ * `ExceptionQuery.date`, the member the port narrows the read by exactly as it narrows by plant or
+ * status. While it is set, one row inside the Filters group says which day the read keeps and offers the
+ * control that clears it — nothing more is asked of the reader and nothing is re-filtered here (rule
+ * P-2). The day is deliberately outside `FilterValues`: AAP 0.12.4 fixes the queue's filters as six, a
+ * saved view remains those six (`./saved-views` copies only the members it names, so a date can never
+ * enter one), and this row reports a narrowing rather than offering a choice. It prints the date the
+ * record states, with no formatting, arithmetic or clock of its own (rule P-6), and its clear control is
+ * an `ActionButton`, so the way out of the narrowing is the one the house style gives every control
+ * (rules P-8, B-3).
  *
  * THE COLUMNS. The twelve AAP 0.12.4 names come first, in the order it gives them, each rendered from
  * the row's own member. A thirteenth column, "Actions", holds the three row controls, because rule P-8
@@ -87,24 +102,21 @@
  *   claims nothing about where records are held or whether they could be altered, and carries no
  *   competitor element at all.
  *
- * OPEN ITEM — the emptiness of the queue. SCR-02's row fixes no empty-state sentence (unlike SCR-04), so
- * {@link EXCEPTION_QUEUE_TEXT}.empty is this screen's own plain statement that nothing matched. It is
- * one sentence for both conditions the service can produce — a filter set that matched nothing and the
- * demonstration control that empties the queue — because the read's answer is identical for both and
- * this screen has no other signal to tell them apart.
+ * THE EMPTY QUEUE HAS NO FIXED SENTENCE. SCR-02's row fixes none (unlike SCR-04), so
+ * {@link EXCEPTION_QUEUE_TEXT}.empty states plainly that nothing matched. One sentence covers both
+ * conditions the service can produce — a filter set that matched nothing and the demonstration control
+ * that empties the queue — because the read's answer is identical for both.
  *
- * OPEN ITEM — a refusal on a row action. The permission matrix is evaluated by the service, against the
- * persona it is enforcing, and this screen does not pre-empt it: a refusal arrives as a `Problem` whose
- * `rolesWithPermission` names the roles that may act, and {@link EXCEPTION_QUEUE_TEXT} puts that message
- * beside the table. Two conditions are decided here instead, because they are facts about the row rather
- * than about who may act: a row already owned by the acting persona, and a row already dismissed. Both
- * disable the control with the sentence that says so rather than sending a write that would change
- * nothing.
+ * A REFUSAL ON A ROW ACTION IS THE SERVICE'S. The permission matrix is evaluated against the persona it
+ * enforces, and a refusal arrives as a `Problem` whose `rolesWithPermission` names the roles that may
+ * act, which {@link EXCEPTION_QUEUE_TEXT} puts beside the table. Two conditions are decided here
+ * instead, because they are facts about the row rather than about who may act: a row already owned by
+ * the acting persona, and a row already dismissed. Both disable the control with the sentence that says
+ * so rather than sending a write that would change nothing.
  *
- * OPEN ITEM — the shell's selection. `selectedExceptionId` is accepted for interface compatibility with
- * the route and read by nothing: `DataTable` exposes no selected-row surface, so drawing a highlight
- * here would mean a second table or an unmanaged class on a row this screen does not own. The day the
- * table gains a selection surface, the prop is already in place.
+ * THE SHELL'S SELECTION IS CARRIED UNUSED. `selectedExceptionId` is accepted for interface compatibility
+ * with the route and read by nothing: `DataTable` exposes no selected-row surface, so a highlight here
+ * would mean a second table or an unmanaged class on a row this screen does not own.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -114,29 +126,41 @@ import { useNavigate } from 'react-router';
 import { Card } from '../../components/card';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn, TableSort } from '../../components/data-table';
+import { DialogHeading } from '../../components/dialog-heading';
 import { EvidenceRef } from '../../components/evidence-drawer';
 import { freshnessMeaning } from '../../components/freshness-pill';
 import { MonoValue, formatHours } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
 import { Panel } from '../../components/panel';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
+import { SelectField } from '../../components/select-field';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
+import { TextAreaField } from '../../components/text-area-field';
+import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
 import { useActiveUser, useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import {
+  ALREADY_OWNER_REASON,
+  APPROVAL_GATE_SOURCE,
+  EXCEPTION_QUEUE_PATH,
+  SIM_LABELS,
+  SOURCE_LABELS,
+} from '../../types';
 import type {
   ExceptionId,
   ExceptionQuery,
   ExceptionRow,
   ExceptionStatus,
-  Freshness,
-  FreshnessState,
-  Problem,
+  IsoDate,
   Result,
   Scope,
-  ScreenState,
   Severity,
   SimLabel,
 } from '../../types';
@@ -223,6 +247,19 @@ export const EXCEPTION_QUEUE_TEXT = {
   supplierHint:
     'The supplier identifier an exception’s material is bought from, applied when the field loses focus.',
 
+  /**
+   * What the row naming the day the queue was narrowed to says, with that day after it.
+   *
+   * It names the rule the port applies rather than a filter this screen performs: the read keeps the
+   * exceptions opened or resolved on that day, which is the rule SCR-01's series counts by (AAP 0.12.4,
+   * `ExceptionQuery.date`). The date itself is appended where the row renders it, because it is a
+   * record's value rather than this screen's wording (rule P-6).
+   */
+  dayNarrowing: 'Opened or resolved on',
+
+  /** The control that clears the active day and reads the whole queue again (rule P-8). */
+  clearDay: 'Clear day',
+
   /* The columns ------------------------------------------------------------------------------ */
 
   /** The identifier column's header. */
@@ -280,7 +317,7 @@ export const EXCEPTION_QUEUE_TEXT = {
     'Assigning needs the persona this session acts as, which the bound service does not report.',
 
   /** Why "assign to me" cannot act on a row the acting persona already owns. */
-  alreadyOwnerReason: 'You are already the owner of this exception.',
+  alreadyOwnerReason: ALREADY_OWNER_REASON,
 
   /** Why "assign to me" cannot act while an assignment is being recorded. */
   assignInFlightReason: 'An assignment is already being recorded.',
@@ -336,7 +373,7 @@ export const EXCEPTION_QUEUE_TEXT = {
 
   /* The states ------------------------------------------------------------------------------- */
 
-  /** The sentence shown when the queue holds no row to show (see this module's first OPEN ITEM). */
+  /** The sentence shown when the queue holds no row to show (see the module header on the empty queue). */
   empty: 'No exceptions match the current filters.',
 
   /** The sentence the partial state adds when a source answered incompletely. */
@@ -362,7 +399,7 @@ export const EXCEPTION_QUEUE_TEXT = {
   /** What the saved-view list shows when nothing has been saved yet. */
   noSavedViews: 'No views saved in this session.',
 
-  /** The control that reapplies one saved view. The view's own name follows it for assistive technology. */
+  /** The control that reapplies one saved view. {@link recordScopedLabel} adds the view's name. */
   applyView: 'Apply',
 
   /** The control that removes one saved view from the session's list. */
@@ -396,6 +433,15 @@ const SCREEN_CLASSES = 'flex min-w-0 flex-col gap-6';
 
 /** The filter row: fields wrap rather than shrink below their label. */
 const FILTER_ROW_CLASSES = 'flex min-w-0 flex-wrap items-start gap-3';
+
+/**
+ * The row stating the day the queue is narrowed to: the sentence and its clear control on one line,
+ * wrapping where room runs out, set off from the six filter fields beneath it.
+ */
+const ACTIVE_DAY_CLASSES = 'mb-3 flex min-w-0 flex-wrap items-center gap-2';
+
+/** The day sentence: the body step in the primary text role, so the narrowed date is read first. */
+const ACTIVE_DAY_TEXT_CLASSES = 'min-w-0 break-words text-13 text-text-primary';
 
 /** One field: its label above its control and its message, so no child needs a margin. */
 const FIELD_CLASSES = 'flex min-w-0 flex-col gap-1';
@@ -433,43 +479,8 @@ const VIEW_ROW_CLASSES =
 
 
 /* ---------------------------------------------------------------------------------------------
- * Reading the service's answer: the failure shape, the state and the two records a state explains
+ * The record's own spelling, and the meanings the shared status vocabulary gives it
  * ------------------------------------------------------------------------------------------- */
-
-/** The five causes a `Problem` distinguishes, spelled as `src/types/service.ts` declares them. */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const;
-
-/**
- * Whether a thrown value is the `Problem` the port documents (AAP 0.2.2).
- *
- * The check is structural because a rejection is caught as `unknown`: nothing may be assumed about it,
- * and a failure that did not arrive in the documented shape is reported as an unreported one rather than
- * being read as a `Problem` whose members are absent.
- */
-function isProblem(value: unknown): value is Problem {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  if (!('type' in value) || !('message' in value) || !('traceId' in value)) {
-    return false;
-  }
-
-  const { type, message, traceId } = value;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
 
 /**
  * A record's own spelling, made readable: its words separated by spaces, the first one capitalised.
@@ -519,136 +530,6 @@ const STATUS_MEANINGS = {
   resolved: 'pass',
   dismissed: 'empty',
 } as const satisfies Record<ExceptionStatus, StatusMeaning>;
-
-/**
- * The stale record the boundary's banner names, or `undefined` unless the order book itself reports
- * `stale`.
- *
- * The queue's figures are computed from the order book, so a queue drawn while ERP has aged is a queue of
- * figures that are not current, and the banner names that source and the instant it last answered. The
- * source is `APPROVAL_GATE_SOURCE`, declared once in `src/types/sources.ts`, and the label is
- * `SOURCE_LABELS`' own, so this banner and the freshness strip say the same words about the same record.
- * Nothing is derived from the instant — no age and no duration (rule P-6).
- *
- * Only `stale` raises it: a source that did not answer is the `unavailable` condition
- * {@link deriveScreenState} renders as `offline`, and an incomplete answer is its `partial`, so neither is
- * described here as an order book that is merely out of date.
- */
-function staleOrderBookOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const orderBook = freshness.find(
-    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
-  );
-
-  if (orderBook === undefined) {
-    return undefined;
-  }
-
-  return {
-    source: orderBook.source,
-    label: SOURCE_LABELS[orderBook.source],
-    asOf: orderBook.asOf,
-  };
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the failure was not a permission refusal.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold it
- * and the correlation identifier of the refused call. A refusal that named no permission supplies no card
- * rather than a card naming a permission nobody was refused for, and the boundary's neutral notice stands
- * in its place.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/** Whether a source in the read's freshness report answered in the state asked about. */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/** What {@link deriveScreenState} reads: what the queue's read settled to. */
-interface ScreenStateInput {
-  /** Whether the read has not answered yet. */
-  readonly isPending: boolean;
-
-  /** What the read rejected with, or `null` while it has not. */
-  readonly error: unknown;
-
-  /** The read's result, or `undefined` until it settles. */
-  readonly result: Result<ExceptionRow[]> | undefined;
-}
-
-/**
- * The one place this screen decides which of the seven states its records are in.
- *
- * The failure side comes first and is fixed: a permission refusal is `forbidden`, a validation refusal is
- * `conflict`, another rejection is `offline`, and a pending read is `loading`. The record side then
- * reads the freshness report the result itself carries, in this order: a source reported `unavailable` is
- * `offline`, because nothing answered for the content on screen; the order book reported exactly `stale`
- * is `stale`; a source reported `partial` is `partial`; and an answer holding no row is `empty`. Every
- * other case returns `undefined`, which is the boundary's documented "no exceptional state holds".
- *
- * The last arm is the only one that reads the length of the answer, and it reads it from the service's
- * reply rather than from a filter this screen applied: the demonstration control that empties the queue
- * empties the collection the read is served from, so an empty answer is how that state reaches the
- * screen, and a filter set that matched nothing reaches it the same way — the read cannot tell the two
- * apart and neither can this function (see the module's first OPEN ITEM).
- *
- * Its input is the query's own settled facts rather than a flag of this screen's, so the state cannot
- * disagree with the read it describes and no effect is needed to keep the two in step.
- */
-function deriveScreenState({
-  isPending,
-  error,
-  result,
-}: ScreenStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    return error.type === 'permission'
-      ? 'forbidden'
-      : error.type === 'validation'
-        ? 'conflict'
-        : 'offline';
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleOrderBookOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return result.data.length === 0 ? 'empty' : undefined;
-}
 
 /* ---------------------------------------------------------------------------------------------
  * The filters, as values and as the query they build
@@ -743,17 +624,23 @@ function tableSortOf(sort: string | undefined): TableSort | null {
 }
 
 /**
- * The query the queue's read is made with: the six filters, the ordering and the page size.
+ * The query the queue's read is made with: the six filters, the day it was narrowed to, the ordering and
+ * the page size.
  *
  * A member is written only when it carries a constraint, so the object the cache keys on holds exactly
  * what the reader chose and `exactOptionalPropertyTypes` never sees a member present as `undefined`. No
  * continuation position is sent: this screen reads the first page the service returns, and a saved view
  * deliberately drops one (see `./saved-views`).
+ *
+ * The day is the one the overview's series narrowed the queue to, or `null` when no day narrows it. It
+ * travels as the query's own member rather than as a row filter, so the service — not this screen —
+ * decides which exceptions that day keeps (rule P-2).
  */
 function buildExceptionQuery(
   filters: FilterValues,
   sort: TableSort | null,
   limit: number | undefined,
+  day: IsoDate | null,
 ): ExceptionQuery {
   return {
     ...(limit !== undefined ? { limit } : {}),
@@ -763,6 +650,7 @@ function buildExceptionQuery(
     ...(filters.status !== '' ? { status: filters.status } : {}),
     ...(filters.ownerId !== '' ? { ownerId: filters.ownerId } : {}),
     ...(filters.supplierId !== '' ? { supplierId: filters.supplierId } : {}),
+    ...(day !== null ? { date: day } : {}),
     ...(sort !== null ? { sort: `${sort.columnId}:${sort.direction}` } : {}),
   };
 }
@@ -826,15 +714,15 @@ function filterOptionsOf(rows: readonly ExceptionRow[]): FilterOptions {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The filter controls — no select, input or dialog primitive exists in `src/components`
+ * The filter controls — the field primitives in `src/components` own the elements, composed here
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * One option of an enumerated filter: the value the query takes and the text the reader picks it by.
  *
- * Both are strings because an `<option>` carries a string value and a string label; a closed vocabulary
- * reaches the option through the typed array the caller maps from, so the control can never offer a value
- * the records cannot hold.
+ * Both are strings because the option `SelectField` renders carries a string value and a string label; a
+ * closed vocabulary reaches the option through the typed array the caller maps from, so the control can
+ * never offer a value the records cannot hold.
  */
 interface Choice {
   /** The value the filter takes when this option is chosen, or the empty string for no constraint. */
@@ -862,11 +750,12 @@ interface ChoiceFieldProps {
 /**
  * One labelled enumerated filter.
  *
- * A native `<select>` for the reason every field here is native: the platform's own control is keyboard
- * operable, announced as a list box and rendered with the reader's own input device, and no component in
- * `src/components` offers one, so it is declared here — inside the component that owns it, which is the
- * one place AAP 0.5.2 allows a raw form element. The label is bound by `htmlFor`/`id`, so the control has
- * a programmatic name (rule B-3).
+ * The `<select>` this filter shows is `SelectField`'s, in `src/components`: that primitive owns the
+ * element, its controlled value and its change contract, and this component composes it with the screen's
+ * label, the options the read supplied and the class list the filter row shares (AAP 0.5.2). Composing the
+ * platform's own control keeps the field keyboard operable, announced as a list box and rendered with the
+ * reader's own input device, and the label is bound by `htmlFor`/`id`, so the control has a programmatic
+ * name (rule B-3).
  */
 function ChoiceField({ label, value, options, onChange }: ChoiceFieldProps): ReactElement {
   const fieldId = useId();
@@ -876,20 +765,13 @@ function ChoiceField({ label, value, options, onChange }: ChoiceFieldProps): Rea
       <label htmlFor={fieldId} className={LABEL_CLASSES}>
         {label}
       </label>
-      <select
+      <SelectField
         id={fieldId}
         value={value}
-        onChange={(event) => {
-          onChange(event.target.value);
-        }}
+        options={options}
+        onChange={onChange}
         className={CONTROL_CLASSES}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      />
     </div>
   );
 }
@@ -929,14 +811,12 @@ function SupplierFilterField({ value, onCommit }: SupplierFilterFieldProps): Rea
       <label htmlFor={fieldId} className={LABEL_CLASSES}>
         {EXCEPTION_QUEUE_TEXT.supplierFilter}
       </label>
-      <input
+      <TextField
         id={fieldId}
         type="text"
         value={draft}
         aria-describedby={hintId}
-        onChange={(event) => {
-          setDraft(event.target.value);
-        }}
+        onChange={setDraft}
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
@@ -949,6 +829,37 @@ function SupplierFilterField({ value, onCommit }: SupplierFilterFieldProps): Rea
       <p id={hintId} className={HINT_CLASSES}>
         {EXCEPTION_QUEUE_TEXT.supplierHint}
       </p>
+    </div>
+  );
+}
+
+/** Props of {@link ActiveDayRow}: the day the queue is narrowed to and the control that clears it. */
+interface ActiveDayRowProps {
+  /** The calendar date the read is narrowed by, exactly as the record states it. */
+  readonly day: IsoDate;
+
+  /** Called when the reader clears the day and asks for the whole queue again. */
+  readonly onClear: () => void;
+}
+
+/**
+ * The day the queue was narrowed to, and the control that clears it.
+ *
+ * It sits inside the Filters group because it is state of the queue's read, but it is not a filter
+ * control and is deliberately shaped unlike one: no label/field pair, no select, no text input. AAP
+ * 0.12.4 fixes the queue's filters as six, so a seventh control here would contradict the screen's own
+ * contract; what a reader needs from a narrowing they arrived with is to see it and to leave it (rule
+ * P-8). The date is printed as the record states it — this row formats nothing, computes nothing and
+ * reads no clock (rule P-6) — and the clear control is the product's `ActionButton`, which carries the
+ * house focus ring and the 24 × 24 px minimum target a keyboard reader needs (rule B-3).
+ */
+function ActiveDayRow({ day, onClear }: ActiveDayRowProps): ReactElement {
+  return (
+    <div className={ACTIVE_DAY_CLASSES}>
+      <p className={ACTIVE_DAY_TEXT_CLASSES}>{`${EXCEPTION_QUEUE_TEXT.dayNarrowing} ${day}`}</p>
+      <ActionButton variant="secondary" onClick={onClear}>
+        {EXCEPTION_QUEUE_TEXT.clearDay}
+      </ActionButton>
     </div>
   );
 }
@@ -968,7 +879,7 @@ interface FilterBarProps {
 /**
  * The six filters of SCR-02, as one row that wraps rather than shrinking its fields.
  *
- * The two closed vocabularies are narrowed here, at the control that produced the value: a `<select>`
+ * The two closed vocabularies are narrowed here, at the control that produced the value: `SelectField`
  * hands back a string, and `options.severities.find` returns the member of the union it actually matched,
  * so the state this component reports can only carry a severity the records hold. Nothing is filtered,
  * intersected or re-ordered here — a change replaces the whole filter state, which replaces the query and
@@ -1091,9 +1002,10 @@ interface SavedViewsPanelProps {
  *
  * The list lives in the calling screen's state and nowhere else: only the theme and the density survive a
  * visit (contracts §1), so no view reaches browser storage, a cookie or a request. Each view's controls
- * carry the view's own name after their visible label, hidden from sight but not from assistive
- * technology, because a list of several "Apply" controls would otherwise be several controls with one
- * name — `ActionButton` takes no separate accessible-name prop, so the name is built from its children.
+ * take their name from {@link recordScopedLabel}, which puts the view's own name in the one text node
+ * that carries it, because a list of several "Apply" controls would otherwise be several controls with
+ * one name — `ActionButton` takes no separate accessible-name prop, so the name is built from its
+ * children.
  */
 function SavedViewsPanel({
   views,
@@ -1115,14 +1027,12 @@ function SavedViewsPanel({
           <label htmlFor={fieldId} className={LABEL_CLASSES}>
             {EXCEPTION_QUEUE_TEXT.viewNameLabel}
           </label>
-          <input
+          <TextField
             id={fieldId}
             type="text"
             value={name}
             aria-describedby={hintId}
-            onChange={(event) => {
-              onNameChange(event.target.value);
-            }}
+            onChange={onNameChange}
             className={CONTROL_CLASSES}
           />
           <p id={hintId} className={HINT_CLASSES}>
@@ -1173,8 +1083,7 @@ function SavedViewsPanel({
                     onApply(view);
                   }}
                 >
-                  {EXCEPTION_QUEUE_TEXT.applyView}
-                  <span className="sr-only">{`: ${view.name}`}</span>
+                  {recordScopedLabel(EXCEPTION_QUEUE_TEXT.applyView, view.name)}
                 </ActionButton>
                 <ActionButton
                   variant="secondary"
@@ -1182,8 +1091,7 @@ function SavedViewsPanel({
                     onRemove(view);
                   }}
                 >
-                  {EXCEPTION_QUEUE_TEXT.removeView}
-                  <span className="sr-only">{`: ${view.name}`}</span>
+                  {recordScopedLabel(EXCEPTION_QUEUE_TEXT.removeView, view.name)}
                 </ActionButton>
               </span>
             </li>
@@ -1437,9 +1345,9 @@ function DismissDialog({ row, onClose, onDismissed }: DismissDialogProps): React
         onKeyDown={handleKeyDown}
       >
         <Card as="div">
-          <h2 id={headingId} className={DIALOG_HEADING_CLASSES}>
+          <DialogHeading id={headingId} className={DIALOG_HEADING_CLASSES}>
             {EXCEPTION_QUEUE_TEXT.dismissHeading}
-          </h2>
+          </DialogHeading>
           <p className={DIALOG_RECORD_CLASSES}>
             <MonoValue value={row.id} kind="id" /> {row.title}
           </p>
@@ -1451,16 +1359,14 @@ function DismissDialog({ row, onClose, onDismissed }: DismissDialogProps): React
             <label htmlFor={reasonId} className={LABEL_CLASSES}>
               {EXCEPTION_QUEUE_TEXT.reasonLabel}
             </label>
-            <textarea
+            <TextAreaField
               id={reasonId}
               ref={reasonRef}
               className={REASON_CONTROL_CLASSES}
               value={reason}
               aria-required="true"
               aria-describedby={reasonMessageId}
-              onChange={(event) => {
-                setReason(event.target.value);
-              }}
+              onChange={setReason}
             />
             <p id={reasonMessageId} className={HINT_CLASSES}>
               {reasonBlocker ?? EXCEPTION_QUEUE_TEXT.reasonHint}
@@ -1521,11 +1427,38 @@ function DismissDialog({ row, onClose, onDismissed }: DismissDialogProps): React
  * The columns — AAP 0.12.4 SCR-02's twelve, in its order, plus the actions cell
  * ------------------------------------------------------------------------------------------- */
 
+/**
+ * A control's label and the record it acts on, composed into one accessible name.
+ *
+ * The visible word is painted exactly as the screen shows it, and the name is carried whole by one
+ * hidden text node — the label, then a colon, a single space, then the record — so the separator
+ * sits where the punctuation belongs, the name still begins with the visible word (WCAG 2.2 SC
+ * 2.5.3, label in name), and it still tells one row's control from another's (SC 2.4.4).
+ *
+ * Appending the record to the visible word as a hidden suffix cannot produce that name: `sr-only`
+ * positions the suffix absolutely, which blockifies it, and the accessible-name computation then
+ * puts a space on both sides of the boundary, so the separator is detached from the word before it.
+ * That is the defect this shape exists to keep out.
+ *
+ * The visible word is `aria-hidden` because the hidden span already carries it, so the name is
+ * neither doubled nor lost.
+ */
+function recordScopedLabel(label: string, record: string): ReactNode {
+  return (
+    <>
+      <span aria-hidden="true">{label}</span>
+      <span className="sr-only">{`${label}: ${record}`}</span>
+    </>
+  );
+}
+
 /** Props of {@link RowAction}: one control of a row's actions cell. */
 interface RowActionProps {
   /**
-   * The control's label. The visible text, then the row's identifier hidden from sight but not from
-   * assistive technology, so a table of identical "Open" controls is not a table of identical names.
+   * The control's label, composed by {@link recordScopedLabel}: the visible word the screen shows,
+   * and the row's identifier in the one text node that carries the accessible name — so a table of
+   * identical "Open" controls is not a table of identical names, while every name still begins with
+   * the word the reader sees (WCAG 2.2 SC 2.5.3).
    */
   readonly label: ReactNode;
 
@@ -1599,6 +1532,12 @@ interface RowActionHandlers {
  * not a reading a planner can scan, no record is changed by presenting it, and the canvas's urgency
  * card presents the same member through the same function.
  *
+ * Every figure in the row is wrapped in an `EvidenceRef` carrying the row's own identifier, so activating
+ * revenue at risk, days to impact or age opens that exception's evidence drawer — the value, the formula,
+ * the source, the record and the freshness behind it (AAP 0.12.4, functional requirement F12, principle
+ * PR-6). The wrapper is the way to the evidence and not a second formatter: each reading stays the count
+ * the record holds, or the whole-hour label `formatHours` presents for the duration.
+ *
  * The actions cell is the thirteenth column and is captioned "Actions": AAP 0.12.4 fixes the three row
  * actions, and rule P-8 requires each unavailable one to state its own reason, which a row has no other
  * surface for. The twelve specified columns keep their order and their content ahead of it.
@@ -1669,7 +1608,11 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       header: EXCEPTION_QUEUE_TEXT.columnDaysToImpact,
       sortable: true,
       align: 'end',
-      render: (row) => row.daysToImpact,
+      render: (row) => (
+        <EvidenceRef ref={row.id}>
+          {row.daysToImpact}
+        </EvidenceRef>
+      ),
     },
     {
       id: 'status',
@@ -1690,7 +1633,11 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       header: EXCEPTION_QUEUE_TEXT.columnAge,
       sortable: true,
       align: 'end',
-      render: (row) => formatHours(row.ageHours),
+      render: (row) => (
+        <EvidenceRef ref={row.id}>
+          {formatHours(row.ageHours)}
+        </EvidenceRef>
+      ),
     },
     {
       id: 'freshness',
@@ -1716,36 +1663,21 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       render: (row) => (
         <span className={ROW_ACTIONS_CLASSES}>
           <RowAction
-            label={
-              <>
-                {EXCEPTION_QUEUE_TEXT.open}
-                <span className="sr-only">{`: ${row.id}`}</span>
-              </>
-            }
+            label={recordScopedLabel(EXCEPTION_QUEUE_TEXT.open, row.id)}
             onActivate={() => {
               handlers.onOpen(row);
             }}
             blocker={null}
           />
           <RowAction
-            label={
-              <>
-                {EXCEPTION_QUEUE_TEXT.assignToMe}
-                <span className="sr-only">{`: ${row.id}`}</span>
-              </>
-            }
+            label={recordScopedLabel(EXCEPTION_QUEUE_TEXT.assignToMe, row.id)}
             onActivate={() => {
               handlers.onAssign(row);
             }}
             blocker={handlers.assignBlocker(row)}
           />
           <RowAction
-            label={
-              <>
-                {EXCEPTION_QUEUE_TEXT.dismiss}
-                <span className="sr-only">{`: ${row.id}`}</span>
-              </>
-            }
+            label={recordScopedLabel(EXCEPTION_QUEUE_TEXT.dismiss, row.id)}
             onActivate={() => {
               handlers.onDismiss(row);
             }}
@@ -1800,8 +1732,19 @@ export interface ExceptionQueueScreenProps {
   readonly initialQuery?: Partial<ExceptionQuery>;
 
   /**
-   * The exception the shell has selected, when it selected one. Accepted for the route's sake and read by nothing (see
-   * this module's third OPEN ITEM): `DataTable` exposes no selected-row surface to render it into.
+   * Called when the reader clears the day the queue was narrowed to.
+   *
+   * The day arrives in `initialQuery.date`, read from the entry that carried it, so a screen that dropped
+   * it on its own would leave that entry stating a narrowing nothing on the page shows any more and a
+   * reload of the entry would restore it. The shell therefore drops the member from the entry when this is
+   * called. Absent, clearing still reads the whole queue: the day the screen holds is what the read is
+   * keyed by, and the entry is the shell's to rewrite (rule P-2).
+   */
+  readonly onDayCleared?: () => void;
+
+  /**
+   * The exception the shell has selected, when it selected one. Accepted for the route's sake and read
+   * by nothing: `DataTable` exposes no selected-row surface to render it into.
    */
   readonly selectedExceptionId?: ExceptionId;
 }
@@ -1824,7 +1767,7 @@ export interface ExceptionQueueScreenProps {
  *   the state boundary, with the dismissal dialog while one is open.
  */
 export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactElement {
-  const { scope, initialQuery } = props;
+  const { scope, initialQuery, onDayCleared } = props;
 
   const service = useService();
   const activeUser = useActiveUser();
@@ -1836,6 +1779,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
 
   const [filters, setFilters] = useState<FilterValues>(() => filterValuesOf(initialQuery));
   const [sort, setSort] = useState<TableSort | null>(() => tableSortOf(initialQuery?.sort));
+  const [day, setDay] = useState<IsoDate | null>(() => initialQuery?.date ?? null);
   const [views, setViews] = useState<readonly SavedView[]>([]);
   const [viewName, setViewName] = useState('');
   const [viewMessage, setViewMessage] = useState<string | null>(null);
@@ -1843,7 +1787,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
   const [report, setReport] = useState<WriteReport | null>(null);
   const [pendingExceptionId, setPendingExceptionId] = useState<ExceptionId | null>(null);
 
-  const query = buildExceptionQuery(filters, sort, initialLimit);
+  const query = buildExceptionQuery(filters, sort, initialLimit, day);
 
   /*
    * The queue read. Retries are off on purpose: a refusal recorded in the records' own permissions fails
@@ -1875,12 +1819,23 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
     [optionsQuery.data],
   );
 
+  /*
+   * The read's own facts, plus this screen's reading of its answer. The queue's figures are computed
+   * from the order book, so the stale notice names ERP first (AAP 0.2.1, T-13), and the last arm reads
+   * the length of the service's reply rather than a filter this screen applied: the demonstration
+   * control that empties the queue empties the collection the read is served from, so an empty answer is
+   * how that state reaches the screen, and a filter set that matched nothing reaches it the same way —
+   * the read cannot tell the two apart and neither can this screen (see the module's first OPEN ITEM).
+   */
   const state = deriveScreenState({
     isPending: listQuery.isPending,
     error: listQuery.error,
-    result,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    hasContent: rows.length > 0,
   });
-  const staleRecord = result === undefined ? undefined : staleOrderBookOf(result.meta.freshness);
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord = forbiddenOf(listQuery.error);
 
   const retryRead = (): void => {
@@ -1888,7 +1843,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
   };
 
   const openException = (row: ExceptionRow): void => {
-    navigate(`/exceptions/${row.id}`);
+    navigate(`${EXCEPTION_QUEUE_PATH}/${row.id}`);
   };
 
   /**
@@ -1983,6 +1938,21 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
     );
   };
 
+  /**
+   * Clears the day the queue was narrowed to, which reads the whole queue again.
+   *
+   * The read is keyed by the query it was made with, so dropping the member from the query is the whole
+   * of the read: the cache entry the narrowed answer lives under is not the one the unfiltered query
+   * names, so React Query asks the port for that answer and this screen filters nothing itself (rule P-2).
+   * The day is not restored by anything on this page — a saved view holds the six filters and no date —
+   * and the shell is told, so the entry that carried the day stops stating a narrowing no control on the
+   * page accounts for and a reload of it opens the whole queue.
+   */
+  const clearDay = (): void => {
+    setDay(null);
+    onDayCleared?.();
+  };
+
   /** Why saving a view cannot act: the field holds no name yet (rule P-8). */
   const saveBlocker =
     viewName.trim() === '' ? EXCEPTION_QUEUE_TEXT.viewNameRequiredReason : null;
@@ -2052,6 +2022,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
       </Panel>
 
       <Panel label={EXCEPTION_QUEUE_TEXT.filterGroup}>
+        {day === null ? null : <ActiveDayRow day={day} onClear={clearDay} />}
         <FilterBar values={filters} options={options} onChange={setFilters} />
       </Panel>
 

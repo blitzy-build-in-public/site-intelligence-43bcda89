@@ -502,7 +502,7 @@ test("the planner journey: from the disruption to the audit record, with the sol
     const found = await rowCarryingCase(queue, SOLVER_CASE_ID);
     exceptionId = found.exceptionId;
 
-    await found.row.getByRole('cell').first().dblclick();
+    await found.row.getByRole('cell').first().click();
     await expect
       .poll(() => pathnameOf(page), { message: 'the row opens its investigation' })
       .toBe(`/exceptions/${found.exceptionId}`);
@@ -731,7 +731,7 @@ test("the planner journey: from the disruption to the audit record, with the sol
       .getByRole('row')
       .filter({ hasText: mustBeKnown(approvalId, 'the approval identifier') });
     await expect(ownApproval, 'the inbox lists the plan the journey requested').toHaveCount(1);
-    await ownApproval.getByRole('cell').first().dblclick();
+    await ownApproval.getByRole('cell').first().click();
     await expect.poll(() => pathnameOf(page)).toBe(path);
 
     /* The steps the record states, read before the decision so the tracker can be compared with them. */
@@ -918,7 +918,7 @@ test("the planner journey: from the disruption to the audit record, with the sol
       .filter({ hasText: DECISION_ACTION })
       .getByRole('cell')
       .first()
-      .dblclick();
+      .click();
 
     const detail = page.getByRole('dialog', { name: /^Audit event / });
     await expect(detail, 'an event opens its own detail').toBeVisible();

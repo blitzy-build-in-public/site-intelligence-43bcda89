@@ -22,16 +22,19 @@
  * person's name, role token or plant code is typed here (rules P-2, P-6, P-7). The member is
  * optional because an adapter holding no seeded personas leaves it absent; when it is absent, or it
  * reports fewer than two personas, this control cannot act and says so instead of offering a choice
- * that would change nothing (rule P-8). The acting persona is read from `useActiveUser()`, the
- * start-up read the shell seeds its persona from, and the persona in force from `useActiveRole()`, so
- * a demonstration reset that returns the adapter to its seeded persona returns this control to it
- * too, without a second source of truth.
+ * that would change nothing (rule P-8). The acting persona is read from `useActiveUser()`, the identity
+ * the boundary publishes from the query cache, and the persona in force from `useActiveRole()`, so a
+ * demonstration reset that returns the adapter to its seeded persona returns this control to it too,
+ * without a second source of truth.
  *
- * WHAT A SWITCH DOES. On a successful `switchRole`, three things happen in order: the shell stores the
+ * WHAT A SWITCH DOES. On a successful `switchRole`, four things happen in order: the shell stores the
  * returned persona's role through `setActiveRole`, so the density and every role-scoped label follow
- * the persona the adapter now enforces; the query cache is invalidated whole, because every read the
- * screens hold — the queue, the overview, the inbox, the ledger — was narrowed by the persona that
- * just changed; and the router is sent to `entryRouteFor(role)`, the route AAP 0.12.4 fixes per role,
+ * the persona the adapter now enforces; the persona the switch itself returned is written into
+ * {@link ACTIVE_USER_QUERY_KEY}, the cache entry `useActiveUser()` publishes, so no consumer keeps
+ * naming the persona that stood before the switch while the identity is being re-read; the query cache
+ * is invalidated whole, because every read the screens hold — the queue, the overview, the inbox, the
+ * ledger — was narrowed by the persona that just changed, and the identity is re-read from the adapter
+ * with them; and the router is sent to `entryRouteFor(role)`, the route AAP 0.12.4 fixes per role,
  * which is the same resolution `/` performs for a first visit. Changing the selection is the
  * confirmation; there is no separate submit.
  *
@@ -40,16 +43,30 @@
  * `role="alert"` region, keeps the selection the session held, and leaves the shell store and the
  * router untouched — so a refused switch never reads as a switch that happened (AAP 0.2.2).
  *
- * ACCESSIBILITY. A native `<select>`, the element the browser already gives keyboard operation,
- * type-ahead and a screen-reader interaction model; this component is the one that owns it (AAP
- * 0.5.2). It is bound to a visible `<label>` carrying the fixed wording, its accessible name adds the
- * persona in force and that persona's role, and its description carries the non-authorisation note
- * plus, when it cannot act, the sentence saying why. The target is at least 24x24 px and the focus
- * ring is the theme's 2 px `focus-ring` role, drawn on `focus-visible` so a pointer click leaves no
- * ring (rule B-3). A control that cannot act carries `aria-disabled` rather than `disabled`, the same
- * choice `src/components/tooltip.tsx` documents: `disabled` would drop it out of the tab order, and
- * the explanation rule P-8 requires would then be unreachable by keyboard. No meaning is carried by
+ * ACCESSIBILITY. The control is `SelectField` from `src/components`, the primitive that owns the
+ * `<select>` element (AAP 0.5.2); this shell control composes it and renders no native element of its
+ * own. Because the element the primitive renders is the platform's own control, the browser still
+ * gives it keyboard operation, type-ahead and a screen-reader interaction model. It is bound to a
+ * visible `<label>` carrying the fixed wording, its accessible name adds the persona in force and
+ * that persona's role, and its description carries the non-authorisation note plus, when it cannot
+ * act, the sentence saying why. The target is at least 24x24 px and the focus ring is the theme's
+ * 2 px `focus-ring` role, drawn on `focus-visible` so a pointer click leaves no ring (rule B-3). A
+ * control that cannot act carries `aria-disabled` rather than `disabled`, the choice
+ * `src/components/tooltip.tsx` documents: `disabled` would drop it out of the tab order, and the
+ * explanation rule P-8 requires would then be unreachable by keyboard. No meaning is carried by
  * colour: the acting persona, its role and every explanation are text.
+ *
+ * BELOW THE `md` BREAKPOINT THE LABEL AND THE SELECT FOLD AWAY. The top bar is the shell's banner on
+ * every route, so every line of height it spends is spent on every screen: at a 375 px window this
+ * control's labelled select on top of the six freshness pills left the navigation and the route's own
+ * heading below the fold of a phone viewport (QA finding qa-w013-I35). Below `md` — 48rem — the fixed
+ * label and the select therefore sit behind one disclosure whose trigger belongs to this component,
+ * because the elements it reveals are this component's (AAP §0.5.2). The trigger's accessible name is
+ * {@link ROLE_SWITCHER_LABEL}, so a reader still meets rule P-3's wording before opening it. Only the
+ * label and the select fold: the non-authorisation note stays on screen at every width, which is what
+ * rule P-3 asks of the interface, and so does every sentence explaining a state in which the control
+ * cannot act, so a refusal is never locked behind a closed disclosure. From `md` up nothing changes —
+ * label, select and note in the same order, with no trigger and no extra element.
  *
  * WHAT IT DOES NOT DO. It fetches nothing of its own (rule B-1): the persona records arrive through
  * the bound adapter, which holds them in memory. It reads no configuration and carries no credential
@@ -67,14 +84,23 @@
  * feature, and a browser test drives it exactly as a reader does.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useId, useState } from 'react';
-import type { ChangeEvent, ReactElement } from 'react';
+import { useEffect, useId, useState } from 'react';
+import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router';
 
+import { SelectField } from '../components/select-field';
 import { StatusIndicator } from '../components/status-indicator';
-import { ActionButton } from '../components/tooltip';
+import {
+  ActionButton,
+  CONTROL_STRUCTURE_CLASSES,
+  SECONDARY_CONTROL_CLASSES,
+} from '../components/tooltip';
 import type { DemonstrationControls } from '../services/demonstration-controls';
-import { useActiveUser, useDemonstration } from '../services/service-provider';
+import {
+  ACTIVE_USER_QUERY_KEY,
+  useActiveUser,
+  useDemonstration,
+} from '../services/service-provider';
 import type { ActiveUser } from '../types/entities';
 import { SIM_LABELS } from '../types/primitives';
 import { entryRouteFor } from './nav-items';
@@ -183,13 +209,29 @@ const LABEL_CLASSES = 'min-w-0 text-12 font-medium text-text-primary';
  * minimum target, the control boundary, the raised second surface, the 2 px focus ring on
  * `focus-visible`, the 150 ms colour transition only under `motion-safe` — written out here rather
  * than composed from that module's exported lists, because a `<select>` is a replaced element whose
- * native popup the flex structure of a button would disturb. No raw palette value, no arbitrary value
- * and no opacity appears: dimming a label is exactly how contrast falls below the ratio rule B-3
- * requires.
+ * native popup the flex structure of a button would disturb.
+ *
+ * The pointer is answered the way the bar's other pickers answer it: `hover:` lifts the boundary to
+ * the accent role, the same state `src/app/scope-filters.tsx` and the simulated-data badge paint, and
+ * `active:` steps the fill in to the first surface and the label to the primary text role, so a press
+ * reads as one step below the hover that preceded it. A control that cannot act answers neither
+ * state, and this select says it cannot act with `aria-disabled` rather than `disabled` (see
+ * {@link RoleSwitcher}), so `aria-disabled:hover:` re-asserts the resting boundary over the hover and
+ * `aria-disabled:active:` re-asserts the resting fill and label over the press. Both variants are
+ * stacked on purpose: each outranks its plain `hover:`/`active:` counterpart on specificity, exactly
+ * as the `aria-disabled:hover:` and `aria-disabled:active:` pair in `src/components/tooltip.tsx`
+ * does, so neither a hover nor a press can paint a state the control will not act on.
+ * `motion-safe:` gates the transition, so a reduced-motion session gets the states with no animation.
+ *
+ * No raw palette value, no arbitrary value and no opacity appears: dimming a label is exactly how
+ * contrast falls below the ratio rule B-3 requires.
  */
 const SELECT_CLASSES = [
   'min-h-6 min-w-6 max-w-full rounded-control border border-control-boundary bg-surface-2',
   'px-2 py-1 text-13 text-text-primary',
+  'hover:border-accent active:bg-surface-1 active:text-text-primary',
+  'aria-disabled:hover:border-control-boundary',
+  'aria-disabled:active:bg-surface-2 aria-disabled:active:text-text-primary',
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
@@ -203,6 +245,100 @@ const HINT_CLASSES = 'min-w-0 max-w-full text-12 break-words text-text-secondary
 /** The refusal, in the primary text role so it sits above the standing note it appears beside. */
 const ALERT_CLASSES = 'min-w-0 max-w-full text-12 break-words text-text-primary';
 
+/**
+ * The narrow presentation's disclosure trigger, built from the shared control surface.
+ *
+ * The structure and the appearance come from `src/components/tooltip.tsx` rather than being written
+ * out again here, so the trigger keeps the 24x24 px minimum target, the 2 px `focus-ring` focus ring
+ * on `focus-visible`, the control radius and the role-token colours every other control has (rule
+ * B-3), and a token change there reaches this control too. No raw palette value, no shadow and no
+ * arbitrary value is added beside them (AAP §0.5.3, rule P-8).
+ */
+const TRIGGER_CLASSES = [CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES].join(' ');
+
+/**
+ * The region holding the label and the select while it is closed.
+ *
+ * The region stays in the document while it is closed, because the trigger's `aria-controls` names it
+ * and a relationship pointing at an element that does not exist is not a relationship; it holds
+ * neither the label nor the select, which is where the height the disclosure saves comes from. It is
+ * closed with `hidden`, so a closed region takes neither width nor height in the top bar's row.
+ */
+const CLOSED_REGION_CLASSES = 'hidden';
+
+/* ---------------------------------------------------------------------------------------------
+ * The narrow viewport, read synchronously and kept current
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The query that reports a window narrow enough for the labelled select to cost the shell more height
+ * than it earns: everything below Tailwind's `md` breakpoint, which is `48rem`.
+ *
+ * Stated in `rem` and never in `px`, for the reason `src/components/evidence-drawer.tsx` states on its
+ * own docked query — a breakpoint's utilities resolve against the root font size, so a query fixed in
+ * pixels would keep reporting one presentation after the styling had changed for a reader whose
+ * default font size is not 16 px. The upper bound is the last thousandth of a rem below `48rem`, so
+ * the narrow and the wide presentation can never both match.
+ */
+const NARROW_QUERY = '(max-width: 47.999rem)';
+
+/**
+ * Whether the window is currently narrow, read synchronously.
+ *
+ * Read during the first render rather than after it, so the bar is laid out in the presentation the
+ * reader's viewport calls for on the frame it first appears and never flips once an effect has run.
+ * An environment with no `matchMedia` at all — the jsdom test environment, which implements no media
+ * query, and any pass without a DOM — answers `false` and therefore gets the wide presentation, which
+ * is the markup every suite that does not stub a viewport was written against.
+ */
+function matchesNarrowQuery(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+
+  return window.matchMedia(NARROW_QUERY).matches;
+}
+
+/**
+ * The presentation the switcher is in, kept current while it stays mounted.
+ *
+ * The state starts from a synchronous read of the same query, and the effect subscribes to that
+ * query's `change` event, so a window resized across the breakpoint folds or unfolds the label and the
+ * select without a remount. The effect also re-reads the query once on mount, because a subscription
+ * only reports changes that happen after it exists. The listener is removed when the switcher
+ * unmounts, so nothing stays registered behind it.
+ *
+ * This is the pattern `useDockedPresentation` in `src/components/evidence-drawer.tsx` uses. It is
+ * carried here as a second small helper rather than as a shared module because AAP §0.13 fixes the
+ * file tree and names no shared hook, and because the two queries answer different questions about
+ * different surfaces.
+ */
+function useNarrowPresentation(): boolean {
+  const [isNarrow, setIsNarrow] = useState(matchesNarrowQuery);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+
+    const query = window.matchMedia(NARROW_QUERY);
+
+    setIsNarrow(query.matches);
+
+    function handleChange(event: MediaQueryListEvent): void {
+      setIsNarrow(event.matches);
+    }
+
+    query.addEventListener('change', handleChange);
+
+    return () => {
+      query.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  return isNarrow;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The roster read — rule P-2, AAP 0.12.1
  * ------------------------------------------------------------------------------------------- */
@@ -211,12 +347,23 @@ const ALERT_CLASSES = 'min-w-0 max-w-full text-12 break-words text-text-primary'
  * The cache key of the persona roster.
  *
  * Keyed the way every read and every write's invalidation are keyed — the member's own name first, in
- * the `[method, ...args]` convention of AAP 0.6.2 — so the convention holds even though this member
- * sits on the demonstration capability rather than on the port. The roster is static for a session, and
- * a switch invalidates the cache whole (see {@link RoleSwitcher}), so the list is re-read exactly when
- * something could have changed it.
+ * the `[method, ...args]` convention of AAP 0.6.2 that the client created in `src/app/providers.tsx`
+ * fixes for the whole cache — and then the reader's own qualifier, so the convention holds even
+ * though this member sits on the demonstration capability rather than on the port. The qualifier is
+ * not decoration: a key names its reader as well as its method, because the payload shape belongs to
+ * the reader that caches it. Two callers of `listPersonas` under the bare member name could each
+ * hand the other a value of the wrong type, and a `Result` envelope where this control expects an
+ * array unmounts the whole shell rather than degrading one panel. That is why the governance screen
+ * (`src/features/scr-07-sovereignty-and-policies/sovereignty-screen.tsx`) reads the same member under
+ * its own `'governance'` qualifier, and why this key names `'shell'`.
+ *
+ * The roster is static for a session and lists the personas themselves rather than a record any
+ * permission narrows, so a role switch leaves this entry in place while it resets every read the
+ * outgoing persona decided (see {@link RoleSwitcher}). The reset names the member rather than one
+ * qualified key, so it reaches both qualified entries: TanStack Query matches by key prefix, and the
+ * member name alone names every entry of that read while this one is spared by the predicate.
  */
-const ROSTER_QUERY_KEY = ['listPersonas'] as const;
+const ROSTER_QUERY_KEY = ['listPersonas', 'shell'] as const;
 
 /**
  * Reads the personas the demonstration can act as, or none when the bound service offers no roster.
@@ -253,7 +400,8 @@ async function readPersonas(
  * and the fixed wording is owned here (rule P-2).
  *
  * @returns The control group: the fixed label, the select when the service offers a choice, the
- *   sentence explaining any state in which it cannot act, and the non-authorisation note.
+ *   sentence explaining any state in which it cannot act, and the non-authorisation note — with the
+ *   label and the select behind one disclosure below the `md` breakpoint.
  */
 export function RoleSwitcher(): ReactElement {
   const demonstration = useDemonstration();
@@ -268,6 +416,15 @@ export function RoleSwitcher(): ReactElement {
   const actingId = useId();
   const noteId = useId();
   const reasonId = useId();
+
+  /** The id of the region the disclosure reveals, so the trigger's `aria-controls` resolves to it. */
+  const choiceId = useId();
+
+  /** Whether the window is narrow enough for the label and the select to fold away. */
+  const isNarrow = useNarrowPresentation();
+
+  /** Whether the narrow presentation's disclosure is open; it starts closed, so the bar is short. */
+  const [isRevealed, setIsRevealed] = useState(false);
 
   /** The persona a switch is being recorded for, or `null` while the control is at rest. */
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -325,11 +482,30 @@ export function RoleSwitcher(): ReactElement {
 
       /*
        * The persona the adapter now enforces is the one the shell displays and the one the router
-       * opens for: the store first, then the cache (every read is narrowed by the acting persona),
-       * then the route AAP 0.12.4 fixes for the role.
+       * opens for: the store first, then the identity entry, then the cache (every read is narrowed by
+       * the acting persona), then the route AAP 0.12.4 fixes for the role.
+       *
+       * The cache is reset rather than merely invalidated, because a cached entry answers from itself
+       * instead of from the adapter that authorised it: every read still in it was made under the
+       * persona the adapter has just replaced, so keeping it would paint that persona's records on the
+       * screen this one lands on until the refetch answered — a plant scope, a redacted body or a
+       * trail this persona may not read (rules P-3, P-8). The roster is the one read the reset leaves
+       * alone: it names the personas rather than a record a permission narrows, and clearing it would
+       * disable this control for the length of its own re-read.
+       *
+       * The identity entry is written after the reset and before the refetch it starts, and neither
+       * the reset nor the refetch is relied on for it. The adapter answers a call after its own
+       * latency band, so between the switch resolving and the refetch landing every consumer of
+       * `useActiveUser()` would still name the persona that stood before — and "Assign to me" writes
+       * with exactly that value. What is written here is the adapter's own answer to this call,
+       * envelope included, so the entry stays the member's answer while the refetch confirms it: the
+       * key is the one `getActiveUser()` fills, and one key cannot hold two shapes.
        */
       setActiveRole(persona.role);
-      void queryClient.invalidateQueries();
+      void queryClient.resetQueries({
+        predicate: (query) => query.queryKey[0] !== ROSTER_QUERY_KEY[0],
+      });
+      queryClient.setQueryData(ACTIVE_USER_QUERY_KEY, result);
       navigate(entryRouteFor(persona.role));
     } catch (error: unknown) {
       setFailure(messageOf(error) ?? ROLE_SWITCHER_TEXT.switchFailed);
@@ -338,9 +514,7 @@ export function RoleSwitcher(): ReactElement {
     }
   };
 
-  const handleChange = (event: ChangeEvent<HTMLSelectElement>): void => {
-    const nextId = event.target.value;
-
+  const handleChange = (nextId: string): void => {
     /*
      * A change is acted on only when the control can act, and only when it names another persona: a
      * switch is already being recorded for the persona the reader chose, so a second one would put two
@@ -386,8 +560,13 @@ export function RoleSwitcher(): ReactElement {
    */
   const describedBy = reason === null ? noteId : `${reasonId} ${noteId}`;
 
-  return (
-    <div className={GROUP_CLASSES}>
+  /*
+   * The label and the select, as one fragment: the wide presentation renders it directly in the group
+   * and the narrow presentation renders the same fragment inside the region its trigger reveals, so the
+   * two presentations cannot drift apart.
+   */
+  const choice = (
+    <>
       <label htmlFor={selectId} id={labelId} className={LABEL_CLASSES}>
         {ROLE_SWITCHER_LABEL}
       </label>
@@ -401,7 +580,7 @@ export function RoleSwitcher(): ReactElement {
           {`${personaInForce.name} · ${personaInForce.role}`}
         </span>
       )}
-      <select
+      <SelectField
         id={selectId}
         className={SELECT_CLASSES}
         /*
@@ -410,18 +589,43 @@ export function RoleSwitcher(): ReactElement {
          * answered, `selectedId` carries the persona it now enforces and the two agree.
          */
         value={pendingId ?? selectedId}
+        options={options.map((persona) => ({
+          value: persona.id,
+          label: `${persona.name} · ${persona.role}`,
+        }))}
         aria-labelledby={personaInForce === undefined ? labelId : `${labelId} ${actingId}`}
         aria-describedby={describedBy}
         aria-disabled={canSwitch ? undefined : true}
         aria-busy={isSwitching || isReading}
         onChange={handleChange}
-      >
-        {options.map((persona) => (
-          <option key={persona.id} value={persona.id}>
-            {`${persona.name} · ${persona.role}`}
-          </option>
-        ))}
-      </select>
+      />
+    </>
+  );
+
+  return (
+    <div className={GROUP_CLASSES}>
+      {isNarrow ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={isRevealed}
+            aria-controls={choiceId}
+            className={TRIGGER_CLASSES}
+            onClick={() => {
+              setIsRevealed(!isRevealed);
+            }}
+          >
+            {ROLE_SWITCHER_LABEL}
+          </button>
+          {/* The revealed region reuses the group's own column, so an opened disclosure stacks the
+              label, the select and their explanation exactly as the wide presentation does. */}
+          <div id={choiceId} className={isRevealed ? GROUP_CLASSES : CLOSED_REGION_CLASSES}>
+            {isRevealed ? choice : null}
+          </div>
+        </>
+      ) : (
+        choice
+      )}
       {reason === null ? null : (
         <p
           id={reasonId}

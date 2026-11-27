@@ -7,9 +7,12 @@
  * WHY THIS MODULE EXISTS. Rule P-2 binds all data access to the one typed service interface, and
  * AAP 0.12.1's "Provider" row gives that binding its React shape: a context exposing `useService()`,
  * `useDemonstration()` and `useActiveUser()`, awaiting the adapter's asynchronous bootstrap before the
- * first screen renders. The persona the session acts as is read in that same start-up, so the shell
- * learns who the adapter is enforcing from one settling pass rather than from a second request once a
- * screen has mounted (AAP 0.6.3 "Identity"). A screen therefore reaches records through a hook and
+ * first screen renders. The persona the session acts as travels through the query cache rather than
+ * through a snapshot of the start-up: the start-up's own read is the cache entry's initial value, and
+ * every whole-cache invalidation — the role switch's and the demonstration reset's — refetches that
+ * entry from the adapter, so a consumer which writes as the persona names the one the adapter is
+ * enforcing at that render rather than the one the session began with (AAP 0.6.3 "Identity", AAP
+ * 0.6.2's `[method, ...args]` cache convention). A screen therefore reaches records through a hook and
  * never through an adapter, a seed module or a global, which is what makes "components and screens
  * never import seed data" a property of the dependency graph rather than a habit (rules P-2, P-6).
  *
@@ -27,6 +30,13 @@
  * `{ status: 'ready' }` or `{ status: 'failed', problem }` — so `use()` never throws, no error
  * boundary is involved and nothing here is a class component (the no-class convention of AAP
  * 0.18.1).
+ *
+ * HOW THE PERSONA STAYS LIVE. Through one `useQuery` entry keyed {@link ACTIVE_USER_QUERY_KEY}, not
+ * through the value the start-up happened to read: a role switch and a demonstration reset both
+ * invalidate the cache whole, so the identity is re-read from the adapter with every other read and the
+ * consumers of `useActiveUser()` follow it. That is data loading of the kind AAP 0.18.1 gives the query
+ * cache, so no effect stands in for it, and the entry needs no polling, no timer and no second source of
+ * truth beside the adapter's own state.
  *
  * WHAT A FAILED START-UP SHOWS. An accessible region stating that the workspace could not be
  * prepared, the `Problem`'s own message, its correlation identifier when it carried one, and one
@@ -75,11 +85,12 @@
  * simulation popover and the role switcher are the levers a browser test drives, and both are
  * product features reached through the port.
  */
+import { skipToken, useQuery } from '@tanstack/react-query';
 import { Suspense, createContext, use, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import type { ActiveUser } from '../types/entities';
-import type { Problem, ProblemType } from '../types/service';
+import type { Problem, ProblemType, Result } from '../types/service';
 import { createService, getDemonstrationControls, whenServiceReady } from './create-service';
 import type { DemonstrationControls } from './demonstration-controls';
 import type { SiteIntelligenceService } from './site-intelligence-service';
@@ -117,7 +128,9 @@ export const SERVICE_PROVIDER_TEXT = {
 
   /**
    * The sentence shown when the start-up stopped for a reason that did not arrive in the service's
-   * `Problem` shape, so the region has a message of its own rather than an empty line.
+   * `Problem` shape. The region states this sentence rather than the rejection's own text, which is an
+   * internal diagnostic written for a developer and may name a repository path or a record set's
+   * internals.
    */
   startupUnreported: 'The start-up step stopped without reporting a cause.',
 
@@ -234,14 +247,16 @@ const RETRY_BUTTON_CLASSES = [
  * boundary renders, and the `Problem` the service produced is carried whole so the region prints
  * the service's own message and identifier instead of a paraphrase (rule P-6).
  *
- * The ready member carries the persona the session acts as, read once from the adapter in the same
- * attempt that waits for its bootstrap, so the shell seeds the persona it displays from the persona
- * the adapter enforces (AAP 0.6.3 "Identity"). `null` states one fact rather than a missing one: the
- * bound adapter carries no demonstration capability, so it has no seeded persona to report and the
- * shell keeps whatever a successful role switch gives it.
+ * The ready member carries the envelope the adapter answered this attempt's persona read with, so the
+ * boundary publishes it as the acting-persona cache entry's initial value: the first paint shows the
+ * persona the adapter is enforcing, with no second call on mount and no frame in which nobody is known
+ * (AAP 0.6.3 "Identity", {@link ACTIVE_USER_QUERY_KEY}). The envelope rather than the persona alone,
+ * because that entry is the one two screens already read as `getActiveUser()`'s own answer and one key
+ * cannot hold two shapes. `null` states one fact rather than a missing one: the bound adapter carries
+ * no demonstration capability, so it has no persona to report at all.
  */
 type BootstrapOutcome =
-  | { readonly status: 'ready'; readonly activeUser: ActiveUser | null }
+  | { readonly status: 'ready'; readonly activeUser: Result<ActiveUser> | null }
   | { readonly status: 'failed'; readonly problem: Problem };
 
 /**
@@ -288,11 +303,15 @@ function isProblem(candidate: unknown): candidate is Problem {
 /**
  * Turns whatever a rejected start-up carried into the `Problem` the failure region renders.
  *
- * A `Problem` is passed through untouched, so the service's message and correlation identifier are
- * the ones on screen. Anything else becomes a `'validation'` failure — the records could not be
- * prepared against the platform as it stands, which is what the cause list's fourth kind describes
- * — carrying the thrown `Error`'s message when there is one and an empty correlation identifier
- * when there is not, since nothing in the start-up path opens a traced call. The region omits the
+ * A `Problem` is passed through untouched, so the service's message and correlation identifier are the
+ * ones on screen: they are the service's own account of the failure, and the identifier is the one a
+ * reader can quote back (AAP 0.18.1). Anything else becomes a `'validation'` failure in this module's
+ * own words — the records could not be prepared against the platform as it stands, which is what the
+ * cause list's fourth kind describes — with an empty correlation identifier, since nothing in the
+ * start-up path opens a traced call. The rejection's own text is deliberately not carried: it is an
+ * internal diagnostic written for a developer and may name a repository path or a record set's
+ * internals, while this region renders in front of a reader, so the sentence
+ * {@link SERVICE_PROVIDER_TEXT.startupUnreported} is what the reader sees. The region omits the
  * identifier row for an empty string rather than printing a blank one.
  */
 function asProblem(error: unknown): Problem {
@@ -300,12 +319,7 @@ function asProblem(error: unknown): Problem {
     return error;
   }
 
-  const message =
-    error instanceof Error && error.message !== ''
-      ? error.message
-      : SERVICE_PROVIDER_TEXT.startupUnreported;
-
-  return { type: 'validation', message, traceId: '' };
+  return { type: 'validation', message: SERVICE_PROVIDER_TEXT.startupUnreported, traceId: '' };
 }
 
 /**
@@ -314,11 +328,12 @@ function asProblem(error: unknown): Problem {
  * Two steps, in this order. The readiness handshake settles first, so the seeded records are installed
  * and their audit chain is hashed before anything is read from them. The persona the session acts as is
  * then read through the adapter's demonstration capability, because the session's identity is part of
- * preparing the workspace rather than a detail a screen collects once it has rendered: the shell seeds
- * the role it displays, and the density and entry route that follow that role, from this one value
- * (AAP 0.6.3 "Identity", AAP 0.12.4). An adapter carrying no demonstration capability — the
- * unconnected HTTP client, which leaves identity to the service it addresses — settles ready with
- * `null` and no identity to seed.
+ * preparing the workspace rather than a detail a screen collects once it has rendered: this value is
+ * the acting-persona cache entry's initial value, so the first paint already displays the role the
+ * adapter enforces and the density and entry route that follow that role follow it too (AAP 0.6.3
+ * "Identity", AAP 0.12.4). An adapter carrying no demonstration capability — the unconnected HTTP
+ * client, which leaves identity to the service it addresses — settles ready with `null` and no
+ * identity to publish.
  *
  * Never rejects: a refused handshake, and equally a `Problem` the identity read threw, is recorded as
  * the failure member of {@link BootstrapOutcome}. That is what lets the boundary read the promise with
@@ -342,10 +357,76 @@ async function startBootstrap(): Promise<BootstrapOutcome> {
 
     const activeUser = await demonstration.getActiveUser();
 
-    return { status: 'ready', activeUser: activeUser.data };
+    return { status: 'ready', activeUser };
   } catch (error: unknown) {
     return { status: 'failed', problem: asProblem(error) };
   }
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The acting persona, read through the cache so it follows the session
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The cache key of the acting-persona read: the member's own name first, and nothing beside it.
+ *
+ * One key, one shape, one fact — the entry holds `getActiveUser()`'s own `Result<ActiveUser>` envelope,
+ * exactly as the member answers it, so every reader of the session's identity shares the value this
+ * boundary publishes instead of keeping a second copy of it. Two screens already read the capability
+ * this way and key it identically (`src/features/scr-07-sovereignty-and-policies/
+ * sovereignty-screen.tsx` and `policy-detail-screen.tsx`, whose grant gate must describe the persona
+ * the adapter is enforcing), and a demonstration reset or a role switch invalidates the cache whole, so
+ * the entry those screens hold, the entry a switch writes and the entry this boundary reads are the
+ * same entry with the same spelling.
+ *
+ * The shape is the member's envelope rather than the persona alone, because a key cannot hold two
+ * shapes: a reader that expected a bare `ActiveUser` under a key another reader fills with the
+ * envelope would dereference one level too few, which is a render fault rather than a missing value.
+ * The boundary therefore unwraps what it publishes and writes nothing of its own shape here.
+ */
+export const ACTIVE_USER_QUERY_KEY = ['getActiveUser'] as const;
+
+/**
+ * Reads the persona the bound adapter is acting as, through the query cache.
+ *
+ * The entry is the session's identity rather than a memo of a static record. A successful
+ * `switchRole` writes the envelope it returned into this key before it invalidates the cache
+ * (`src/app/role-switcher.tsx`), and the whole-cache invalidation a switch and a `Reset demo data`
+ * alike issue refetches the adapter for the persona it enforces now — so every consumer of
+ * `useActiveUser()` reads the persona the adapter authorises against at that render, which is what
+ * lets a write name the acting persona without a second source of truth (AAP 0.6.2's `[method,
+ * ...args]` cache convention, AAP 0.6.3 "Identity").
+ *
+ * `initialData` is the envelope the start-up reported, so the boundary's first paint publishes exactly
+ * what the settled attempt read: no second adapter call on mount and no frame in which the shell knows
+ * nobody. `staleTime` is infinite because this entry is refreshed by invalidation rather than by age,
+ * and a background refetch would replace an identity the reader is acting as for no reason the
+ * demonstration has. `retry` is off for the reason every read in this application turns it off
+ * (`src/app/providers.tsx`): an identity the adapter cannot report is a state the reader is shown, not
+ * a glitch to hide behind a second attempt. An adapter carrying no demonstration capability reads
+ * nothing (`skipToken`) and this boundary publishes `null`, which is the fact `useActiveUser()`
+ * reports for it.
+ *
+ * @param demonstration - The bound capability, or `null` when the adapter carries none.
+ * @param startupUser - The envelope the settled start-up read, used as the entry's initial value.
+ * @returns The persona the adapter is acting as, or `null`.
+ */
+function useActingPersona(
+  demonstration: DemonstrationControls | null,
+  startupUser: Result<ActiveUser> | null,
+): ActiveUser | null {
+  const query = useQuery<Result<ActiveUser>>({
+    queryKey: ACTIVE_USER_QUERY_KEY,
+    queryFn: demonstration === null ? skipToken : () => demonstration.getActiveUser(),
+    enabled: demonstration !== null,
+    // Written conditionally because `exactOptionalPropertyTypes` distinguishes an absent `initialData`
+    // from one holding `undefined`, and an adapter with no capability has no envelope to seed with.
+    ...(startupUser === null ? {} : { initialData: startupUser }),
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  return query.data?.data ?? null;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -374,13 +455,15 @@ interface ServiceContextValue {
   readonly demonstration: DemonstrationControls | null;
 
   /**
-   * The persona the session acts as, as the adapter reported it when the start-up settled, or `null`
-   * when the bound adapter carries no demonstration capability.
+   * The persona the session acts as at this render, or `null` when the bound adapter carries no
+   * demonstration capability.
    *
-   * It is published rather than held so the shell can seed the persona it displays from the persona
-   * the adapter enforces (AAP 0.6.3 "Identity"). It is read once per settled attempt and is never
-   * re-read here: a role switch and a demonstration reset both answer the caller that made them, so
-   * this value is the start of the session rather than a live subscription to it.
+   * It is published rather than held so every consumer reads the persona the adapter is enforcing (AAP
+   * 0.6.3 "Identity"). The value is the cache entry {@link ACTIVE_USER_QUERY_KEY} reads: the start-up
+   * seeds it, a successful role switch writes the persona the adapter returned into it, and the
+   * whole-cache invalidation a switch and a demonstration reset both issue refetches it — so a consumer
+   * that writes as this persona names the persona the adapter authorises against, not the one the
+   * session started as.
    */
   readonly activeUser: ActiveUser | null;
 }
@@ -459,39 +542,47 @@ function ServiceGate({ attempt, onRetry, children }: ServiceGateProps): ReactEle
     return <WorkspaceFailure problem={outcome.problem} onRetry={onRetry} />;
   }
 
-  return <BoundServices activeUser={outcome.activeUser}>{children}</BoundServices>;
+  return <BoundServices startupUser={outcome.activeUser}>{children}</BoundServices>;
 }
 
 /** Props of the component that binds the context value around the shell. */
 interface BoundServicesProps {
-  /** The persona the settled start-up read from the adapter, published to every consumer. */
-  readonly activeUser: ActiveUser | null;
+  /**
+   * The envelope the settled start-up read from the adapter, published as the acting-persona cache
+   * entry's initial value so the first paint already names the persona the adapter enforces.
+   */
+  readonly startupUser: Result<ActiveUser> | null;
 
   /** The shell and its screens, rendered inside the boundary. */
   readonly children: ReactNode;
 }
 
 /**
- * Binds the context value once and renders the shell inside it.
+ * Binds the context value and renders the shell inside it.
  *
- * The value is memoised over the start-up's persona, so the adapter and the capability are read on
- * the first render of a ready session and every consumer receives the same object for as long as that
- * persona stands: a new value object per render would re-render every screen under the shell whenever
- * the provider re-rendered, and `createService` would be re-consulted for no reason. The persona is
- * the one dependency because it is the one member that arrives from outside — a retry that settles
- * with a different identity publishes a new value, and a retry that settles with the same one does
- * not.
+ * The adapter and the capability are memoised over nothing, because `createService` answers the
+ * session's single instance and `getDemonstrationControls` only classifies it: reading them once per
+ * mount keeps the identity read below stable instead of re-registering a query on every render. The
+ * persona is the one member that changes during a session, and it arrives from
+ * {@link useActingPersona} — so a switch or a reset that changes the identity publishes a new value
+ * object and every consumer under the shell re-renders with the persona the adapter now enforces.
  *
- * React Query, the theme provider and the shell store are deliberately absent — `src/app/
- * providers.tsx` owns that composition, so this boundary supplies the service and nothing else
- * (AAP 0.12.1).
+ * The theme provider and the shell store are deliberately absent: `src/app/providers.tsx` owns that
+ * composition, and this boundary supplies the service, the capability and the identity and nothing else
+ * (AAP 0.12.1). The query cache is used rather than created here, for the same reason — the cache is
+ * the shell's, and this boundary reads one entry of it (AAP 0.18.1: the cache owns data loading).
  */
-function BoundServices({ activeUser, children }: BoundServicesProps): ReactElement {
-  const value = useMemo<ServiceContextValue>(() => {
-    const service = createService();
-
-    return { service, demonstration: getDemonstrationControls(service), activeUser };
-  }, [activeUser]);
+function BoundServices({ startupUser, children }: BoundServicesProps): ReactElement {
+  const service = useMemo<SiteIntelligenceService>(() => createService(), []);
+  const demonstration = useMemo<DemonstrationControls | null>(
+    () => getDemonstrationControls(service),
+    [service],
+  );
+  const activeUser = useActingPersona(demonstration, startupUser);
+  const value = useMemo<ServiceContextValue>(
+    () => ({ service, demonstration, activeUser }),
+    [service, demonstration, activeUser],
+  );
 
   return <ServiceContext.Provider value={value}>{children}</ServiceContext.Provider>;
 }
@@ -550,20 +641,21 @@ export function useDemonstration(): DemonstrationControls | null {
 }
 
 /**
- * The persona the session acts as, as the adapter reported it when the start-up settled.
+ * The persona the session acts as now, as the adapter reports it.
  *
- * Read once, in the start-up that waits for the adapter's bootstrap, so the shell can seed the role it
- * displays from the role the adapter enforces (AAP 0.6.3 "Identity"). `null` means the bound adapter
- * has no demonstration capability — the unconnected HTTP client leaves identity to the service it
- * addresses — in which case there is no persona to seed and the shell keeps whatever a successful role
- * switch gives it.
+ * Kept live through the cache entry {@link ACTIVE_USER_QUERY_KEY} rather than frozen at the start-up
+ * that awaited the adapter's bootstrap: a consumer which acts as the persona — an assignment to "me",
+ * an owner check against the reader's own record — therefore names the persona the adapter is
+ * enforcing at that render, which is what rule P-8 asks of a control that must perform its function
+ * (AAP 0.6.3 "Identity"). A successful role switch writes the persona it returned into that entry and
+ * then invalidates the cache whole, and a demonstration reset invalidates it as well, so the switch and
+ * the reset are both reflected here once the adapter has answered.
  *
- * This is the value the shell seeds its persona from, and it is the persona the adapter enforces
- * permissions against: a role switch changes the adapter's persona and answers the caller that made
- * it, and a demonstration reset puts the adapter back to its seeded persona, which is the persona this
- * start-up read already reported. A consumer reads it to know who the session is; it must not treat
- * the value as authority of its own, because the adapter evaluates the permission matrix against its
- * own persona rather than against anything the interface holds (rule P-3).
+ * The value is not authority of its own: the adapter evaluates the permission matrix and the policy
+ * engine against its own acting persona rather than against anything a component holds, and the checks
+ * behind the switcher are a demonstration and not production authorisation (rule P-3). `null` means the
+ * bound adapter carries no demonstration capability — the unconnected HTTP client leaves identity to
+ * the service it addresses — in which case there is no persona to report.
  *
  * @returns The acting persona, or `null` when the bound adapter carries no demonstration capability.
  * @throws Error - When called outside `<ServiceProvider>`; the message is for a developer.

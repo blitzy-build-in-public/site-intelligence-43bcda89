@@ -25,23 +25,15 @@
  * over the package's element count, half up to a whole percent — belongs to
  * `src/domain/aggregation` through `wholePercent` in `src/domain/solver/rounding.ts`.
  *
- * The package screens belong to stage S4, which this run does not build (AAP 0.14.2). These shapes
- * exist so the service port, the seed and the mock adapter's package handlers type-check; no S1-S3
- * screen reads them.
+ * The package screens belong to stage S4 (AAP 0.14.2). These shapes exist so the service port, the
+ * seed and the mock adapter's package handlers type-check; no S1-S3 screen reads them.
  *
- * OPEN ITEM: rule wording, thresholds and readings are seed record content in
- * `src/seed/packages.ts`, not constants of this module, so the seed stays their single owner
- * (rule P-6). This module types the pair and spells no rule out.
- * OPEN ITEM: `PackageReadiness.percent` has to equal `wholePercent(passed / total)`. No type can
- * express that relation, so the aggregation that builds the value enforces it (AAP 0.12.1).
- * OPEN ITEM: readiness is defined only for a package with at least one element, because it divides
- * by that count. Every seed package has elements, but the type cannot state the invariant, so the
- * aggregation states it where it divides.
- * OPEN ITEM: `ElementReview` carries no reviewer member. The reviewer is the active user the
- * service holds (AAP 0.12.1), so the draft cannot name an actor the caller has not established.
- * OPEN ITEM: one draft shape covers both decisions, so the shape cannot say that a `correct`
- * review supplies a human value while an `accept` carries the extracted one; `correctedValue` is
- * required for both and the service fills it with whichever value the decision leaves in place.
+ * Rule wording, thresholds and readings are seed record content in `src/seed/packages.ts`, never
+ * constants here (rule P-6). `PackageReadiness.percent` must equal `wholePercent(passed / total)`,
+ * which no type can express, so the aggregation that builds it enforces it, and readiness is
+ * defined only for a package with at least one element, because it divides by that count.
+ * `ElementReview` names no actor: the reviewer is the active user the service holds (AAP 0.12.1),
+ * and its `correctedValue` carries whichever value a decision leaves in place.
  */
 
 import type { PackageId } from './primitives';

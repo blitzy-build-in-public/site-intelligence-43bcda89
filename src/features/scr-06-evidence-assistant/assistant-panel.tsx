@@ -38,13 +38,13 @@
  * whatever text it is handed and never branches on whether an answer was scripted: writing that
  * sentence here would make this module a second owner of record content.
  *
- * STATES, AND THE ONE THIS ROUTE CANNOT PRODUCE. `ScreenState` carries exactly the seven members of
- * specification §8 and no healthy member, so {@link deriveScreenState} returns `undefined` for a
- * current and complete read and `StateBoundary` then renders the content alone. `'conflict'` has no
- * assistant path: the only `'validation'` refusal this family produces is a request that carried no
- * question at all (`src/services/mock/handlers/assistant.ts`), which is not a record that moved under
- * the reader, so mapping it to `'conflict'` would report an update collision that never happened. The
- * body still renders that state when it is handed it, and T-17 owns the app-wide proof of all seven.
+ * STATES. `ScreenState` carries exactly the seven members of specification §8 and no healthy member, so
+ * the derivation in `src/components/screen-state.ts` returns `undefined` for a current and complete read
+ * and `StateBoundary` then renders the content alone. That one derivation owns all seven states for
+ * every screen, so this panel answers the seven-state question exactly as its siblings do and a
+ * `'validation'` refusal reaches it as `'conflict'` — the assistant family produces one only for a
+ * request that carried no question (`src/services/mock/handlers/assistant.ts`), and T-17 owns the
+ * app-wide proof of the seven.
  *
  * RULES THIS MODULE IS BUILT TO SATISFY.
  * - P-2: the port through `useService()` is the only data path; the cache is written only by the
@@ -72,19 +72,23 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
-import type { ChangeEvent, FormEvent, ReactElement } from 'react';
+import type { FormEvent, ReactElement } from 'react';
 
 import { Panel } from '../../components/panel';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
 import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
+import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
 import { useService } from '../../services/service-provider';
-import { SOURCE_LABELS } from '../../types';
 import type {
   Answer,
-  Freshness,
-  FreshnessState,
   ModelCatalogue,
   Problem,
   Result,
@@ -235,176 +239,6 @@ const PENDING_CLASSES = 'text-13 text-text-secondary';
  * action reads as one button under the field it submits.
  */
 const SUBMIT_CONTROL_CLASSES = 'self-start';
-
-/* ---------------------------------------------------------------------------------------------
- * The state derivation — specification §8, AAP §0.5.2 and AAP §0.12.4
- * ------------------------------------------------------------------------------------------- */
-
-/** What {@link deriveScreenState} reads: what the panel's reads settled to, and the answer it holds. */
-interface PanelStateInput {
-  /** Whether either read is still pending. */
-  readonly isPending: boolean;
-
-  /** The rejection a read ended in, when one did. */
-  readonly error: unknown;
-
-  /** The questions' payload, when the read resolved. */
-  readonly result: Result<SuggestedQuestion[]> | undefined;
-
-  /** The answer currently on screen, when a question has been answered. */
-  readonly answer: Answer | undefined;
-}
-
-/**
- * Whether a value is the port's own typed failure.
- *
- * A service call fails by throwing its `Problem` and the query cache hands that same value back as an
- * `unknown` rejection, so its three required members are checked before the value is treated as one. A
- * rejection in another shape is a defect in the read rather than a refusal, and the boundary reports the
- * condition without printing a member of a failure nobody raised.
- *
- * @param error - The value a read rejected with.
- * @returns Whether the value is a `Problem`.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return typeof type === 'string' && typeof message === 'string' && typeof traceId === 'string';
-}
-
-/**
- * Whether one of the six sources reported a given state in a read's freshness report.
- *
- * `Result.meta.freshness` is the adapter's own account of what each source did, so the states are read
- * from that report rather than inferred from a figure (AAP §0.2.1, rule P-6).
- *
- * @param freshness - The read's freshness report.
- * @param state - The state to look for.
- * @returns Whether a source reported it.
- */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/**
- * The source behind a stale panel, with the display name to print and the instant it last answered.
- *
- * The report's own order decides which source is named, and no preference is applied here: unlike the
- * overview, which names the order book first because ERP gates the approval taken next, the assistant
- * carries no gate of its own, so the first aged source is reported rather than one this file chose. The
- * label comes from `SOURCE_LABELS`, the map that owns the six display names, so the banner and the top
- * bar's pill say the same words about the same source.
- *
- * @param freshness - The read's freshness report.
- * @returns The record the banner names, or `undefined` when no source is stale.
- */
-function staleSourceOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const stale = freshness.find((entry) => entry.state === 'stale');
-
-  if (stale === undefined) {
-    return undefined;
-  }
-
-  return {
-    source: stale.source,
-    label: SOURCE_LABELS[stale.source],
-    asOf: stale.asOf,
-  };
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the read was refused for another reason.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold it
- * and the trace identifier of the refused call. A refusal that named no permission supplies no card
- * rather than one naming a permission nobody was refused for.
- *
- * @param error - The value a read rejected with.
- * @returns The denial, or `undefined`.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * The state the panel's records are in, or `undefined` when no exceptional state holds.
- *
- * THE PRECEDENCE, in the order the checks run: a refusal first, then a failure, then the pending reads,
- * then the sources' own reports, and the empty payload last. That is the order the sibling screens
- * derive their states in, so two screens cannot describe the same session differently.
- *
- * THE ANSWER'S OWN GAP IS NOT A STATE OF THE SCREEN. `Answer.partial` and `Answer.missing` describe one
- * answer, and `AssistantAnswer` states the inputs it could not fill behind that answer's own
- * disclosure, which is where they belong: beside the sentence they qualify. Promoting them here would
- * put a second account of one answer on screen — a warning whose retry cannot put a question into the
- * script, printed above the notice a question outside the script already returns as the whole of its
- * output. The screen's partial state comes from the reads instead, so a source reporting that it
- * answered incompletely still produces it.
- *
- * `'conflict'` is deliberately unreachable: the assistant family's only `'validation'` refusal is a
- * request that carried no question, which is a malformed request rather than a record that moved under
- * the reader. Mapping `'validation'` here would report an update collision that never happened, so the
- * derivation maps nothing to it and the app-wide seven-state proof stays with T-17.
- *
- * @param input - What the panel's reads settled to, and the answer it holds.
- * @returns The state to render, or `undefined` for no exceptional state.
- */
-function deriveScreenState({
-  isPending,
-  error,
-  result,
-  answer,
-}: PanelStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    return error.type === 'permission' ? 'forbidden' : 'offline';
-  }
-
-  if (error !== undefined && error !== null) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleSourceOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return result.data.length === 0 && answer === undefined ? 'empty' : undefined;
-}
 
 /* ---------------------------------------------------------------------------------------------
  * The two controls, each with one disabled branch (rule P-8)
@@ -638,8 +472,8 @@ export function AssistantPanelBody(props: AssistantPanelBodyProps): ReactElement
     }
   };
 
-  const handleDraftChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    onDraftChange?.(event.currentTarget.value);
+  const handleDraftChange = (value: string): void => {
+    onDraftChange?.(value);
   };
 
   const handleQuestion = (prompt: string): void => {
@@ -690,7 +524,7 @@ export function AssistantPanelBody(props: AssistantPanelBodyProps): ReactElement
               <label className={FIELD_LABEL_CLASSES} htmlFor={fieldId}>
                 {ASSISTANT_PANEL_TEXT.composerLabel}
               </label>
-              <input
+              <TextField
                 id={fieldId}
                 className={FIELD_CLASSES}
                 type="text"
@@ -910,11 +744,18 @@ export function AssistantPanel({
   const answer = askMutation.isSuccess ? askMutation.data.data : undefined;
   const refusal = askMutation.isError && isProblem(askMutation.error) ? askMutation.error : undefined;
 
+  /*
+   * The reads' own facts, plus this screen's reading of its payload. The panel carries no gate of its
+   * own, so the stale notice names the first aged source the report lists rather than one chosen here;
+   * the partial state comes from the reads, because an answer's own gap belongs beside the sentence it
+   * qualifies rather than in a screen-wide warning; and the panel has nothing to show only when it
+   * holds neither a published question nor an answer.
+   */
   const state = deriveScreenState({
     isPending: questionsQuery.isPending || catalogueQuery.isPending,
     error: readError,
-    result: questionsQuery.data,
-    answer,
+    freshness: questionsQuery.data?.meta.freshness,
+    hasContent: questions.length > 0 || answer !== undefined,
   });
 
   const stale =

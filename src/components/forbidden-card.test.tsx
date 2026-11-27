@@ -10,8 +10,9 @@
  * make focusable is the action its caller places. The one class list serves both themes through role
  * utilities alone, so no palette literal, `rgb()` value or shadow reaches the card in either theme.
  * One case asserts the card's text carries none of the barred claim vocabulary of rule P-4, and no
- * case pins a sentence the inputs do not fix: the permission, the roles, the trace id, the presence
- * of the empty-set caption and the absence of claim vocabulary are what is asserted.
+ * case pins a sentence the inputs do not fix: the permission, the roles, the trace id, the refusal's
+ * own sentence where one is supplied, the presence of the empty-set caption and the absence of claim
+ * vocabulary are what is asserted.
  *
  * The strings below are this suite's own caller-level input, standing in for values a service
  * `Problem` supplies at run time: the component types no permission name, no role and no identifier
@@ -118,6 +119,36 @@ describe('ForbiddenCard', () => {
     expect(screen.queryAllByRole('listitem')).toHaveLength(0);
     /* No list element of any kind reaches the document, so nothing announces a set of length zero. */
     expect(container.querySelector('ul, ol')).toBeNull();
+  });
+
+  /* The refusal's own sentence, where the service supplied one: the card prints it rather than
+     composing a second account beside it, because only the service knows which cause it refused for
+     — the demonstration withholding a view the role may read, or the matrix finding a permission
+     missing (rules P-3, P-4). */
+  it("prints the refusal's own sentence above the roles it lists, and nothing when it was given none", () => {
+    const reason = 'The demonstration withheld this view, which the acting role may read.';
+    const { rerender } = render(
+      <ForbiddenCard
+        permission={PERMISSION}
+        roles={ROLES}
+        reason={reason}
+        traceId={TRACE_ID}
+      />,
+    );
+
+    const sentence = screen.getByText(reason);
+
+    expect(sentence).toBeVisible();
+    /* It leads the card's supporting text, in the role the captions beneath it use. */
+    expect(sentence).toHaveClass('text-13', 'text-text-secondary');
+    expect(sentence.parentElement?.firstElementChild).toBe(sentence);
+    expect(
+      sentence.compareDocumentPosition(screen.getByRole('list')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    rerender(<ForbiddenCard permission={PERMISSION} roles={ROLES} traceId={TRACE_ID} />);
+
+    expect(screen.queryByText(reason)).not.toBeInTheDocument();
   });
 
   it('shows the trace id as selectable text a reader can quote', () => {

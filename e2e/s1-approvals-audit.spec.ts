@@ -10,7 +10,8 @@
  *   recorded by the persona the record names as eligible to take it.
  * - **T-08** — the simulated write-back and its outcome. The tracker lists the plan's write-backs in
  *   the record's own order, each carrying the fixed `Simulated write-back` tag, and the outcome card
- *   sets the plan's figures against the figures the records reached after the change landed.
+ *   sets the plan's figures against the figures the records reached after the change landed, down to
+ *   the stock condition to 16 December that §0.7's T-08 row reads from that same post-approval solve.
  * - **T-09** — the audit record. The trail is filterable by the record an action touched, it holds the
  *   decision and every write-back that followed it in chain order, each event's detail shows the
  *   values before and after, and "Verify chain" recomputes every hash in this browser.
@@ -29,12 +30,13 @@
  *
  * WHERE THE NUMBERS COME FROM (rule P-6). No business figure is typed here. The amount of a plan is
  * read from the screen; the write-backs' order is compared between the preview the record renders
- * before the decision and the tracker the same record renders after it; the outcome card's two columns
- * are read from the card's own table and compared with each other, because every step succeeded and
- * the change therefore landed at the plan's own levers; and the number of events the chain check
- * reports is compared with the number of rows the unfiltered trail lists. The seeds, the solver and the
- * aggregates stay behind the service boundary — this spec imports no seed record, no adapter and no
- * fixture (rule P-2).
+ * before the decision and the tracker the same record renders after it; both of the outcome card's
+ * tables are read row by row and each row's two readings compared with each other, because every step
+ * succeeded and the change therefore landed at the plan's own levers; and the number of events the
+ * chain check reports is compared with the number of rows the unfiltered trail lists. Apart from the
+ * screen's own copy, the only literal stated for a record value is the acceptance date the stock table
+ * is expected to reach — a date, not a figure. The seeds, the solver and the aggregates stay behind the
+ * service boundary — this spec imports no seed record, no adapter and no fixture (rule P-2).
  *
  * WHAT IT DOES NOT DO. It adds no hook, no global, no query parameter and no storage entry (AAP §0.7,
  * §0.9): the role switcher, the data table's rows, the evidence triggers and the one simulation popover
@@ -150,6 +152,29 @@ const REGIONS = {
   chainVerification: 'Chain verification',
 } as const;
 
+/**
+ * The column headers that tell the outcome card's two tables apart.
+ *
+ * The card prints the measures the two records share and then the daily closing stock both of them
+ * project, so a row count taken across the whole region would mix the two. Each table is scoped by the
+ * one header only it declares: `Measure` on the comparison, `Date` on the stock series.
+ */
+const OUTCOME_COLUMNS = {
+  measure: 'Measure',
+  date: 'Date',
+} as const;
+
+/**
+ * The date AAP §0.7's T-08 row reads the stock condition at: "the stock condition to 16 December is
+ * read from the post-approval solve".
+ *
+ * It is a date and not a figure, which is the one thing this spec may state for itself: every reading
+ * below is compared against the other record's reading of the same row and never typed (rule P-6).
+ * The solver projects the case's window day by day, so this date is a row of that series rather than a
+ * value chosen here.
+ */
+const ACCEPTANCE_STOCK_DATE = '2026-12-16';
+
 /** The four sections the evidence drawer must supply, in the order the drawer prints them. */
 const EVIDENCE_SECTIONS = [
   'Value and formula',
@@ -206,9 +231,10 @@ const CLAIM_VOCABULARY = new RegExp(
 );
 
 /**
- * What the outcome card prints in place of a reading a record does not carry. A comparison whose
- * resulting column showed this would be one the service never measured, so T-08 refuses to read it as
- * a figure.
+ * What the outcome card prints in place of a reading a record does not carry, in either of its tables.
+ * A comparison whose resulting column showed this would be one the service never measured, so T-08
+ * refuses to read it as a figure, and a stock row that showed it would be a date one of the two series
+ * does not reach.
  */
 const NOT_APPLICABLE = 'Not applicable';
 
@@ -285,7 +311,9 @@ async function openPendingApproval(page: Page): Promise<void> {
     .getByRole('row')
     .filter({ hasText: PENDING_STATUS })
     .first()
-    .dblclick();
+    .getByRole('cell')
+    .first()
+    .click();
 
   await expect(page.getByRole('region', { name: DETAIL_SECTIONS.planSummary })).toBeVisible();
 }
@@ -484,45 +512,43 @@ test('T-07 a decision needs a comment, an eligible role and the side-effect ackn
     .getByRole('row')
     .filter({ hasText: PENDING_STATUS })
     .first()
-    .dblclick();
+    .getByRole('cell')
+    .first()
+    .click();
   await expect(page.getByRole('region', { name: DETAIL_SECTIONS.planSummary })).toBeVisible();
 
   await acknowledgeEverySideEffect(page);
   await writeComment(page, 'Deciding the plan I requested myself.');
 
-  /* GAP: rule P-8 and AAP §0.12.4 describe a control that cannot act being disabled with the reason,
-     naming the role that may act instead. The detail screen evaluates the comment and the
-     acknowledgement before a decision, but not the acting role's eligibility, so the requester reaches
-     an enabled Approve and the refusal arrives from the service when it is activated. What this spec
-     asserts is therefore the enforced behaviour — the refusal, the rule it names, the roles the plan
-     summary still names, and the record that did not change — rather than forcing a disabled control
-     the application never renders here.
-     The plan summary keeps naming the roles that may decide the plan, so the reader learns who may act
-     and not only that they may not. */
-  await expect(approve).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(
-    page
-      .getByRole('region', { name: DETAIL_SECTIONS.planSummary })
-      .getByRole('list')
-      .getByRole('listitem')
-      .first(),
-  ).toBeVisible();
+  /* The roles the record names are read from the plan summary, so the explanation the controls carry is
+     compared with the record the screen shows rather than with a list typed here (rule P-6). */
+  const approverRoles = await page
+    .getByRole('region', { name: DETAIL_SECTIONS.planSummary })
+    .getByRole('list')
+    .getByRole('listitem')
+    .allInnerTexts();
+  expect(approverRoles.length).toBeGreaterThan(0);
 
-  await approve.click();
+  /* The record's own facts refuse the decision before it is attempted: POL-003 keeps a plan's requester
+     from deciding it (AAP §0.12.2), so all three controls are disabled and each states the rule and the
+     roles that may decide the plan — the explanation after the fact is what AAP §0.2.2 and rule P-8
+     replace with an explanation before it. */
+  for (const decision of [approve, reject, requestChanges]) {
+    await expect(decision).toHaveAttribute('aria-disabled', 'true');
 
-  /* The service refuses the decision: the requester is never eligible to take it, the refusal names
-     the rule that says so, and no decision, write-back or approval is recorded. */
-  const policyBlock = page.getByRole('region', { name: REGIONS.policyBlock });
-  await expect(policyBlock).toBeVisible();
-  await expect(policyBlock.getByText(/^POL-\d+$/)).toBeVisible();
-  const refusal = (
-    await policyBlock.getByText(new RegExp(`^POL-\\d+: `)).innerText()
-  ).trim();
-  expect(refusal.length).toBeGreaterThan(0);
+    const reason = await descriptionOf(decision);
+    expect(reason).toMatch(/POL-\d{3}/);
 
+    for (const role of approverRoles) {
+      expect(reason).toContain(role.trim());
+    }
+  }
+
+  /* Nothing was sent, so no verdict was earned: a decision would have appended the policy block, and
+     the record still reads pending with no decision block on it. */
+  await expect(page.getByRole('region', { name: REGIONS.policyBlock })).toHaveCount(0);
+  await expect(page.locator('main header').first()).toContainText(PENDING_STATUS);
   await expect(page.getByRole('region', { name: REGIONS.decisionTaken })).toHaveCount(0);
-  await expect(approve).toHaveAttribute('aria-disabled', 'true');
-  expect(await descriptionOf(approve)).toBe(refusal);
 
   /* ---- the eligible approver records the decision ------------------------------------------ */
   await switchRole(page, 'USR-02');
@@ -531,7 +557,9 @@ test('T-07 a decision needs a comment, an eligible role and the side-effect ackn
     .getByRole('row')
     .filter({ hasText: PENDING_STATUS })
     .first()
-    .dblclick();
+    .getByRole('cell')
+    .first()
+    .click();
   await expect(page.getByRole('region', { name: DETAIL_SECTIONS.planSummary })).toBeVisible();
 
   await acknowledgeEverySideEffect(page);
@@ -605,25 +633,27 @@ test('T-08 the write-backs run in the order the record states and the outcome se
 
   /* ---- the outcome card ------------------------------------------------------------------- */
   /*
-   * GAP: AAP §0.7's T-08 row asks for "the stock condition to 16 December" as the post-approval
-   * reading. The outcome card renders the seven scalar measures of the post-approval solve and no
-   * daily closing-stock series — `SolverResult.dailyClosingStock` is not among the measures it
-   * compares — so the 16 December condition is not on this surface and no second rendering of it
-   * exists to cross-check it against. What is asserted instead is the post-approval solve's own table
-   * view: both of its columns, and the fact that they agree, which is what "the change landed" means
-   * here.
+   * AAP §0.7's T-08 row asks for two things of this surface: the plan's figures beside the figures the
+   * records reached, and "the stock condition to 16 December … read from the post-approval solve". The
+   * card renders both — the measures the two records share, and the daily closing stock both of them
+   * project — so each table is scoped by the column header only it declares before any row is read, and
+   * the readings are compared against each other rather than typed (rule P-6).
    */
   const outcome = page.getByRole('region', { name: REGIONS.outcome });
   await expect(outcome).toBeVisible();
   await expect(outcome).toContainText(SIMULATED_CALCULATION);
-  await expect(outcome.getByRole('columnheader', { name: 'Resulting' })).toBeVisible();
 
-  const measures = outcome.locator('tbody tr');
-  const measureCount = await measures.count();
+  const measures = outcome
+    .getByRole('table')
+    .filter({ has: page.getByRole('columnheader', { name: OUTCOME_COLUMNS.measure, exact: true }) });
+  await expect(measures.getByRole('columnheader', { name: 'Resulting' })).toBeVisible();
+
+  const measureRows = measures.locator('tbody tr');
+  const measureCount = await measureRows.count();
   expect(measureCount).toBeGreaterThan(0);
 
   for (let index = 0; index < measureCount; index += 1) {
-    const cells = await cellsOf(measures.nth(index));
+    const cells = await cellsOf(measureRows.nth(index));
     const planned = cells[1] ?? '';
     const resulting = cells[2] ?? '';
 
@@ -633,9 +663,58 @@ test('T-08 the write-backs run in the order the record states and the outcome se
 
     /* Every step of the simulated write-back succeeded, so the change landed and the records were
        measured at the plan's own levers: the two columns report one measurement, and the card states
-       it twice rather than deriving a difference the plan does not claim. */
+       it twice rather than deriving a difference the plan does not claim (AAP §0.2.2). */
     expect(resulting).toBe(planned);
   }
+
+  /* ---- the stock condition to 16 December, from the same solve ------------------------------ */
+  const stock = outcome
+    .getByRole('table')
+    .filter({ has: page.getByRole('columnheader', { name: OUTCOME_COLUMNS.date, exact: true }) });
+  await expect(stock).toBeVisible();
+
+  const stockRows = stock.locator('tbody tr');
+  const stockCount = await stockRows.count();
+  expect(stockCount).toBeGreaterThan(0);
+
+  const stockDates: string[] = [];
+
+  for (let index = 0; index < stockCount; index += 1) {
+    const cells = await cellsOf(stockRows.nth(index));
+    const date = cells[0] ?? '';
+    const planned = cells[1] ?? '';
+    const resulting = cells[2] ?? '';
+
+    /* The date is the record's own value, printed as plain text rather than as a figure. */
+    expect(date).not.toBe('');
+
+    /* The same reading every measure above carries: because the change landed at the plan's own
+       levers, the records project the plan's own daily close at every date of the window, so the two
+       columns agree row by row and neither is a difference the card derived. */
+    expect(resulting).not.toBe(NOT_APPLICABLE);
+    expect(resulting).toBe(planned);
+
+    stockDates.push(date);
+  }
+
+  /* The one literal this spec states for the series: the acceptance date, so the table is read to be
+     the post-approval solve's own window rather than a handful of unrelated rows. */
+  expect(stockDates).toContain(ACCEPTANCE_STOCK_DATE);
+
+  /* ---- every reading opens the record the comparison is about ------------------------------- */
+  const planReading = measures.locator('tbody tr').first().getByRole('button').first();
+  await expect(planReading).toHaveAccessibleName(/— open evidence$/);
+  await planReading.click();
+
+  const drawer = page.getByRole('dialog', { name: REGIONS.evidence });
+  await expect(drawer).toBeVisible();
+
+  for (const section of EVIDENCE_SECTIONS) {
+    await expect(drawer.getByRole('region', { name: section })).toBeVisible();
+  }
+
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await expect(drawer).toHaveCount(0);
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -665,18 +744,12 @@ test('a simulated write-back that fails is all-or-nothing and a retry completes 
   await expect(failure).toBeVisible();
   await expect(failure).toContainText(/no part of the approved change was applied/);
 
-  /* The failure is recorded against the plan, because re-opening the record shows it: the run stopped
-     at the step that failed and left every later step untouched. */
-  await page.getByRole('link', { name: 'Back to approvals' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Approvals' })).toBeVisible();
-  await page
-    .getByRole('row')
-    .filter({ hasText: APPROVED_STATUS })
-    .first()
-    .dblclick();
-
+  /* The failure is recorded against the plan, and the record it left behind is on the screen the
+     decision was taken on: the tracker, the step that failed and the one control that retries it arrive
+     with the failure itself, with no second visit to the record in between (AAP §0.2.2, rule P-8). */
   const tracker = page.getByRole('region', { name: REGIONS.writeBackProgress });
   await expect(tracker).toBeVisible();
+  await expect(failure).toBeVisible();
 
   const steps = tracker
     .getByRole('list', { name: REGIONS.writeBackSteps })
@@ -685,13 +758,25 @@ test('a simulated write-back that fails is all-or-nothing and a retry completes 
   expect(stepCount).toBeGreaterThan(0);
 
   const interruptedStates: string[] = [];
+  const failedStepIndexes: number[] = [];
 
   for (let index = 0; index < stepCount; index += 1) {
-    interruptedStates.push(writeBackStateIn(await steps.nth(index).innerText()));
+    const state = writeBackStateIn(await steps.nth(index).innerText());
+
+    interruptedStates.push(state);
+
+    if (state === 'failed') {
+      failedStepIndexes.push(index);
+    }
   }
 
   expect(interruptedStates.filter((state) => state === 'failed')).toHaveLength(1);
   expect(interruptedStates.filter((state) => state === 'succeeded')).toHaveLength(0);
+
+  /* The fixed tag sits in the failed step's own item, beside the message the step's description carries
+     — a page-level badge would not label one write-back (rule P-1, AAP §0.2.2). */
+  expect(failedStepIndexes).toHaveLength(1);
+  await expect(steps.nth(failedStepIndexes[0] ?? 0)).toContainText(WRITE_BACK_TAG);
 
   /* Only the failed step offers a retry, which is the control that lets the change proceed. */
   const retries = tracker.getByRole('button', { name: /^Retry write-back / });
@@ -840,7 +925,7 @@ test('T-09 the audit record lists the decision and every write-back with the val
   }
 
   /* ---- one event's detail: the values before and after ------------------------------------ */
-  await rows.filter({ hasText: DECISION_ACTION }).first().dblclick();
+  await rows.filter({ hasText: DECISION_ACTION }).first().getByRole('cell').first().click();
 
   const drawer = page.getByRole('dialog');
   await expect(drawer).toBeVisible();

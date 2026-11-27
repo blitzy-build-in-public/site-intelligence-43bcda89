@@ -250,3 +250,17 @@ export const ASSISTANT_QUESTIONS: readonly AssistantQuestion[] = [
  */
 export const UNSCRIPTED_NOTICE =
   'This demonstration has no model behind it. Try one of the suggested questions.';
+
+/**
+ * What the unscripted answer's `missing` list names — contracts §10, AAP 0.8.
+ *
+ * Contracts §10 requires an answer's `missing` list to state what the answer lacked, and the notice
+ * above is the whole of the text a reader sees, so this diagnostic is assistant text and belongs here
+ * beside it: `src/services/mock/assistant-script.ts` builds answers and holds no sentence of its own,
+ * which leaves this module the author of every line the panel prints (AAP 0.8, AAP 0.12.1's
+ * assistant-builder row). It states the one input the demonstration is missing for a question outside
+ * the six — a seeded question that covers it — and it is a diagnostic line the assistant's expander
+ * lists, never a second answer sentence.
+ */
+export const UNSCRIPTED_MISSING_INPUT =
+  'A seeded question covering the one asked, which the demonstration does not hold.';

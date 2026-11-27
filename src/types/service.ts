@@ -28,27 +28,12 @@
  * 0.12.1). Collections are plain mutable arrays and no member is marked as read-only, because the
  * mock adapter replaces freshness arrays and flags in place (AAP 0.2.1).
  *
- * OPEN ITEM: `ProblemType`'s five causes are quoted from AAP 0.12.3 in prose ("permission, policy,
- * validation, simulated write-back, not found") and spelled in kebab case here, following this
- * repository's casing for multi-word literals (`changes-requested`).
- * OPEN ITEM: the stale-source refusal (AAP 0.2.1, T-13) has no cause of its own in that list. The
- * plan reads it as `'validation'`, with the source and its as-of time in `message`, because a
- * refusal made on the state of the records is a validation of the request rather than a permission
- * or a policy block.
- * OPEN ITEM: `ScreenState` carries the seven states AAP 0.5.2 gives `StateBoundary`'s `state` prop.
- * A thrown `Problem` is not one of them: a failed read is the screen's error path (AAP 0.18.1) and a
- * denied one shows the forbidden or policy card.
- * OPEN ITEM: `SimulationFlag` composes `ScreenState` and adds the two triggers that are not screen
- * states — the edited audit event and the emptied exception queue — because the single simulation
- * popover holds exactly those, the seven states and `Reset demo data` (AAP 0.12.1, 0.12.4). The
- * reset is a method of the port, not a flag, so no member below stands for it.
- * OPEN ITEM: `ListQuery.sort` and `ListQuery.cursor` are `string`, because contracts §9 fixes the
- * `sort=field:dir` parameter and an opaque cursor without enumerating a sortable field set.
- * OPEN ITEM: `AuditQuery.actorId` is `string` rather than `UserId`, because an event's `actorId` is a
- * persona or a policy identifier (see `AuditEventDraft` in `./audit`), and `AuditEvent` is the record
- * the query filters.
- * OPEN ITEM: `Problem.permittedAlternative` and `PolicyDecision.permittedAlternative` are plain
- * strings, because contracts §7.2 names no identifier type for the alternative a deny permits.
+ * Members stay `string` where the contracts fix a grammar but name no closed set: `ListQuery.sort`
+ * and `.cursor`, because contracts §9 fixes `sort=field:dir` and an opaque cursor without listing
+ * a sortable field set; `AuditQuery.actorId`, because an event's actor is a persona or a policy
+ * identifier; and both `permittedAlternative` members, because contracts §7.2 names no identifier
+ * type for the alternative a deny permits. `ProblemType`'s five causes are AAP 0.12.3's prose
+ * list, spelled in kebab case as this repository spells multi-word literals.
  */
 
 import type { AuditAction, AuditResult } from './audit';
@@ -61,6 +46,7 @@ import type {
 } from './entities';
 import type {
   AuditEventId,
+  IsoDate,
   Permission,
   PlantId,
   PolicyId,
@@ -132,7 +118,8 @@ export interface Result<T> {
  * - `'policy'` — a policy denied the action, so `policyId`, `permittedAlternative` and
  *   `auditEventId` carry the rule, the alternative it permits and the event it appended.
  * - `'validation'` — the request cannot be honoured against the records as they stand, which
- *   includes the stale-source refusal that names the source and its as-of time.
+ *   includes the stale-source refusal that names the source and its as-of time: a refusal made on
+ *   the state of the records validates the request rather than blocking it by permission or policy.
  * - `'simulated-write-back'` — a simulated write failed. The change stays all-or-nothing, the
  *   failure is recorded, and a retry never duplicates a success record (AAP 0.2.2).
  * - `'not-found'` — no record answers the identifier requested.
@@ -200,6 +187,9 @@ export interface Problem {
 /**
  * The seven states a screen renders, one member per state specification §8 fixes, and the value of
  * `StateBoundary`'s `state` prop (AAP 0.5.2).
+ *
+ * A thrown `Problem` is not one of the seven: a failed read is the screen's error path (AAP 0.18.1)
+ * and a denied one shows the forbidden or policy card.
  *
  * - `'loading'` — the call is pending, and the skeleton stands in for the content.
  * - `'empty'` — the call succeeded and returned nothing to show.
@@ -275,7 +265,8 @@ export interface ListQuery {
 }
 
 /**
- * The filters the exception queue sends, one member per filter specification SCR-02 offers.
+ * The filters the exception queue sends: one member per filter specification SCR-02 offers, and the
+ * day the overview's own series narrows the queue to.
  *
  * The queue's own default ordering is severity and then days to impact, which the service applies
  * when `sort` is absent. No member here is scoped by provenance, because every exception is a
@@ -300,6 +291,20 @@ export interface ExceptionQuery extends ListQuery {
 
   /** The supplier to keep, on the supplier the affected material is bought from. */
   supplierId?: SupplierId;
+
+  /**
+   * The calendar day to keep: the exceptions opened or resolved on it.
+   *
+   * Its consuming input is SCR-01's fourteen-day series, which AAP 0.12.4 fixes as "exceptions opened
+   * and resolved per day for 14 days whose dates filter the queue": a reader activating a day's mark
+   * asks the queue for that day, and this member is how the question reaches the records, because the
+   * port is the one place a read may be narrowed (rule P-2). The read keeps an exception the series
+   * counts on that day — one detected on it, or one whose activity trail records its resolution on it —
+   * through the single predicate that owns that rule, `openedOrResolvedOn` in
+   * `src/domain/aggregation/overview.ts`, so the day's queue and that day's marks cannot describe
+   * different populations (AAP 0.2.1). Absent, no day narrows the read.
+   */
+  date?: IsoDate;
 }
 
 /**

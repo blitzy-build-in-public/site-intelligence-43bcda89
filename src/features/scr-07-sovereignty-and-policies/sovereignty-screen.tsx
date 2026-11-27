@@ -38,31 +38,43 @@
  * number. It performs no arithmetic over business data — the only ordering it applies is the
  * decisions list's, which sorts the payload's own events by their own instants.
  *
- * THE TWO ACTIONS, EACH OF WHICH ACTS (rule P-8). "Export evidence pack" calls the port's
- * `exportEvidencePack` and offers the payload it returns as a file, built in the browser from the
- * document the service composed; it is disabled with a sentence while a download is being prepared,
- * and a refusal the service raises is reported beside the actions rather than swallowed.
- * "Grant time-boxed exception" opens `./grant-exception-dialog` for the policy the payload supplies
- * first, with the second approvers read from the demonstration roster; it is disabled with a
- * sentence naming the condition when the acting persona cannot be read, when it does not hold
- * `policy.exception.request`, or when the payload holds no policy at all. Neither check decides
- * anything the adapter does not decide again (rule P-3).
+ * THE TWO ACTIONS, EACH OF WHICH ACTS (rule P-8). "Export evidence pack" sits in the page header: it
+ * calls the port's `exportEvidencePack` and offers the payload it returns as a file, built in the
+ * browser from the document the service composed. It is disabled with a sentence naming the condition
+ * when the acting persona cannot be read or does not hold both permissions the pack requires — the
+ * same pair, in the same order, that the adapter checks — and with a second sentence while a download
+ * is being prepared, and a refusal the service raises is reported beside the header rather than
+ * swallowed. "Grant time-boxed exception" is offered once per policy, inside the policy set, and opens
+ * `./grant-exception-dialog` for the policy whose own row the reader pressed, with the second
+ * approvers read from the demonstration roster; each copy carries its row's identifier in its
+ * accessible name and is disabled with a sentence naming the condition when the acting persona cannot
+ * be read, when it does not hold `policy.exception.request`, or when the row is a policy the engine
+ * never evaluates. The identity and permission checks decide nothing the adapter does not decide
+ * again (rule P-3); the evaluated condition is the record's own fact, stated where the request would
+ * be raised. A policy set that holds no policy offers no control at all: the table states its own
+ * empty sentence.
  *
  * REPORTED DECISIONS AND GAPS, each recorded where it bites:
- * 1. "Grant time-boxed exception" is one control, in the page header, because AAP 0.12.4 assigns it
- *    to SCR-07 as a whole. A time-boxed exception is always requested against one policy, so the
- *    action targets the first policy the service returns in its own order and the dialog names that
- *    policy; the per-policy route (`./policy-detail-screen.tsx`) offers the same flow against the
- *    policy it shows. Giving each row its own copy of the control would put several controls with
- *    one accessible name on the page.
+ * 1. "Grant time-boxed exception" is offered per policy, in the policy set's own last column, because
+ *    AAP 0.12.4 assigns it to SCR-07 as a whole and a time-boxed exception is always requested against
+ *    one policy. The dialog therefore names the row the reader acted on, and a policy the engine only
+ *    declares offers no control at all, since no exception can be requested against a rule nothing
+ *    evaluates. Every copy carries the same visible label AAP 0.12.4 fixes, so each adds its row's
+ *    identifier as an `sr-only` suffix — the treatment
+ *    `src/features/scr-02-exception-queue/exception-queue-screen.tsx` gives its saved-view actions —
+ *    and five controls never share one accessible name. The per-policy route
+ *    (`./policy-detail-screen.tsx`) offers the same flow in the page header, against the policy it
+ *    shows.
  * 2. `DeploymentSummary` carries no configuration record, so the summary cannot print the reference
  *    behind its own declaration the way each row prints `record`. The record identifiers are on the
  *    rows, and `src/types/screen-dto.ts` is not widened from a screen component; should the summary
  *    gain one, it renders beside the label and nothing else here changes.
- * 3. `LedgerRow` carries no evidence reference (contracts §3 fixes its six members), so a count
- *    cannot open the evidence drawer. `OutboundLedger` associates both count columns with the
- *    region's visible label instead, and no `EvidenceRef` or `MetricTile` is composed for a figure
- *    that has no reference to carry.
+ * 3. `LedgerRow` and `PolicyDetail` carry no evidence reference (contracts §3 fixes their members), so
+ *    each figure on this page reaches the drawer through a reference its own record already states:
+ *    `OutboundLedger` wraps both count columns in `EvidenceRef` with the row's endpoint, and the policy
+ *    table wraps each identifier in `EvidenceRef` with the record's `id`. `getEvidence` resolves both
+ *    families in `src/services/mock/handlers/evidence.ts`, so a count opens the ledger aggregate that
+ *    produced it and an identifier opens the rule and the decisions citing it.
  * 4. The second approver is read from `DemonstrationControls.listPersonas`, which is absent on an
  *    adapter without seeded personas; the dialog then offers no choice and disables its own submit,
  *    which is the dialog's decided behaviour rather than a gap this screen papers over.
@@ -91,29 +103,30 @@ import { useNavigate } from 'react-router';
 import { Card } from '../../components/card';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
+import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
 import { useDemonstration, useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import { APPROVAL_GATE_SOURCE, LEDGER_WINDOW_DAYS, SIM_LABELS } from '../../types';
 import type {
   ActiveUser,
   AuditEvent,
   AuditResult,
   ExportPayload,
-  Freshness,
-  FreshnessState,
   Permission,
   PolicyDetail,
-  Problem,
-  ProblemType,
   Result,
   Scope,
-  ScreenState,
   SimLabel,
   SovereigntyRow,
   SovereigntyStatus,
@@ -148,13 +161,26 @@ const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
 const SIMULATED_CONTROL_LABEL: SimLabel = SIM_LABELS[4];
 
 /**
- * The one permission this screen needs to know about: the write the grant flow makes, which the
- * service requires and its handler checks again.
+ * The permission the grant flow's write requires, which the service enforces and its handler checks
+ * again.
  *
  * Written against `Permission` so a renamed member of the contracts §7.1 matrix fails this file's
  * compilation rather than leaving a gate that quietly matches nothing.
  */
 const POLICY_EXCEPTION_REQUEST: Permission = 'policy.exception.request';
+
+/**
+ * The two permissions the export requires, both of them, which is why they are held as one list.
+ *
+ * `MockBackend.exportEvidencePack` composes the pack from the declared deployment record and from the
+ * audit trail with its verification, so it refuses a caller lacking either `sovereignty.read` or
+ * `audit.read`. The control below is disabled on the same pair of permissions, in the same order, so a
+ * reader without them learns that before activating it rather than from a refusal afterwards (rule
+ * P-8); the adapter still evaluates the matrix itself, so a bypassed control grants nothing (rule P-3).
+ *
+ * Written against `Permission` for the reason above: a renamed permission fails the compilation.
+ */
+const EXPORT_PERMISSIONS: readonly Permission[] = ['sovereignty.read', 'audit.read'];
 
 /* ---------------------------------------------------------------------------------------------
  * The screen's own wording — no input fixes these sentences
@@ -185,6 +211,9 @@ export const SOVEREIGNTY_SCREEN_TEXT = {
   /** The grant action's label, which AAP 0.12.4 fixes for SCR-07. */
   grantAction: 'Grant time-boxed exception',
 
+  /** The policy set's last column, which holds the grant action against that row's policy. */
+  grantColumn: 'Time-boxed exception',
+
   /** The export action's label, which AAP 0.12.4 fixes for SCR-07. */
   exportAction: 'Export evidence pack',
 
@@ -193,6 +222,30 @@ export const SOVEREIGNTY_SCREEN_TEXT = {
 
   /** What is reported beside the actions when the export did not produce a file. */
   exportFailed: 'The evidence pack could not be prepared, so no file was offered.',
+
+  /** The export control's reason when the bound adapter reports no acting persona. */
+  exportNoIdentity:
+    'This session reports no acting persona, so the evidence pack cannot be prepared here.',
+
+  /** The export control's reason while the acting persona is still being read. */
+  exportIdentityPending:
+    'The acting persona is still being read, so the evidence pack cannot be prepared yet.',
+
+  /** The export control's reason when the acting persona could not be read. */
+  exportIdentityFailed:
+    'The acting persona could not be read, so the evidence pack cannot be prepared here.',
+
+  /**
+   * The export control's reason when the acting persona lacks either permission the pack requires.
+   *
+   * Both are named, because the service asks for both: the pack carries the declared deployment record
+   * and the audit trail, so `sovereignty.read` alone or `audit.read` alone is not enough, and a
+   * sentence naming one of them would describe a gate the adapter does not apply (rule P-8).
+   */
+  exportNotPermitted:
+    'The evidence pack carries the declared deployment record and the audit trail, so exporting it ' +
+    'requires the sovereignty.read and audit.read permissions, which the acting persona does not ' +
+    'hold. The service refuses the export for the same reason.',
 
   /** The deployment summary's heading. */
   summaryTitle: 'Deployment summary',
@@ -239,8 +292,14 @@ export const SOVEREIGNTY_SCREEN_TEXT = {
   /** The declared rows' last-declared column. */
   columnLastDeclared: 'Last declared',
 
-  /** The ledger region's caption, which also names its table. */
-  ledgerCaption: 'Outbound ledger, with the counts the audit trail supports over the window',
+  /**
+   * The ledger region's caption, which also names its table and states the window its counts cover.
+   *
+   * The window's length is the `LEDGER_WINDOW_DAYS` constant the ledger aggregate measures with, so
+   * the caption cannot promise a window the counts were not taken over (rule P-6), and a reader who
+   * reaches the region by its name alone still learns what the two figures beside each endpoint mean.
+   */
+  ledgerCaption: `Outbound ledger, with the counts the audit trail supports over the trailing ${LEDGER_WINDOW_DAYS} days`,
 
   /** What the ledger says when the record declares no endpoint. */
   ledgerEmpty: 'The deployment record declares no outbound endpoint.',
@@ -323,9 +382,14 @@ export const SOVEREIGNTY_SCREEN_TEXT = {
     'A time-boxed exception is requested with policy.exception.request, and the acting persona does ' +
     'not hold it. The service refuses the write for the same reason.',
 
-  /** The grant control's reason when the payload holds no policy to request against. */
-  grantNoPolicy:
-    'The policy set holds no policy, so there is none to request a time-boxed exception against.',
+  /**
+   * The grant control's reason on a policy the engine never evaluates: the record is stated as
+   * declared configuration rather than as a rule that was applied, and a rule nothing evaluates
+   * cannot be excepted from (rules P-4 and P-8).
+   */
+  grantNeverEvaluated:
+    'The policy engine does not evaluate this policy: the deployment declares it, so no time-boxed ' +
+    'exception can be requested against it.',
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
@@ -383,171 +447,8 @@ const NOTICE_CLASSES =
   'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-2 px-3 py-2';
 
 /* ---------------------------------------------------------------------------------------------
- * Narrowing the service's failure, and reading the freshness report
+ * The denial the forbidden card explains
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * The five causes a `Problem` may name, listed once against the port's own union so a rejection can
- * be narrowed to the service's failure shape without widening anything.
- */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const satisfies readonly ProblemType[];
-
-/**
- * Whether a rejection is the port's typed failure rather than something the platform threw.
- *
- * The port fails by throwing a `Problem` (AAP 0.12.3), so a screen that catches a read has to tell
- * the two apart before it can name a cause: a refusal of the record is not the same condition as a
- * failure of the call. A `TypeError` from a broken module therefore reaches the offline rendering
- * instead of being read as a refusal it never was.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the failure was not a permission
- * refusal.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold
- * it and the trace identifier of the refused call. The card states that enforcement happens in the
- * service, which is the one thing this screen may say about authority (rule P-3).
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * The source behind a stale page, with the display name to print and the instant it last answered.
- *
- * The order book is looked for first, because it is the source that gates the approval a planner
- * takes next (AAP 0.2.1, T-13), and another stale source is reported when the order book is current.
- * The label comes from `SOURCE_LABELS`, the map that owns the six display names, so the banner and
- * the top bar's pill say the same words about the same source. Nothing is derived from the instant —
- * no age and no duration (rule P-6).
- */
-function staleRecordOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const gate = freshness.find(
-    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
-  );
-  const stale = gate ?? freshness.find((entry) => entry.state === 'stale');
-
-  if (stale === undefined) {
-    return undefined;
-  }
-
-  return { source: stale.source, label: SOURCE_LABELS[stale.source], asOf: stale.asOf };
-}
-
-/** Whether a source in the read's freshness report answered in the state asked about. */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/** What {@link deriveScreenState} reads: the read's settled facts, and the payload if it arrived. */
-interface ScreenStateInput {
-  /** Whether either read has yet to answer. */
-  readonly isPending: boolean;
-
-  /** The first rejection either read ended in, or `null` when neither failed. */
-  readonly error: unknown;
-
-  /** The sovereignty payload, `undefined` until the read settles. */
-  readonly result: Result<SovereigntyStatus> | undefined;
-}
-
-/**
- * The one place this screen decides which of the seven states its records are in.
- *
- * The failure side comes first, because a refusal is final: a permission refusal is `forbidden`, an
- * identifier no record answers is `empty`, a validation refusal is `conflict`, and every other
- * rejection is `offline`. A read still in flight is `loading`. The record side then reads the
- * freshness report the result itself carries: a source that did not answer makes the page `offline`,
- * a stale source makes it `stale`, and a source that answered incompletely makes it `partial`.
- * Everything else returns `undefined`, the boundary's documented "no exceptional state holds".
- *
- * The input is the queries' settled facts rather than a flag of this screen's, so the state cannot
- * disagree with the reads it describes and no effect is needed to keep the two in step. An empty
- * table is deliberately not a screen state: the other blocks stay readable when one list is empty, so
- * the table's own empty sentence reports it.
- */
-function deriveScreenState({
-  isPending,
-  error,
-  result,
-}: ScreenStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    switch (error.type) {
-      case 'permission':
-        return 'forbidden';
-      case 'not-found':
-        return 'empty';
-      case 'validation':
-        return 'conflict';
-      case 'policy':
-      case 'simulated-write-back':
-        return 'offline';
-    }
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleRecordOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return undefined;
-}
 
 /* ---------------------------------------------------------------------------------------------
  * The route a policy row opens, and the neutral collections a memoised member needs
@@ -622,17 +523,30 @@ const SOVEREIGNTY_COLUMNS: readonly TableColumn<SovereigntyRow>[] = [
  * The policy set, one row per policy: its identifier, its title, whether the engine evaluates it, and
  * whether a time-boxed exception request against it awaits a decision.
  *
+ * The identifier opens the evidence of the policy it names — the record's own `id` is the reference
+ * `getEvidence` resolves — so a reader can reach the rule, the engine's status and the decisions
+ * citing it without leaving the page (AAP 0.2.1 F12, principle PR-6). Opening that evidence is the
+ * cell's own control; activating the row anywhere else still opens the policy's route.
+ *
  * `evaluated` is the discriminator the service supplies, so no identifier is special-cased here: a
  * policy the engine does not evaluate is rendered as declared configuration under the fixed label
  * (rule P-4), and the decision of which policy that is stays the record's own fact (rule P-6). The
  * requests column states presence rather than a number — a count is a figure, and no aggregate for
  * one exists (rule P-6) — so it shows the record's pending state or the dash that marks its absence.
+ *
+ * These are the four columns the payload supplies, and they are declared once, here. The fifth — the
+ * grant action against the row's own policy — needs the gate's inputs and this component's handler, so
+ * it is composed inside the component and appended to this list there rather than widened in place.
  */
 const POLICY_COLUMNS: readonly TableColumn<PolicyDetail>[] = [
   {
     id: 'policy',
     header: SOVEREIGNTY_SCREEN_TEXT.columnPolicy,
-    render: (policy) => <MonoValue value={policy.id} kind="id" />,
+    render: (policy) => (
+      <EvidenceRef ref={policy.id}>
+        <MonoValue value={policy.id} kind="id" />
+      </EvidenceRef>
+    ),
   },
   {
     id: 'title',
@@ -861,30 +775,29 @@ interface GrantGateInput {
   /** The permissions the acting persona holds, or `undefined` while they are unknown. */
   readonly permissions: readonly Permission[] | undefined;
 
-  /** Whether the payload holds a policy a request could be raised against. */
-  readonly hasPolicy: boolean;
+  /** Whether the policy engine evaluates the policy the control would request against. */
+  readonly evaluated: boolean;
 }
 
 /**
  * Why the grant control cannot act, or `null` when it can.
  *
- * One sentence per way the control is blocked, in the order a reader can act on: no policy to request
- * against, no capability to read a persona from, a read still in flight, a read that failed, and a
- * persona that does not hold the permission the write requires. The gate decides presentation only —
- * the adapter evaluates the matrix itself, so a reader who bypasses the control is refused by the
- * service for the same reason (rule P-3).
+ * One sentence per way the control is blocked, in the order a reader can act on: no capability to
+ * read a persona from, a read still in flight, a read that failed, a policy the engine never
+ * evaluates, and a persona that does not hold the permission the write requires. The `evaluated`
+ * check comes before the permission one because it is a property of the record rather than of the
+ * reader: a policy nothing evaluates has no rule to be excepted from whoever is asking, so the
+ * sentence names the record's own condition instead of sending a reader after a permission that would
+ * not help. The permission half decides presentation only — the adapter evaluates the matrix itself,
+ * so a reader who bypasses the control is refused by the service for the same reason (rule P-3).
  */
 function grantBlockerOf({
   hasCapability,
   isPending,
   isError,
   permissions,
-  hasPolicy,
+  evaluated,
 }: GrantGateInput): string | null {
-  if (!hasPolicy) {
-    return SOVEREIGNTY_SCREEN_TEXT.grantNoPolicy;
-  }
-
   if (!hasCapability) {
     return SOVEREIGNTY_SCREEN_TEXT.grantNoIdentity;
   }
@@ -897,9 +810,72 @@ function grantBlockerOf({
     return SOVEREIGNTY_SCREEN_TEXT.grantIdentityFailed;
   }
 
+  if (!evaluated) {
+    return SOVEREIGNTY_SCREEN_TEXT.grantNeverEvaluated;
+  }
+
   return permissions.includes(POLICY_EXCEPTION_REQUEST)
     ? null
     : SOVEREIGNTY_SCREEN_TEXT.grantNotPermitted;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The export gate: why the pack cannot be prepared, in the same order a reader can act on
+ * ------------------------------------------------------------------------------------------- */
+
+/** What the export gate reads. */
+interface ExportGateInput {
+  /** Whether the bound adapter carries the demonstration capability that reports a persona. */
+  readonly hasCapability: boolean;
+
+  /** Whether the acting persona has not been read yet. */
+  readonly isPending: boolean;
+
+  /** Whether reading the acting persona failed. */
+  readonly isError: boolean;
+
+  /** The permissions the acting persona holds, or `undefined` while they are unknown. */
+  readonly permissions: readonly Permission[] | undefined;
+}
+
+/**
+ * Why the export control cannot act, or `null` when it can.
+ *
+ * The same shape and the same order as {@link grantBlockerOf}, so the two controls of this page
+ * explain themselves the same way: no capability to read a persona from, a read still in flight, a
+ * read that failed, and a persona that does not hold both permissions the export requires. The foreign
+ * states are checked before the permission because a reader can do nothing about a permission while the
+ * persona itself is still unknown, and because the sentence about the read is the one that tells them
+ * the page is still settling.
+ *
+ * The gate decides presentation only. `MockBackend.exportEvidencePack` evaluates the same two
+ * permissions itself and refuses the export whether or not the control was bypassed, so a reader who
+ * activates a disabled control gets the service's refusal for the same reason (rule P-3).
+ *
+ * @param input - The demonstration capability, the persona read's settled state and its permissions.
+ * @returns The sentence the disabled control carries, or `null` when the export may be offered.
+ */
+function exportBlockerOf({
+  hasCapability,
+  isPending,
+  isError,
+  permissions,
+}: ExportGateInput): string | null {
+  if (!hasCapability) {
+    return SOVEREIGNTY_SCREEN_TEXT.exportNoIdentity;
+  }
+
+  if (isPending) {
+    return SOVEREIGNTY_SCREEN_TEXT.exportIdentityPending;
+  }
+
+  if (isError || permissions === undefined) {
+    return SOVEREIGNTY_SCREEN_TEXT.exportIdentityFailed;
+  }
+
+  return EXPORT_PERMISSIONS.every((permission) => permissions.includes(permission))
+    ? null
+    : SOVEREIGNTY_SCREEN_TEXT.exportNotPermitted;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -930,14 +906,15 @@ export interface SovereigntyScreenProps {
  * refusal rendering; this screen decides whether the control can act and tells the cache to re-read
  * the policies once a request is recorded, so the pending request appears without a reload.
  *
- * The component keeps no record of its own. The only state it owns is whether the dialog is open,
+ * The component keeps no record of its own. The only state it owns is which policy's dialog is open,
  * whether a download is being prepared, and the message of an export that produced no file, so a
  * re-render can never move a record (rule P-6).
  *
  * @param props - The shell's plant and product selection.
- * @returns The header with the two actions, the deployment summary, the declared rows, the outbound
- *   ledger, the policy set and the recent decisions — all of it inside the boundary that explains a
- *   read which could not be completed — and the grant dialog while it is open.
+ * @returns The header with the export action, the deployment summary, the declared rows, the outbound
+ *   ledger, the policy set with a grant action on each row and the recent decisions — all of it inside
+ *   the boundary that explains a read which could not be completed — and the grant dialog while a row
+ *   has opened it.
  */
 export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactElement {
   const service = useService();
@@ -945,7 +922,12 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const [isGranting, setIsGranting] = useState(false);
+  /*
+   * The policy the grant dialog is open for, or `null` while it is closed. The row that carries the
+   * control names the policy, so the dialog can only ever be composed with the record the reader acted
+   * on rather than with a policy this screen selected (rule P-6).
+   */
+  const [grantTarget, setGrantTarget] = useState<PolicyDetail | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportFailure, setExportFailure] = useState<string | null>(null);
 
@@ -985,15 +967,19 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
    * deployment knows its caller from the session that reached it — so the read runs only when the
    * bound adapter holds it, and it is bound once here rather than narrowed again inside the query.
    *
-   * The value cached is the persona list under the plain `['listPersonas']` key the shell's role
-   * switcher (`src/app/role-switcher.tsx`) reads, not the `Result` envelope: one method, one key, one
-   * shape, so neither reader can hand the other a value of the wrong type.
+   * The value cached is the persona list, not the `Result` envelope the call resolves, and it is
+   * keyed under this screen's own `'governance'` qualifier. One method serves two readers — this
+   * dialog and the shell's role switcher (`src/app/role-switcher.tsx`) — so two keys are needed: a
+   * key's value shape belongs to the reader that caches it, and naming the reader is what keeps one
+   * reader's shape from reaching the other. Sharing the bare member name is exactly how a `Result`
+   * once reached the shell where an array was expected, which unmounted the application rather than
+   * degrading one panel.
    */
   const readPersonas =
     demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);
 
   const personasQuery = useQuery<readonly ActiveUser[], unknown>({
-    queryKey: ['listPersonas'],
+    queryKey: ['listPersonas', 'governance'],
     queryFn: readPersonas === undefined ? skipToken : async () => (await readPersonas()).data,
     retry: false,
   });
@@ -1007,23 +993,47 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
      banner, so the two reads answer one screen state rather than two. */
   const readError = sovereigntyQuery.error ?? policiesQuery.error;
 
+  /*
+   * The reads' own facts, plus this screen's facts about itself: the first refusal either read ended in
+   * is the page's, because a permission refusal forbids the page whichever read raised it, and the
+   * freshness report the sovereignty read carries supplies the stale notice — the order book named
+   * first, because it gates the approval a planner takes next (AAP 0.2.1, T-13). An empty policy list
+   * is deliberately not a screen state: the other blocks stay readable, so the table's own empty
+   * sentence reports it.
+   */
   const state = deriveScreenState({
     isPending: sovereigntyQuery.isPending || policiesQuery.isPending,
     error: readError,
-    result,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
   });
-  const staleRecord = result === undefined ? undefined : staleRecordOf(result.meta.freshness);
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord = forbiddenOf(readError);
   const emptyMessage = isProblem(readError) ? readError.message : undefined;
 
-  const grantPolicy = policies.length === 0 ? undefined : policies[0];
+  /*
+   * The identity half of every row's grant gate, read once: a request is evaluated against the acting
+   * persona whoever the row names, so the column list below depends on these values rather than on the
+   * query object, and a row's own fact — whether the engine evaluates that policy — is the only thing
+   * that varies between one copy of the control and the next.
+   */
+  const hasGrantCapability = demonstration !== null;
+  const identityPending = actingUserQuery.isPending;
+  const identityFailed = actingUserQuery.isError;
+  const identityPermissions = actingUserQuery.data?.data.permissions;
 
-  const grantBlocker = grantBlockerOf({
+  /*
+   * The export is gated on the acting persona's own permissions rather than on the payload, because
+   * the two permissions the pack requires are the persona's and not the record's (rule P-8). While a
+   * download is being prepared the control keeps the `exportPreparing` sentence instead, so a reader
+   * who just activated it reads why it is not offered again yet.
+   */
+  const exportBlocker = exportBlockerOf({
     hasCapability: demonstration !== null,
     isPending: actingUserQuery.isPending,
     isError: actingUserQuery.isError,
     permissions: actingUserQuery.data?.data.permissions,
-    hasPolicy: grantPolicy !== undefined,
   });
 
   const actingUserId = actingUserQuery.data?.data.id;
@@ -1051,12 +1061,70 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
     void policiesQuery.refetch();
   };
 
-  const openGrantDialog = (): void => {
-    setIsGranting(true);
-  };
+  /**
+   * The policy set's columns: the four the payload supplies, held at module scope, plus the grant
+   * action each row offers against its own policy.
+   *
+   * The fifth column is built here rather than beside the other four because its cell needs the gate
+   * inputs and the handler, neither of which exists at module scope. Its control carries the label AAP
+   * 0.12.4 fixes for every copy of it and appends the row's own identifier as an `sr-only` suffix, so
+   * the controls of a five-policy set never share one accessible name (rule B-3). Whether that copy
+   * acts is the row's own gate answer, and `ActionButtonProps` will not let a disabled control be
+   * constructed without the sentence explaining it (rule P-8).
+   */
+  const policyColumns = useMemo<readonly TableColumn<PolicyDetail>[]>(
+    () => [
+      ...POLICY_COLUMNS,
+      {
+        id: 'grant',
+        header: SOVEREIGNTY_SCREEN_TEXT.grantColumn,
+        render: (policy) => {
+          const blocker = grantBlockerOf({
+            hasCapability: hasGrantCapability,
+            isPending: identityPending,
+            isError: identityFailed,
+            permissions: identityPermissions,
+            evaluated: policy.evaluated,
+          });
 
+          /*
+           * One label for both states, so the accessible name cannot change with the gate. The
+           * identifier sits inside a positioned box because the `sr-only` suffix is absolutely
+           * positioned: with no containing block inside the cell it would resolve against the initial
+           * containing block, escape the table's own horizontal scroll area and widen the document at a
+           * narrow viewport, which is the same fault the evidence trigger carries a positioned class
+           * for.
+           */
+          const label = (
+            <span className="relative">
+              {SOVEREIGNTY_SCREEN_TEXT.grantAction}
+              <span className="sr-only">{`: ${policy.id}`}</span>
+            </span>
+          );
+
+          return blocker === null ? (
+            <ActionButton
+              variant="secondary"
+              onClick={() => {
+                setGrantTarget(policy);
+              }}
+            >
+              {label}
+            </ActionButton>
+          ) : (
+            <ActionButton variant="secondary" disabled disabledReason={blocker}>
+              {label}
+            </ActionButton>
+          );
+        },
+      },
+    ],
+    [hasGrantCapability, identityPending, identityFailed, identityPermissions],
+  );
+
+  /** Closes the grant dialog: the policy it was opened for is forgotten with it, so it reopens fresh. */
   const closeGrantDialog = (): void => {
-    setIsGranting(false);
+    setGrantTarget(null);
   };
 
   /*
@@ -1102,39 +1170,36 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
   return (
     <div className={SCREEN_CLASSES}>
       {/*
-        The two actions of AAP 0.12.4's SCR-07 row. Each control is written once per state on
-        purpose: `ActionButtonProps` is a discriminated union, so a disabled control cannot be
-        constructed without the sentence that explains why (rule P-8).
+        SCR-07's export action, which belongs to the page rather than to any one policy. The grant
+        action AAP 0.12.4 fixes is offered in the policy set's own last column instead, against the
+        policy whose row the reader acts on, so no reader is shown a dialog for a policy they did not
+        choose.
+
+        The control is written once per state on purpose: `ActionButtonProps` is a discriminated union,
+        so a disabled control cannot be constructed without the sentence that explains why (rule P-8).
       */}
       <PageHeader
         eyebrow={SOVEREIGNTY_SCREEN_TEXT.eyebrow}
         title={SOVEREIGNTY_SCREEN_TEXT.title}
         description={SOVEREIGNTY_SCREEN_TEXT.description}
         actions={
-          <>
-            {grantBlocker === null ? (
-              <ActionButton variant="primary" onClick={openGrantDialog}>
-                {SOVEREIGNTY_SCREEN_TEXT.grantAction}
-              </ActionButton>
-            ) : (
-              <ActionButton variant="primary" disabled disabledReason={grantBlocker}>
-                {SOVEREIGNTY_SCREEN_TEXT.grantAction}
-              </ActionButton>
-            )}
-            {isExporting ? (
-              <ActionButton
-                variant="secondary"
-                disabled
-                disabledReason={SOVEREIGNTY_SCREEN_TEXT.exportPreparing}
-              >
-                {SOVEREIGNTY_SCREEN_TEXT.exportAction}
-              </ActionButton>
-            ) : (
-              <ActionButton variant="secondary" onClick={handleExport}>
-                {SOVEREIGNTY_SCREEN_TEXT.exportAction}
-              </ActionButton>
-            )}
-          </>
+          isExporting ? (
+            <ActionButton
+              variant="secondary"
+              disabled
+              disabledReason={SOVEREIGNTY_SCREEN_TEXT.exportPreparing}
+            >
+              {SOVEREIGNTY_SCREEN_TEXT.exportAction}
+            </ActionButton>
+          ) : exportBlocker === null ? (
+            <ActionButton variant="secondary" onClick={handleExport}>
+              {SOVEREIGNTY_SCREEN_TEXT.exportAction}
+            </ActionButton>
+          ) : (
+            <ActionButton variant="secondary" disabled disabledReason={exportBlocker}>
+              {SOVEREIGNTY_SCREEN_TEXT.exportAction}
+            </ActionButton>
+          )
         }
       />
 
@@ -1233,12 +1298,14 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
             />
 
             {/*
-              The policy set. Activating a row opens that policy's detail, which is the route AAP
-              0.12.4 fixes and the place the same grant flow is offered against one policy.
+              The policy set. Each row states the policy's identifier, its title, whether the engine
+              evaluates it and whether a request awaits a decision, and its own last column offers the
+              grant flow against that policy; activating the row itself opens the policy's detail, which
+              is the route AAP 0.12.4 fixes and where the same flow is offered in the page header.
             */}
             <Card title={SOVEREIGNTY_SCREEN_TEXT.policiesTitle}>
               <DataTable<PolicyDetail>
-                columns={POLICY_COLUMNS}
+                columns={policyColumns}
                 rows={policies}
                 getRowKey={policyRowKeyOf}
                 caption={SOVEREIGNTY_SCREEN_TEXT.policiesCaption}
@@ -1270,18 +1337,20 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
       </StateBoundary>
 
       {/*
-        The grant flow, composed with the policy the payload supplies first. It is rendered only while
-        the record set is loaded, because the dialog names the policy it is requested against.
+        The grant flow, composed with the policy whose own row the reader pressed: the identifier and
+        the title are that record's, so the dialog names the policy the request is made against rather
+        than one this screen picked. It is rendered only while a row has opened it, and the roster of
+        second approvers is the demonstration capability's own read.
       */}
-      {isGranting && grantPolicy !== undefined ? (
+      {grantTarget === null ? null : (
         <GrantExceptionDialog
-          policyId={grantPolicy.id}
-          policyLabel={grantPolicy.title}
+          policyId={grantTarget.id}
+          policyLabel={grantTarget.title}
           onClose={closeGrantDialog}
           onSubmitted={handleRequestRecorded}
           secondApprovers={secondApprovers}
         />
-      ) : null}
+      )}
     </div>
   );
 }

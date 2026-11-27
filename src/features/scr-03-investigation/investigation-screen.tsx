@@ -23,9 +23,11 @@
  * derived, rounded, parsed or formatted in this module: every figure arrives from the service, and
  * the only formatter it uses is `src/components/mono-value.tsx`. `String(units)` renders a record
  * value as the text a chart point carries, which is the same presentation the overview screen applies
- * to its own series, and no arithmetic operator appears in the file at all. The one numeric literal is
- * the zero the projected-stock surface is read against, which is a level of the axis rather than a
- * figure of any record.
+ * to its own series, and no arithmetic operator appears in the file at all. The one span this module
+ * derives is the idle window's own dates — the first and the last day the payload's series reads no
+ * closing stock on — which selects dates the record states rather than measuring anything. Both
+ * numeric literals are zero: the level the projected-stock surface is read against, and the closing
+ * reading that marks an empty day. Neither is a figure of any record.
  *
  * THE SEVEN STATES (specification §8). {@link deriveScreenState} decides once, from what the read
  * settled to and from the freshness report the result itself carries: a permission refusal is
@@ -52,25 +54,21 @@
  * it fetches no asset and reads no configuration value (rules B-1, B-2). Each control either acts or is
  * an `ActionButton` disabled with a plain sentence saying why (rule P-8).
  *
- * OPEN ITEMS, REPORTED RATHER THAN WORKED AROUND. The contracts-derived payload carries no member for
- * four things SCR-03's own description names, so each is either built from what the payload does
- * declare or stated as missing, and none is invented in `src/types`:
+ * WHAT THE PAYLOAD DOES NOT DECLARE. `ExceptionDetail` has no window label and no summary line, so the
+ * projection's caption is composed from the dates the supplied points themselves carry and the header
+ * renders no description. It carries no zero reference and no due-date marker either: the zero level is
+ * a property of the axis, labelled from this module's own text, and the due-date markers are the
+ * exception's own affected lines, one per promised date. No member is invented in `src/types` to fill
+ * one of them.
  *
- * 1. `ExceptionDetail` has no window label and no summary line. The projection's caption is therefore
- *    composed from the dates the supplied points themselves carry, and the header renders no
- *    description rather than a sentence this screen made up.
- * 2. The payload carries no zero reference, no due-date marker and no idle-window band for the chart.
- *    The zero level is a property of the axis and is labelled from this module's own text; the due-date
- *    markers are the exception's own affected lines, one marker per promised date; and no idle window
- *    is shaded, because the records state idle days rather than the span they fall in and a band
- *    inferred from them would be a measure this screen invented.
- * 3. `ExceptionDetail.affectedOrders` declares the order identifier and the two measured days and
- *    units, so the orders table joins each measured order to the exception's own `affectedLines` for
- *    the promised date and the units at risk. It is a lookup, not a computation, and a measured order
- *    with no line leaves those two cells empty rather than reading `undefined`.
- * 4. The impact chain's material and production-line nodes carry references the evidence read does not
- *    resolve; `impact-chain.tsx` records that gap and this screen passes the chain through unchanged
- *    rather than deciding which nodes are openable.
+ * WHERE THE TABLE'S VALUES, THE BAND AND THE CHAIN COME FROM. `ExceptionDetail.affectedOrders` declares
+ * the order identifier and the two measured days and units, so the orders table joins each measured
+ * order to the exception's own `affectedLines` for the promised date and the units at risk — a lookup,
+ * not a computation — and a measured order with no line leaves those two cells empty rather than
+ * reading `undefined`. The chart's idle band is the payload's own closing-stock series read as zero,
+ * from its first such date to the last in the series' own order, and no span is shaded when the series
+ * holds no zero day: a range of the record's own dates, never a measure counted from them. The impact
+ * chain reaches the panel unchanged: this screen decides nothing about which nodes are openable.
  *
  * Rules served: B-1, B-2, B-3, P-1, P-2, P-3, P-4, P-5, P-6, P-7, P-8.
  */
@@ -94,17 +92,33 @@ import { MetricTile } from '../../components/metric-tile';
 import { MonoValue } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
 import { Panel } from '../../components/panel';
+import { runOutStatement } from '../../components/run-out-reading';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
+import { TextAreaField } from '../../components/text-area-field';
 import {
   ActionButton,
   CONTROL_STRUCTURE_CLASSES,
   SECONDARY_CONTROL_CLASSES,
 } from '../../components/tooltip';
 import { useActiveUser, useService } from '../../services/service-provider';
-import { SIM_LABELS, SOURCE_LABELS } from '../../types';
+/*
+ * `EXCEPTION_QUEUE_PATH` is the queue this screen returns to when the route names no exception it may
+ * read. It has one declaration, in `src/types/routes.ts`, shared with the navigation table, the shell's
+ * pages and every screen that navigates to it, so a rename reaches all of them.
+ */
+import {
+  ALREADY_OWNER_REASON,
+  EXCEPTION_QUEUE_PATH,
+  SIM_LABELS,
+} from '../../types';
 import type {
   AffectedLine,
   ActiveUser,
@@ -115,16 +129,12 @@ import type {
   ExceptionDetail,
   ExceptionId,
   ExceptionStatus,
-  Freshness,
-  FreshnessState,
   IsoDate,
   OperationalException,
-  Problem,
   Result,
   Scenario,
   ScenarioSet,
   Scope,
-  ScreenState,
   Severity,
   SimLabel,
 } from '../../types';
@@ -192,8 +202,17 @@ export const INVESTIGATION_TEXT = {
   baselineSeriesLabel: 'Baseline: no action taken',
   selectedSeriesPrefix: 'Selected option:',
 
+  /**
+   * What joins the designated option's series label to the run-out reading stated under the
+   * projection's title, so the two read as one sentence (AAP §0.8).
+   */
+  runOutSeparator: ' — ',
+
   /** The zero level's label. The level itself is the axis's own zero, never a record's reading. */
   zeroReferenceLabel: 'Zero stock',
+
+  /** The label the shaded idle window carries inside the projection, in this screen's words. */
+  idleWindowLabel: 'Idle window',
 
   /** The orders table: its section heading, its accessible name and its empty sentence. */
   ordersHeading: 'Customer orders at risk',
@@ -229,7 +248,7 @@ export const INVESTIGATION_TEXT = {
   assignInFlight: 'The assignment is being recorded.',
   assignUnavailable:
     'This session reports no acting persona, so there is nobody to assign the exception to.',
-  alreadyOwner: 'This exception is already assigned to the role acting in this session.',
+  alreadyOwner: ALREADY_OWNER_REASON,
 
   /** The note form. */
   noteHeading: 'Add a note',
@@ -264,9 +283,6 @@ const DATA_LABEL: SimLabel = SIM_LABELS[0];
  * Routes
  * ------------------------------------------------------------------------------------------- */
 
-/** The queue this screen sends a reader back to when the route names no exception it may read. */
-const EXCEPTIONS_ROUTE = '/exceptions';
-
 /** The assistant's route, reachable from the header (specification §5.2). */
 const ASSISTANT_ROUTE = '/assistant';
 
@@ -277,50 +293,12 @@ const ASSISTANT_ROUTE = '/assistant';
  * @returns The path of SCR-04 for that exception.
  */
 function scenariosRouteFor(exceptionId: ExceptionId): string {
-  return `${EXCEPTIONS_ROUTE}/${exceptionId}/scenarios`;
+  return `${EXCEPTION_QUEUE_PATH}/${exceptionId}/scenarios`;
 }
 
 /* ---------------------------------------------------------------------------------------------
- * Reading the service's answer: the failure shape and the state it produces
+ * The sentence a failed write reports
  * ------------------------------------------------------------------------------------------- */
-
-/** The five causes a `Problem` distinguishes, spelled as `src/types/service.ts` declares them. */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const;
-
-/**
- * Whether a thrown value is the `Problem` the port documents (AAP 0.2.2).
- *
- * The check is structural because a rejection arrives as `unknown`: a failure that did not come in
- * the documented shape is reported as an unreported one instead of being read as a `Problem` whose
- * members are absent.
- *
- * @param value - The value a rejection carried.
- * @returns True when the value is a `Problem`.
- */
-function isProblem(value: unknown): value is Problem {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  if (!('type' in value) || !('message' in value) || !('traceId' in value)) {
-    return false;
-  }
-
-  const { type, message, traceId } = value;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
 
 /**
  * The sentence a failed write reports: the service's own when it refused with a `Problem`, and the
@@ -409,65 +387,8 @@ const RESULT_MEANINGS = {
 } as const satisfies Record<AuditResult, StatusMeaning>;
 
 /* ---------------------------------------------------------------------------------------------
- * The state of the screen: the stale record, the denial, and the seven states
+ * This screen's own reading of an empty payload
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * The source behind a stale screen, or `undefined` unless a source in the read's report is stale.
- *
- * This screen's figures come from several sources, so the banner names whichever one the service
- * reported as out of date rather than a source chosen here, and the label is `SOURCE_LABELS`' own so
- * the banner and the freshness strip print the same words. Nothing is derived from the instant — no
- * age and no duration (rule P-6).
- *
- * @param freshness - The six sources' state as the result reported it.
- * @returns The banner's record, or `undefined` when no source is stale.
- */
-function staleSourceOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const stale = freshness.find((entry) => entry.state === 'stale');
-
-  if (stale === undefined) {
-    return undefined;
-  }
-
-  return { source: stale.source, label: SOURCE_LABELS[stale.source], asOf: stale.asOf };
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the failure was not a permission refusal.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold
- * it and the correlation identifier of the refused call. A refusal that named no permission supplies no
- * card, and the boundary's neutral notice stands in its place rather than a card naming a permission
- * nobody was refused for.
- *
- * @param error - What the read rejected with.
- * @returns The card's evidence, or `undefined`.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return { permission, roles: error.rolesWithPermission ?? [], traceId: error.traceId };
-}
-
-/**
- * Whether a source in the read's freshness report answered in the state asked about.
- *
- * @param freshness - The six sources' state as the result reported it.
- * @param state - The state to look for.
- * @returns True when some source reported that state.
- */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
 
 /**
  * Whether a payload carries nothing the investigation can show.
@@ -487,100 +408,12 @@ function holdsNothing(detail: ExceptionDetail): boolean {
   );
 }
 
-/** What {@link deriveScreenState} reads: whether a route named an exception, and what the read settled to. */
-interface ScreenStateInput {
-  /** Whether the route named an exception at all. */
-  readonly hasExceptionId: boolean;
-
-  /** Whether the read has not answered yet. */
-  readonly isPending: boolean;
-
-  /** What the read rejected with, or `null` while it has not. */
-  readonly error: unknown;
-
-  /** The read's result, or `undefined` until it settles. */
-  readonly result: Result<ExceptionDetail> | undefined;
-}
-
-/**
- * The one place this screen decides which of the seven states its records are in.
- *
- * The route comes first: an address naming no exception has nothing to read, and it is `empty` here
- * although it is rendered as the not-found panel above the boundary, because a reader who typed a
- * path should be offered the way back rather than a grid of empty regions.
- *
- * The failure side is then fixed: a permission refusal is `forbidden`, a validation refusal is
- * `conflict` — the record moved before the request could be honoured, which is the same cause the
- * queue names — and every other rejection is `offline`. A pending read is `loading`. The record side
- * reads the freshness report the result itself carries, in this order: a source that did not answer is
- * `offline`, because nothing stands behind the figures; a source reported stale is `stale`; a source
- * reported partial is `partial`, as is a payload whose own missing inputs are not empty; and a payload
- * holding nothing the body can show is `empty`. Every other case returns `undefined`, the boundary's
- * documented "no exceptional state holds", and the content renders unchanged beneath it.
- *
- * Its input is the query's own settled facts rather than a flag of this screen's, so the state cannot
- * disagree with the read it describes and no effect is needed to keep the two in step.
- *
- * @param input - The route's and the read's settled facts.
- * @returns The state to render, or `undefined` when none of the seven applies.
- */
-function deriveScreenState({
-  hasExceptionId,
-  isPending,
-  error,
-  result,
-}: ScreenStateInput): ScreenState | undefined {
-  if (!hasExceptionId) {
-    return 'empty';
-  }
-
-  if (isProblem(error)) {
-    switch (error.type) {
-      case 'permission':
-        return 'forbidden';
-      case 'validation':
-        return 'conflict';
-      case 'policy':
-      case 'simulated-write-back':
-      case 'not-found':
-        return 'offline';
-    }
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleSourceOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial') || result.data.missingInputs.length > 0) {
-    return 'partial';
-  }
-
-  return holdsNothing(result.data) ? 'empty' : undefined;
-}
-
 /* ---------------------------------------------------------------------------------------------
  * The projection: the baseline the payload carries and the option the service designates
  * ------------------------------------------------------------------------------------------- */
 
 /** No points at all, shared so an absent series allocates nothing and cannot be edited by a caller. */
 const NO_POINTS: readonly LinePoint[] = [];
-
-/** No drawn span at all: the payload states idle days, not the window they fall in (open item 2). */
-const NO_BANDS: readonly LineBand[] = [];
 
 /**
  * The zero level the projection is read against.
@@ -612,6 +445,33 @@ function stockPointsOf(
     yLabel: String(point.units),
     evidenceRef,
   }));
+}
+
+/**
+ * The idle window the projection shades: the span of days the record's own closing stock reads as zero.
+ *
+ * AAP 0.12.4's SCR-03 row asks the figure for "the idle window shaded". The payload states the closing
+ * stock each day holds rather than a window of its own, so the span is read off that series: the first
+ * zero closing day is where the window opens and the last is where it closes, in the series' own order.
+ * That selects two dates the record states and measures nothing (rule P-6) — the readings, the counts
+ * and the idle-day measure stay the solver's, and this module only says where to shade.
+ *
+ * A series with no zero closing day has no idle window, so no band is drawn: the surface then shades
+ * nothing rather than inventing a span, and the projection reads exactly as it did before.
+ *
+ * @param points - The closing-stock series exactly as the payload states it.
+ * @returns One band over the zero run, or no band at all.
+ */
+function idleWindowBandsOf(points: readonly DailyClosingStockPoint[]): readonly LineBand[] {
+  const zeroDays = points.filter((point) => point.units === 0);
+  const first = zeroDays[0];
+  const last = zeroDays.at(-1);
+
+  if (first === undefined || last === undefined) {
+    return [];
+  }
+
+  return [{ from: first.date, to: last.date, label: INVESTIGATION_TEXT.idleWindowLabel }];
 }
 
 /**
@@ -676,7 +536,7 @@ function seriesFor(
 /**
  * The projection's caption, composed from the dates the supplied points themselves carry.
  *
- * The payload states no window label (open item 1), so the caption names the span the series actually
+ * The payload states no window label, so the caption names the span the series actually
  * covers rather than a date this module typed: the first and last dates are the records' own, printed as
  * the records state them.
  *
@@ -694,6 +554,37 @@ function projectionCaptionOf(series: readonly LineSeriesSpec[]): string {
   }
 
   return INVESTIGATION_TEXT.projectionPrefix;
+}
+
+/**
+ * The run-out reading the projection states under its title, for the option the service designates.
+ *
+ * AAP §0.8 requires the run-out pair rendered as "the day plus a half-day reading such as 'midday'", and
+ * this screen states it for the option whose series it draws: the option's own series label names it,
+ * and its own pair supplies the day. The wording of the reading is
+ * `../../components/run-out-reading.ts`'s, the pair is the record's, so nothing is measured, typed or
+ * formatted here beyond the joining words (rule P-6). No designated option means no reading, and the
+ * projection then states no description at all rather than one about an option it does not draw.
+ *
+ * @param series - The series the surface draws, whose labels name each option.
+ * @param selected - The designated option, or `undefined`.
+ * @returns The sentence under the title, or `undefined` when there is nothing to state.
+ */
+function projectionDescriptionOf(
+  series: readonly LineSeriesSpec[],
+  selected: Scenario | undefined,
+): string | undefined {
+  if (selected === undefined) {
+    return undefined;
+  }
+
+  const drawn = series.find((spec) => spec.id === selected.id);
+
+  if (drawn === undefined) {
+    return undefined;
+  }
+
+  return `${drawn.label}${INVESTIGATION_TEXT.runOutSeparator}${runOutStatement(selected.runOut)}`;
 }
 
 /**
@@ -749,7 +640,7 @@ function dueDateMarkersOf(exception: OperationalException): readonly LineMarker[
 
 /**
  * One row of the affected-orders table: what the payload measured, plus the two record values the
- * exception's own affected lines carry for the same order (open item 3).
+ * exception's own affected lines carry for the same order.
  *
  * The two joined members are declared as possibly absent rather than optional, so a measured order with
  * no line renders an empty cell instead of the word `undefined`.
@@ -965,8 +856,9 @@ interface NoteFormProps {
 /**
  * The note field and its two controls.
  *
- * The field is a labelled `textarea` owned here, which is the only place on this screen a native text
- * control lives: `ActionButton` owns both buttons beside it, and the label is bound to the field by
+ * The field is a multi-line field composed through `TextAreaField`, which owns the `<textarea>`
+ * element (AAP §0.5.2); this screen supplies the label, the token-built class list and the sentence a
+ * refusal prints. `ActionButton` owns both buttons beside it, and the label is bound to the field by
  * `htmlFor`/`id`, so the control has a name a reader can hear (rule B-3). Recording is disabled with a
  * plain reason until the field holds something, and while the write is in flight, so pressing it can
  * never send a note the records would refuse for being empty (rule P-8). A refusal keeps the typed text
@@ -1020,15 +912,13 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
         <label className={TERM_CLASSES} htmlFor={fieldId}>
           {INVESTIGATION_TEXT.noteField}
         </label>
-        <textarea
+        <TextAreaField
           id={fieldId}
           className={NOTE_FIELD_CLASSES}
           value={draft}
           aria-describedby={failure === null ? undefined : failureId}
           aria-invalid={failure === null ? undefined : true}
-          onChange={(event) => {
-            setDraft(event.target.value);
-          }}
+          onChange={setDraft}
         />
         {failure === null ? null : (
           <p id={failureId} className={FAILURE_CLASSES}>
@@ -1140,11 +1030,21 @@ export function InvestigationScreen(props: InvestigationScreenProps): ReactEleme
   const detail = result?.data;
   const scenarioSet = scenarioQuery.data?.data;
 
+  /*
+   * The read's own facts, plus this screen's reading of its payload. The route comes first: an address
+   * naming no exception has nothing to read. This screen's figures come from several sources, so the
+   * stale notice names whichever one the service reported rather than a source chosen here; a payload
+   * whose own missing inputs are not empty reports itself incomplete; and a payload holding none of the
+   * three collections is the empty state. A `'not-found'` refusal is the unified `'empty'`, which the
+   * panel below replaces before the boundary ever renders it.
+   */
   const state = deriveScreenState({
-    hasExceptionId: exceptionId !== undefined,
+    namedNoRecord: exceptionId === undefined,
     isPending: detailQuery.isPending,
     error: detailQuery.error,
-    result,
+    freshness: result?.meta.freshness,
+    payloadReportsPartial: detail !== undefined && detail.missingInputs.length > 0,
+    hasContent: detail === undefined ? false : !holdsNothing(detail),
   });
   const staleRecord = result === undefined ? undefined : staleSourceOf(result.meta.freshness);
   const forbiddenRecord = forbiddenOf(detailQuery.error);
@@ -1176,11 +1076,13 @@ export function InvestigationScreen(props: InvestigationScreenProps): ReactEleme
   const series = seriesFor(baselinePoints, selected, selectedPoints);
 
   const projectionCaption = projectionCaptionOf(series);
+  const projectionDescription = projectionDescriptionOf(series, selected);
   const projectionEmptyMessage =
     detail !== undefined && detail.stockSeries.length === 0
       ? cannotComputeMessageOf(detail)
       : INVESTIGATION_TEXT.projectionEmpty;
   const markers = detail === undefined ? [] : dueDateMarkersOf(detail.exception);
+  const bands = detail === undefined ? [] : idleWindowBandsOf(detail.stockSeries);
   const orderRows = detail === undefined ? NO_ORDER_ROWS : orderRowsOf(detail);
 
   /** Moves to the comparison for this exception, which is the action the screen exists to reach. */
@@ -1288,7 +1190,7 @@ export function InvestigationScreen(props: InvestigationScreenProps): ReactEleme
         <PageHeader title={INVESTIGATION_TEXT.notFoundTitle} />
         <Card as="div">
           <p className={BODY_CLASSES}>{notFoundSentence}</p>
-          <Link className={QUEUE_LINK_CLASSES} to={EXCEPTIONS_ROUTE}>
+          <Link className={QUEUE_LINK_CLASSES} to={EXCEPTION_QUEUE_PATH}>
             {INVESTIGATION_TEXT.notFoundLinkLabel}
           </Link>
         </Card>
@@ -1411,10 +1313,11 @@ export function InvestigationScreen(props: InvestigationScreenProps): ReactEleme
             <Card title={INVESTIGATION_TEXT.projectionHeading}>
               <ProjectedStockChart
                 caption={projectionCaption}
+                description={projectionDescription}
                 series={series}
                 references={[ZERO_REFERENCE]}
                 markers={markers}
-                bands={NO_BANDS}
+                bands={bands}
                 emptyMessage={projectionEmptyMessage}
               />
             </Card>

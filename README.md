@@ -104,6 +104,14 @@ There is one typed interface and two implementations of it.
 
 Two interface members have no server counterpart. `setSimulation` and `resetDemo` exist for the demonstration, and the API client resolves both as documented no-ops, because a real deployment has neither simulation flags nor a demo reset.
 
+Beside the interface sits one demonstration capability, declared in `src/services/demonstration-controls.ts` and handed out by `src/services/create-service.ts` next to the bound instance:
+
+- `switchRole` changes the persona the session acts as and records the change in the audit trail;
+- `getActiveUser` reads the persona the backend is enforcing — the value the shell seeds the persona it displays from, and the one a policy page re-reads after a switch, so the grant control is judged on the role the backend will apply;
+- `listPersonas`, optional, is the roster of personas a switch may name, which the role switcher builds its options from. It is optional because an adapter with real identity holds no seeded personas and offers the acting persona alone.
+
+`MockBackend` additionally exposes the `whenReady` readiness promise that its binding point awaits before the first screen renders. None of these members is on `SiteIntelligenceService`: that interface is the contracts' own, transcribed method for method, and it declares no role-setting member and no read of the acting persona. The capability is a demonstration control, and so are the checks behind it — browser-side permission checks are not production authorisation.
+
 Both adapters produce the same three downloads: the evidence pack and the scenario comparison in stage S1, the chokepoint brief in stage S3. Each JSON carries `"simulated": true` at its top level and the comparison is CSV, and the composition of those files lives in `src/services/exports/` — one module per download — which both adapters call, so the bytes a reader downloads cannot change because the application was bound to the other adapter. That folder is not one of the plan's file paths: the plan names the downloads beside the demonstration adapter alone. The plan's Exports entry names `src/services/mock/exports/{evidence-pack,chokepoint-brief,scenario-csv}.ts`, and those stay the demonstration adapter's own assemblers: they read the session's state and hand the shared builder its inputs. The API client would otherwise have to import the mock adapter's folder to produce the same file, which is the one dependency direction the plan keeps out of it. Each module in the shared folder imports the shared types and nothing else.
 
 Screens and components never import seed data. `src/seed/` is imported by one module, `src/services/mock/seed-loader.ts`, and a source check fails the suite on any other import of it, so a reader can rely on every figure having arrived through the interface.

@@ -6,14 +6,23 @@
  * else is written; that each of the four tiles carries the exact specification §5.3 label for a
  * computed figure on the tile itself, asserted inside that tile so the shell's page-level badge could
  * not satisfy it (rule P-1); that a tile's figure opens the evidence behind it; that a revenue bar
- * reports the plant it draws to the shell once, from the keyboard (rule P-8); that the opened and
- * resolved series draws one mark per delivered day; that both charts swap to a table whose cells are
- * the values the chart drew, in both directions and from the keyboard (success criterion 9, rule
- * B-3); that the changed-since list and the risk-by-plant table render every record they were
- * handed, with the amounts set through the one money formatter in the mono face (AAP §0.5.3); that
- * each of the seven states specification §8 fixes renders for the outcome the screen maps it to;
- * that both themes render the same figures; and that the primary action is reached with `Tab`,
+ * reports the plant it draws to the shell once and opens the evidence its `aria-haspopup="dialog"`
+ * declares, from the keyboard and from a pointer click alike (rule P-8); that the opened and
+ * resolved series draws one mark per delivered day, that a mark opens that day's evidence and reports
+ * nothing to the shell, and that the series' table view narrows the queue to the day its row's date
+ * control states, activated from the keyboard (AAP §0.12.4, principle PR-6); that both charts swap to
+ * a table whose cells are the values the chart drew, in both directions and from the keyboard (success
+ * criterion 9, rule B-3); that the changed-since list and the risk-by-plant table render every record
+ * they were handed, with the amounts set through the one money formatter in the mono face (AAP
+ * §0.5.3); that each of the seven states specification §8 fixes renders for the outcome the screen maps
+ * it to; that both themes render the same figures; and that the primary action is reached with `Tab`,
  * shows its focus ring and opens the exception queue on `Enter` (`T-16`).
+ *
+ * WHY THE NARROWING IS ASSERTED IN THE TABLE VIEW. AAP §0.12.4 asks the series for two effects — every
+ * figure opens its evidence drawer, and the days' dates filter the queue — and one gesture cannot do
+ * both, because the navigation would unmount the drawer it had just opened. The mark therefore keeps
+ * its evidence, and the day's control is the date cell of the table view; both halves are asserted, so
+ * a change that moved the narrowing back onto the mark would fail here rather than pass silently.
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a
  * screen may read through (rule P-2), so no seed module, adapter or domain module is involved and
@@ -35,21 +44,21 @@
  * labels, the boundary's sentences, the toggle's two labels, the drawer's heading, the source names)
  * is imported and never retyped.
  *
- * GAPS THIS SUITE REPORTS RATHER THAN WORKS AROUND.
- * 1. `overview-screen.tsx` does not export `SCREEN_TEXT`, although its own module note says its
- *    suite names the wording through it. A test cannot reach a private const, so {@link UI} states
- *    the screen's visible wording once; a reworded caption reaches exactly one place here.
- * 2. `LineChart` exposes no activation callback, so the opened/resolved series cannot narrow the
- *    queue by date — the screen's own gap 2. `OverviewNarrowing` still declares the `date` member for
- *    the shell and the sibling screens, so the case below asserts the documented alternative: one
- *    mark per delivered day, marks operable from the keyboard, and no narrowing of any kind emitted.
- * 3. `Overview` carries no evidence reference for its tiles, rows or points, so the screen composes
- *    `overview:<key>` references of its own. A case therefore asserts that a reference reaches the
- *    drawer, not that a record answers one: resolving an aggregate reference is the adapter's work
- *    and the mock here answers every reference with the same evidence. What a case does assert is the
- *    half of that contract this screen owns — that each reference states the selection the overview was
- *    read with, so a filtered figure's drawer is computed over the filtered population (AAP §0.2.1
- *    F12, PR-6); the adapter's side of it is covered by `src/services/mock/mock-backend.test.ts`.
+ * WHERE THE SUITE MUST STATE A STRING ITSELF. `overview-screen.tsx` exports no `SCREEN_TEXT`, so
+ * {@link UI} states the screen's visible wording once, and a reworded caption reaches exactly one
+ * place here.
+ *
+ * WHERE THE CASE'S EVIDENCE REFERENCES COME FROM. `Overview` carries no evidence reference for its
+ * tiles, rows or points, so the screen composes `overview:<key>` references of its own. A case
+ * therefore asserts that a reference reaches the drawer, not that a record answers one: resolving an
+ * aggregate reference is the adapter's work — covered through the port in
+ * `src/services/mock/mock-backend.test.ts` — and the mock here answers every reference with the same
+ * evidence.
+ *
+ * WHAT THE SERIES' TABLE VIEW IS FOR. The day's own control is the date cell of the series' table
+ * view, and it narrows the queue to the day the row carries (AAP §0.12.4). A mark on the chart opens
+ * that day's evidence and nothing else, because a gesture cannot both open the drawer and unmount the
+ * screen that holds it.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or reaches outside the service boundary.
@@ -99,7 +108,7 @@ import type { OverviewNarrowing } from './overview-screen';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The screen's own visible wording, stated once (gap 1 above).
+ * The screen's own visible wording, stated once.
  *
  * None of these is a specification string: the seven §5.3 labels, the boundary's sentences, the
  * toggle's labels and the drawer's heading all belong to the modules that export them and are
@@ -150,6 +159,9 @@ const UI = {
   columnDate: 'Date',
   columnOpened: 'Opened',
   columnResolved: 'Resolved',
+
+  /** What the series table's date control does, stated ahead of the day the row carries. */
+  narrowToDay: 'Narrow the queue to ',
 
   /** The three sentences the screen supplies to the boundary for its own empty, partial and moved cases. */
   empty: 'No exception is open in this scope, so there is nothing to summarise.',
@@ -270,15 +282,21 @@ const EMPTY_OVERVIEW: Overview = {
 /** The same payload with the by-plant rows but nothing moved since the last visit. */
 const UNCHANGED_OVERVIEW: Overview = { ...OVERVIEW, changedSinceLastVisit: [] };
 
+/**
+ * An empty population the aggregate still lists a plant row for.
+ *
+ * `computeOverview` answers one row per plant in the resolved scope whether or not that plant has risk,
+ * so a scope with nothing in it arrives as rows reading zero rather than as no rows at all — which is
+ * the payload the simulation popover's `empty` trigger produces and the case the screen's emptiness
+ * reading has to recognise.
+ */
+const EMPTIED_OVERVIEW: Overview = {
+  ...EMPTY_OVERVIEW,
+  byPlant: BY_PLANT.map((row) => ({ ...row, openExceptions: 0, revenueAtRiskEur: 0 })),
+};
+
 /** The scope the shell hands the screen: the unfiltered "all plants, all products" selection. */
 const SCOPE: Scope = { plants: [], products: [] };
-
-/**
- * The product a narrowing case selects, so a composed reference can be shown to state both members of
- * the scope it was read with. An opaque placeholder like every other identifier here, so the figures
- * scan that covers `src/features/**` reads this file without a collision.
- */
-const NARROWED_PRODUCT = 'product-alpha';
 
 /** The six sources all answering and current, as `Meta.freshness` reports them. */
 const FRESH_SOURCES: Freshness[] = SOURCE_IDS.map(
@@ -316,9 +334,13 @@ const DENIAL: Problem = {
   rolesWithPermission: ROLES_WITH_PERMISSION,
 };
 
-/** A failure the screen reports as the offline state: no source answered the read. */
+/**
+ * A refusal the screen reports as the offline state: a rule suppressed the answer, so nothing stands
+ * behind the figures. A `'not-found'` refusal is the unified `'empty'` on every screen, and
+ * `src/components/screen-state.test.ts` proves that mapping once for all of them.
+ */
 const FAILURE: Problem = {
-  type: 'not-found',
+  type: 'policy',
   message: 'The overview could not be read.',
   traceId: TRACE_ID,
 };
@@ -361,6 +383,21 @@ const TILE_CASES = [
   { caption: UI.tileRevenueAtRisk, figure: formatMoney(OVERVIEW.revenueAtRiskEur) },
   { caption: UI.tileCustomerOrdersAtRisk, figure: String(OVERVIEW.customerOrdersAtRisk) },
   { caption: UI.tileMedianHours, figure: formatHours(OVERVIEW.medianHoursToApprovedPlan) },
+] as const;
+
+/**
+ * The two inputs a chart mark answers to, one case each so both are held to the same assertions.
+ *
+ * A reader may take a revenue bar with a pointer or reach it with `Tab` and press `Enter`, and the mark
+ * declares `aria-haspopup="dialog"` either way: the two inputs must produce one behaviour, so a mark
+ * whose pointer path and keyboard path diverged would fail the case for its own input rather than pass
+ * because only the keyboard was ever exercised.
+ */
+const MARK_ACTIVATIONS = [
+  /** The finding's own reproduction: a left click on the bar, with nothing focused beforehand. */
+  { input: 'a pointer click', modality: 'pointer' },
+  /** The keyboard path: `Tab` leaves the mark focused and `Enter` activates it. */
+  { input: 'Enter on the focused mark', modality: 'keyboard' },
 ] as const;
 
 /** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
@@ -431,7 +468,7 @@ interface ScreenOptions {
   /** What the shell does when a figure narrows the queue. Absent, the screen takes no handler. */
   readonly onNarrowQueue?: (narrowing: OverviewNarrowing) => void;
 
-  /** The selection the shell hands the screen. Absent, the "all plants and all products" one. */
+  /** The shell's selection. Absent, the screen is handed the empty "all plants and products" scope. */
   readonly scope?: Scope;
 }
 
@@ -650,87 +687,83 @@ describe('OverviewScreen', () => {
     expect(dialog).toHaveTextContent(String(reference));
   });
 
-  it('states in each figure’s reference the selection the overview was read with', async () => {
+  it('names the aggregate and the shell selection in the reference a tile opens', async () => {
     const user = userEvent.setup();
-    const plant = at(PLANTS, 1, 'plant');
-    const scope: Scope = { plants: [plant.id], products: [NARROWED_PRODUCT] };
+    const plant = at(PLANTS, 0, 'plant');
+    const product = 'product-alpha';
 
-    renderScreen({ scope });
+    renderScreen({ scope: { plants: [plant.id], products: [product] } });
 
-    /*
-     * The port's `getEvidence` carries the reference and no scope, so a figure's reference states the
-     * selection its read was made with: the tile, the bar and the series mark below each open the drawer
-     * with it, which is what keeps a filtered figure's evidence computed over the filtered population
-     * rather than over the persona's whole scope (AAP §0.2.1 F12, PR-6).
-     */
     const tile = await settledTile(UI.tileRevenueAtRisk);
     await user.click(within(tile).getByRole('button'));
+    await screen.findByRole('dialog');
 
-    const tileReference = String(mockService.getEvidence.mock.calls[0]?.[0]);
+    const reference = String(mockService.getEvidence.mock.calls[0]?.[0]);
 
-    expect(tileReference.startsWith('overview:revenue-at-risk')).toBe(true);
-    expect(tileReference).toContain(`plants=${plant.id}`);
-    expect(tileReference).toContain(`products=${NARROWED_PRODUCT}`);
-
-    // The bar names the row it draws as well as the selection, so a filtered row's drawer is that row's
-    // figure rather than the aggregate's grouping of plants the row was filtered out of.
-    const bar = barMark(plant);
-    bar.focus();
-    await user.keyboard('{Enter}');
-
-    const barReference = String(mockService.getEvidence.mock.calls[1]?.[0]);
-
-    expect(barReference.startsWith(`overview:plant/${plant.id}/revenue-at-risk`)).toBe(true);
-    expect(barReference).toContain(`plants=${plant.id}`);
-
-    // A series point carries the same selection, so the count a mark draws and the count its drawer states
-    // are one reading of one filtered series.
-    const point = at(SERIES, 0, 'series point');
-    const mark = at(seriesMarks(UI.seriesOpened), 0, 'opened mark');
-
-    mark.focus();
-    await user.keyboard('{Enter}');
-
-    const pointReference = String(mockService.getEvidence.mock.calls[2]?.[0]);
-
-    expect(pointReference.startsWith(`overview:day/${point.date}/open`)).toBe(true);
-    expect(pointReference).toContain(`products=${NARROWED_PRODUCT}`);
+    // The reference names the aggregate the tile reports and the shell selection the figure was read
+    // under, so the evidence read resolves that same figure over those same filters rather than the
+    // whole scope's (AAP 0.2.1 F12, the one scope resolver).
+    expect(reference.startsWith('overview:revenue-at-risk')).toBe(true);
+    expect(reference).toContain(`plants=${plant.id}`);
+    expect(reference).toContain(`products=${product}`);
   });
 
-  it('reports the plant a revenue bar draws, once, when the bar is activated from the keyboard', async () => {
-    const user = userEvent.setup();
-    const onNarrowQueue = vi.fn<(narrowing: OverviewNarrowing) => void>();
+  it.each(MARK_ACTIVATIONS)(
+    'reports the plant a revenue bar draws, once, and opens its evidence, when activated by $input',
+    async ({ modality }) => {
+      const user = userEvent.setup();
+      const onNarrowQueue = vi.fn<(narrowing: OverviewNarrowing) => void>();
 
-    renderScreen({ onNarrowQueue });
-    await settledTile(UI.tileOpenExceptions);
+      renderScreen({ onNarrowQueue });
+      await settledTile(UI.tileOpenExceptions);
 
-    const plant = at(PLANTS, 1, 'plant');
-    const bar = barMark(plant);
+      const plant = at(PLANTS, 1, 'plant');
+      const bar = barMark(plant);
 
-    expect(barMarks()).toHaveLength(PLANTS.length);
-    expect(bar).toHaveAttribute('tabindex', '0');
+      expect(barMarks()).toHaveLength(PLANTS.length);
+      expect(bar).toHaveAttribute('tabindex', '0');
 
-    // Each bar names its own figure and the exact §5.3 label that figure carries (rule P-1), and
-    // says what activating it opens (rule P-8).
-    for (const mark of barMarks()) {
-      expect(mark).toHaveAttribute('aria-haspopup', 'dialog');
-      expect(mark.getAttribute('aria-label')).toContain(`(${CALCULATION_LABEL})`);
-    }
+      // Each bar names its own figure and the exact §5.3 label that figure carries (rule P-1), and
+      // says what activating it opens (rule P-8).
+      for (const mark of barMarks()) {
+        expect(mark).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(mark.getAttribute('aria-label')).toContain(`(${CALCULATION_LABEL})`);
+      }
 
-    bar.focus();
-    expect(bar).toHaveFocus();
+      if (modality === 'pointer') {
+        /* Nothing has focused the mark: a pointer click has to stand on its own, as the mark's own
+           `aria-haspopup="dialog"` promises a reader who never touches the keyboard. */
+        await user.click(bar);
+      } else {
+        bar.focus();
+        expect(bar).toHaveFocus();
+        await user.keyboard('{Enter}');
+      }
 
-    await user.keyboard('{Enter}');
+      /*
+       * One behaviour from either input: the shell is asked to narrow to this plant, once, the bar the
+       * reader chose is marked as the current one, and the evidence the mark declares is open.
+       */
+      expect(onNarrowQueue).toHaveBeenCalledTimes(1);
+      expect(onNarrowQueue).toHaveBeenCalledWith({ kind: 'plant', plantId: plant.id });
+      expect(bar).toHaveAttribute('aria-current', 'true');
 
-    // One gesture, two effects: the shell is asked to narrow to this plant, once, and the bar the
-    // reader chose is marked as the current one.
-    expect(onNarrowQueue).toHaveBeenCalledTimes(1);
-    expect(onNarrowQueue).toHaveBeenCalledWith({ kind: 'plant', plantId: plant.id });
-    expect(bar).toHaveAttribute('aria-current', 'true');
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-  });
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveAccessibleName(EVIDENCE_DRAWER_TEXT.title);
 
-  it('draws one mark per delivered day for each series, and narrows the queue by no date', async () => {
+      /*
+       * The drawer is the one this mark declares, not any figure's: it prints the reference the read was
+       * asked about, and that reference names the plant the bar draws. Read from the call rather than
+       * retyped, because the reference's shape belongs to the screen.
+       */
+      const reference = mockService.getEvidence.mock.calls[0]?.[0];
+      expect(typeof reference).toBe('string');
+      expect(String(reference)).toContain(plant.id);
+      expect(dialog).toHaveTextContent(String(reference));
+    },
+  );
+
+  it('draws one mark per delivered day for each series, and narrows the queue to the day a series table row states', async () => {
     const user = userEvent.setup();
     const onNarrowQueue = vi.fn<(narrowing: OverviewNarrowing) => void>();
 
@@ -754,21 +787,61 @@ describe('OverviewScreen', () => {
       );
     });
 
-    // A mark still opens its own evidence from the keyboard, so it is a control that performs its
-    // function rather than a dead mark (rule P-8, rule B-3).
-    at(opened, 0, 'opened mark').focus();
+    /*
+     * A mark keeps its one effect: it opens that day's evidence and reports nothing to the shell. A
+     * second effect that navigated to the queue would unmount this screen, and the drawer with it,
+     * before a reader could read it — which is why the day's narrowing lives on another control (see
+     * the table-view case below, AAP §0.12.4 and principle PR-6).
+     */
+    const mark = at(opened, 0, 'opened mark');
+
+    mark.focus();
+    expect(mark).toHaveFocus();
+
     await user.keyboard('{Enter}');
+
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(onNarrowQueue).not.toHaveBeenCalled();
+    expect(mark).not.toHaveAttribute('aria-current');
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
 
     /*
-     * Gap 2 of the screen, asserted rather than skipped: `LineChart` exposes no activation callback,
-     * so no gesture on this series emits a date narrowing. `OverviewNarrowing`'s `date` member stays
-     * exported for the shell and the sibling screens that can emit it, and this suite states that the
-     * screen itself never does — the alternative would be to assert a call the component cannot make.
+     * The day's own control is the date cell of the series' table view, and it narrows the queue to the
+     * day the row carries (AAP §0.12.4). The second day is the one chosen, so the report is about the
+     * date the row states rather than about whichever row happens to come first.
      */
-    expect(onNarrowQueue).not.toHaveBeenCalled();
-  });
+    const toggle = tableToggle(UI.seriesChartTitle);
 
+    toggle.focus();
+    await user.keyboard('{Enter}');
+
+    expect(seriesMarks(UI.seriesOpened)).toHaveLength(0);
+
+    const table = screen.getByRole('table', { name: UI.seriesChartCaption });
+    const day = at(SERIES, 1, 'series day');
+    const dateCell = at(cellsOf(at(dataRowsOf(table), 1, 'series row')), 0, 'date cell');
+    const dateControl = within(dateCell).getByRole('button');
+
+    // One control per row, named by what activating it does before it names the day (rules P-8 and
+    // B-3), showing that row's own date in the mono face (AAP §0.5.3).
+    expect(within(dateCell).getAllByRole('button')).toHaveLength(1);
+    expect(dateControl).toHaveAccessibleName(`${UI.narrowToDay}${day.date}`);
+    expect(within(dateControl).getByText(day.date).className.split(' ')).toEqual(
+      expect.arrayContaining(MONO_VALUE_CLASSES.base.split(' ')),
+    );
+
+    dateControl.focus();
+    expect(dateControl).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    // Exactly one report, carrying the day that row prints: the screen asks the shell to narrow the
+    // queue by the record's own date rather than re-filtering rows it already has (rule P-2).
+    expect(onNarrowQueue).toHaveBeenCalledTimes(1);
+    expect(onNarrowQueue).toHaveBeenCalledWith({ kind: 'date', date: day.date });
+  });
 
   it('replaces the revenue bars with a table of the same rows, and back, from the keyboard', async () => {
     const user = userEvent.setup();
@@ -851,7 +924,18 @@ describe('OverviewScreen', () => {
       const cells = cellsOf(at(rows, index, 'row'));
 
       expect(cells).toHaveLength(3);
-      expect(collapsedTextOf(at(cells, 0, 'cell'))).toBe(point.date);
+
+      // The date cell is the control that narrows the queue to the day it prints (AAP §0.12.4): the
+      // cell holds exactly one control, its accessible name states that action before the day, and the
+      // day it shows is that row's own date in the mono face (AAP §0.5.3).
+      const dateCell = at(cells, 0, 'date cell');
+      const dateControl = within(dateCell).getByRole('button');
+
+      expect(within(dateCell).getAllByRole('button')).toHaveLength(1);
+      expect(dateControl).toHaveAccessibleName(`${UI.narrowToDay}${point.date}`);
+      expect(within(dateControl).getByText(point.date).className.split(' ')).toEqual(
+        expect.arrayContaining(MONO_VALUE_CLASSES.base.split(' ')),
+      );
       expect(within(at(cells, 1, 'cell')).getByRole('button')).toHaveAccessibleName(
         patternOf(String(point.open)),
       );
@@ -934,6 +1018,37 @@ describe('OverviewScreen', () => {
         expect.arrayContaining(MONO_VALUE_CLASSES.base.split(' ')),
       );
     });
+  });
+
+  it('names each of a plant row’s two figures in the reference its own trigger opens', async () => {
+    const user = userEvent.setup();
+    const plant = at(PLANTS, 0, 'plant');
+
+    renderScreen();
+
+    const table = await screen.findByRole('table', { name: UI.byPlantCaption });
+    const cells = cellsOf(at(dataRowsOf(table), 0, 'row'));
+
+    await user.click(within(at(cells, 2, 'cell')).getByRole('button'));
+
+    const dialog = await screen.findByRole('dialog');
+
+    // The count and the amount are two figures of one row, so the count's reference names the count:
+    // a drawer that answered with the row's revenue would report a figure the reader did not activate
+    // (principle PR-6).
+    expect(String(mockService.getEvidence.mock.calls[0]?.[0])).toBe(
+      `overview:plant/${plant.id}/open-exceptions`,
+    );
+
+    await user.click(within(dialog).getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(within(at(cells, 3, 'cell')).getByRole('button'));
+
+    expect(mockService.getEvidence).toHaveBeenCalledTimes(2);
+    expect(String(mockService.getEvidence.mock.calls[1]?.[0])).toBe(
+      `overview:plant/${plant.id}/revenue-at-risk`,
+    );
   });
 
   it('renders no control that cannot act', async () => {
@@ -1060,6 +1175,19 @@ describe('OverviewScreen', () => {
 
     expect(await screen.findByText(UI.empty)).toBeVisible();
     // An empty scope shows the sentence instead of three blank surfaces.
+    expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('shows the empty message for a population whose every plant row reads zero', async () => {
+    mockService.getOverview.mockResolvedValue(envelope(EMPTIED_OVERVIEW));
+
+    renderScreen();
+
+    // A row carrying no exception and no revenue is the aggregate's identity, not a risk row: the
+    // screen says there is nothing to summarise rather than printing figures a reader cannot tell
+    // apart from computed ones (specification §8, AAP §0.12.4, T-17).
+    expect(await screen.findByText(UI.empty)).toBeVisible();
     expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
     expect(screen.queryByRole('table')).toBeNull();
   });

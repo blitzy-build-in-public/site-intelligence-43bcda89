@@ -15,14 +15,14 @@
  * force-simulation machinery the canvas does not need.
  *
  * THE SIX LANES ARE THE STAGES OF THE NETWORK, NOT THE NODE TYPES. The record shapes of
- * `src/types/topology.ts` carry four node families — plants, suppliers, tier-2 origins and customers
- * — while the lens the specification fixes draws the supply chain's stages: tier-2 origins,
+ * `src/types/topology.ts` carry five node families — plants, suppliers, materials, tier-2 origins and
+ * customers — while the lens the specification fixes draws the supply chain's stages: tier-2 origins,
  * suppliers, materials, plants, lines and customers. A lane is therefore a fixed column with a label,
- * and a node is placed in the lane its family names: origins, suppliers, plants and customers. The
- * two stages the topology payload does not carry — materials and lines, whose records belong to the
- * stages that open them — keep their column, their label and their guide, and state that they hold
- * no nodes in this view rather than being filled with anything invented (rule P-6). No fifth node
- * kind is invented to populate them.
+ * and a node is placed in the lane its family names: origins, suppliers, materials, plants and
+ * customers. The one stage the topology payload does not carry — lines, whose records belong to the
+ * stage that opens them — keeps its column, its label and its guide, and states that it holds no nodes
+ * in this view rather than being filled with anything invented (rule P-6). No sixth node kind is
+ * invented to populate it.
  *
  * SELECTION IS SHARED WITH THE MAP LENS, AND NEITHER LENS OWNS IT. `selectedNodeId` and
  * `onSelectNode` are the same prop pair `./map-canvas.tsx` takes, and the canvas screen holds the
@@ -39,13 +39,15 @@
  * THE EVIDENCE THE DRAWER OPENS, AND WHY ITS REFERENCE COMES FROM THE CALLER. Activating a node
  * reports the selection and opens {@link EvidenceDrawer} beside the drawing, mounted as a sibling of
  * the `svg` rather than inside it, because a dialog cannot live in an SVG fragment. The reference
- * the drawer resolves is a record reference, and the topology payload carries the pin *counts* of a
- * node rather than the references of its pins; the evidence read resolves record families only, so a
- * node identifier is not one of them, and spelling a pin identifier here would fabricate a domain
- * identifier (rule P-6). `evidenceRefForNode` is therefore required: it is how the caller that holds a
- * node's evidence supplies the reference, so no composition of this lens can leave a node without a
- * stated answer. A node it resolves nothing for reports the selection and opens no dialog, so the lens
- * can never put a refusal in front of a reader in place of a record.
+ * the drawer resolves is a record reference: the evidence read answers the composed aggregates, an
+ * atlas series, the nine record families, the policy family, the seven node families and a declared
+ * outbound endpoint, and a topology node's identifier is the identifier of the record behind it — but
+ * the topology payload carries the pin *counts* of a
+ * node rather than the references of its pins, and which record a node was drawn from is the screen's
+ * to state. `evidenceRefForNode` is therefore required: it is how the caller that holds a node's
+ * evidence supplies the reference, so no composition of this lens can leave a node without a stated
+ * answer. A node it resolves nothing for reports the selection and opens no dialog, so the lens can
+ * never put a refusal in front of a reader in place of a record.
  *
  * WHAT IT DOES NOT DO. It reads no data (rule P-2): the topology arrives as a prop, the drawer does
  * its own read, and nothing here calls the service. It computes no business figure (rule P-6): the
@@ -71,6 +73,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 import type { PinCounts, PinState, Topology, TopologyNode, TopologyNodeKind } from '../types';
 
 import { EvidenceDrawer } from './evidence-drawer';
+import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from './graph-vocabulary';
 import { CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 import { PENDING_CLOCK_ICON, StatusIndicator, meaningOf } from './status-indicator';
 import { ActionButton, CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES, Tooltip } from './tooltip';
@@ -164,57 +167,34 @@ export interface DependencyGraphLane {
  * downstream on the end side.
  *
  * The order is the pipeline's, not the alphabet's, because the lanes are read as a chain: an origin
- * feeds a supplier, a supplier's material reaches a plant, a plant serves a customer. Materials sit
- * between suppliers and plants and lines between plants and customers, which is where those records
- * belong in the network even though this payload does not carry them as nodes. The array is the one
- * owner of the lane order, the lane headings and the lane count, so the drawing, its suite and the
- * empty-lane note cannot disagree about how many lanes there are.
+ * feeds a supplier, a supplier sells a material, a material reaches a plant, a plant serves a customer.
+ * Materials sit between suppliers and plants and lines between plants and customers, which is where
+ * those records belong in the network; the payload carries the material family and no line family, so
+ * the Lines column is the one lane this drawing states as empty. The array is the one owner of the lane
+ * order, the lane headings and the lane count, so the drawing, its suite and the empty-lane note cannot
+ * disagree about how many lanes there are.
  */
 export const DEPENDENCY_GRAPH_LANES = [
   { id: 'origins', label: 'Tier-2 origins', kind: 'origin' },
   { id: 'suppliers', label: 'Suppliers', kind: 'supplier' },
-  { id: 'materials', label: 'Materials', kind: null },
+  { id: 'materials', label: 'Materials', kind: 'material' },
   { id: 'plants', label: 'Plants', kind: 'plant' },
   { id: 'lines', label: 'Lines', kind: null },
   { id: 'customers', label: 'Customers', kind: 'customer' },
 ] as const satisfies readonly DependencyGraphLane[];
 
 /* ---------------------------------------------------------------------------------------------
- * The vocabulary the payload supplies — `src/types/topology.ts`
+ * The words a pin count is announced with — this lens's own wording, one per pinned state
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The word a node's family is announced by, in the accessible name and nowhere else.
+ * The word each pin state is counted with in a summary.
  *
- * A family is meaning rather than decoration, so it is spoken: a reader who hears "Riedberg, plant
- * node" knows what kind of place the mark is without seeing the column it sits in. `Tier-2 origin`
- * rather than `origin` because the tier is what distinguishes it from the supplier beside it.
+ * The order the states are listed in, and the word each node family is announced by, are shared with
+ * every other graph surface and live in `./graph-vocabulary.ts`; these are this lens's own wording for
+ * the six states a count is read aloud with, which is the one part of a pin's vocabulary that differs
+ * between surfaces.
  */
-const FAMILY_WORDS = {
-  plant: 'Plant',
-  supplier: 'Supplier',
-  origin: 'Tier-2 origin',
-  customer: 'Customer',
-} as const satisfies Record<TopologyNodeKind, string>;
-
-/**
- * The six pin states in the order a summary prints them: the states that need attention first.
- *
- * The order is presentation only. `PinCounts` is keyed by the six `PinState` members of contracts
- * 4.2, which are fixed by the type; this list decides which of them a reader sees first and never
- * which of them exist, and it is exhaustive by type so a seventh state fails to compile here rather
- * than disappearing from a summary.
- */
-const PIN_STATE_ORDER = [
-  'fail',
-  'stale',
-  'pending',
-  'review',
-  'pass',
-  'empty',
-] as const satisfies readonly PinState[];
-
-/** The word each pin state is counted with in a summary. */
 const PIN_STATE_WORDS = {
   empty: 'empty',
   pending: 'pending',
@@ -321,6 +301,8 @@ function nodesOfFamily(topology: Topology, kind: TopologyNodeKind): readonly Top
       return topology.origins;
     case 'supplier':
       return topology.suppliers;
+    case 'material':
+      return topology.materials;
     case 'plant':
       return topology.plants;
     case 'customer':
@@ -505,7 +487,7 @@ function visiblePinSummary(counts: PinCounts | undefined): string {
  * in full because the box prints only as much of it as fits.
  */
 function nodeAccessibleName(node: TopologyNode, counts: PinCounts | undefined): string {
-  return `${node.label}, ${FAMILY_WORDS[node.kind]} node, ${pinSentence(counts)}`;
+  return `${node.label}, ${NODE_FAMILY_WORDS[node.kind]} node, ${pinSentence(counts)}`;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -660,6 +642,7 @@ function findNode(topology: Topology, nodeId: string): TopologyNode | undefined 
   const families: readonly (readonly TopologyNode[])[] = [
     topology.origins,
     topology.suppliers,
+    topology.materials,
     topology.plants,
     topology.customers,
   ];
@@ -767,14 +750,13 @@ export interface DependencyGraphProps {
    * requirement's obligations would rest on a prop nobody was obliged to supply.
    *
    * WHAT A RETURNED REFERENCE MUST BE. One the service's `getEvidence` read resolves, which selects a
-   * family by identifier prefix and looks the record up by its exact identifier: `PPAP-`, `EXC-`,
-   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-`, `PO-`, `PLT-`, `SUP-`, `ORG-` and `CUS-`. The
-   * topology payload carries a node's pin counts rather than its pins, so this component cannot derive
-   * a resolvable reference of its own (rule P-6). A node's evidence is the record it stands for: a pin
-   * hanging on it, whose `EvidencePin.nodeRef` names the node, or the record the screen attributes to
-   * it — and a topology node is itself a record, because the topology payload copies the plant,
-   * supplier, origin or customer into its node, so the node's own identifier resolves. A reference that
-   * matches no family opens a drawer reporting the not-found refusal instead of a record.
+   * family by its own shape and looks the record up by its exact identifier: the composed aggregates
+   * (`overview:`, `canvas:`), an atlas series (`atlas:`), the nine record families `PPAP-`, `EXC-`,
+   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`, the policy family `POL-`, the seven node
+   * families a canvas node can name — `PLT-`, `SUP-`, `ORG-`, `CUS-`, `MAT-`, `LN-` and `PRD-` — and a
+   * declared outbound endpoint by the endpoint string its ledger row states. A node's identifier is the
+   * identifier of the record behind it, so a node's own identifier resolves; a pin attached to the node
+   * — `EvidencePin.nodeRef` names the node whose evidence the pin is — resolves as well.
    *
    * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind this node. Activating
    * the node still reports the selection to the screen and opens no dialog, so a reader is never shown

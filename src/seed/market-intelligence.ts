@@ -79,19 +79,12 @@
  * - B-1: no address, feed or tile reference — the network view is drawn over the boundaries
  *   bundled in `src/assets/geo/`. B-2: no credential field and no environment read.
  *
- * OPEN ITEM: `Chokepoint.overlap` is a bare number and `src/types/atlas.ts` leaves its scale to the
- * record that supplies it. The pack states it as a whole percent of the three networks, documented
- * above and in each record, rather than as a fraction, so the table prints the value it is given.
- * OPEN ITEM: the chokepoint records here extend `Chokepoint` with three members the shape does not
- * carry — `latitude` and `longitude`, which the map lens needs to draw a chokepoint halo, and
- * `clientNodeIds`, which names the client's own network positions whose inbound lane crosses the
- * crossing. The last is a reference to node identifiers only, never a first-party measure: it is
- * what lets the pack be read against the origin and supplier graph without restating a single
- * measure of it.
- * OPEN ITEM: the client's radar series lives here because no other record set carries the client's
- * self-assessment, and the radar draws it beside the competitor series. Its `provenance` is
- * `first_party` — the client's own reading rather than a competitor estimate — and it shares no
- * member with a competitor series, so the two families stay apart inside one list of records.
+ * `Chokepoint.overlap` is a bare number whose scale the atlas types leave to the record that
+ * supplies it, stated here as a whole percent of the three networks. The chokepoint records also
+ * carry `latitude` and `longitude` for the halo the map lens draws, and `clientNodeIds` — node
+ * identifiers only, never a first-party measure — so the pack reads against the origin and supplier
+ * graph. The client's radar series sits here at `provenance: 'first_party'`, no other record set
+ * carrying that self-assessment, and shares no member with a competitor series.
  */
 
 import type {

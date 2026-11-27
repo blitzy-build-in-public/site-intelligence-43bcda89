@@ -1,17 +1,27 @@
 /**
  * The demonstration-only capability the service port does not carry: the role switch behind
- * `src/app/role-switcher.tsx` and the read of the persona the session acts as (AAP 0.12.1
- * "Demonstration capability" row, AAP 0.6.2, AAP 0.6.3 "Identity").
+ * `src/app/role-switcher.tsx`, the read of the persona the session acts as, and the roster a switch
+ * may name (AAP 0.12.1 "Demonstration capability" row, AAP 0.6.2, AAP 0.6.3 "Identity").
+ *
+ * Three members, and the source each one answers to. This interface declares `switchRole`,
+ * `getActiveUser` and an optional `listPersonas`. The AAP 0.12.1 row names `switchRole` as the
+ * capability the port does not carry; the two reads beyond it are each required by a source this
+ * module cannot otherwise satisfy. Rule P-2 forbids a shell component reaching `src/seed`, and the
+ * role switcher takes no props, so `listPersonas` is the only route by which the control can offer
+ * the personas a switch may name. A policy page has to report the decision the adapter will take
+ * after a switch, so `getActiveUser` re-reads the persona the adapter is enforcing rather than
+ * reporting a copy of its own (AAP 0.12.4).
  *
  * Why it lives outside the port. `platform-contracts.md` §2 fixes `SiteIntelligenceService` method
- * for method and declares neither a role-setting member nor a read of the acting persona, so either
- * member added there would stop that interface being the contracts' verbatim one and would leave the
- * port no longer the single vocabulary screens and adapters share (rule P-2). The capability is
- * therefore declared once, here, beside the port rather than inside it: the mock adapter implements
- * it from its own state, and `src/services/create-service.ts` exposes it next to the bound port when
- * the adapter has it. The port keeps its own two demonstration members — the simulation trigger and
- * the demo reset, both of which §2 declares — and neither is restated here, and neither is wrapped,
- * so there is exactly one declaration of each and one import path to it.
+ * for method (AAP 0.1's fixed-verbatim table, AAP 0.6.2), and it declares no role-setting member, no
+ * read of the acting persona and no roster read, so any one of the three added there would stop that
+ * interface being the contracts' verbatim one and would leave the port no longer the single
+ * vocabulary screens and adapters share (rule P-2). The capability is therefore declared once, here,
+ * beside the port rather than inside it: the mock adapter implements it from its own state, and
+ * `src/services/create-service.ts` exposes it next to the bound port when the adapter has it. The
+ * port keeps its own two demonstration members — the simulation trigger and the demo reset, both of
+ * which §2 declares — and neither is restated here, and neither is wrapped, so there is exactly
+ * one declaration of each and one import path to it.
  *
  * What the switch is. A demonstration control, and nothing more. It changes which of the eight
  * seeded personas the adapter acts as; it grants no right of its own, because the adapter evaluates
@@ -44,18 +54,21 @@ import type { Result } from '../types/service';
 
 /**
  * The identity surface the demonstration offers, exposed by `src/services/create-service.ts` beside
- * the bound port: the role switch the shell's role switcher drives, and the read of the persona the
- * session is acting as.
+ * the bound port: the role switch the shell's role switcher drives, the read of the persona the
+ * session is acting as, and the roster a switch may name.
  *
  * Three members, because one identity has three sides. A switch changes which persona the session
  * acts as and records the change; the read reports the persona the adapter is enforcing, so the
  * shell takes the role it displays from the same value the adapter authorises against; and the
  * roster reports the personas a switch may name, which is the only way a caller can offer a choice
- * without reading the seed's user records itself (rule P-2). All three are asynchronous, and for the
- * same reason: a switch is a recorded act, so the adapter appends the audit event contracts §6
- * defines for a persona change and the resulting identity settles together with its record, so a
- * caller cannot read a switched identity beside an event that was never written; and the two reads
- * are served through the envelope every member returns.
+ * without reading the seed's user records itself (rule P-2). The AAP 0.12.1 row names `switchRole`
+ * alone as the capability the port does not carry; the module note above says why the two reads
+ * stand beside it and why none of the three can move onto `SiteIntelligenceService`, which is
+ * `platform-contracts.md` §2 method for method (AAP 0.1, AAP 0.6.2). All three are asynchronous,
+ * and for the same reason: a switch is a recorded act, so the adapter appends the audit event
+ * contracts §6 defines for a persona change and the resulting identity settles together with its
+ * record, so a caller cannot read a switched identity beside an event that was never written; and
+ * the two reads are served through the envelope every member returns.
  *
  * The roster is the one optional member. An adapter that carries no seeded personas — the
  * unconnected HTTP client, whose service knows its caller from a real session — leaves it absent,

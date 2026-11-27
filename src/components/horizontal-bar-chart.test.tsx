@@ -7,17 +7,18 @@
  * figure element, no table element and no toggle of its own, because `chart-frame.tsx` owns those;
  * a name and a drawn value that state the category and carry the caller's pre-formatted string
  * untouched; keyboard reachability by `Tab` and activation by `Enter` and by `Space` on any mark; a
- * pointer activation; the evidence drawer opening on the datum's own reference — outside the
- * graphic, where HTML belongs — beside the `onActivate` report a screen filters its queue with; a
- * zero value drawn at zero length with its mark still focusable and its labels intact; a value
- * beyond the caller's axis held inside the track; the bar and its focus ring rounded from the
- * control radius token rather than a literal radius (AAP §0.5.3); the focus ring drawn on the mark
- * that holds keyboard focus and hidden on the rest (rule B-3); the one tone table in which every
- * chart surface resolves a role token and its four utilities, drawn one datum per tone with no
- * literal colour anywhere in the graphic (AAP §0.5.3); the mark's simulation label spoken rather
- * than spelled by the chart (rule P-1); a long category label shortened in the drawing while its
- * accessible name keeps it whole; the selected datum marked by something other than colour alone;
- * and an empty set drawing nothing at all.
+ * pointer activation, and the row-wide pointer target that lets a click land anywhere in a mark's
+ * row rather than only on the bar it paints; the evidence drawer opening on the datum's own
+ * reference — outside the graphic, where HTML belongs — beside the `onActivate` report a screen
+ * filters its queue with; a zero value drawn at zero length with its mark still focusable and its
+ * labels intact; a value beyond the caller's axis held inside the track; the bar and its focus ring
+ * rounded from the control radius token rather than a literal radius (AAP §0.5.3); the focus ring
+ * drawn on the mark that holds keyboard focus and hidden on the rest (rule B-3); the one tone table
+ * in which every chart surface resolves a role token and its four utilities, drawn one datum per
+ * tone with no literal colour anywhere in the graphic (AAP §0.5.3); the mark's simulation label
+ * spoken rather than spelled by the chart (rule P-1); a long category label shortened in the drawing
+ * while its accessible name keeps it whole; the selected datum marked by something other than colour
+ * alone; and an empty set drawing nothing at all.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary the drawer is allowed to read
  * through (rule P-2), so no adapter and no query cache beyond the suite's own client are involved,
@@ -181,11 +182,12 @@ function renderBars(overrides: Partial<Omit<HorizontalBarChartProps, 'bars' | 'm
 }
 
 /**
- * The bar a mark draws, as opposed to the focus ring it also draws: the ring is the one rect in the
- * mark carrying the focus-ring stroke, so the bar is every other rect.
+ * The bar a mark draws, as opposed to the two rects that carry its interaction: the focus ring
+ * carries the focus-ring stroke and the row-wide pointer target paints transparent, so the bar is
+ * every other rect.
  */
 function barOf(mark: HTMLElement): Element {
-  const bar = mark.querySelector('rect:not(.stroke-focus-ring)');
+  const bar = mark.querySelector('rect:not(.stroke-focus-ring):not([fill="transparent"])');
 
   if (bar === null) {
     throw new Error('the mark drew no bar');
@@ -211,6 +213,21 @@ function focusRingOf(mark: HTMLElement): Element {
   }
 
   return ring;
+}
+
+/**
+ * The mark's row-wide pointer target: the one rect in it that carries no class, because its paint is
+ * the `fill` attribute rather than a role utility. It is found here so a case asserts that paint
+ * instead of retyping it.
+ */
+function pointerTargetOf(mark: HTMLElement): Element {
+  const target = mark.querySelector('rect:not([class])');
+
+  if (target === null) {
+    throw new Error('the mark drew no pointer target');
+  }
+
+  return target;
 }
 
 /** The text the mark draws for its category, as opposed to the text it speaks. */
@@ -415,6 +432,39 @@ describe('HorizontalBarChart', () => {
     expect(container.querySelector('svg')?.contains(dialog)).toBe(false);
   });
 
+  it('gives every mark a row-wide pointer target where its bar paints nothing', async () => {
+    const user = userEvent.setup();
+    const onActivate = vi.fn();
+
+    renderBars({ onActivate });
+
+    for (const mark of screen.getAllByRole('button')) {
+      const target = pointerTargetOf(mark);
+      const row = focusRingOf(mark);
+
+      // Painted `transparent`, never `none`: an SVG hit test follows the default `visiblePainted`
+      // rule, under which a `none` fill is not hit at all and the row would stay inert — which is
+      // exactly how a click on the row once reached the graphic instead of the mark.
+      expect(target.getAttribute('fill')).toBe('transparent');
+      expect(target.getAttribute('aria-hidden')).toBe('true');
+
+      // The target is the row box the mark draws its focus ring around, not the bar it paints, so a
+      // pointer lands inside the row wherever the bar happens to end.
+      expect(target.getAttribute('x')).toBe(row.getAttribute('x'));
+      expect(target.getAttribute('width')).toBe(row.getAttribute('width'));
+      expect(target.getAttribute('height')).toBe(row.getAttribute('height'));
+      expect(Number(target.getAttribute('width'))).toBeGreaterThan(barWidthOf(mark));
+    }
+
+    // A click delivered to that rect alone — the area beside the bar, where a reader aiming at a
+    // full-row mark aims — opens the drawer and reports the datum it activated.
+    await user.click(pointerTargetOf(screen.getByRole('button', { name: BETA_NAME })));
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(getEvidence).toHaveBeenCalledWith('evidence-beta');
+    expect(onActivate).toHaveBeenCalledWith('mark-beta');
+  });
+
   it('draws a zero value at zero length and keeps its mark focusable, named and labelled', async () => {
     const user = userEvent.setup();
     const zero: HorizontalBarDatum = {
@@ -525,7 +575,7 @@ describe('HorizontalBarChart', () => {
     expect(barOf(screen.getByRole('button', { name: ALPHA_NAME })).getAttribute('class')).toContain(
       'fill-accent',
     );
-    expect(container.querySelectorAll('rect').length).toBe(BARS.length * 2);
+    expect(container.querySelectorAll('rect').length).toBe(BARS.length * 3);
   });
 
   it('resolves every tone from one table of a role token and its four utilities', () => {
@@ -578,7 +628,8 @@ describe('HorizontalBarChart', () => {
 
     // A role token, never a palette value: nothing in the graphic may carry a hex, functional or
     // named colour in an inline style or a paint attribute, because that would be a colour chosen by
-    // this surface instead of by the active theme (AAP §0.5.3).
+    // this surface instead of by the active theme (AAP §0.5.3). The mark's pointer target paints the
+    // `transparent` keyword, which names no hue and no palette entry, so it is not such a value.
     for (const element of Array.from(svg.querySelectorAll('*'))) {
       for (const attribute of ['style', 'fill', 'stroke', 'color']) {
         expect(element.getAttribute(attribute) ?? '').not.toMatch(/#|[a-z]+\(/i);

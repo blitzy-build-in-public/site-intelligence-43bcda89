@@ -5,7 +5,7 @@
  * Fixing inputs:
  * - AAP 0.12.2 and 0.13.1 name this module among the seed records, and AAP 0.2.1 records why the
  *   structure exists before a screen reads it: the S4 part lens opens a product's parts from its
- *   package. AAP 0.14.2 keeps stage S4 out of this run, so the records sit here for interface
+ *   package. AAP 0.14.2 keeps stage S4 out of scope, so the records sit here for interface
  *   completeness and no S1-S3 screen shows them.
  * - AAP 0.12.2 fixes the PPAP relation this module mirrors: a package names the supplier and the
  *   material it covers, and the seed holds three packages, one per product. Each assembly below
@@ -69,11 +69,10 @@
  *   import this module.
  * - B-1 and B-2: no address, URL, credential or environment read appears.
  *
- * OPEN ITEM: no input fixes an assembly count, so the set is sized to the three packages it mirrors
- * and grows only with them. A package without a product in this portfolio would have no part
- * structure to state.
- * OPEN ITEM: `documentIds` names the document a package's part structure is recorded against and
- * holds no document record, because the body, classification and residency of a document belong to
+ * No input fixes an assembly count, so the set is sized to the three packages it mirrors and grows
+ * only with them: a package without a product in this portfolio would have no part structure to
+ * state. `documentIds` names the document a package's part structure is recorded against and holds
+ * no document record, because a document's body, classification and residency belong to
  * `src/seed/documents.ts`.
  */
 
@@ -109,7 +108,7 @@ export interface AssemblyPart {
  * One assembly: the product, the part approval package that covers it, the document its structure is
  * recorded against and the parts themselves.
  *
- * The relation is one to one in both directions in this run — one assembly per product and per
+ * The relation is one to one in both directions — one assembly per product and per
  * package — because each of the three products has exactly one package. A second package for the
  * same product would add an assembly rather than widen one, since the parts a package covers are a
  * property of that package.

@@ -1,41 +1,35 @@
 /**
  * T-21 of `platform-specification.md` §9, at the browser-journey level AAP 0.7 assigns it: the
  * competitive atlas of stage S3 labels what is simulated series by series, keeps market intelligence
- * out of every first-party figure, lists the pack's shared crossings, and refuses the external
- * supplier engineer with an explanation the refusal itself supplies. The overlay and halos the same
- * stage adds to the FileMap canvas are covered by the second test, whose reachability this tree does
- * not yet allow — see the recorded gaps below.
+ * out of every first-party figure, lists the pack's shared crossings and alerts on them, and refuses
+ * the external supplier engineer with an explanation the refusal itself supplies. The overlay and the
+ * halos the same stage adds to the FileMap canvas are covered in the third test, and the same surface
+ * drawn without them is covered in the second, so both halves of one requirement are observed.
  *
- * WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY LEAVES ALONE. Four tests:
+ * WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY LEAVES ALONE. Five tests:
  *
- * 1. `T-21` — SCR-13's surface: the pack banner, the product-class and entity selectors, the
- *    five-axis radar with a label per series, the legend that keys those series apart, the network
- *    view, the chokepoint table with its overlap, buffer days and contention note, and the radar's
- *    "View as table" reading of the same series.
- * 2. The S3 additions on the canvas — what a first-party surface must never carry, with the overlay
- *    and halos it would draw recorded as the gap they are (see the two recorded gaps below).
- * 3. The refusal the external supplier engineer meets on `/competitive`, and what it explains.
- * 4. The chokepoint brief as a browser-built download.
+ * 1. `T-21` — SCR-13's surface: the chokepoint alert strip that leads it, the pack banner, the
+ *    product-class and entity selectors, the five-axis radar with a label per series, the legend that
+ *    keys those series apart, the network view, the chokepoint table with its overlap, buffer days and
+ *    contention note, and the radar's "View as table" reading of the same series.
+ * 2. The canvas's first-party surface as the auditor, the persona the pack's read is refused to: what
+ *    no first-party figure may carry, and the absence of the overlay and the halos there.
+ * 3. The S3 additions on the canvas as a persona the pack's read admits: the competitor overlay, one
+ *    legend row per competitor network under the market-intelligence label, and one
+ *    market-intelligence caption per crossing the atlas table lists.
+ * 4. The refusal the external supplier engineer meets on `/competitive`, and what it explains.
+ * 5. The chokepoint brief as a browser-built download.
  *
  * It does not re-assert the canvas's selection behaviour or the seven states (T-19 and T-15 own
  * those), and it does not open the export's payload: the brief's contents are the builder's own
  * suite, and this process has no file access to them.
  *
- * RECORDED GAPS — REPORTED, NOT SKIPPED AND NOT SOFTENED. Two of AAP 0.14.1's S3 additions cannot be
- * observed in this tree, and the second test says so at the assertion it would have made:
- *
- * 1. The canvas's competitor overlay and chokepoint halos are unreachable on every route. The canvas
- *    screen treats its dock's audit read as fatal, and `listAuditEvents` requires `audit.read`, so the
- *    surface is refused to every persona holding `competitive.read`. No seeded role holds
- *    `exception.read`, `audit.read` and `competitive.read` together, so the overlay has no page it can
- *    appear on — including the FileMap canvas that four personas land on.
- * 2. The chokepoint alert strip is not implemented: nothing under `src/app`,
- *    `src/features/scr-12-filemap-canvas` or `src/components` renders one.
- *
- * Both are application defects rather than test defects, so this file reports them where they bite and
- * never edits the application to hide them. The second test still proves the half of rule P-5 that is
- * observable on the canvas — no competitor figure reaches a first-party surface — and states the
- * assertions that should be added, in the components' own vocabulary, once the overlay is reachable.
+ * THE CANVAS DRAWS THE OVERLAY WHEN THE PACK'S READ IS ADMITTED. The canvas derives its state from
+ * the topology, ribbon and urgent reads alone: the atlas is its one optional read and the audit trail
+ * the dock's accessory read, whose refusal states itself inside the dock rather than blanking the
+ * surface (`filemap-canvas-screen.tsx`). The head of supply chain therefore sees the competitor
+ * overlay and the chokepoint halos on `/canvas`, while the auditor — who may read the trail and not the
+ * pack — sees the first-party drawing alone. The second and third tests assert those two states.
  *
  * RULE P-5 IS THE SUBJECT OF TEST 1. Market intelligence is never blended with a first-party record
  * in one number, every competitor element carries the market-intelligence label and every competitor
@@ -167,6 +161,16 @@ const CHOKEPOINT_REGION = 'Shared chokepoints';
 const CHOKEPOINT_TABLE_CAPTION =
   'Shared crossings in the pack, with overlap, each competitor\u2019s buffer days and the contention note';
 
+/**
+ * The accessible name of the chokepoint alert strip that leads the atlas content (AAP 0.14.1's S3
+ * row, AAP 0.7's S3 stage row).
+ *
+ * It is the heading the band renders, quoted as the region's name so the strip is located by what it
+ * says rather than by where it sits, and so a band left unnamed fails instead of passing on a text
+ * match somewhere inside it.
+ */
+const CHOKEPOINT_ALERTS_REGION = 'Chokepoint alerts';
+
 /** The label of the control that swaps a chart for the same data as a table (rule B-3). */
 const VIEW_AS_TABLE = 'View as table';
 
@@ -191,11 +195,11 @@ const PERMISSION_TITLE_PREFIX = 'Permission required: ';
  *
  * USR-03 is the head of supply chain, the persona contracts §7.1 grants `competitive.read` to whose
  * entry route is the FileMap canvas; USR-08 is the external supplier engineer, whose only permission
- * is `evidence.read` and whose entry route is the evidence workspace; USR-06 is the auditor, the only
- * seeded role holding both permissions the FileMap canvas's own reads require — `exception.read` for
- * the topology, the ribbon and the queue, and `audit.read` for the dock. None of the three is a figure
- * or a record name: they are the demonstration personas AAP 0.12.4 fixes, and `switchRole` takes them
- * as its argument.
+ * is `evidence.read` and whose entry route is the evidence workspace; USR-06 is the auditor, who holds
+ * the two permissions the FileMap canvas's own reads require — `exception.read` for the topology, the
+ * ribbon and the queue, and `audit.read` for the dock — and none for the atlas, which is why the
+ * canvas it reads draws the client network alone. None of the three is a figure or a record name: they
+ * are the demonstration personas AAP 0.12.4 fixes, and `switchRole` takes them as its argument.
  */
 const PERSONA_WITH_ATLAS = 'USR-03';
 const PERSONA_WITHOUT_ATLAS = 'USR-08';
@@ -442,21 +446,44 @@ test('T-21 the atlas labels each simulated series on its own and keeps market in
   /* No first-party reading reaches these rows or this card: the crossings are the pack's alone. */
   await expect(chokepointCard.getByText(SIMULATED_DATA, { exact: true })).toHaveCount(0);
   await expect(chokepointCard).not.toContainText(CLIENT_SELF_ASSESSMENT);
+
+  /* The chokepoint alert strip alerts on the same crossings the table lists: one alert per row the
+     table rendered — counted from the table, never typed — and every alert carries the
+     market-intelligence label on itself rather than inheriting one from the page (AAP 0.14.1's S3 row,
+     rules P-1 and P-5). */
+  const alertStrip = page.getByRole('region', { name: CHOKEPOINT_ALERTS_REGION });
+
+  await expect(alertStrip).toBeVisible();
+
+  const alerts = alertStrip.getByRole('listitem');
+
+  await expect(alerts).toHaveCount(chokepointCount);
+
+  for (const alert of await textsOf(alerts)) {
+    expect(alert, `every chokepoint alert must carry the market-intelligence label: ${alert}`).toContain(
+      MARKET_INTELLIGENCE,
+    );
+  }
+
+  /* And nothing of the other two families reaches the band: no first-party record and no competitor
+     name that would have to carry the competitor tag (rule P-5). */
+  await expect(alertStrip.getByText(SIMULATED_DATA, { exact: true })).toHaveCount(0);
+  await expect(alertStrip).not.toContainText(COMPETITOR_NAME_TAG);
 });
 
 /* ---------------------------------------------------------------------------------------------
- * The S3 additions on the FileMap canvas — what a first-party surface must never carry, with the
- * overlay, the halos and the alert strip reported where they are missing
+ * The S3 additions on the FileMap canvas, half one — the surface as the persona the pack refuses,
+ * where what a first-party figure must never carry is the whole of what can be observed
  * ------------------------------------------------------------------------------------------- */
 
-test('the canvas keeps every competitor figure out of its first-party surface, and the atlas overlay it would draw is recorded as a gap', async ({
+test('the canvas keeps every competitor figure out of its first-party surface for the auditor the pack read is refused to', async ({
   page,
 }) => {
   await openApp(page);
 
-  /* The auditor is the persona for whom the canvas renders at all: its own reads require
-     `exception.read` (the topology, the ribbon and the queue) and `audit.read` (the dock), and the
-     auditor is the only seeded role holding both. See the GAP note below for the consequence. */
+  /* The auditor is the persona who reads the trail and not the pack: `audit.read` is the dock's, and
+     `competitive.read` is refused to it, so this is the state in which the canvas draws the client's
+     own network alone. */
   await switchRole(page, PERSONA_WITH_CANVAS);
 
   await openThroughNavigation(page, CANVAS_ENTRY, /\/canvas$/, CANVAS_TITLE);
@@ -471,44 +498,15 @@ test('the canvas keeps every competitor figure out of its first-party surface, a
   await expect(map).toBeVisible();
   await expect(map.getByRole('group', { name: NODES_GROUP })).toBeVisible();
 
-  /* The drawing degrades to the client's own network when the atlas read is refused for this persona,
-     which is the lens's documented behaviour and the half of rule P-5 that is observable here: no
-     competitor mark, halo or overlay legend reaches a first-party surface. */
+  /* The drawing degrades to the client's own network because the pack's read is refused for this
+     persona, which is the lens's documented behaviour and the half of rule P-5 observable here: no
+     competitor mark, halo or overlay legend reaches a first-party surface. What the same drawing holds
+     once that read is admitted is the next test's subject. */
   await expect(map.getByRole('group', { name: OVERLAY_GROUP })).toHaveCount(0);
   await expect(map.getByRole('group', { name: MARKET_INTELLIGENCE, exact: true })).toHaveCount(0);
 
-  /*
-   * GAP — the S3 additions on the canvas are unreachable in this build, and the chokepoint alert strip
-   * is not implemented at all.
-   *
-   * 1. The overlay and the halos. `filemap-canvas-screen.tsx` treats the dock's audit read as fatal:
-   *    `listAuditEvents` requires `audit.read`, so the surface is refused for every persona that holds
-   *    `competitive.read` — the plant manager, the head of supply chain and the platform administrator
-   *    — and the page renders the forbidden card for `audit.read` instead of the canvas. The personas
-   *    that do hold `audit.read` (the auditor) do not hold `competitive.read`, so their atlas read is
-   *    refused and the lens draws the client network alone. No seeded role holds `exception.read`,
-   *    `audit.read` and `competitive.read` together, so the overlay and the halos cannot be observed on
-   *    any route in this tree, including the FileMap canvas that four personas land on.
-   * 2. The alert strip. AAP 0.14.1's S3 row adds "the competitor overlay and chokepoint halos on the
-   *    canvas and the chokepoint alert strip", and nothing under src/app,
-   *    src/features/scr-12-filemap-canvas or src/components renders one.
-   *
-   * Both are reported here rather than skipped or softened. Once the canvas renders with an atlas
-   * payload, this test should additionally assert what the drawing then holds, in the terms the
-   * components already publish:
-   *   - the overlay: `map.getByRole('group', { name: OVERLAY_GROUP })` is visible, and the legend
-   *     beside the drawing lists one row per competitor, each carrying the competitor name tag and the
-   *     market-intelligence label;
-   *   - the halos: `map.getByRole('group', { name: MARKET_INTELLIGENCE, exact: true })` is visible with
-   *     one caption per crossing the atlas lists, counted from the chokepoint table's rows so no
-   *     crossing is named here;
-   *   - the alert strip: one entry per crossing, each a link resolving to /competitive;
-   *   - and the separation assertions below, unchanged, which are what keep a competitor figure out of
-   *     the ribbon, the right stack and the dock.
-   */
-
-  /* The one route to the atlas this screen offers today is the navigation entry, which is asserted so
-     the missing strip's purpose is at least served by the interface that exists. */
+  /* The one route to the atlas is the navigation entry, asserted so the screen the competitor overlay
+     belongs to is still reached from the canvas a reader lands on. */
   await expect(
     page.getByRole('navigation', { name: NAV_LANDMARK }).getByRole('link', { name: ATLAS_ENTRY }),
   ).toBeVisible();
@@ -521,8 +519,8 @@ test('the canvas keeps every competitor figure out of its first-party surface, a
   await expect(ribbon).not.toContainText(MARKET_INTELLIGENCE);
   await expect(ribbon).not.toContainText(COMPETITOR_NAME_TAG);
 
-  /* No competitor figure reaches this route at all outside the map drawing and the legend that would
-     describe it, so a first-party tile, card or dock entry cannot carry one. */
+  /* No competitor figure reaches this route at all: the pack's read is refused, so neither the drawing
+     nor a legend beside it names one, and a first-party tile, card or dock entry cannot carry one. */
   const labelsInDrawing = await mapFigure.getByText(MARKET_INTELLIGENCE, { exact: true }).count();
   const labelsOnRoute = await page.getByText(MARKET_INTELLIGENCE, { exact: true }).count();
   expect(
@@ -536,6 +534,98 @@ test('the canvas keeps every competitor figure out of its first-party surface, a
     tagsOnRoute,
     `a competitor name tag must appear only in the overlay's own legend, but ${tagsOnRoute} of its ${tagsInDrawing} occurrences sit elsewhere on the route`,
   ).toBe(tagsInDrawing);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The S3 additions on the FileMap canvas, half two — the overlay and the halos as the persona the
+ * pack's read admits
+ * ------------------------------------------------------------------------------------------- */
+
+test('the canvas draws the atlas overlay and the chokepoint halos for a persona that may read the pack', async ({
+  page,
+}) => {
+  await openApp(page);
+  await switchRole(page, PERSONA_WITH_ATLAS);
+
+  /* The crossings the pack records are counted from the atlas the browser draws, before the canvas is
+     opened, so the halo assertion below compares the canvas against the atlas itself rather than against
+     a number written here (rule P-6, AAP 0.7's S3 stage row). */
+  await openThroughNavigation(page, ATLAS_ENTRY, /\/competitive$/, ATLAS_TITLE);
+
+  const crossings = page
+    .getByRole('region', { name: CHOKEPOINT_REGION })
+    .getByRole('table', { name: CHOKEPOINT_TABLE_CAPTION })
+    .locator('tbody tr');
+
+  /* The table arrives once the pack's read settles, so its first row is awaited rather than counted
+     into: a count taken before the read resolves would be zero and would make the halo comparison
+     below compare the drawing against nothing. */
+  await expect(crossings.first()).toBeVisible();
+
+  const crossingCount = await crossings.count();
+
+  expect(crossingCount, 'the pack must list the crossings the halos are drawn for').toBeGreaterThan(0);
+
+  /* The canvas is reached the way a reader reaches it, as the same persona: USR-03 holds
+     `competitive.read` beside the reads the surface itself needs, so the atlas payload reaches the
+     drawing instead of being refused there (AAP 0.12.4, AAP 0.14.1's S3 row). */
+  await openThroughNavigation(page, CANVAS_ENTRY, /\/canvas$/, CANVAS_TITLE);
+
+  const canvas = page.getByRole('region', { name: CANVAS_REGION });
+  await expect(canvas).toBeVisible();
+
+  const mapFigure = canvas.getByRole('figure', { name: mentions(MAP_TITLE) });
+  await expect(mapFigure).toBeVisible();
+
+  const map = mapFigure.getByRole('group', { name: MAP_TITLE });
+  await expect(map).toBeVisible();
+
+  /* The first-party network is still the drawing's own: the overlay is added over it, not instead of
+     it (AAP 0.14.1's S3 row). */
+  await expect(map.getByRole('group', { name: NODES_GROUP })).toBeVisible();
+
+  /* The competitor overlay: the pack's marks are drawn in a group of their own, named as market
+     intelligence rather than as a place of the client's, and that group holds the marks themselves
+     (rule P-1, rule P-5). */
+  const overlay = map.getByRole('group', { name: OVERLAY_GROUP });
+
+  await expect(overlay).toBeVisible();
+  expect(
+    await overlay.locator('polygon').count(),
+    'the competitor overlay must draw a mark for the sites the pack places',
+  ).toBeGreaterThan(0);
+
+  /* One legend row per competitor network, each naming its own network beside the competitor tag and
+     the market-intelligence label: the legend is where the drawing's hue-only distinction is stated in
+     words, so a reader learns each series is simulated without reading a colour (rules P-1, P-5, B-3). */
+  const overlayLegend = mapFigure.getByRole('listitem');
+
+  await expect(overlayLegend).toHaveCount(COMPETITOR_NETWORKS);
+
+  for (const row of await textsOf(overlayLegend)) {
+    expect(row, `a competitor's legend row must carry the competitor tag: ${row}`).toContain(
+      COMPETITOR_NAME_TAG,
+    );
+    expect(row, `a competitor's legend row must carry the market-intelligence label: ${row}`).toContain(
+      MARKET_INTELLIGENCE,
+    );
+  }
+
+  /* The chokepoint halos: the drawing places one market-intelligence caption per crossing the atlas
+     table lists, counted from that table so no crossing is named here (rule P-6), inside the group the
+     label alone names (rules P-1, P-5). */
+  const halos = map.getByRole('group', { name: MARKET_INTELLIGENCE, exact: true });
+
+  await expect(halos).toBeVisible();
+  await expect(halos.getByText(MARKET_INTELLIGENCE, { exact: true })).toHaveCount(crossingCount);
+
+  /* And the first-party surfaces still carry neither family's wording: the ribbon holds the screen's own
+     computed figures, so no market-intelligence label and no competitor name reaches it (rule P-5). */
+  const ribbon = page.getByRole('group', { name: RIBBON_REGION });
+
+  await expect(ribbon).toBeVisible();
+  await expect(ribbon).not.toContainText(MARKET_INTELLIGENCE);
+  await expect(ribbon).not.toContainText(COMPETITOR_NAME_TAG);
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -563,13 +653,13 @@ test('the atlas is refused to the external supplier engineer, and the refusal na
   const card = page.getByRole('region', { name: `${PERMISSION_TITLE_PREFIX}${COMPETITIVE_READ}` });
   await expect(card).toBeVisible();
 
-  /* The roles that may act, and the refused call's trace id: both come from the service's failure
-     rather than from a claim this view makes (rules P-2, P-8). */
-  await expect(card).toContainText('Roles that may act');
+  /* The roles that hold the permission, and the refused call's trace id: both come from the service's
+     failure rather than from a claim this view makes (rules P-2, P-8). */
+  await expect(card).toContainText('Roles that hold this permission');
 
   const roles = card.getByRole('listitem');
   const roleCount = await roles.count();
-  expect(roleCount, 'the refusal must name at least one role that may act').toBeGreaterThan(0);
+  expect(roleCount, 'the refusal must name at least one role that holds the permission').toBeGreaterThan(0);
   for (const role of await textsOf(roles)) {
     expect(role, 'a named role must not be blank').not.toBe('');
   }

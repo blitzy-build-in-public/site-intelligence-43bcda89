@@ -314,8 +314,8 @@ const SEEDED_PERSONAS = loadSeed().users;
 /**
  * The seeded persona holding a role, so the audit read can be reached without typing an identifier.
  *
- * The auditor is the only role the permission matrix grants `audit.read` to, and the session opens as a
- * different persona, so the readiness case switches before it walks the chain. Finding the persona by
+ * The auditor holds `audit.read` and its entry route is the chain's own screen, and the session opens as
+ * a different persona, so the readiness case switches before it walks the chain. Finding the persona by
  * role keeps the identifier in the seed records, where rule P-6 puts it.
  *
  * @param role - The role whose persona is wanted.

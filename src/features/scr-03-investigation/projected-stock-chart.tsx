@@ -212,6 +212,19 @@ export interface ProjectedStockChartProps {
   readonly caption: string;
 
   /**
+   * A one-line reading the caller composes about the series it draws, shown under the figure's title
+   * and visible in both the chart view and the table view.
+   *
+   * SCR-03 states the designated option's run-out here, because AAP §0.8 requires that pair rendered on
+   * this surface as the day plus a half-day reading. The sentence is the caller's — the wording belongs
+   * to `../../components/run-out-reading.ts` and the pair to the record — and this component only
+   * forwards it to `ChartFrame`'s caption, computing and formatting nothing of its own (rule P-6). No
+   * reading means no description, so a figure with nothing to state renders exactly the caption it did
+   * before.
+   */
+  readonly description?: string | undefined;
+
+  /**
    * The series to draw, in the order they should be read: the baseline, and the selected option when
    * the service supplies one. Each carries its own tone, dash, simulation label and per-point evidence
    * reference, so nothing about how a series reads is decided here.
@@ -248,6 +261,7 @@ const EMPTY_MESSAGE_CLASS = 'text-14 text-text-secondary';
  */
 export function ProjectedStockChart({
   caption,
+  description,
   series,
   references,
   markers,
@@ -256,9 +270,15 @@ export function ProjectedStockChart({
 }: ProjectedStockChartProps): ReactElement {
   const drawsSeries = series.some((spec) => spec.points.length > 0);
 
+  /* `ChartFrame`'s optional caption slot accepts no explicit `undefined` under
+     `exactOptionalPropertyTypes`, so a figure with no reading leaves the slot out rather than handing
+     the frame an absence it would have to tell from a sentence. */
+  const descriptionProps = description === undefined ? {} : { description };
+
   return (
     <ChartFrame<ProjectedStockRow>
       title={caption}
+      {...descriptionProps}
       simLabel={frameSimLabelFor(series)}
       tableRows={tableFor(series, caption)}
     >

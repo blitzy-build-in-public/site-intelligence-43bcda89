@@ -1,5 +1,5 @@
 /**
- * Topology vocabulary of the S2 FileMap canvas: the four node families, the lanes between them and
+ * Topology vocabulary of the S2 FileMap canvas: the five node families, the lanes between them and
  * the per-node evidence-pin counts that one surface renders through two lenses.
  *
  * Fixing inputs:
@@ -7,6 +7,11 @@
  *   topology, atlas, plan-grid, source, model and exit-package types be defined in the types folder
  *   beside those types. AAP 0.12.2 records the contents this module types: plants, suppliers,
  *   origins, customers, lanes and pins by state.
+ * - The specification's T-19 row (AAP 0.7) asserts a selection "on the three named materials and the
+ *   one supplier", and AAP 0.12.4 places the disabled "Open part" control on "SCR-12 graph lens,
+ *   product and material nodes", so the payload carries materials as a family of their own. The
+ *   contracts' own entity list and AAP 0.12.2's invariant agree that "supplier-to-product reach is
+ *   derived from materials and drives the graph lens".
  * - AAP 0.12.3 makes `GET /topology` an S2 read whose response "carries the per-node pin counts that
  *   S4 will later let a user open", so the counts travel with the topology while the pin records
  *   themselves stay with the stage that shows them.
@@ -14,7 +19,7 @@
  *   graph lens and the canvas node badges in S2 need both before the pin screens exist in S4".
  *   `TopologyNode.productIds` is that reach and `Topology.pinsByNode` is those counts.
  *
- * The four node families are read by both lenses of the canvas: the map lens places them over the
+ * The five node families are read by both lenses of the canvas: the map lens places them over the
  * bundled world boundaries that `src/components/map-canvas.tsx` projects, and the graph lens lays
  * them out in six lanes inside `src/components/dependency-graph.tsx`. One selection is shared across
  * the two lenses, so every member that identifies a node is the key the other lens and
@@ -45,7 +50,7 @@
  * OPEN ITEM: the pins are counted per state rather than listed, because stage S4 owns the pin
  * records and the screens that open them (AAP 0.12.2). Receiving the counts with the topology is what
  * lets the canvas badge a node without a second call.
- * OPEN ITEM: `Topology` carries the families as four arrays rather than one array discriminated by
+ * OPEN ITEM: `Topology` carries the families as five arrays rather than one array discriminated by
  * `kind`, because a lens addresses a family directly — the graph lens bands one per family and the
  * map lens orders its marks by family. `kind` stays for the shared node handling and the table view.
  */
@@ -57,12 +62,15 @@ import type { ProductId } from './primitives';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The four families a topology node belongs to: plants, suppliers, tier-2 origins and customers.
+ * The five families a topology node belongs to: plants, suppliers, materials, tier-2 origins and
+ * customers.
  *
  * A family is what a node's class in the graph lens and its mark in the map lens are chosen from, so
- * this union is the whole vocabulary the two lenses share.
+ * this union is the whole vocabulary the two lenses share. A material is a family of its own rather
+ * than a property of the supplier that sells it: several materials are bought from one supplier, and
+ * the lane a material carries on to the plants that build its product is a hop of its own.
  */
-export type TopologyNodeKind = 'plant' | 'supplier' | 'origin' | 'customer';
+export type TopologyNodeKind = 'plant' | 'supplier' | 'material' | 'origin' | 'customer';
 
 /**
  * One node of the canvas: a place or party a lane reaches, with the products it reaches.
@@ -72,24 +80,39 @@ export type TopologyNodeKind = 'plant' | 'supplier' | 'origin' | 'customer';
  * record values carried in degrees for the map lens to project; nothing here converts or places
  * them. `productIds` may be empty, which for a customer means it reaches products only through its
  * customer orders (see the second OPEN ITEM above).
+ *
+ * A material record carries no site of its own, so a material node's coordinates are its primary
+ * supplier's site: the purchase order ships from that site, which makes the pair a record value
+ * rather than an invented one. Two materials bought from one supplier therefore share a point, and
+ * a mark that offsets them does so in presentation geometry the lens owns, never here.
  */
 export interface TopologyNode {
   /** The node's own identifier: the key the selection, the lanes and the pin counts use. */
   id: string;
 
-  /** Which of the four families the node belongs to. */
+  /** Which of the five families the node belongs to. */
   kind: TopologyNodeKind;
 
   /** The name the two lenses and the "View as table" view print for the node. */
   label: string;
 
-  /** The node's latitude in degrees, a seed record value the map lens projects. */
+  /**
+   * The node's latitude in degrees, a seed record value the map lens projects. A material carries its
+   * primary supplier's site latitude, because a material record holds no site of its own.
+   */
   latitude: number;
 
-  /** The node's longitude in degrees, a seed record value the map lens projects. */
+  /**
+   * The node's longitude in degrees, a seed record value the map lens projects. A material carries its
+   * primary supplier's site longitude, for the same reason as its latitude.
+   */
   longitude: number;
 
-  /** The products the node reaches; empty for a customer, which reaches products through orders. */
+  /**
+   * The products the node reaches; empty for a customer, which reaches products through orders. A
+   * material reaches the products it goes into, and that reach is what a material's lanes follow on to
+   * the plants that build them.
+   */
   productIds: ProductId[];
 }
 
@@ -102,14 +125,16 @@ export interface TopologyNode {
  * lens.
  *
  * The pair is ordered upstream to downstream: `fromId` is the supplying node and `toId` the node it
- * feeds. For the lanes the canvas renders from the supplier side to the plant side, that ordering
- * is the whole of the direction a lane states (see the first OPEN ITEM above).
+ * feeds. The canvas's lanes follow the chain one hop at a time — an origin to a supplier, a supplier
+ * to the material it sells, that material to a plant that builds one of its products, a plant to a
+ * customer it ships to — so a lane never jumps a stage of the network (see the first OPEN ITEM
+ * above).
  */
 export interface TopologyLane {
-  /** The upstream node the lane leaves: for the canvas's lanes, a supplier-side node. */
+  /** The upstream node the lane leaves: an origin, a supplier or a material. */
   fromId: string;
 
-  /** The downstream node the lane reaches: for the canvas's lanes, a plant-side node. */
+  /** The downstream node the lane reaches: a supplier, a material, a plant or a customer. */
   toId: string;
 }
 
@@ -131,14 +156,15 @@ export type PinCounts = Record<PinState, number>;
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The topology one canvas surface renders: the four node families, the lanes joining them and the
+ * The topology one canvas surface renders: the five node families, the lanes joining them and the
  * pin counts of each node.
  *
  * Each array holds one node per record of its family that the read's resolved scope retains, so a family
  * is a subset of the records the seed holds and `lanes` joins nodes across those arrays by `id`; no lane
  * names a node its own payload omits. `pinsByNode` is keyed by the same node id the nodes carry, so a
  * node absent from that map has no pins and the canvas renders it with no badge rather than with a badge
- * of zeros.
+ * of zeros — which is the reading a material node always has, because the seeded tally counts the nodes
+ * evidence pins are attached to and none is attached to a material.
  */
 export interface Topology {
   /** The plant nodes. */
@@ -146,6 +172,9 @@ export interface Topology {
 
   /** The supplier nodes. */
   suppliers: TopologyNode[];
+
+  /** The material nodes: what the products are built from, placed at the site they ship from. */
+  materials: TopologyNode[];
 
   /** The tier-2 origin nodes. */
   origins: TopologyNode[];

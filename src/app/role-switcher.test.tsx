@@ -16,10 +16,18 @@
  * A refusal changes neither the store nor the route and prints the service's own message in an alert
  * region, so a refused switch never reads as a switch that happened. A service carrying no
  * demonstration capability renders a control that is visibly disabled with its explanation reachable
- * from the keyboard alone (rule P-8), and the note rule P-3 requires stays on screen beside it.
+ * from the keyboard alone (rule P-8), and the note rule P-3 requires stays on screen beside it. The
+ * select answers the pointer in the bar's own vocabulary — a hover and a press built from role tokens,
+ * the transition gated on `motion-safe` so a reduced-motion session gets them with no animation, and
+ * the `aria-disabled` suppression that keeps a control which cannot act from painting either — and it
+ * reads its roster under its own qualified key, so a value a second reader of that service member
+ * cached under another key can neither be offered nor displace the list the service reports.
  * Finally the rendered text is scanned for the vocabulary rule P-4 bars — no sentence may claim that
  * the demonstration establishes sovereignty, prevents copying or resists tampering — and both themes
- * are rendered, because the same role utilities must carry the wording in each.
+ * are rendered, because the same role utilities must carry the wording in each. Below the `md`
+ * breakpoint the label and the select fold behind one disclosure whose trigger names the region it
+ * reveals, while rule P-3's note stays on screen; from `md` up no trigger exists at all, which keeps
+ * the wide presentation the markup every other suite in this repository reads (rules P-3 and P-8).
  *
  * THE SERVICE IS MOCKED AT THE PROVIDER, the one boundary a shell module may read records through
  * (rule P-2). The specifier below is exactly the one `./role-switcher.tsx` imports, and Vitest keys a
@@ -49,7 +57,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { MemoryRouter, useLocation } from 'react-router';
@@ -57,6 +65,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 import type { DemonstrationControls } from '../services/demonstration-controls';
+import { ACTIVE_USER_QUERY_KEY } from '../services/service-provider';
 import type { ActiveUser, Result, ThemeName } from '../types';
 import type { Problem } from '../types/service';
 import { entryRouteFor } from './nav-items';
@@ -105,6 +114,12 @@ vi.mock('../services/service-provider', () => ({
   },
   useDemonstration: () => stub.demonstration,
   useActiveUser: () => stub.activeUser,
+  /*
+   * The cache key the switcher writes a switched persona into. The real module owns the tuple; this
+   * double has to carry it because the switcher imports the binding, and a suite that left it out would
+   * fail on the import rather than on the behaviour it means to assert.
+   */
+  ACTIVE_USER_QUERY_KEY: ['getActiveUser'],
 }));
 
 /* ---------------------------------------------------------------------------------------------
@@ -209,6 +224,39 @@ function stubSwitch(implementation: SwitchRole = async () => result(PERSONA_B)):
 }
 
 /**
+ * Makes `window.matchMedia` report a viewport narrower than the `md` breakpoint, and returns the
+ * queries it was asked about so a case can state them.
+ *
+ * jsdom implements no media query at all, so `window.matchMedia` is absent and every other case here
+ * sees the wide presentation — which is the markup the application renders on a desktop window. This
+ * double is what makes the narrow one reachable: it answers `matches` for a `max-width` query and
+ * `false` for anything else, so a stub cannot claim a narrow viewport for a query about something
+ * else, and its `media` member repeats the query the switcher asked about rather than carrying a
+ * second copy of that text. The suite's `afterEach` unstubs it, so it cannot colour a case that runs
+ * after it — the same device `src/components/evidence-drawer.test.tsx` uses for its docked breakpoint.
+ */
+function stubNarrowViewport(): readonly string[] {
+  const queries: string[] = [];
+
+  vi.stubGlobal('matchMedia', (query: string) => {
+    queries.push(query);
+
+    return {
+      matches: query.includes('max-width'),
+      media: query,
+      onchange: null,
+      addEventListener: (): void => undefined,
+      removeEventListener: (): void => undefined,
+      addListener: (): void => undefined,
+      removeListener: (): void => undefined,
+      dispatchEvent: (): boolean => true,
+    };
+  });
+
+  return queries;
+}
+
+/**
  * Prints the address the router is currently on.
  *
  * A probe rather than a history object's internals: the assertion a case makes is the one a reader
@@ -221,17 +269,26 @@ function RouteProbe(): ReactElement {
 }
 
 /**
+ * Builds the cache one render reads through.
+ *
+ * A fresh client per render, so no cache entry and no in-flight roster read can be carried from one
+ * case into the next. Named rather than inlined so a case that asserts on an entry of the cache can
+ * hold the client its render mounted.
+ */
+function createTestClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+}
+
+/**
  * Wraps one surface in the query cache the roster read needs and in a memory router, because the
  * control reads through both, and mounts the route probe beside it.
  *
- * A fresh client per render, so no cache entry and no in-flight roster read can be carried from one
- * case into the next.
+ * The client is optional: a case that reads an entry back passes the one it built, and every other
+ * case gets a fresh client of its own.
  */
-function withProviders(ui: ReactElement): ReactElement {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-
+function withProviders(ui: ReactElement, client: QueryClient = createTestClient()): ReactElement {
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[START_ROUTE]}>
@@ -290,10 +347,14 @@ beforeEach(() => {
   useShellStore.getState().resetShell();
 });
 
-/** Takes the theme attribute off `<html>` again, so one theme case cannot colour the next. */
+/**
+ * Takes the theme attribute off `<html>` again, so one theme case cannot colour the next, and removes
+ * any stubbed global — the narrow case's `matchMedia` — so it cannot colour a case either.
+ */
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
   useShellStore.getState().resetShell();
+  vi.unstubAllGlobals();
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -346,6 +407,38 @@ describe('RoleSwitcher', () => {
     expect(control).not.toHaveAttribute('aria-disabled');
   });
 
+  it('answers the pointer with the bar’s states, and holds them back while it cannot act', async () => {
+    bindDemonstration(stubSwitch());
+    stub.activeUser = PERSONA_A;
+
+    const control = await renderSwitcher();
+
+    /* The bar's controls answer the pointer in one vocabulary — the theme and density switches, the
+       simulated-data badge and the scope filters each paint a hover and a press — so this select does
+       too, and every utility names a role rather than a palette value (specification §4.3). */
+    expect(control).toHaveClass('hover:border-accent');
+    expect(control).toHaveClass('active:bg-surface-1');
+    expect(control).toHaveClass('active:text-text-primary');
+
+    /* Rule B-3: the states arrive with the bar's colour transition, gated on `motion-safe` so a
+       reduced-motion session gets the same states with no animation, and the focus indicator the rule
+       requires is the same 2 px ring as before. */
+    expect(control).toHaveClass('motion-safe:transition-colors');
+    expect(control).toHaveClass('motion-safe:duration-150');
+    expect(control).toHaveClass('focus-visible:outline-focus-ring');
+
+    /* Rule P-8: this control states that it cannot act through `aria-disabled` rather than `disabled`,
+       so the states above are held back by the attribute-stacked variants — the ones that outrank a
+       plain `hover:`/`active:` in the cascade — or a pointer would paint a boundary the control would
+       never act on, and a press a fill and label it would never step to. The press pair restates the
+       select's own resting fill and label, exactly as `src/components/tooltip.tsx` holds back both
+       states, so a press on a control that cannot act changes nothing. They are read from the same
+       element as the states they suppress, because only the pairing is honest. */
+    expect(control).toHaveClass('aria-disabled:hover:border-control-boundary');
+    expect(control).toHaveClass('aria-disabled:active:bg-surface-2');
+    expect(control).toHaveClass('aria-disabled:active:text-text-primary');
+  });
+
   it('offers exactly the personas the service reports, and switches once for the one chosen', async () => {
     const user = userEvent.setup();
     const switchRole = stubSwitch();
@@ -374,6 +467,52 @@ describe('RoleSwitcher', () => {
     expect(switchRole).toHaveBeenCalledWith(PERSONA_B.id);
   });
 
+  it('reads the roster under its own key, so another reader’s value cannot reach it', async () => {
+    bindDemonstration(stubSwitch());
+    stub.activeUser = PERSONA_A;
+
+    /* The client is built here rather than by the shared helper, because the cache is this case's
+       subject: the two entries below stand for what a different reader of the same service member
+       caches — the `Result` envelope that once reached the shell through the bare member name — and
+       they are read back afterwards to show the switcher neither consumed nor replaced them. A
+       never-stale cache is what makes that observable: under the default the bare-name entry would be
+       refetched, and the control could look right while still having read the wrong key first. */
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    const foreign = result([PERSONA_B]);
+
+    client.setQueryData(['listPersonas'], foreign);
+    client.setQueryData(['listPersonas', 'governance'], foreign);
+
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[START_ROUTE]}>
+          <RoleSwitcher />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(within(screen.getByRole('combobox')).getAllByRole('option')).toHaveLength(
+        PERSONAS.length,
+      );
+    });
+
+    const offered = within(screen.getByRole('combobox'))
+      .getAllByRole('option')
+      .map((option) => option.getAttribute('value'));
+
+    /* The options are the roster the service reported, never the neighbour's payload: one method with
+       one entry per reader, so a value this control never cached cannot be offered or acted on
+       (rules P-2 and P-8 — a list of one would also have disabled the control silently). */
+    expect(offered).toEqual(PERSONAS.map((persona) => persona.id));
+    expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-disabled');
+    /* And the neighbour's entries are still its own, untouched by the read that ran beside them. */
+    expect(client.getQueryData(['listPersonas'])).toBe(foreign);
+    expect(client.getQueryData(['listPersonas', 'governance'])).toBe(foreign);
+  });
+
   it('stores the returned role and opens that role’s entry route on a successful switch', async () => {
     const user = userEvent.setup();
     const switchRole = stubSwitch(async () => result(PERSONA_B));
@@ -399,6 +538,37 @@ describe('RoleSwitcher', () => {
     expect(useShellStore.getState().activeRole).toBe(PERSONA_B.role);
     /* The persona the control shows is the one the adapter now enforces. */
     expect(screen.getByRole('combobox')).toHaveValue(PERSONA_B.id);
+  });
+
+  it('writes the persona the switch returned into the identity entry before the cache is re-read', async () => {
+    const user = userEvent.setup();
+    const switchRole = stubSwitch(async () => result(PERSONA_B));
+    const client = createTestClient();
+
+    bindDemonstration(switchRole);
+    stub.activeUser = PERSONA_A;
+
+    render(withProviders(<RoleSwitcher />, client));
+
+    const control = screen.getByRole('combobox');
+
+    await waitFor(() => {
+      expect(within(control).getAllByRole('option')).toHaveLength(PERSONAS.length);
+    });
+
+    expect(client.getQueryData(ACTIVE_USER_QUERY_KEY)).toBeUndefined();
+
+    await user.selectOptions(control, PERSONA_B.id);
+
+    /* The entry the boundary publishes the acting persona from carries the envelope this switch
+       returned — the shape `getActiveUser()` fills the key with, which two screens read as well, so one
+       key holds one shape. It is written as the switch resolves rather than left to the refetch the
+       invalidation starts, because the adapter answers a call after its own latency band: without this
+       write a consumer that acts as the persona — "Assign to me" above all — would name the persona
+       that stood before the switch until that refetch landed. */
+    await waitFor(() => {
+      expect(client.getQueryData(ACTIVE_USER_QUERY_KEY)).toEqual(result(PERSONA_B));
+    });
   });
 
   it('leaves the persona and the route where they were when the service refuses the switch', async () => {
@@ -474,6 +644,79 @@ describe('RoleSwitcher', () => {
        a list that would change nothing (rule P-8). */
     expect(await screen.findByText(ROLE_SWITCHER_TEXT.rosterUnavailable)).toBeInTheDocument();
     expect(screen.getByRole('combobox')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('folds the label and the select behind one disclosure on a narrow viewport, and never in the wide one', async () => {
+    const user = userEvent.setup();
+    const queries = stubNarrowViewport();
+
+    bindDemonstration(stubSwitch());
+    stub.activeUser = PERSONA_A;
+
+    render(withProviders(<RoleSwitcher />));
+
+    /* The narrow presentation is the one that asks the narrow question, so the double below has not
+       answered a query about something else on this module's behalf. */
+    expect(queries.length).toBeGreaterThan(0);
+    expect(queries.every((query) => query.includes('max-width'))).toBe(true);
+
+    /* Exactly one disclosure trigger, closed, and naming a region that is in the document even while
+       it is closed — a relationship pointing at an element that does not exist is not a relationship. */
+    const trigger = screen.getByRole('button', { name: matching(ROLE_SWITCHER_LABEL) });
+
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    const revealedId = trigger.getAttribute('aria-controls') ?? '';
+
+    expect(revealedId).not.toBe('');
+    expect(document.getElementById(revealedId)).not.toBeNull();
+
+    /* The choice is not rendered until the disclosure is opened... */
+    expect(screen.queryByRole('combobox')).toBeNull();
+
+    /* ...and rule P-3's statement is on screen anyway, beside the trigger rather than behind it. */
+    const note = screen.getByText(ROLE_SWITCHER_NOTE);
+
+    expect(note.tagName).toBe('P');
+    expect(note).not.toHaveClass('sr-only');
+    expect(note.closest('[role="tooltip"]')).toBeNull();
+
+    /* Activating the trigger by pointer reveals the label and the select, and nothing else. */
+    await user.click(trigger);
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    const control = await screen.findByRole('combobox');
+
+    await waitFor(() => {
+      expect(within(control).getAllByRole('option')).toHaveLength(PERSONAS.length);
+    });
+
+    /* The revealed control is the control the wide presentation renders: named by the fixed label and
+       by the persona in force, so a reader who opened the disclosure meets the same control. */
+    expect(control).toHaveAccessibleName(matching(ROLE_SWITCHER_LABEL));
+    expect(control).toHaveAccessibleName(matching(PERSONA_A.name));
+
+    /* The same trigger closes it again from the keyboard (rule B-3), and the note stays on screen. */
+    trigger.focus();
+    await user.keyboard('{Enter}');
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.getByText(ROLE_SWITCHER_NOTE)).toBeInTheDocument();
+
+    /* With no `matchMedia` at all — the environment every other case here runs in — the wide
+       presentation renders, and there is no disclosure trigger to press. */
+    vi.unstubAllGlobals();
+    cleanup();
+
+    render(withProviders(<RoleSwitcher />));
+
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
+    expect(screen.getByText(ROLE_SWITCHER_LABEL)).toBeInTheDocument();
+    expect(screen.getByText(ROLE_SWITCHER_NOTE)).toBeInTheDocument();
   });
 
   it.each(THEMES)('states the demonstration wording under the %s theme', async (theme) => {

@@ -43,8 +43,9 @@
  * change would announce a control that lies about its state.
  *
  * Rules served:
- * - B-3: each control is a native `<select>` with a visible `<label>` bound by `for`/`id`, so the
- *   arrow keys, `Space` and a screen reader's forms mode all work on the browser's own control, and
+ * - B-3: each control is `SelectField` from `src/components`, the primitive that owns the `<select>`
+ *   element (AAP 0.5.2), with a visible `<label>` bound by `htmlFor`/`id`, so the arrow keys, `Space`
+ *   and a screen reader's forms mode all work on the browser's own control the primitive renders, and
  *   this file registers no key handler that could get them wrong; the target is the 24x24 px
  *   minimum; the focus ring is the 2 px `--color-focus-ring` role drawn on
  *   `focus-visible`; every colour is a role token, so both themes keep the contrast the specification
@@ -68,25 +69,25 @@
  * simulation popover and the role switcher are product features a browser test drives as a reader
  * would, and this control is one of them rather than a lever for a test.
  *
- * OPEN ITEM: the product options print the identifier the record set carries (`ProductId`), because
- * the topology payload carries no product display name — only plants, suppliers, origins and
- * customers carry a `label`. If the port gains a product-master read, its label replaces
- * `productOptionsOf`'s text member and this control does not change.
- * OPEN ITEM: specification §5.1 fixes one plant and one product per filter, so this control offers
- * exactly that: a single selection or none. A `Scope` naming several plants — a shape nothing in this
- * run writes, since the store starts empty and no other surface sets it — displays as the unfiltered
- * option, because a single-choice control has no spelling for a set.
- * OPEN ITEM: the plant and product lists come from `getTopology`, which the acting role must hold
- * `exception.read` for. The port declares no plant or product list read of its own, so the external
- * supplier engineer — who holds `evidence.read` alone — sees both filters disabled with the adapter's
- * message. A dedicated list read on the port would let the filters work for every persona; declaring
- * one belongs to the port, not to this file.
+ * THE PRODUCT OPTIONS PRINT THE IDENTIFIER, NOT A NAME. The topology payload carries no product
+ * display name — only plants, suppliers, origins and customers carry a `label` — so a product
+ * option prints the `ProductId` the record set carries.
+ *
+ * ONE PLANT AND ONE PRODUCT, OR NEITHER. Specification §5.1 fixes a single selection per filter,
+ * so a `Scope` naming several plants displays as the unfiltered option: a single-choice control has
+ * no spelling for a set.
+ *
+ * WHICH READ FILLS THE LISTS. The plant and product lists come from `getTopology`, the acting role
+ * holds `exception.read` for that read, and the port declares no plant or product list read of its
+ * own; the external supplier engineer — who holds `evidence.read` alone — therefore sees both
+ * filters disabled with the adapter's message.
  */
 import { useId } from 'react';
-import type { ChangeEvent, ReactElement } from 'react';
+import type { ReactElement } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 
+import { SelectField } from '../components/select-field';
 import { useService } from '../services/service-provider';
 import type { Scope } from '../types/service';
 import { useShellStore } from './providers';
@@ -253,8 +254,10 @@ interface LabelledNodeLike {
 /**
  * The part of a topology node the product filter reads: the products the node reaches.
  *
- * Read across all four node families, because a product's presence in the network is what the read
- * answers with — the payload carries no product list of its own.
+ * Read across the plant, supplier, tier-2 origin and customer nodes, because a product's presence in
+ * the network is what the read answers with — the payload carries no product list of its own. A
+ * material is not read here: the supplier that sells it already reaches every product it goes into, so
+ * no product is named only by a material.
  */
 interface ProductReachLike {
   /** The products the node reaches, in the record's own order. */
@@ -277,8 +280,7 @@ function plantOptionsOf(nodes: readonly LabelledNodeLike[]): ScopeOption[] {
  * The products are collected across every node family in payload order and each one is kept once, so
  * the list is a set with a stable order: two reads of the same records present the same options, and
  * a product reached by a supplier and by a plant it feeds appears as one option rather than two. The
- * option's text is the identifier, because the payload carries no product name (see the first OPEN
- * ITEM in this module's header).
+ * option's text is the identifier, because the payload carries no product name.
  *
  * @param nodes The plant, supplier, origin and customer nodes the read returned.
  * @returns One option per distinct product, in first-seen order; empty when the network reaches none.
@@ -305,8 +307,7 @@ function productOptionsOf(nodes: readonly ProductReachLike[]): ScopeOption[] {
  * The option value a stored selection shows.
  *
  * The control offers one plant and one product or neither (specification §5.1), so a selection
- * holding exactly one member shows that member and every other shape shows the unfiltered option
- * (see the second OPEN ITEM in this module's header).
+ * holding exactly one member shows that member and every other shape shows the unfiltered option.
  *
  * @param selection The stored plants or products.
  * @returns The identifier the select shows, or the unfiltered value.
@@ -414,13 +415,13 @@ interface ScopeFieldProps {
 }
 
 /**
- * One scope filter: a visible `<label>`, the native `<select>` it names, and nothing else.
+ * One scope filter: a visible `<label>`, the `SelectField` it names, and nothing else.
  *
- * The native control is chosen over the application's `ActionButton` pattern for the reason that
- * pattern exists: a button commits an action, while a filter offers a list, and the browser's own
- * list keeps every option reachable by keyboard and by a screen reader's forms mode. The label is
- * bound with `htmlFor`, so the control has an accessible name that contains the visible word
- * (WCAG 2.2 SC 2.5.3) and a click on the label opens the list.
+ * The field primitive is composed rather than the application's `ActionButton` pattern, for the reason
+ * that pattern exists: a button commits an action, while a filter offers a list, and the `<select>`
+ * `SelectField` owns (AAP 0.5.2) keeps every option reachable by keyboard and by a screen reader's
+ * forms mode. The label is bound with `htmlFor`, so the control has an accessible name that contains
+ * the visible word (WCAG 2.2 SC 2.5.3) and a click on the label opens the list.
  *
  * The "all" option is always present, even while the read is in flight, so the control never renders
  * an empty list; it is disabled in exactly that state, with the group's notice as its description.
@@ -438,30 +439,23 @@ function ScopeField({
   describedBy,
   onChange,
 }: ScopeFieldProps): ReactElement {
-  const handleChange = (event: ChangeEvent<HTMLSelectElement>): void => {
-    onChange(event.currentTarget.value);
-  };
-
   return (
     <div className={FIELD_CLASSES}>
       <label htmlFor={selectId} className={LABEL_CLASSES}>
         {label}
       </label>
-      <select
+      <SelectField
         id={selectId}
         className={SELECT_CLASSES}
         value={value}
         disabled={disabled}
         aria-describedby={describedBy}
-        onChange={handleChange}
-      >
-        <option value={ALL_VALUE}>{allLabel}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        options={[
+          { value: ALL_VALUE, label: allLabel },
+          ...options.map((option) => ({ value: option.value, label: option.label })),
+        ]}
+        onChange={onChange}
+      />
     </div>
   );
 }

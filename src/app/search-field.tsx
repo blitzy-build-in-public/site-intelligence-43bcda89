@@ -25,10 +25,12 @@
  * once they belong to the term in the input: a reader is never shown one search's results under
  * another search's text.
  *
- * THE COMBOBOX PATTERN, AND WHY FOCUS NEVER LEAVES THE INPUT. The field implements the WAI-ARIA
- * combobox with a listbox popup through `aria-activedescendant`: DOM focus stays in the `input`, the
- * current option is announced by pointing `aria-activedescendant` at it, and `aria-selected` marks the
- * same option for a sighted reader. Arrow keys move the cursor, `Enter` opens the highlighted hit,
+ * THE COMBOBOX PATTERN, AND WHY FOCUS NEVER LEAVES THE INPUT. The `<input>` belongs to `TextField` in
+ * `src/components`, the primitive that owns the element (AAP 0.5.2); this shell control composes it and
+ * passes the combobox contract as native props. It implements the WAI-ARIA combobox with a listbox
+ * popup through `aria-activedescendant`: DOM focus stays in the `input`, the current option is announced
+ * by pointing `aria-activedescendant` at it, and `aria-selected` marks the same option for a sighted
+ * reader. Arrow keys move the cursor, `Enter` opens the highlighted hit,
  * `Tab` closes the popover so it cannot linger while focus moves on, and `Escape` closes it and puts
  * focus back in the input (rule B-3). Options carry no `tabIndex` of their own, because a second focus
  * model on top of the active-descendant one would make the popover operable in two ways that disagree;
@@ -89,7 +91,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
-  ChangeEvent,
   FocusEvent,
   KeyboardEvent as ReactKeyboardEvent,
   ReactElement,
@@ -98,6 +99,7 @@ import { useNavigate } from 'react-router';
 
 import { EvidenceDrawer } from '../components/evidence-drawer';
 import { MonoValue } from '../components/mono-value';
+import { TextField } from '../components/text-field';
 import { ActionButton } from '../components/tooltip';
 import { useService } from '../services/service-provider';
 import type { SearchHit } from '../types/screen-dto';
@@ -520,8 +522,8 @@ export function SearchField(): ReactElement {
     setTerm('');
   };
 
-  const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setTerm(event.target.value);
+  const handleChange = (value: string): void => {
+    setTerm(value);
     setIsPopoverOpen(true);
     setActiveIndex(-1);
   };
@@ -600,7 +602,7 @@ export function SearchField(): ReactElement {
       <p id={hintId} className="sr-only">
         {SEARCH_FIELD_TEXT.hint}
       </p>
-      <input
+      <TextField
         ref={inputRef}
         id={inputId}
         data-shortcut="search"

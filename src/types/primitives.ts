@@ -1,10 +1,12 @@
 /**
  * Shared primitive vocabulary of Site Intelligence: the identifier shapes and the money, time and
- * calendar conventions of `platform-contracts.md` §1, the constant demonstration clock, the seven
- * exact simulation labels of `platform-specification.md` §5.3 with their three companion strings
- * and the wording a refused computation carries (AAP §0.2.2, §0.8), the theme and density values of
- * §4.3, the six data sources of `platform-seed-data.md` §7 and the permission names of the
- * contracts §7.1 matrix.
+ * calendar conventions of `platform-contracts.md` §1, the constant demonstration clock, the window
+ * length the outbound ledger's two counts cover (contracts §5), the seven exact simulation labels of
+ * `platform-specification.md` §5.3 with their three companion strings and the wording a refused
+ * computation carries (AAP §0.2.2, §0.8), the theme and density values of §4.3, the six data sources
+ * of `platform-seed-data.md` §7, the permission names of the contracts §7.1 matrix, and the one
+ * sentence the two screens whose assign-to-me control is disabled for an exception the session's
+ * persona already owns share.
  *
  * This is the leaf module of `src/types`: it imports nothing, so every other module in the folder
  * can depend on it without creating a cycle.
@@ -105,6 +107,17 @@ export const DEMO_CLOCK = '2026-12-03T08:00:00+01:00';
 
 /** The only time zone the application formats in. */
 export const APP_TIME_ZONE = 'Europe/Berlin';
+
+/**
+ * The number of calendar days the outbound ledger's two counts cover: the last thirty, fixed by
+ * contracts §5 for the ledger aggregate and restated by AAP 0.12.4's SCR-07 row as the "30-day
+ * allowed and blocked counts".
+ *
+ * Held once, so the length of the window is stated in a single place. The aggregate that counts the
+ * window, the evidence payload that explains a count and the ledger's own column headers all read
+ * this constant, so no consumer types a length of its own that could drift from the rule (rule P-6).
+ */
+export const LEDGER_WINDOW_DAYS = 30;
 
 /* ---------------------------------------------------------------------------------------------
  * Simulation labels — specification §5.3, AAP 0.10
@@ -218,3 +231,37 @@ export const PERMISSIONS = [
 
 /** One permission name from the contracts §7.1 matrix. */
 export type Permission = (typeof PERMISSIONS)[number];
+
+/* ---------------------------------------------------------------------------------------------
+ * Policies — platform-contracts.md §7.2
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * POL-003, the segregation-of-duties rule of `platform-contracts.md` §7.2: an approval is decided by
+ * a persona other than the one who requested it.
+ *
+ * Declared in the shared vocabulary because both halves of the rule read it — the policy engine that
+ * denies the decision and the screen that explains the denial before the attempt is made — and
+ * because rule P-6 keeps a feature module from typing a record identifier of its own. The refusals
+ * and the visible explanation therefore cite one value, and the rule the service enforces cannot
+ * drift from the rule a reader is shown.
+ */
+export const SEGREGATION_OF_DUTIES_POLICY_ID: PolicyId = 'POL-003';
+
+/* ---------------------------------------------------------------------------------------------
+ * Shared control explanations — rule P-8
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The one explanation of the "assign to me" condition where the exception's owner is already the
+ * persona the session acts as. Rule P-8 requires a disabled control to carry a text explanation and
+ * no input fixes this one's wording, so this constant is the sentence's single owner: SCR-02 and
+ * SCR-03 both render the control, and both read the sentence from here instead of each spelling
+ * their own and drifting apart.
+ *
+ * It sits in the leaf module of `src/types` because a feature folder may import components and the
+ * service but never another feature (AAP 0.13.2, 0.18.1), while every module may import this one.
+ * Both screens reach it through the `src/types` barrel.
+ */
+export const ALREADY_OWNER_REASON =
+  'This exception is already assigned to the role acting in this session.';

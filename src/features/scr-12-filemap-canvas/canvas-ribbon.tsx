@@ -43,25 +43,20 @@
  * router outlet, so this file renders no second badge, because a page-level badge does not label an
  * individual figure.
  *
- * REPORTED CONTRACT GAPS, and how the props close them without a competing type or an invented
- * format (rule P-6, AAP §0.12.2).
- * - `RibbonTile` in `src/types/screen-dto.ts` carries three members — `id`, `value` and
- *   `provenance` — and states in its own documentation that "the tile carries no caption, no evidence
- *   reference and no simulation label". `MetricTile` requires a caption and an evidence reference
- *   besides the label, so the two the payload lacks arrive as props: {@link
- *   CanvasRibbonProps.presentation} maps a tile's `id` to the caption specification §7 gives that
- *   tile and the reference that opens its evidence. The caption therefore keeps one owner — the
- *   screen whose fixed screen definition names the tile — and this module types none of the six.
- * - The payload carries no value-kind field, so no tile is told how its number is formatted. The
- *   projection's optional `kind` is forwarded to `MetricTile` when the screen supplies one and left
- *   off otherwise, and this module never derives a kind from a caption's wording: reading a caption
- *   for "revenue" and deciding it is money would be a second, silent formatting rule. A tile supplied
- *   without a kind prints the aggregate's own number in the tile's type step, exactly as `MetricTile`
- *   documents for a count, so an amount that must carry the currency marker needs the screen to say
- *   so. The gap is upstream in the shared payload and is reported here rather than papered over.
- * - A tile with no entry in `presentation` renders nothing at all: no caption is invented for it, no
- *   empty string stands where a reference belongs, and no zero or placeholder takes the figure's
- *   place. The screen's `StateBoundary` owns the degraded state (AAP §0.12.4).
+ * THE TWO PROPS `MetricTile` REQUIRES AND THE PAYLOAD LACKS (rule P-6, AAP §0.12.2). `RibbonTile` carries
+ * `id`, `value` and `provenance` and states in its own documentation that it carries no caption, no
+ * evidence reference and no simulation label, so the caption and the reference arrive as props:
+ * {@link CanvasRibbonProps.presentation} maps a tile's `id` to the caption specification §7 gives that
+ * tile and the reference that opens its evidence, which keeps each caption with the screen whose screen
+ * definition names it.
+ *
+ * NO TILE IS TOLD HOW ITS NUMBER IS FORMATTED. The payload carries no value-kind field, so the
+ * projection's optional `kind` is forwarded when the screen supplies one and left off otherwise, and this
+ * module never derives a kind from a caption's wording — reading a caption for "revenue" and deciding it
+ * is money would be a second, silent formatting rule — so an amount that must carry the currency marker
+ * needs the screen to say so. A tile with no entry in `presentation` renders nothing: no invented caption,
+ * no empty string where a reference belongs, no zero or placeholder in the figure's place, with the
+ * screen's `StateBoundary` owning the degraded state (AAP §0.12.4).
  *
  * WHAT IT DOES NOT CLAIM AND DOES NOT REACH — rules B-1, B-2, P-4. Nothing here fetches an asset,
  * names an address, reads a configuration value or holds a credential, and nothing states a property
@@ -174,8 +169,8 @@ interface RibbonTilePresentation {
    *
    * Omitted by a screen that has no format to state, and the tile then renders the number exactly as
    * the aggregate returned it. Typed as `MetricTileProps['kind']` rather than as a vocabulary of this
-   * module's own, so the accepted kinds stay the tile's to define (see the second reported gap in the
-   * module header).
+   * module's own, so the accepted kinds stay the tile's to define (see the module header on how a number
+   * is formatted).
    */
   readonly kind?: MetricTileProps['kind'];
 }
@@ -196,9 +191,9 @@ export interface CanvasRibbonProps {
    *
    * The key is the aggregate key the payload carries — a stable identity across renders rather than a
    * position — so a tile is matched to its caption and its evidence reference without depending on
-   * where it sits in the row. A tile with no entry here renders nothing (see the third reported gap in
-   * the module header); a key no tile answers is ignored, because the payload decides what the ribbon
-   * shows and the projection cannot add a tile.
+   * where it sits in the row. A tile with no entry here renders nothing (see the module header on a tile
+   * with no entry in the presentation); a key no tile answers is ignored, because the payload decides
+   * what the ribbon shows and the projection cannot add a tile.
    */
   readonly presentation: Readonly<Record<string, RibbonTilePresentation>>;
 }

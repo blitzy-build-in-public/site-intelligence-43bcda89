@@ -39,7 +39,10 @@
  *   figure appears in this module.
  * - P-7: every label is a synthetic placeholder identifier. No real model provider, product or
  *   vendor is named, and no company, person or figure outside the seed appears.
- * - B-1: nothing here addresses a network location — no host, no path, no endpoint.
+ * - B-1: no code reaches a network location. The external entry declares the one outbound
+ *   destination an inference through it would reach — the reserved `.example` host
+ *   `src/seed/sovereignty.ts` declares as a blocked endpoint, which resolves nowhere and is never
+ *   contacted, because POL-007 decides before any request exists (rule P-1).
  * - B-2: nothing here reads configuration and nothing resembles a credential.
  */
 import type { ModelCatalogue } from '../types';
@@ -55,6 +58,10 @@ import type { ModelCatalogue } from '../types';
  * `defaultModelId` resolves to the in-boundary entry, so a visit never begins on the model POL-007
  * may have to block. The handler that serves the catalogue enforces that this identifier matches a
  * member of `models`; the type alone cannot.
+ *
+ * The external entry also declares the outbound `endpoint` an answer through it would reach, which is
+ * the ledger endpoint its POL-007 refusal is counted against (AAP 0.6.3, AAP 0.8). The in-boundary
+ * entries declare none, because an answer they composed reaches no destination outside the boundary.
  */
 export const MODEL_CATALOGUE: ModelCatalogue = {
   models: [
@@ -78,11 +85,20 @@ export const MODEL_CATALOGUE: ModelCatalogue = {
     },
     // The only entry whose answers would be composed outside the declared boundary, which is why
     // POL-007 can block it for a context carrying customer-confidential or eu-only material.
+    //
+    // `endpoint` is the outbound destination the deployment declares for an inference through this
+    // entry: exactly the ledger endpoint `src/seed/sovereignty.ts` declares for external reasoning
+    // model inference, whose purpose there is the assistant panel's request. It is what a POL-007
+    // refusal records as its audit object reference, because the ledger counts blocked audit events by
+    // `objectRef` over the declared endpoints (AAP 0.6.3, AAP 0.8). It states where an answer would be
+    // composed, not that one was: no model is connected and nothing is sent (rule P-1), and the host
+    // is a reserved `.example` name that resolves nowhere (rule B-1).
     {
       id: 'EXT-REASONING-01',
       label: 'EXT-REASONING-01',
       version: '01',
       boundary: 'external',
+      endpoint: 'api.external-llm.example',
     },
   ],
   defaultModelId: 'MDL-LOCAL-L v3',

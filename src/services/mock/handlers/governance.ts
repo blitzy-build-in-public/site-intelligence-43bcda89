@@ -78,12 +78,14 @@
  *   "Export evidence pack" action reaches the file through it directly.
  *
  * A REFUSAL NAMES WHAT IS MISSING, IN PLAIN WORDS (rule P-8). Every denial is a `Problem` literal
- * built here with cause `'permission'`, a sentence naming the acting role, the permission it lacks
- * and the roles that do hold it, plus `requiredPermission` and `rolesWithPermission` — the fields a
- * forbidden card and a disabled control's tooltip print. The correlation identifier is
- * `traceIdFor(ctx.state)`, the same value the result's `Meta.traceId` carries, so an identifier a
- * user quotes leads to the call. The forbidden trigger of `../simulation.ts` produces the same
- * failure from every entry point, so one state has one rendering.
+ * built here with cause `'permission'`, a sentence true of the cause it reports — the permission the
+ * acting role lacks and the roles that do hold it for a matrix denial, or the demonstration's own
+ * refusal for the forbidden trigger — plus `requiredPermission` and `rolesWithPermission`, the fields
+ * a forbidden card and a disabled control's tooltip print. The correlation identifier is the call's
+ * own, minted once by the adapter from the ticket it took at the call's entry, so the value on a
+ * refusal is the value the result's `Meta.traceId` carries and an identifier a user quotes leads to
+ * the call. The forbidden trigger of `../simulation.ts` produces the same failure from every entry
+ * point, so one state has one rendering.
  *
  * DETERMINISTIC AND READ-ONLY WHERE IT CAN BE (AAP 0.2.1, AAP 0.18.2). Reads modify nothing: the
  * records are copied out field by field, the ledger is a fresh array of fresh rows and the decisions
@@ -126,8 +128,8 @@ import type {
 } from '../../../types';
 import type { HandlerContext } from '../mock-state';
 import type { SeededPolicy } from '../seed-loader';
-import { freshnessFor, isSimulationOn } from '../simulation';
-import { appendAuditEvent, traceIdFor } from './audit';
+import { demonstrationForbiddenReason, freshnessFor, isSimulationOn } from '../simulation';
+import { appendAuditEvent } from './audit';
 
 /* ---------------------------------------------------------------------------------------------
  * The vocabulary this family addresses — contracts §7.1, §7.2, §6
@@ -191,30 +193,30 @@ const DEMO_CLOCK_INSTANT = Date.parse(DEMO_CLOCK);
  * The failure a role that may not call this family receives, and the one the forbidden trigger
  * produces.
  *
- * Every member a permission cause carries is filled: the cause itself, a sentence that names the
- * acting role, the permission it lacks and the roles that do hold it, the permission, and those
- * roles. That is the whole of what a forbidden card prints and what a disabled control's reason
- * states, so the screen explains the refusal rather than only reporting it (rule P-8). The checks run
- * in the browser of a build with no backend and no session, so they are a demonstration control and
- * not production authorisation (rule P-3); the adapter evaluates them itself regardless of what a
- * screen offered, so a bypassed control grants nothing.
+ * Every member a permission cause carries is filled: the cause itself, the sentence the caller
+ * composed for the cause it is reporting, the permission, and the roles that do hold it. That is the
+ * whole of what a forbidden card prints and what a disabled control's reason states, so the screen
+ * explains the refusal rather than only reporting it (rule P-8). The checks run in the browser of a
+ * build with no backend and no session, so they are a demonstration control and not production
+ * authorisation (rule P-3); the adapter evaluates them itself regardless of what a screen offered, so
+ * a bypassed control grants nothing.
  *
- * @param ctx - The call's context, whose persona the reason names and whose state supplies the trace.
+ * The sentence is the caller's whole message rather than a template this function completes, because
+ * the two causes state different facts: a matrix denial says the acting role does not hold the
+ * permission, and the demonstration's refusal says the role does and the control withheld the view.
+ *
+ * @param ctx - The call's context, whose persona the reason names and whose trace the failure carries.
  * @param permission - The permission the call requires.
- * @param refusal - The leading clause, in plain words, saying what was refused and why in this state.
+ * @param message - The reason in plain words, true of the cause being reported.
  * @returns A fresh `Problem` per call, so the role list is the matrix's current answer.
  */
-function permissionProblem(ctx: HandlerContext, permission: Permission, refusal: string): Problem {
-  const roles = rolesWith(permission);
-
+function permissionProblem(ctx: HandlerContext, permission: Permission, message: string): Problem {
   return {
     type: 'permission',
-    message:
-      `${refusal} That requires the ${permission} permission, which the acting role ` +
-      `(${ctx.actor.role}) does not hold; the roles that hold it are ${roles.join(', ')}.`,
-    traceId: traceIdFor(ctx.state),
+    message,
+    traceId: ctx.traceId,
     requiredPermission: permission,
-    rolesWithPermission: roles,
+    rolesWithPermission: rolesWith(permission),
   };
 }
 
@@ -222,12 +224,12 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, refusal:
  * The failure a request the records cannot honour throws: a draft that names no reason, an expiry
  * that has already passed, or a second approver who cannot approve it.
  *
- * @param ctx - The call's context, whose state supplies the trace the failure carries.
+ * @param ctx - The call's context, whose trace the failure carries.
  * @param message - The reason, in the plain words the caller supplies, naming the field at fault.
  * @returns A fresh validation failure carrying that reason.
  */
 function validationProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'validation', message, traceId: traceIdFor(ctx.state) };
+  return { type: 'validation', message, traceId: ctx.traceId };
 }
 
 /**
@@ -237,7 +239,7 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  * which is the `'not-found'` cause of AAP 0.12.3; the message names the identifiers the record set
  * does hold, so the reader learns what may be opened instead.
  *
- * @param ctx - The call's context, whose state supplies the trace and the identifiers.
+ * @param ctx - The call's context, whose trace and identifiers the failure carries.
  * @param policyId - The identifier that resolved to nothing.
  * @returns A fresh not-found failure.
  */
@@ -247,7 +249,7 @@ function notFoundProblem(ctx: HandlerContext, policyId: PolicyId): Problem {
   return {
     type: 'not-found',
     message: `No policy record answers the identifier ${policyId}. The policy set holds ${known}.`,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
   };
 }
 
@@ -256,9 +258,11 @@ function notFoundProblem(ctx: HandlerContext, policyId: PolicyId): Problem {
  *
  * Two causes produce one failure shape on purpose: a screen renders one forbidden card and disables
  * one set of controls whether the refusal came from the contract matrix or from the simulation
- * popover, so the explanation a reader sees is the one the matrix would give (AAP 0.12.4, T-17). The
- * trigger is checked first because it stands for a session-wide refusal rather than for a fact about
- * a role. The verdict is the persona's, resolved by the adapter from `state.activeUserId`, so a
+ * popover (AAP 0.12.4, T-17). The sentences differ because the facts do: the trigger refuses a call
+ * the acting role may make, so its reason says the demonstration withheld the view (rules P-3, P-4),
+ * where the matrix says the role does not hold the permission and names the roles that do (rule P-8).
+ * The trigger is checked first because it stands for a session-wide refusal rather than for a fact
+ * about a role. The verdict is the persona's, resolved by the adapter from `state.activeUserId`, so a
  * caller cannot pass a role in.
  *
  * @param ctx - The call's context: the persona the check is made for and the state its triggers are read from.
@@ -271,12 +275,18 @@ function requirePermission(ctx: HandlerContext, permission: Permission, subject:
     throw permissionProblem(
       ctx,
       permission,
-      `The ${subject} is not available in this state, which the demonstration reports as forbidden.`,
+      demonstrationForbiddenReason(ctx.actor.role, permission),
     );
   }
 
   if (!hasPermission(ctx.actor.role, permission, null, ctx.actor)) {
-    throw permissionProblem(ctx, permission, `The ${subject} is not available to the acting role.`);
+    throw permissionProblem(
+      ctx,
+      permission,
+      `The ${subject} is not available to the acting role. That requires the ${permission} permission, ` +
+        `which the acting role (${ctx.actor.role}) does not hold; the roles that hold it are ` +
+        `${rolesWith(permission).join(', ')}.`,
+    );
   }
 }
 
@@ -300,7 +310,7 @@ function requireCatalogueReadable(ctx: HandlerContext): void {
     throw permissionProblem(
       ctx,
       ADMIN_READ,
-      'The source catalogue is not available in this state, which the demonstration reports as forbidden.',
+      demonstrationForbiddenReason(ctx.actor.role, ADMIN_READ),
     );
   }
 }
@@ -655,7 +665,7 @@ function comparePolicyEntries(
  * @param ordered - The rows the read admits, already in the requested order.
  * @param cursor - The position the previous page ended at, or `undefined` for the first page.
  * @param keyOf - The row's own identity, which is what a cursor names.
- * @param ctx - The call's context, whose state supplies the trace a refusal carries.
+ * @param ctx - The call's context, whose trace a refusal carries.
  * @param family - How the read that refused is named, such as `ledger`.
  * @returns The index the page starts at.
  * @throws Problem - A `'validation'` failure when the cursor names no row of the ordered page.

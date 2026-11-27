@@ -80,20 +80,18 @@
  *    — that exception's own amount, captioned with the exception named, because the port supplies no
  *    per-product aggregate and summing the rows here would compute a figure in the screen (rule P-6).
  * 3. `RibbonTile` carries `id`, `value` and `provenance` and no caption and no evidence reference, so
- *    both arrive from `ribbonPresentation` below — the captions this screen owns for the six
- *    aggregate keys, and a composed `canvas:<key>` reference. The service's evidence read answers that
- *    shape from the same aggregation module the ribbon itself is built by, so activating a tile opens
- *    the drawer on the tile's own value, formula, inputs and provenance. Each reference also states the
- *    scope the ribbon was read with, as the `?plants=…&products=…` suffix {@link selectionSuffix}
- *    composes from the same scope prop the read is made with: the port's `getEvidence(ref)` carries no
- *    scope, so the reference is the only way the drawer can be computed over the population the tile
- *    was, and a plant or product chosen in the top bar narrows the evidence exactly as it narrows the
- *    tile (AAP §0.2.1 F12, PR-6). The alternative — no reference — cannot compile, because `MetricTile`
- *    requires one.
- * 4. A topology node is a plant, a supplier, an origin or a customer, and each node's identifier is
- *    the record's own identifier — the service's evidence read resolves all four families — so both
- *    lenses are handed `evidenceRefForNode` below: it answers the node's identifier and composes no
- *    reference of its own (rule P-6), and activating a node opens the record's evidence.
+ *    both arrive from `RIBBON_PRESENTATION` below — the captions this screen owns for the six
+ *    aggregate keys, and a composed `canvas:<key>` reference carrying the shell selection the tiles
+ *    were read under. The evidence read answers that family from the same aggregate over the same
+ *    resolved scope, so a ribbon figure opens its four sections and states the number the tile drew
+ *    (AAP 0.2.1 F12, principle PR-6). The alternative — no reference — cannot compile, because
+ *    `MetricTile` requires one.
+ * 4. Both lenses open a node's evidence through `evidenceRefForNode` below, which returns the node's own
+ *    identifier: a topology node's id *is* the record's id, and the evidence read resolves the four
+ *    node families the lens draws — plant, supplier, tier-2 origin and customer — so activating a node
+ *    opens the record behind it (AAP 0.2.1 F12), and it composes no reference of its own (rule P-6).
+ *    Declared at module scope so its identity is stable across renders and the drawing is not rebuilt
+ *    on every pass.
  * 5. `TimelineDock` builds its own chart-table specification and takes the series, the reference and
  *    the events, so no table specification is supplied from here.
  * 6. The shell that mounts this screen must hand it the scope it holds, and take the selection and the
@@ -116,26 +114,32 @@ import type { ReactElement, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
 import { PageHeader } from '../../components/page-header';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { TIMELINE_DOCK_AUDIT_EVENTS, TimelineDock } from '../../components/timeline-dock';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+/*
+ * SCR-03's route is `EXCEPTION_QUEUE_PATH` plus the record's own identifier. The base has one
+ * declaration, in `src/types/routes.ts` (AAP 0.12.4), shared with the shell and every screen that
+ * navigates to the queue.
+ */
+import { APPROVAL_GATE_SOURCE, EXCEPTION_QUEUE_PATH, SIM_LABELS } from '../../types';
 import type {
   Atlas,
   AuditEvent,
   ExceptionDetail,
   ExceptionId,
   ExceptionRow,
-  Freshness,
-  FreshnessState,
-  Problem,
   Result,
   RibbonTile,
   ScenarioSet,
   Scope,
-  ScreenState,
   SimLabel,
   Topology,
   TopologyNode,
@@ -238,8 +242,8 @@ export const FILEMAP_CANVAS_TEXT = {
    * states the amount.
    *
    * The amount beside it is that exception row's own revenue at risk, not a total for the product: the
-   * port declares no per-product aggregate (see gap 2 in the module note) and summing the rows here
-   * would compute a figure in the screen, which rule P-6 forbids. The caption therefore names the
+   * port declares no per-product aggregate and summing the rows here would compute a figure in the
+   * screen, which rule P-6 forbids. The caption therefore names the
    * record the amount belongs to — the precedent `GRAPH_LENS_TEXT.descriptionTracing` sets for a
    * sentence composed from a record's own value — so one record's amount is never presented under
    * another subject's caption. Nothing is typed into the sentence: the identifier arrives from the
@@ -264,10 +268,12 @@ export const FILEMAP_CANVAS_TEXT = {
   /**
    * What the dock's events half says when the acting role may not read the audit trail.
    *
-   * The trail is the dock's accessory read rather than a precondition of the canvas: `audit.read`
-   * belongs to the auditor and the platform administrator, while this screen is the entry route of the
-   * four planning personas, so a refused trail states itself here instead of replacing the surface the
-   * reader came for. The sentence names the permission's absence and invents no record.
+   * The trail is the dock's accessory read rather than a precondition of the canvas, so a refused trail
+   * states itself here instead of replacing the surface the reader came for. The four personas this
+   * screen is the entry route of hold `audit.read`, because AAP §0.12.4's SCR-12 row gives the dock the
+   * five latest audit events with no caveat about the role reading them, so this sentence is what the
+   * roles the matrix withholds the permission from — the plant manager and the external supplier
+   * engineer — read: it names the permission's absence and invents no record.
    */
   auditUnavailable:
     'The acting role may not read the audit trail, so no event is shown here.',
@@ -283,9 +289,6 @@ export const FILEMAP_CANVAS_TEXT = {
  * exact strings, so this module types no label text of its own (rule P-1).
  */
 const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
-
-/** The route an exception is investigated at: SCR-03's path, fixed by AAP §0.12.4. */
-const EXCEPTIONS_ROUTE = '/exceptions';
 
 /**
  * The window this screen asks the queue for: the four most urgent exceptions AAP §0.12.4's SCR-12 row
@@ -310,59 +313,74 @@ const NO_SCOPE: Scope = { plants: [], products: [] };
  * The root of the references this screen's aggregate figures carry, prefixed to the aggregate's own
  * key.
  *
- * See gap 3 in the module note: `RibbonTile` carries no reference, so the screen composes one from the
- * tile's own identifier. The shape is the service's too — the root and that identifier — so a figure
- * keeps one reference for one reading and the evidence read answers exactly the string composed here.
+ * The evidence read answers `canvas:<key>` from the same aggregates this screen reads — the ribbon's
+ * own six tiles and the overview they are computed over — resolved through the same one scope
+ * resolver, so a tile's drawer states the figure the tile drew rather than a second computation of it
+ * (AAP 0.2.1 F12, principle PR-6). `RibbonTile` carries no reference of its own, so this screen
+ * composes one from the aggregate's key; it is stable across renders, so a figure keeps one reference
+ * for one reading.
  */
 const AGGREGATE_REF_ROOT = 'canvas';
 
+/** The query parameter a reference carries the shell's plant selection in. */
+const PLANTS_PARAM = 'plants';
+
+/** The query parameter a reference carries the shell's product selection in. */
+const PRODUCTS_PARAM = 'products';
+
+/** The separator a selection's two lists are stated with. */
+const SELECTION_SEPARATOR = ',';
+
 /**
- * The reference one aggregate figure carries: the root, a colon, then the aggregate's own key.
+ * The shell selection a reference carries, as a query suffix.
+ *
+ * The suffix is present only when the selection names plants or products, so an unnarrowed screen
+ * composes the bare `<root>:<key>` form the evidence read documents, and a narrowed canvas opens a
+ * drawer narrowed by the same filters the canvas itself was read under (AAP 0.2.1).
+ *
+ * @param scope - The shell's plant and product selection.
+ * @returns `?plants=…&products=…`, or an empty string when the selection names neither.
+ */
+function selectionQuery(scope: Scope): string {
+  const params: string[] = [];
+
+  if (scope.plants.length > 0) {
+    params.push(`${PLANTS_PARAM}=${scope.plants.join(SELECTION_SEPARATOR)}`);
+  }
+
+  if (scope.products.length > 0) {
+    params.push(`${PRODUCTS_PARAM}=${scope.products.join(SELECTION_SEPARATOR)}`);
+  }
+
+  return params.length === 0 ? '' : `?${params.join('&')}`;
+}
+
+/**
+ * The reference one aggregate figure carries: the root, a colon, the aggregate's own key, then the
+ * selection the figure was read under.
  *
  * @param key - The aggregate the figure reports, as `RibbonTile.id` spells it.
- * @param scope - The selection the tile was read with, which the reference states.
+ * @param scope - The shell's selection, which the drawer's read narrows by.
  * @returns The reference the tile's evidence trigger carries.
  */
 function aggregateRef(key: string, scope: Scope): string {
-  return `${AGGREGATE_REF_ROOT}:${key}${selectionSuffix(scope)}`;
+  return `${AGGREGATE_REF_ROOT}:${key}${selectionQuery(scope)}`;
 }
 
-/**
- * The selection a tile's reference states, as the query the evidence read resolves its scope from.
- *
- * The port's `getEvidence(ref)` carries the reference and no scope, so the selection the ribbon was read
- * with travels in the reference or not at all: without it the drawer would compute the aggregate over the
- * acting persona's whole scope and disagree with the tile it was opened from, which is the defect PR-6
- * names (AAP §0.2.1 F12). The members are the render's own scope — the same one `getCanvasRibbon` was
- * handed — in the order it states them, spelled with the parameter names `Scope` gives them (`plants`,
- * `products`): nothing is typed here, no filter is re-derived and no selection is widened. A scope naming
- * neither member states no selection, which is the bare reference the read has always answered.
- *
- * @param scope - The selection the canvas reads were made with.
- * @returns The `?plants=…&products=…` suffix, or an empty string when the scope names no selection.
- */
-function selectionSuffix(scope: Scope): string {
-  const parameters = [
-    ...(scope.plants.length === 0 ? [] : [`plants=${scope.plants.join(',')}`]),
-    ...(scope.products.length === 0 ? [] : [`products=${scope.products.join(',')}`]),
-  ];
-
-  return parameters.length === 0 ? '' : `?${parameters.join('&')}`;
-}
 
 /**
  * What each of the ribbon's six tiles shows beyond its figure: the caption this screen owns for that
- * aggregate key, the reference the figure opens, and — where the figure needs it — the presentation
- * rule the tile applies, so the median hours are presented as whole hours while the aggregate keeps
- * its unrounded value.
+ * aggregate key, the reference the figure opens — composed for the selection the tiles were read
+ * under — and, where the figure needs it, the presentation rule the tile applies, so the median
+ * hours are presented as whole hours while the aggregate keeps its unrounded value.
  *
  * Keyed by `RibbonTile.id`, the aggregate keys `src/domain/aggregation/urgency.ts` emits, so a tile
  * is matched to its caption by identity rather than by position and a key the payload does not carry
  * is ignored. `CanvasRibbon` renders nothing for a tile with no entry here, which is why every key the
  * aggregate builds has one.
  *
- * @param scope - The selection the ribbon was read with, which each tile's reference states.
- * @returns The presentation each of the six aggregate keys carries.
+ * @param scope - The shell's plant and product selection, which every reference carries.
+ * @returns The presentation map the ribbon renders its tiles with.
  */
 function ribbonPresentation(scope: Scope): CanvasRibbonProps['presentation'] {
   return {
@@ -459,15 +477,16 @@ const NO_EVENTS: readonly AuditEvent[] = [];
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Every node of one payload, in the four families' order.
+ * Every node of one payload, in the five families' order.
  *
- * `Topology` carries the families as four arrays — the shape the lenses address directly — so a
+ * `Topology` carries the families as five arrays — the shape the lenses address directly — so a
  * selection, which is a node identifier whatever family it belongs to, needs them as one list. The
  * concatenation preserves each family's own order and computes nothing: it is the payload read a
- * second way, not a new population.
+ * second way, not a new population. Materials come last so the first node of the list — the fallback a
+ * selection with no exception to resolve to falls back on — stays a plant.
  *
  * @param topology - The payload the service returned, read and not modified.
- * @returns The four families' nodes in family order.
+ * @returns The five families' nodes in family order.
  */
 function nodesOf(topology: Topology): readonly TopologyNode[] {
   return [
@@ -475,6 +494,7 @@ function nodesOf(topology: Topology): readonly TopologyNode[] {
     ...topology.suppliers,
     ...topology.origins,
     ...topology.customers,
+    ...topology.materials,
   ];
 }
 
@@ -499,10 +519,10 @@ const evidenceRefForNode = (node: TopologyNode): string => node.id;
  *
  * The choice is made from service data and never from a literal. The most urgent exception's plant is
  * preferred, because the exception is what the screen exists to investigate and the plant is the only
- * field on an `ExceptionRow` a node can be joined to — a supplier, an origin and a customer are not
- * named on the row, so a plant node is the one kind a selection can resolve to an exception through.
- * Failing that, the first node the payload supplies is selected, so a scope whose exceptions fall
- * outside the four-row window still opens on a drawable network rather than on nothing.
+ * field on an `ExceptionRow` a node can be joined to — a supplier, a material, an origin and a customer
+ * are not named on the row, so a plant node is the one kind a selection can resolve to an exception
+ * through. Failing that, the first node the payload supplies is selected, so a scope whose exceptions
+ * fall outside the four-row window still opens on a drawable network rather than on nothing.
  *
  * @param topology - The payload the service returned.
  * @param urgentRows - The urgent exceptions, in the service's own order.
@@ -530,8 +550,8 @@ function resolveInitialSelection(
  *
  * An exception row names the plant the disruption lands on, so a plant node resolves to the first
  * exception on that plant as the service ordered them — the most urgent of them, because the ordering
- * is the service's. Any other node kind resolves to nothing: a supplier, an origin and a customer
- * carry no field on `ExceptionRow` to join on, and this module invents none (rule P-6).
+ * is the service's. Any other node kind resolves to nothing: a supplier, a material, an origin and a
+ * customer carry no field on `ExceptionRow` to join on, and this module invents none (rule P-6).
  *
  * @param urgentRows - The urgent exceptions, in the service's own order.
  * @param node - The node the canvas holds as selected, if one is.
@@ -551,10 +571,9 @@ function resolveSelectedException(
 /**
  * One health card per product the urgent exceptions touch (AAP §0.12.4: "a health card per product").
  *
- * See gap 2 in the module note: the port declares no product-health and no product-name read, so each
- * card is built from the product identifiers the exception rows themselves carry and is named by that
- * identifier — the record's own spelling rather than an invented name, and the one spelling the card's
- * heading prints because there is no second fact to put beside it. The one figure a card shows is
+ * The port declares no product-health and no product-name read, so each card is built from the product
+ * identifiers the exception rows themselves carry and is named by that identifier — the record's own
+ * spelling rather than an invented name. The one figure a card shows is
  * the revenue at risk the exception row that first reaches the product states, captioned with that
  * exception named: it is that record's own amount, never a product total, because the port computes
  * no per-product aggregate and summing the rows here would compute a figure in the screen (rule P-6).
@@ -581,8 +600,6 @@ function productHealthOf(urgentRows: readonly ExceptionRow[]): readonly ProductH
 
       health.push({
         productId,
-        /* The port supplies no product name, so the identifier is the only name the records give this
-           card; the heading prints it once rather than twice (see gap 2). */
         productName: productId,
         figures: [
           {
@@ -598,178 +615,6 @@ function productHealthOf(urgentRows: readonly ExceptionRow[]): readonly ProductH
   }
 
   return health;
-}
-
-/* ---------------------------------------------------------------------------------------------
- * The seven states, derived in one place from the reads
- * ------------------------------------------------------------------------------------------- */
-
-/** What the state derivation reads: the query set's settled facts and the primary freshness report. */
-interface ScreenStateInput {
-  /** Whether any read the screen needs is still pending. */
-  readonly pending: boolean;
-
-  /** The first refusal or rejection among those reads, when one of them ended in one. */
-  readonly error: unknown;
-
-  /** The freshness report of the first read that settled, when one did. */
-  readonly freshness: readonly Freshness[] | undefined;
-
-  /**
-   * Whether the settled payloads hold anything to draw at all.
-   *
-   * A node to draw or an open exception to stack is content, so this holds when either is present: the
-   * empty state's sentence states that no node and no open exception fall in the selection, and it may
-   * render only when both are absent.
-   */
-  readonly hasContent: boolean;
-}
-
-/**
- * Whether a value is the service's own typed failure.
- *
- * A service call fails by throwing its `Problem` (contracts §2) and the query cache hands that same
- * value back as an `unknown` error, so its three required members are checked before the value is
- * treated as one. A rejection in another shape is a defect in the read rather than a refusal, and the
- * boundary then reports it as an unreachable source rather than printing a member nobody raised.
- *
- * @param error - The value the read rejected with.
- * @returns Whether the value is a `Problem`.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return typeof type === 'string' && typeof message === 'string' && typeof traceId === 'string';
-}
-
-/**
- * Whether a source in the read's freshness report answered in the state asked about.
- *
- * `Result.meta.freshness` is the adapter's own account of what each of the six sources did, so the
- * states are read from that report rather than inferred from a figure (AAP §0.2.1).
- *
- * @param freshness - The read's freshness report.
- * @param state - The state to look for.
- * @returns Whether a source reported it.
- */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/**
- * The source behind a stale canvas, with the display name to print and the instant it last answered.
- *
- * The order book is looked for first, because ERP is the source that gates the approval a planner
- * takes from this screen (AAP §0.2.1), and another stale source is reported when the order book is
- * current. The label comes from `SOURCE_LABELS`, the map that owns the six display names, so the
- * banner and the top bar's pill say the same words about the same source.
- *
- * @param freshness - The read's freshness report.
- * @returns The record the banner names, or `undefined` when no source is stale.
- */
-function staleSourceOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const orderBook = freshness.find(
-    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
-  );
-  const stale = orderBook ?? freshness.find((entry) => entry.state === 'stale');
-
-  if (stale === undefined) {
-    return undefined;
-  }
-
-  return {
-    source: stale.source,
-    label: SOURCE_LABELS[stale.source],
-    asOf: stale.asOf,
-  };
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the read was refused for another reason.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold
- * it and the trace identifier of the refused call. A refusal that named no permission supplies no
- * card rather than one naming a permission nobody was refused for.
- *
- * @param error - The value the read rejected with.
- * @returns The denial, or `undefined`.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * The state this screen's records are in, or `undefined` when no exceptional state holds.
- *
- * The `switch`-free precedence below is the state order AAP §0.12.4 and the boundary's own contract
- * fix: a refusal is reported before a failure, a failure before the pending read, the sources' own
- * reports before the payload's emptiness, and emptiness last, because a scope with nothing in it is a
- * real answer rather than a fault. Emptiness is `hasContent` false — a scope holding neither a node to
- * draw nor an open exception to stack, which is the case the empty sentence states and the only case
- * it renders for. `ScreenState` carries exactly specification §8's seven members and no healthy
- * member, so a current and complete read returns `undefined`, which `StateBoundary` renders as its
- * content alone.
- *
- * @param input - The query set's settled facts and the primary freshness report.
- * @returns The state to render, or `undefined` for no exceptional state.
- */
-function deriveScreenState({
-  pending,
-  error,
-  freshness,
-  hasContent,
-}: ScreenStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    if (error.type === 'permission') {
-      return 'forbidden';
-    }
-
-    return error.type === 'validation' ? 'conflict' : 'offline';
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (pending || freshness === undefined) {
-    return 'loading';
-  }
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleSourceOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return hasContent ? undefined : 'empty';
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -858,7 +703,7 @@ const DEFAULT_LENS: LensId = 'map';
  * with (AAP §0.6.2), so a scope change re-reads the topology, the ribbon and the queue together and a
  * write that invalidates one of those reads reaches this screen:
  *
- * - `getTopology(scope)` — the four node families, the lanes and the pin counts both lenses draw;
+ * - `getTopology(scope)` — the five node families, the lanes and the pin counts both lenses draw;
  * - `getCanvasRibbon(scope)` — the six computed tiles above the canvas;
  * - `listExceptions({ limit }, scope)` — the four most urgent exceptions, in the service's order and
  *   within the service's window, for the right stack;
@@ -942,6 +787,12 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
 
   const topology = topologyQuery.data?.data;
   const ribbonTiles = ribbonQuery.data?.data ?? NO_TILES;
+
+  /*
+   * The ribbon's captions and references, derived once per selection: a tile of one reading keeps one
+   * reference, and a re-render that moves no selection rebuilds no projection (AAP 0.2.1 F12).
+   */
+  const tilePresentation = useMemo(() => ribbonPresentation(scope), [scope]);
   const urgentRows = urgentQuery.data?.data ?? NO_ROWS;
   const auditEvents = trailRefused ? NO_EVENTS : (auditQuery.data?.data ?? NO_EVENTS);
   const atlas = atlasQuery.data?.data;
@@ -1027,11 +878,11 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
    * The state, read from what the three reads the surface needs settled to. A typed refusal outranks an
    * untyped rejection, and none of the three accessory reads is among them: the atlas is the one optional
    * read, because its refusal degrades an overlay rather than the surface; the trail is the dock's
-   * accessory read, because `audit.read` belongs to the auditor and the platform administrator while this
-   * screen is the entry route of the four planning personas — a refused trail states itself in the dock's
-   * events half instead of blanking the canvas those personas land on (rule P-8); and the scenario set is
-   * the preview switch's accessory read, which leaves that switch visibly disabled with the drawing's own
-   * reason for the same end.
+   * accessory read, which the four personas this screen is the entry route of hold, so only a role the
+   * matrix withholds it from is refused and that refusal states itself in the dock's events half instead
+   * of blanking the canvas those personas land on (rule P-8); and the scenario set is the preview
+   * switch's accessory read, which leaves that switch visibly disabled with the drawing's own reason for
+   * the same end.
    *
    * Emptiness is read from the payloads' own content: a scope that draws a node has something to draw
    * even when no exception in it is open, so `hasContent` holds for either half and the empty state
@@ -1051,8 +902,20 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
     ?.meta.freshness;
   const hasContent = nodes.length > 0 || urgentRows.length > 0;
 
-  const state = deriveScreenState({ pending, error: failure, freshness, hasContent });
-  const staleRecord = freshness === undefined ? undefined : staleSourceOf(freshness);
+  /*
+   * The reads' own facts, plus this screen's reading of what they returned: ERP gates the approval a
+   * planner takes from this screen, so the stale notice names it first (AAP §0.2.1), and the canvas has
+   * something to show only once the nodes and the right stack's rows have arrived.
+   */
+  const state = deriveScreenState({
+    isPending: pending,
+    error: failure,
+    freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    hasContent,
+  });
+  const staleRecord =
+    freshness === undefined ? undefined : staleSourceOf(freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord = forbiddenOf(failure);
 
   /** Asks the port for the four reads again, which is what the boundary's retry control does. */
@@ -1078,7 +941,7 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
 
   /** Opens the investigation of the exception the selection reaches (SCR-03's route). */
   function investigate(exceptionId: ExceptionId): void {
-    void navigate(`${EXCEPTIONS_ROUTE}/${encodeURIComponent(exceptionId)}`);
+    void navigate(`${EXCEPTION_QUEUE_PATH}/${encodeURIComponent(exceptionId)}`);
   }
 
   /*
@@ -1120,7 +983,7 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
       >
         {topology === undefined ? null : (
           <>
-            <CanvasRibbon tiles={ribbonTiles} presentation={ribbonPresentation(scope)} />
+            <CanvasRibbon tiles={ribbonTiles} presentation={tilePresentation} />
 
             <div className={TOOLBAR_CLASSES}>
               <div

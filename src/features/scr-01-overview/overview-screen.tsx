@@ -1,49 +1,38 @@
 /**
- * SCR-01 Overview, the page a planner lands on to read what changed and why it matters.
+ * SCR-01 Overview, the page a planner lands on to read what changed and why it matters: the four computed
+ * tiles, the "Changed since your last visit" list, the risk-by-plant table, the revenue-at-risk bars that
+ * narrow the queue and the opened/resolved series, at the route `/overview` in stage S1 (AAP 0.12.4's
+ * SCR-01 row, AAP 0.15.1's row for this path, AAP 0.12.1's `scr-01-overview` screen folder).
  *
- * Implements AAP 0.12.4's SCR-01 row (four computed tiles, the "Changed since your last visit" list,
- * the risk-by-plant table, the revenue-at-risk bars that narrow the queue and the opened/resolved
- * series), AAP 0.15.1's row for this path, and AAP 0.12.1's `scr-01-overview` screen folder. The
- * route is `/overview`, the stage is S1.
+ * Every figure is `getOverview`'s payload, computed by `src/domain/aggregation` over the records the active
+ * scope admits, and this module reaches records only through `useService()` (rule P-2): it derives, rounds
+ * and formats nothing, places the payload's own values, draws its one formatter from
+ * `src/components/mono-value.tsx`, and its one sort reorders the payload's own rows. Each tile and chart
+ * frame carries `SIM_LABELS`' `Simulated calculation` member rather than relying on the page-level badge
+ * (rules P-1, P-6), and every control here acts or opens its own evidence (rule P-8).
  *
- * WHAT ARRIVES ALREADY COMPUTED (rule P-6). Every figure on this page is `getOverview`'s payload,
- * computed by `src/domain/aggregation` over the records the active scope admits. This module derives
- * nothing, rounds nothing, reads no clock and applies no formatting rule of its own: it places the
- * payload's own values, and the only formatter it reaches is `src/components/mono-value.tsx` — through
- * `MonoValue`'s `kind` for the figures it renders as elements, and through that module's exported
- * `formatMoney` for the one text an SVG cannot draw as an element, the bar chart's value label. The
- * only ordering this file performs is the by-plant table's sort, which reorders the payload's own rows
- * and never recomputes a member. The screen is a leaf of the import graph: the shell passes `scope`
- * in, and the screen reaches records only through `useService()` (rule P-2) — never a seed module, an
- * adapter, an API client or a domain module.
- *
- * EVERY FIGURE IS LABELLED AND EVERY CONTROL ACTS (rules P-1 and P-8). Each tile and each chart frame
- * receives `SIM_LABELS`' `Simulated calculation` member, so no computed figure depends on the shell's
- * page-level badge for its label. "Review critical exceptions" really navigates to `/exceptions`, and
- * each revenue bar opens its own evidence and reports the plant it names through `onNarrowQueue`, so
- * no control here is a dead mark.
+ * WHY THE DAY'S CONTROL IS THE SERIES TABLE'S DATE CELL, NOT THE CHART'S MARK. AAP 0.12.4 asks this
+ * series for two things at once: every figure opens its 420 px evidence drawer (principle PR-6), and
+ * the fourteen days' dates filter the queue. One gesture cannot do both — a mark's single activation
+ * opens that day's evidence, so a second effect that navigated to the queue would unmount this screen,
+ * and the drawer with it, before a reader could read a word of it. The mark therefore keeps its
+ * evidence and nothing else, exactly as every other figure does, and the day's own row in the series'
+ * table view carries the narrowing: its date cell is a control named for the day it narrows to, so the
+ * affordance states the effect it performs (rule P-8) and the shared chart primitive keeps the one
+ * contract it already has.
  *
  * GAPS THIS FILE HAS TO REPORT, each recorded where it bites:
  * 1. `Overview` carries no evidence reference for the four tiles, for the by-plant rows or for the
- *    series points, so `aggregateRef` below composes a deterministic reference of its own: the root and
- *    the aggregate's key for a tile (`overview:revenue-at-risk`), the plant's identifier in the
- *    by-plant form and the date and series member in the day form. The service's evidence read answers
- *    all three shapes from the same aggregation modules this screen reads, so each reference opens the
- *    drawer on the figure's own value, formula, inputs and provenance. Each reference also states the
- *    scope the figure was read with, as the `?plants=…&products=…` suffix {@link selectionSuffix}
- *    composes from this screen's `scope` prop: the port's `getEvidence(ref)` carries no scope, so the
- *    reference is the only way the drawer can be computed over the same population the tile was, and a
- *    plant or product chosen in the top bar therefore narrows the evidence exactly as it narrows the
- *    figure (AAP §0.2.1 F12, PR-6). A reference cannot be omitted instead, because `MetricTile`,
- *    `HorizontalBarDatum` and `LinePoint` all require one.
- * 2. `LineChart` exposes no activation callback for a date, so the opened/resolved series cannot
- *    narrow the queue by date. No interactive affordance is rendered for a date, per rule P-8, and
- *    `OverviewNarrowing`'s `date` member is exported for the shell and the sibling screens that can
- *    emit it.
- * 3. `Overview.alternateSourceReadinessPercent` is not one of the four tiles specification SCR-01
+ *    series points, so `aggregateRef` below composes one that names the aggregate and the shell
+ *    selection the figure was read under — `overview:<key>`, with `?plants=<ids>&products=<ids>`
+ *    appended when the top bar's filters name any. The evidence read answers that family from the same
+ *    aggregate over the same resolved scope, so a narrowed screen and a narrowed drawer state one
+ *    figure (AAP 0.2.1 F12, principle PR-6). This gap is closed; the derived reference map is held in
+ *    one `useMemo` so a figure keeps one reference for one reading.
+ * 2. `Overview.alternateSourceReadinessPercent` is not one of the four tiles specification SCR-01
  *    fixes, so it is not rendered here; the surfaces that read material readiness own it.
  */
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router';
@@ -61,24 +50,20 @@ import type { LinePoint, LineSeriesSpec } from '../../components/line-chart';
 import { MetricTile } from '../../components/metric-tile';
 import { MonoValue, formatMoney } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
+import { deriveScreenState, forbiddenOf, staleSourceOf } from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import { APPROVAL_GATE_SOURCE, EXCEPTION_QUEUE_PATH, SIM_LABELS } from '../../types';
 import type {
   ChangedSinceLastVisitItem,
   DailyCountPoint,
-  Freshness,
-  FreshnessState,
   IsoDate,
   Overview,
   PlantId,
   PlantRiskRow,
-  Problem,
   Result,
   Scope,
-  ScreenState,
   SimLabel,
 } from '../../types';
 
@@ -89,106 +74,87 @@ import type {
 /**
  * Every sentence, caption, column header and axis name this screen states.
  *
- * Held in one object so the wording has a single owner, the way the sibling screens hold theirs: the
- * component renders these strings and its suite names them through this object instead of retyping
- * them. The tile captions and the primary action are the words AAP 0.12.4's SCR-01 row fixes; the
- * column headers, captions and axis names are this screen's own, and none of them states a figure, an
+ * Held in one object so the wording has a single owner: the component renders these strings and its suite
+ * names them through this object instead of retyping them. The tile captions and the primary action are
+ * the words AAP 0.12.4's SCR-01 row fixes; the rest are this screen's own, and none states a figure, an
  * amount, an identifier or a date (rule P-6).
  */
 const SCREEN_TEXT = {
   /** The eyebrow above the title: the product name rule P-7 fixes. */
   eyebrow: 'Site Intelligence',
 
-  /** The screen's title, in the one level-one heading it renders. */
   title: 'Overview',
 
-  /** The one action this screen exists to take. */
   primaryAction: 'Review critical exceptions',
 
-  /** The first tile's caption. */
   tileOpenExceptions: 'Open exceptions',
 
-  /** The second tile's caption. */
   tileRevenueAtRisk: 'Revenue at risk',
 
-  /** The third tile's caption. */
   tileCustomerOrdersAtRisk: 'Customer orders at risk',
 
-  /** The fourth tile's caption. */
   tileMedianHours: 'Median hours to approved plan',
 
-  /** The changed-since group's heading. */
   changedSinceTitle: 'Changed since your last visit',
 
-  /** What the changed-since group says when nothing moved. */
   changedSinceEmpty: 'No record has changed since your last visit.',
 
-  /** The risk-by-plant group's heading. */
   byPlantTitle: 'Risk by plant',
 
-  /** The risk-by-plant table's accessible name. */
   byPlantCaption: 'Open exceptions and revenue at risk, by plant',
 
-  /** What the risk-by-plant table says when the scope holds no plant with an open exception. */
   byPlantEmpty: 'No plant in this scope carries an open exception.',
 
-  /** The risk-by-plant table's plant column. */
   columnPlant: 'Plant',
 
-  /** The risk-by-plant table's name column. */
   columnPlantName: 'Name',
 
-  /** The risk-by-plant table's open-exception count column. */
   columnOpenExceptions: 'Open exceptions',
 
-  /** The risk-by-plant table's revenue column. */
   columnRevenueAtRisk: 'Revenue at risk',
 
-  /** The revenue bars' frame title. */
   revenueChartTitle: 'Revenue at risk by plant',
 
-  /** The revenue bars' accessible axis name. */
   revenueChartAxis: 'Revenue at risk',
 
-  /** The revenue bars' table-view name. */
   revenueChartCaption: 'Revenue at risk by plant, as a table',
 
-  /** The series frame's title. */
   seriesChartTitle: 'Exceptions opened and resolved per day',
 
   /** Which series each path is, for a reader who cannot tell them apart by colour. */
   seriesChartDescription:
     'The solid path counts the exceptions opened on each day and the dashed one counts the exceptions resolved.',
 
-  /** The series' accessible axis name. */
   seriesChartAxis: 'Exceptions',
 
-  /** The series series drawn from the days' opened counts. */
   seriesOpenedLabel: 'Opened',
 
-  /** The series series drawn from the days' resolved counts. */
   seriesResolvedLabel: 'Resolved',
 
-  /** The series table view's date column. */
   columnDate: 'Date',
 
-  /** The series table view's opened column. */
   columnOpened: 'Opened',
 
-  /** The series table view's resolved column. */
   columnResolved: 'Resolved',
 
-  /** The series table view's name. */
   seriesChartCaption: 'Exceptions opened and resolved per day, as a table',
+
+  /**
+   * What the series table view's date control does, as the start of a sentence that names the day.
+   *
+   * It is this screen's own wording, not a specification §5.3 label: the control's accessible name is
+   * this sentence followed by the day the row carries, so a reader of the table hears the action and
+   * the day it acts on ("Narrow the queue to 2026-11-21") while the visible text stays the date
+   * (rules P-8 and B-3). It states no figure and no date of its own (rule P-6).
+   */
+  narrowToDay: 'Narrow the queue to ',
 
   /** What the boundary says when the scope holds nothing to report. */
   empty: 'No exception is open in this scope, so there is nothing to summarise.',
 
-  /** What the boundary says when a source answered incompletely. */
   partial:
     'A source behind these figures answered incompletely, so the readings cover the inputs it supplied.',
 
-  /** What the boundary says when the records moved under the reader. */
   conflict: 'These figures were read against records that have since changed. Read the overview again.',
 } as const;
 
@@ -203,62 +169,83 @@ const SCREEN_TEXT = {
  */
 const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
 
-/** The route the primary action reaches. */
-const EXCEPTIONS_ROUTE = '/exceptions';
-
 /**
  * The root of this screen's aggregate references, prefixed to every figure's `evidenceRef`.
  *
- * See gap 1 in the module note: the payload carries no reference for an aggregate figure, so the screen
- * composes one. The shape is the service's too — the root and the aggregate's own key, the plant's
- * identifier in the by-plant form and the date and series member in the day form — so a figure keeps one
- * reference for one reading and the evidence read answers exactly the string composed here.
+ * The evidence read answers `overview:<key>` from the aggregate this screen reads — the same method,
+ * over the same resolved scope — so a figure's drawer states the number the screen drew rather than a
+ * second computation of it (AAP 0.2.1 F12, principle PR-6). The payload carries no reference of its
+ * own, so `aggregateRef` composes one from this root and the aggregate's key; it is stable across
+ * renders, so a figure keeps one reference for one reading.
  */
 const AGGREGATE_REF_ROOT = 'overview';
 
+/** The query parameter a reference carries the shell's plant selection in. */
+const PLANTS_PARAM = 'plants';
+
+/** The query parameter a reference carries the shell's product selection in. */
+const PRODUCTS_PARAM = 'products';
+
+/** The separator a selection's two lists are stated with. */
+const SELECTION_SEPARATOR = ',';
+
 /**
- * The reference one aggregate figure carries: the root, a colon, then the aggregate's own key.
+ * The shell selection a reference carries, as a query suffix.
  *
- * @param key - The aggregate the figure reports, such as `revenue-at-risk`.
- * @param scope - The selection the figure was read with, which the reference states.
- * @returns The reference the figure's `EvidenceRef` and the bar chart's mark carry.
+ * The suffix is present only when the selection names plants or products, so an unnarrowed screen
+ * composes the bare `<root>:<key>` form the evidence read documents. It is what makes the drawer's
+ * figure the screen's figure: the read resolves these filters through the same one scope resolver the
+ * read behind this screen was narrowed by (AAP 0.2.1).
+ *
+ * @param scope - The shell's plant and product selection.
+ * @returns `?plants=…&products=…`, or an empty string when the selection names neither.
  */
-function aggregateRef(key: string, scope: Scope): string {
-  return `${AGGREGATE_REF_ROOT}:${key}${selectionSuffix(scope)}`;
+function selectionQuery(scope: Scope): string {
+  const params: string[] = [];
+
+  if (scope.plants.length > 0) {
+    params.push(`${PLANTS_PARAM}=${scope.plants.join(SELECTION_SEPARATOR)}`);
+  }
+
+  if (scope.products.length > 0) {
+    params.push(`${PRODUCTS_PARAM}=${scope.products.join(SELECTION_SEPARATOR)}`);
+  }
+
+  return params.length === 0 ? '' : `?${params.join('&')}`;
 }
 
 /**
- * The selection a figure's reference states, as the query the evidence read resolves its scope from.
+ * The reference one aggregate figure carries: the root, a colon, the aggregate's own key, then the
+ * selection the figure was read under.
  *
- * The port's `getEvidence(ref)` carries the reference and no scope, so the scope the figure was computed
- * over travels in the reference or not at all — and a drawer that could not see it would compute the
- * figure over the acting persona's whole scope and disagree with the tile it was opened from (AAP
- * §0.2.1 F12, PR-6). The members are the render's own `scope` prop, in the order it states them, spelled
- * with the parameter names `Scope` gives them (`plants`, `products`): nothing is typed here, no filter is
- * re-derived and no selection is widened. A scope naming neither member — the "all plants and all
- * products" selection the shell holds until a filter is chosen — states no selection, which is the bare
- * reference the read has always answered.
- *
- * @param scope - The selection the aggregate read was made with.
- * @returns The `?plants=…&products=…` suffix, or an empty string when the scope names no selection.
+ * @param key - The aggregate the figure reports, such as `revenue-at-risk`.
+ * @param scope - The shell's selection, which the drawer's read narrows by.
+ * @returns The reference the figure's `EvidenceRef` and the chart's mark carry.
  */
-function selectionSuffix(scope: Scope): string {
-  const parameters = [
-    ...(scope.plants.length === 0 ? [] : [`plants=${scope.plants.join(',')}`]),
-    ...(scope.products.length === 0 ? [] : [`products=${scope.products.join(',')}`]),
-  ];
+function aggregateRef(key: string, scope: Scope): string {
+  return `${AGGREGATE_REF_ROOT}:${key}${selectionQuery(scope)}`;
+}
 
-  return parameters.length === 0 ? '' : `?${parameters.join('&')}`;
+/**
+ * The reference one plant's open-exceptions count carries.
+ *
+ * The count and the amount are two figures of one row, so each names its own aggregate: a reference
+ * that named the plant but not which of its readings the reader activated would answer the other figure
+ * (principle PR-6).
+ *
+ * @param plantId - The plant the row reports on.
+ * @param scope - The shell's selection, which the drawer's read narrows by.
+ * @returns The reference the row's count carries.
+ */
+function plantOpenExceptionsRef(plantId: PlantId, scope: Scope): string {
+  return aggregateRef(`plant/${plantId}/open-exceptions`, scope);
 }
 
 /**
  * The reference one plant's revenue reading carries.
  *
- * It states the same selection a tile's reference does, so a by-plant row read under a filter opens the
- * drawer on that row's own figure rather than on the unfiltered aggregate's grouping.
- *
  * @param plantId - The plant the row reports on.
- * @param scope - The selection the figure was read with, which the reference states.
+ * @param scope - The shell's selection, which the drawer's read narrows by.
  * @returns The reference the row's amount and its bar carry.
  */
 function plantRef(plantId: PlantId, scope: Scope): string {
@@ -270,7 +257,7 @@ function plantRef(plantId: PlantId, scope: Scope): string {
  *
  * @param kind - Which of the day's two readings the figure is.
  * @param date - The calendar date the count was taken over.
- * @param scope - The selection the figure was read with, which the reference states.
+ * @param scope - The shell's selection, which the drawer's read narrows by.
  * @returns The reference the point's mark and the table view's cell carry.
  */
 function dayRef(kind: 'open' | 'resolved', date: IsoDate, scope: Scope): string {
@@ -285,10 +272,11 @@ function dayRef(kind: 'open' | 'resolved', date: IsoDate, scope: Scope): string 
  * What activating a figure on this screen asks the shell to do to the exception queue.
  *
  * AAP 0.12.4 fixes both gestures: a revenue bar narrows the queue to the plant it draws, and a date
- * on the opened/resolved series narrows it to that day. `src/types/service.ts` carries no narrowing
- * member on `ExceptionQuery`, so this screen's contract with the shell is declared here rather than
- * restated from the service vocabulary. The `date` member is exported although this screen cannot yet
- * emit it — see gap 3 — because the series' table view and the shell's own controls narrow by date.
+ * on the opened/resolved series narrows it to that day. This screen emits the member and nothing more,
+ * because a screen may not read the shell's store; the shell turns it into the navigation and the day
+ * it carries, and `ExceptionQuery.date` in `src/types/service.ts` is the member the queue's read
+ * narrows by — so the date a reader chose is the date asked of the records, never a filter this screen
+ * re-applies to rows it already has (rule P-2).
  */
 export type OverviewNarrowing =
   | { readonly kind: 'plant'; readonly plantId: PlantId }
@@ -318,18 +306,27 @@ export interface OverviewScreenProps {
 const SCREEN_CLASSES = 'flex min-w-0 flex-col gap-6';
 
 /**
- * The four tiles: one column on a narrow viewport, two from the first breakpoint, four once the page
- * is wide enough for one row. The tracks are equal fractions rather than content-sized, so a long
- * amount cannot push a neighbouring tile out of the row.
+ * The four tiles: one column when the row is narrow, two once it can hold two, four once it can hold
+ * four. The tracks are equal fractions rather than content-sized, so a long amount cannot push a
+ * neighbouring tile out of the row.
+ *
+ * WHY THE COLUMN COUNT FOLLOWS THE ROW'S OWN WIDTH AND NOT THE VIEWPORT'S. From 1280 px the evidence
+ * drawer docks beside the page and reserves its 420 px inside the page (AAP §0.12.4), so the column
+ * this grid is laid out in can be 860 px wide at a 1280 px viewport. A viewport breakpoint cannot see
+ * that: it would keep asking for four tracks, each 195 px, and the widest figure the tiles carry — a
+ * 28 px money run of about 218 px — would render past its own card and be covered by the next one. An
+ * `auto-fit` track with a 17rem floor answers the space actually available instead: four tracks of
+ * 300 px in the full 1248 px row, two of 406 px in the 828 px the docked drawer leaves, one on a
+ * phone — the same column counts this grid produced before, decided by the room it has.
  */
-const TILE_GRID_CLASSES = 'grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4';
+const TILE_GRID_CLASSES =
+  'grid min-w-0 grid-cols-[repeat(auto-fit,minmax(17rem,1fr))] gap-4';
 
 /**
  * The two charts: stacked, then side by side where the page has the width for both.
  *
- * `items-start` keeps each card the height of its own figure rather than stretching the shorter one to
- * match its neighbour, so a two-row bar chart does not leave a card of empty surface beside a line
- * chart that fills its own.
+ * `items-start` keeps each card the height of its own figure rather than stretching the shorter one, so a
+ * two-row bar chart does not leave a card of empty surface beside a line chart that fills its own.
  */
 const CHART_GRID_CLASSES = 'grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-2';
 
@@ -432,20 +429,21 @@ function orderPlantRows(
 }
 
 /**
- * The columns of the risk-by-plant table, and the same list the revenue bars' table view renders so
- * the two representations show identical columns over identical rows.
+ * The columns of the risk-by-plant table, and the same list the revenue bars' table view renders, so the
+ * two representations show identical columns over identical rows.
  *
  * The plant identifier and the amount go through `MonoValue`, so they are set in the tabular mono face
  * AAP 0.5.3 fixes, and each figure is wrapped in `EvidenceRef`, because a figure on this workspace
- * opens the record and formula behind it (rule P-6, principle PR-6). The scope is the one the table's
- * rows were read with, so each row's reference states the population its figure was computed over. Every
- * column is sortable: the table's `onSort` and the chart's table view share one handler, so ordering
- * either one orders both.
+ * opens the record and formula behind it (rule P-6, principle PR-6). Every column is sortable: the
+ * table's `onSort` and the chart's table view share one handler, so ordering either one orders both.
  *
- * @param scope - The selection the by-plant rows were read with.
- * @returns The table's columns, each figure's reference carrying that selection.
+ * The list is built per selection because a row's reference carries the shell's filters: a narrowed
+ * screen must open a narrowed drawer, exactly as its bars and tiles do (AAP 0.2.1).
+ *
+ * @param scope - The shell's plant and product selection.
+ * @returns The columns, with each figure's reference composed for that selection.
  */
-function plantColumns(scope: Scope): readonly TableColumn<PlantRiskRow>[] {
+function plantColumnsOf(scope: Scope): readonly TableColumn<PlantRiskRow>[] {
   return [
     {
       id: 'plantId',
@@ -465,7 +463,9 @@ function plantColumns(scope: Scope): readonly TableColumn<PlantRiskRow>[] {
       sortable: true,
       align: 'end',
       render: (row) => (
-        <EvidenceRef ref={plantRef(row.plantId, scope)}>{row.openExceptions}</EvidenceRef>
+        <EvidenceRef ref={plantOpenExceptionsRef(row.plantId, scope)}>
+          {row.openExceptions}
+        </EvidenceRef>
       ),
     },
     {
@@ -487,18 +487,47 @@ function plantColumns(scope: Scope): readonly TableColumn<PlantRiskRow>[] {
  *
  * This list is the chart's table representation only: the screen itself renders the series as a chart,
  * and the frame's "View as table" swaps one for the other. Each count is wrapped in `EvidenceRef`, so a
- * reader takes the same figure from the table as from the mark, and each reference states the selection
- * the series was read with.
+ * reader takes the same figure from the table as from the mark, and opens the same evidence behind it.
  *
- * @param scope - The selection the series was read with.
- * @returns The table view's columns, each count's reference carrying that selection.
+ * The date cell is where the series narrows the queue to a day (AAP §0.12.4). It is a factory rather
+ * than a constant because the activation belongs to the screen instance that renders it — the handler
+ * arrives as a prop from the shell — and the day it reports is the row's own `date`, so the control
+ * asks the records about the day it prints rather than about a position in the chart.
+ *
+ * THE CONTROL'S NAME IS ONE SENTENCE AND ITS FACE IS THE DAY. The action is stated in
+ * `SCREEN_TEXT.narrowToDay` and the day follows it, so the name begins with what activating the control
+ * does and ends with the day it does it to (rules P-8 and B-3). The sentence is carried as a single
+ * text node and the day it shows is `aria-hidden`, because a name assembled from two elements loses
+ * the space between them in the accessible-name computation — each contributor is trimmed before it is
+ * appended — and a reader would hear "to2026-11-21". Nothing is withheld from a screen reader by that:
+ * the same day is in the name, which is what the control is announced with.
+ *
+ * @param narrowToDate - What an activation asks for: the day the activated row carries.
+ * @param scope - The shell's plant and product selection, which each count's reference carries so the
+ *   table's figure is the one the mark beside it opens, over the same selection.
+ * @returns The three columns of the series' table view, in the order specification SCR-01 reads them.
  */
-function seriesColumns(scope: Scope): readonly TableColumn<DailyCountPoint>[] {
+function seriesColumnsOf(
+  narrowToDate: (date: IsoDate) => void,
+  scope: Scope,
+): readonly TableColumn<DailyCountPoint>[] {
   return [
     {
       id: 'date',
       header: SCREEN_TEXT.columnDate,
-      render: (point) => <MonoValue value={point.date} kind="timestamp" />,
+      render: (point) => (
+        <ActionButton
+          variant="secondary"
+          onClick={() => {
+            narrowToDate(point.date);
+          }}
+        >
+          <span className="sr-only">{`${SCREEN_TEXT.narrowToDay}${point.date}`}</span>
+          <span aria-hidden="true">
+            <MonoValue value={point.date} kind="timestamp" />
+          </span>
+        </ActionButton>
+      ),
     },
     {
       id: 'open',
@@ -520,124 +549,20 @@ function seriesColumns(scope: Scope): readonly TableColumn<DailyCountPoint>[] {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The screen's state, derived in one place from the query outcome and the payload
+ * The screen's own reading of an empty payload
  * ------------------------------------------------------------------------------------------- */
 
-/** What the state derivation reads: the query's settled facts and the payload, if it arrived. */
-interface ScreenStateInput {
-  /** Whether the read is pending. */
-  readonly isPending: boolean;
-
-  /** The rejection the read ended in, when it did. */
-  readonly error: unknown;
-
-  /** The payload the read resolved to, when it did. */
-  readonly result: Result<Overview> | undefined;
-}
-
 /**
- * Whether a value is the service's own typed failure.
+ * Whether the payload holds nothing to report at all: no open exception, no risk row, no changed record.
  *
- * A service call fails by throwing its `Problem` (contracts §2) and the query cache hands that same
- * value back as an `unknown` error, so its three required members are checked before the value is
- * treated as one. A rejection in another shape is a defect in the read rather than a refusal, and the
- * boundary says so without printing a member of a failure nobody raised.
+ * Recognising that here is what lets the boundary show the empty state instead of blank surfaces.
  *
- * @param error - The value the read rejected with.
- * @returns Whether the value is a `Problem`.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return typeof type === 'string' && typeof message === 'string' && typeof traceId === 'string';
-}
-
-/**
- * Whether a source in the read's freshness report answered in the state asked about.
- *
- * `Result.meta.freshness` is the adapter's own account of what each of the six sources did, so the
- * states are read from that report rather than inferred from a figure (AAP 0.2.1).
- *
- * @param freshness - The read's freshness report.
- * @param state - The state to look for.
- * @returns Whether a source reported it.
- */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/**
- * The source behind a stale overview, with the display name to print and the instant it last answered.
- *
- * The order book is looked for first, because ERP is the source that gates the approval the planner
- * takes next (AAP 0.2.1, T-13), and another stale source is reported when the order book is current.
- * The label comes from `SOURCE_LABELS`, the map that owns the six display names, so the banner and the
- * top bar's pill say the same words about the same source.
- *
- * @param freshness - The read's freshness report.
- * @returns The record the banner names, or `undefined` when no source is stale.
- */
-function staleSourceOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const orderBook = freshness.find(
-    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
-  );
-  const stale =
-    orderBook ?? freshness.find((entry) => entry.state === 'stale');
-
-  if (stale === undefined) {
-    return undefined;
-  }
-
-  return {
-    source: stale.source,
-    label: SOURCE_LABELS[stale.source],
-    asOf: stale.asOf,
-  };
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the read was refused for another reason.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold
- * it and the trace identifier of the refused call. A refusal that named no permission supplies no card
- * rather than one naming a permission nobody was refused for.
- *
- * @param error - The value the read rejected with.
- * @returns The denial, or `undefined`.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * Whether the payload holds nothing to report at all.
- *
- * An empty scope is one where no exception is open, no plant carries a risk row and no record changed:
- * the tiles are then the identity the aggregate reports for an empty population, and the two charts
- * and the table have no row to draw. Recognising that here is what lets the boundary show the empty
- * state instead of three blank surfaces.
+ * A plant row is counted rather than merely present, because the aggregate lists one row per plant in
+ * the resolved scope whether or not that plant has risk: a row carrying no open exception and no
+ * revenue is the same identity a missing row would be, so a scope whose every row is the identity has
+ * nothing to show. That is what makes the simulation popover's `empty` trigger render this screen's
+ * empty state — the state specification §8 requires on every screen and AAP §0.12.4 makes structural —
+ * rather than four confident zeros with nothing marking them as no data (T-17).
  *
  * @param overview - The payload the read resolved to.
  * @returns Whether there is nothing to show.
@@ -645,71 +570,29 @@ function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
 function hasNothingToShow(overview: Overview): boolean {
   return (
     overview.openExceptions === EMPTY_COUNT &&
-    overview.byPlant.length === 0 &&
-    overview.changedSinceLastVisit.length === 0
+    overview.changedSinceLastVisit.length === 0 &&
+    overview.byPlant.every(
+      (row) => row.openExceptions === EMPTY_COUNT && row.revenueAtRiskEur === EMPTY_COUNT,
+    )
   );
 }
-
-/**
- * The state this screen's records are in, or `undefined` when no exceptional state holds.
- *
- * The `switch` order is the state precedence: a refusal is reported before a failure, a failure before
- * the pending read, and the sources' own reports before the payload's emptiness. `ScreenState` carries
- * exactly specification §8's seven members and no healthy member, so a current and complete read
- * returns `undefined`, which `StateBoundary` renders as its content alone (rule B-3, AAP 0.12.4).
- *
- * @param input - The query's settled facts and the payload.
- * @returns The state to render, or `undefined` for no exceptional state.
- */
-function deriveScreenState({ isPending, error, result }: ScreenStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    return error.type === 'permission'
-      ? 'forbidden'
-      : error.type === 'validation'
-        ? 'conflict'
-        : 'offline';
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleSourceOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return hasNothingToShow(result.data) ? 'empty' : undefined;
-}
-
 
 /* ---------------------------------------------------------------------------------------------
  * The screen
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * SCR-01 Overview: the four computed tiles, what changed since the last visit, the risk-by-plant
- * table, the revenue-at-risk bars and the opened/resolved series.
+ * SCR-01 Overview: the four computed tiles, what changed since the last visit, the risk-by-plant table,
+ * the revenue-at-risk bars and the opened/resolved series.
  *
  * One read, through the port: `getOverview`, keyed by the method's own name and the scope it was made
  * with (AAP 0.6.2), so a scope change re-reads the overview and a write that invalidates `getOverview`
  * reaches this entry. The settled facts decide the screen's state in one place
  * ({@link deriveScreenState}), and the boundary owns how that state looks. Nothing here writes: the
  * only state the component owns is what the reader chose — the table's ordering and the bar they last
- * activated — so a re-render can never move a record.
+ * activated — so a re-render can never move a record. A day the reader narrows the queue by is
+ * reported to the shell rather than held here: the shell carries it to the queue, and nothing on this
+ * screen's own rendering depends on it (rule P-2).
  *
  * @param props - The shell's plant and product selection, and the handler a figure reports to.
  * @returns The header with the screen's primary action, and the overview inside the state boundary.
@@ -725,22 +608,37 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
    * Retries are off on purpose: a refusal the records' own permissions produce fails the same way
    * however often it is repeated, and the boundary offers the reader an explicit retry for the case
    * where repeating the call can succeed.
+   *
+   * The payload already on screen stays mounted while a narrowed scope re-reads
+   * (`placeholderData: keepPreviousData`), so the revenue bar the reader activated keeps the figure it
+   * draws and the evidence drawer that same gesture opened: substituting the pending state would
+   * unmount the chart, and the drawer with it. What stays up until the new read settles is the outgoing
+   * scope's reading of the same aggregate, never a figure the incoming scope would not report.
    */
   const overviewQuery = useQuery<Result<Overview>, unknown>({
     queryKey: ['getOverview', scope],
     queryFn: () => service.getOverview(scope),
+    placeholderData: keepPreviousData,
     retry: false,
   });
 
   const result = overviewQuery.data;
   const overview = result?.data;
 
+  /*
+   * The read's own facts, plus this screen's reading of its payload: the order book is the source the
+   * approval taken next depends on, so the stale notice names it first (AAP 0.2.1, T-13), and an
+   * empty scope is one where no exception is open, no plant carries a risk row and no record changed.
+   */
   const state = deriveScreenState({
     isPending: overviewQuery.isPending,
     error: overviewQuery.error,
-    result,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    hasContent: overview === undefined ? false : !hasNothingToShow(overview),
   });
-  const staleRecord = result === undefined ? undefined : staleSourceOf(result.meta.freshness);
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord = forbiddenOf(overviewQuery.error);
 
   const byPlant = overview?.byPlant ?? NO_ROWS;
@@ -750,11 +648,31 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
   const orderedByPlant = useMemo(() => orderPlantRows(byPlant, sort), [byPlant, sort]);
 
   /*
+   * The references and the columns this screen's figures carry, derived once per selection: the four
+   * tiles, the by-plant cells, the bars and the series points of one reading then share one reference
+   * per figure, and a re-render that moves no selection moves no reference (AAP 0.2.1 F12).
+   */
+  const tileRefs = useMemo(
+    () => ({
+      openExceptions: aggregateRef('open-exceptions', scope),
+      revenueAtRisk: aggregateRef('revenue-at-risk', scope),
+      customerOrdersAtRisk: aggregateRef('customer-orders-at-risk', scope),
+      medianHoursToApprovedPlan: aggregateRef('median-hours-to-approved-plan', scope),
+    }),
+    [scope],
+  );
+
+  const plantColumns = useMemo(() => plantColumnsOf(scope), [scope]);
+  const seriesColumns = useMemo(
+    () => seriesColumnsOf(narrowToDate, scope),
+    [narrowToDate, scope],
+  );
+
+  /*
    * The bars, one per by-plant row, in the payload's own order: `value` is the amount's magnitude for
    * geometry alone and `valueLabel` is the text a reader sees, formatted by the interface's one money
    * formatter rather than by a rule of this file's, so the bar and the table cell beneath it read the
-   * same amount the same way. Each bar's reference states the selection the rows were read with, so the
-   * drawer opens on the row's own figure.
+   * same amount the same way.
    */
   const bars = useMemo<readonly HorizontalBarDatum[]>(
     () =>
@@ -826,17 +744,9 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
     },
   ];
 
-  /*
-   * The two column lists, built once from the scope the reads were made with so that the risk-by-plant
-   * table, the revenue bars' table view and the series' table view each carry references stating the same
-   * selection their rows were computed over.
-   */
-  const plantTableColumns = plantColumns(scope);
-  const seriesTableColumns = seriesColumns(scope);
-
   const revenueTable: ChartTableSpec<PlantRiskRow> = {
     caption: SCREEN_TEXT.revenueChartCaption,
-    columns: plantTableColumns,
+    columns: plantColumns,
     rows: orderedByPlant,
     getRowKey: (row) => row.plantId,
     sort,
@@ -847,21 +757,9 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
 
   const seriesTable: ChartTableSpec<DailyCountPoint> = {
     caption: SCREEN_TEXT.seriesChartCaption,
-    columns: seriesTableColumns,
+    columns: seriesColumns,
     rows: series,
     getRowKey: (point) => point.date,
-  };
-
-  /*
-   * The four tiles' references, one per computed figure, each stating the selection the overview was
-   * read with: the tile's figure and the drawer's figure are computed over one population, so a plant
-   * or product chosen in the top bar narrows both (AAP §0.2.1 F12, PR-6).
-   */
-  const tileReferences = {
-    openExceptions: aggregateRef('open-exceptions', scope),
-    revenueAtRisk: aggregateRef('revenue-at-risk', scope),
-    customerOrdersAtRisk: aggregateRef('customer-orders-at-risk', scope),
-    medianHoursToApprovedPlan: aggregateRef('median-hours-to-approved-plan', scope),
   };
 
   /** Turns a column's sort control into the next ordering the table and the chart's table share. */
@@ -879,13 +777,28 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
   }
 
   /*
-   * One gesture, two effects, as AAP 0.12.4's SCR-01 row fixes them: the mark opens its own evidence
-   * (the chart owns that half) and the shell is asked to narrow the queue to the plant the bar draws.
-   * The selection is held here only so the chart can mark the bar the reader chose.
+   * One gesture, two effects, as AAP 0.12.4's SCR-01 row fixes them: the mark opens its own evidence —
+   * the chart owns that half, for a pointer and for `Enter` or `Space` alike — and the shell is asked
+   * to narrow the queue to the plant the bar draws. The reader stays on the overview, because the
+   * drawer the same gesture opened is the evidence behind this figure and leaving the screen would
+   * close it; the narrowed queue is reached through this screen's primary action "Review critical
+   * exceptions", or through the queue's navigation entry. The selection is held here only so the chart
+   * can mark the bar the reader chose.
    */
   function narrowToPlant(plantId: string): void {
     setSelectedPlantId(plantId);
     onNarrowQueue?.({ kind: 'plant', plantId });
+  }
+
+  /*
+   * The day the reader narrowed by, asked of the records. The date is the activated row's own, so the
+   * queue is asked about the day the control prints rather than about a position in the table; nothing
+   * is held here, because the shell carries the day to the queue and this screen's rendering does not
+   * depend on it (rule P-2). With no handler in reach the row's figures still open their own evidence,
+   * so the table keeps performing (rule P-8).
+   */
+  function narrowToDate(date: IsoDate): void {
+    onNarrowQueue?.({ kind: 'date', date });
   }
 
   return (
@@ -897,7 +810,7 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
           <ActionButton
             variant="primary"
             onClick={() => {
-              void navigate(EXCEPTIONS_ROUTE);
+              void navigate(EXCEPTION_QUEUE_PATH);
             }}
           >
             {SCREEN_TEXT.primaryAction}
@@ -920,27 +833,27 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
               <MetricTile
                 label={SCREEN_TEXT.tileOpenExceptions}
                 value={overview.openExceptions}
-                evidenceRef={tileReferences.openExceptions}
+                evidenceRef={tileRefs.openExceptions}
                 simLabel={CALCULATION_LABEL}
               />
               <MetricTile
                 label={SCREEN_TEXT.tileRevenueAtRisk}
                 value={overview.revenueAtRiskEur}
                 kind="money"
-                evidenceRef={tileReferences.revenueAtRisk}
+                evidenceRef={tileRefs.revenueAtRisk}
                 simLabel={CALCULATION_LABEL}
               />
               <MetricTile
                 label={SCREEN_TEXT.tileCustomerOrdersAtRisk}
                 value={overview.customerOrdersAtRisk}
-                evidenceRef={tileReferences.customerOrdersAtRisk}
+                evidenceRef={tileRefs.customerOrdersAtRisk}
                 simLabel={CALCULATION_LABEL}
               />
               <MetricTile
                 label={SCREEN_TEXT.tileMedianHours}
                 value={overview.medianHoursToApprovedPlan}
                 kind="hours"
-                evidenceRef={tileReferences.medianHoursToApprovedPlan}
+                evidenceRef={tileRefs.medianHoursToApprovedPlan}
                 simLabel={CALCULATION_LABEL}
               />
             </div>
@@ -964,7 +877,7 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
 
             <Card title={SCREEN_TEXT.byPlantTitle}>
               <DataTable<PlantRiskRow>
-                columns={plantTableColumns}
+                columns={plantColumns}
                 rows={orderedByPlant}
                 getRowKey={(row) => row.plantId}
                 caption={SCREEN_TEXT.byPlantCaption}

@@ -276,6 +276,7 @@ export function PolicyBlockCard({
           <ForbiddenCard
             permission={requiredPermission}
             roles={rolesWithPermission}
+            reason={problem.message}
             traceId={problem.traceId}
           />
         );

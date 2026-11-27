@@ -8,11 +8,11 @@
  *
  * Pure data module (AAP 0.12.1 "Navigation table"; AAP 0.13.1's tree; AAP
  * 0.15.1's high-priority row for `app.tsx`, `router.tsx`, `providers.tsx` and
- * this file). It holds values and the two lookups the shell needs, imports only
- * the `Role` union, and reads nothing: no React, no JSX, no I/O, no clock, no
- * seed record and no service adapter. Every collection and every member is
- * `readonly`, so a consumer cannot reorder the navigation or rewrite an entry at
- * run time.
+ * this file). It holds values and the two lookups the shell needs, imports the
+ * `Role` union and the queue's path from `src/types`, and reads nothing: no
+ * React, no JSX, no I/O, no clock, no seed record and no service adapter. Every
+ * collection and every member is `readonly`, so a consumer cannot reorder the
+ * navigation or rewrite an entry at run time.
  *
  * DERIVATION - section 5.2 is not on disk. The specification's own navigation
  * table (section 5.2) is not part of this repository, so the entries below are
@@ -38,12 +38,13 @@
  * - P-6: routes, screen identifiers and stage numbers only. No threshold, amount,
  *   count, date or record identifier appears, because nothing here is a business
  *   figure.
- * - P-2: `Role` is the only import, so this module cannot become a second data
- *   boundary.
+ * - P-2: a type and one route path are the only imports, so this module cannot
+ *   become a second data boundary.
  * - B-3: an entry's label is the accessible name of the control the shell renders
  *   for it, so a disabled entry is announced together with its reason.
  * - B-2: nothing here reads configuration and nothing resembles a credential.
  */
+import { EXCEPTION_QUEUE_PATH } from '../types/routes';
 import type { Role } from '../types/entities';
 
 /**
@@ -184,7 +185,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       {
         id: 'exceptions',
         label: 'Exceptions',
-        to: '/exceptions',
+        to: EXCEPTION_QUEUE_PATH,
         screenId: 'SCR-02',
         stage: 1,
         disabledReason: null,

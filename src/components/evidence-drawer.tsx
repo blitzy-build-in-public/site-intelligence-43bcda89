@@ -54,6 +54,14 @@
  * reparses. Rendering the dialog into `document.body` keeps the trigger where the sentence needs it
  * and the dialog outside any flow that could break it.
  *
+ * THAT PORTAL IS WHY THE DOCKED COLUMN IS RESERVED ELSEWHERE. The panel is positioned against the
+ * viewport, not against the page, so the page's own flow would make no room for it and a docked
+ * drawer would lie over the content it is supposed to sit beside. The reservation is taken on the
+ * document element instead, by {@link reserveDockedColumn}, and `src/styles/index.css` turns it into
+ * the body's inline-end padding for exactly as long as a docked drawer holds it — AAP §0.12.4's
+ * "docked from 1280 px, an overlay below it", with nothing reserved below the breakpoint, where the
+ * panel covers the viewport rather than sharing it.
+ *
  * THE DRAWER IS A FIGURE CARRIER IN ITS OWN RIGHT, so it prints the label the record carries (rule
  * P-1, AAP §0.10). This is the one place a reader goes to inspect a computed figure, so the value row
  * shows `Evidence.label` — the exact §5.3 string the service attached to that record — beside the
@@ -208,9 +216,15 @@ export const EVIDENCE_DRAWER_TEXT = {
  * outline on `:focus-visible`. `min-h-6 min-w-6` is the 24x24 px minimum target rule B-3 requires,
  * and the colour transition is `motion-safe:` so a reduced-motion session gets the change without
  * the animation.
+ *
+ * `relative` is not decoration: the visually hidden `sr-only` completion of the accessible name is
+ * `position: absolute`, so without a positioned ancestor it resolves against the initial containing
+ * block and escapes the box of whatever scrolls around it. A figure inside a table that scrolls
+ * sideways on a narrow viewport would then be laid out at its column's full width in the document
+ * itself, and the page would scroll sideways to reach a string nobody can see.
  */
 const TRIGGER_CLASSES = [
-  'inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control text-left underline',
+  'relative inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control text-left underline',
   'decoration-control-boundary underline-offset-2',
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
@@ -247,6 +261,12 @@ const CONTAINER_CLASSES = 'pointer-events-none fixed inset-0 z-40';
  * browser's default font size is not 16 px. This class list shapes the panel; that query tells the
  * dialog which shape it is in, so the modality claim follows the presentation rather than the
  * stylesheet.
+ *
+ * The 420 px is stated once more, in `--evidence-drawer-dock-width` at the top of `@layer base` in
+ * `src/styles/index.css`, where it reserves the column the panel occupies so the page narrows beside
+ * the panel instead of being covered by it (see {@link reserveDockedColumn}). The two are one value
+ * in two places — a class the panel must carry and a length a stylesheet must know — so a change to
+ * either is a change to both.
  */
 const DRAWER_CLASSES = [
   'pointer-events-auto absolute inset-y-0 start-0 flex w-full min-w-0 flex-col gap-3 overflow-y-auto',
@@ -454,6 +474,60 @@ function useDockedPresentation(): boolean {
   return isDocked;
 }
 
+/**
+ * The attribute the stylesheet reads to reserve the docked column inside the page's own layout.
+ *
+ * An attribute on the document element rather than a class on some wrapper, because there is no
+ * wrapper to put one on: the panel is portalled to `document.body` and the page around it belongs to
+ * the shell, which this folder may not render into (see the module note). The attribute makes the
+ * reservation a fact about the document while a drawer is open — visible to the stylesheet, to a
+ * browser check and to a reader inspecting the page — and `src/styles/index.css` pairs it with the
+ * drawer's width at the same `80rem` breakpoint {@link DOCKED_QUERY} names (AAP §0.12.4).
+ */
+const DOCKED_COLUMN_ATTRIBUTE = 'data-evidence-docked';
+
+/**
+ * The drawers that currently hold the docked column, one entry per mounted docked drawer.
+ *
+ * A count rather than a flag, because the docked drawer is not modal: two figures may be open at
+ * once, each `EvidenceRef` mounting its own drawer, and a flag — or a last-writer-wins attribute —
+ * would let the first drawer to close release a column the second still occupies, sliding the page
+ * back underneath a panel that is still open. The owners are opaque symbols because nothing needs to
+ * name a drawer; only whether the set is empty matters.
+ */
+const dockedColumnOwners = new Set<symbol>();
+
+/**
+ * Reserves the docked column for the caller and answers the release that gives it back.
+ *
+ * Called from the drawer's effect while `isDocked` holds (see the module note for why the column has
+ * to be reserved outside the portal at all). Each call takes its own ownership, so an effect that
+ * runs again — a remount, or a resize that crosses the breakpoint and back — is given a release of
+ * its own as well, and the attribute leaves the document only when the last ownership is released.
+ * Nothing is reserved, and nothing is thrown away, in an environment with no document to reserve it
+ * on.
+ *
+ * @returns The release for this ownership; call it once, from the effect's cleanup.
+ */
+function reserveDockedColumn(): () => void {
+  if (typeof document === 'undefined') {
+    return () => undefined;
+  }
+
+  const owner = Symbol('evidence-drawer');
+
+  dockedColumnOwners.add(owner);
+  document.documentElement.setAttribute(DOCKED_COLUMN_ATTRIBUTE, '');
+
+  return () => {
+    dockedColumnOwners.delete(owner);
+
+    if (dockedColumnOwners.size === 0) {
+      document.documentElement.removeAttribute(DOCKED_COLUMN_ATTRIBUTE);
+    }
+  };
+}
+
 /** Props of {@link EvidenceDrawer}. */
 export interface EvidenceDrawerProps {
   /**
@@ -489,7 +563,9 @@ export interface EvidenceDrawerProps {
  * page behind it as inert while it is open. From 1280 px it docks at 420 px against the inline end
  * (AAP §0.12.4) and claims no modality at all — the attribute is absent rather than `"false"`, so no
  * form of the claim reaches a reader — because the page beside it stays readable and operable.
- * {@link useDockedPresentation} is what tells the two apart.
+ * {@link useDockedPresentation} is what tells the two apart, and while it reports a docked drawer the
+ * column that drawer occupies is reserved on the document element ({@link reserveDockedColumn}), so
+ * the page narrows into the remaining width instead of running on underneath the panel.
  *
  * FOCUS — the effect that moves focus. On mount it records the element that had focus, moves focus
  * to the dialog itself (not to its first control, so a screen reader announces the dialog's name and
@@ -538,6 +614,20 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
       }
     };
   }, []);
+
+  /* The docked panel shares the page rather than covering it, so the column it occupies is reserved
+     on the document while it is docked and given back when it closes or when the viewport drops
+     below the breakpoint again: `src/styles/index.css` pads the body's inline end by the drawer's
+     width exactly while the attribute this effect holds is present (AAP §0.12.4). The reservation is
+     ref-counted by {@link reserveDockedColumn}, so the two docked drawers a reader may have open at
+     once keep the column until the last of them closes. */
+  useEffect(() => {
+    if (!isDocked) {
+      return undefined;
+    }
+
+    return reserveDockedColumn();
+  }, [isDocked]);
 
   const problem = asProblem(error);
   const forbidden = toForbidden(problem);
@@ -983,7 +1073,7 @@ function toForbidden(problem: Problem | null): StateBoundaryForbidden | null {
     return null;
   }
 
-  return { permission, roles, traceId: problem.traceId };
+  return { permission, roles, reason: problem.message, traceId: problem.traceId };
 }
 
 /**

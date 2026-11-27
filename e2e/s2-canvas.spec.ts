@@ -19,15 +19,14 @@
  * assertions read those words rather than a class, a colour or a geometry value (rule B-3, AAP 0.18.2
  * "never assert colour or geometry as a value").
  *
- * WHICH NODES THE CHAIN RESOLVES TO, AND THE TWO GAPS RECORDED. T-19's specification row speaks of
- * "the three named materials and the one supplier". The canvas's topology carries four node families —
- * plants, suppliers, tier-2 origins and customers — and no material node exists in it: the graph lens
- * keeps the Materials lane, states `No nodes in this view.` inside it and invents nothing to fill it
- * (`src/components/dependency-graph.tsx`), which AAP 0.12.2's four-family payload confirms. The chain
- * this test walks is therefore the one the canvas actually draws, read from the rendered graph: the
- * three tier-2 origins feeding the selected exception's plant (the sources behind its materials) and
- * the one supplier their lanes pass through. Both gaps are marked `GAP:` at the assertion that would
- * have stated otherwise, and neither is worked around silently.
+ * WHICH NODES THE CHAIN RESOLVES TO. T-19's specification row speaks of "the three named materials and
+ * the one supplier", and the canvas carries both families: the topology names a material as a node of
+ * its own (AAP 0.7, 0.12.2), the graph lens draws each one in the Materials lane, and the lanes a
+ * material carries on to the plants that build its product place it upstream of the plant the selected
+ * exception lands on. The chain this test walks is therefore the one the row names, read from the
+ * rendered graph: the three materials the trace marks and the supplier it reaches. Nothing stands in for
+ * them, so no `GAP:` is recorded against the node families any more; the one gap the file still records
+ * is the selection that reaches no exception, which is asserted at the assertion that states it.
  *
  * WHAT IS DELIBERATELY NOT ASSERTED HERE. The request-origin property is T-20's
  * (`e2e/network-origin.spec.ts`), the seven screen states are T-17's, and the competitive atlas screen
@@ -40,12 +39,11 @@
  * presets, four urgent exceptions, five audit events, one theme-independent selection), the `Severity`
  * union's own member words, and the family words the drawing prints.
  *
- * THE PERSONA EACH TEST RUNS AS, AND WHY IT DIFFERS. The carry-across runs as the head of the supply
- * chain, whose entry route the AAP fixes as `/canvas`. The ribbon, the stack and the dock are read as
- * the auditor instead: the permission matrix grants `audit.read` — the trail the dock's events half
- * shows — to the auditor and the platform administrator alone, so no single persona is both a planning
- * persona and a reader of the trail. The auditor reaches `/canvas` through the navigation entry, which
- * is how a reader of that persona would arrive.
+ * THE PERSONA EVERY TEST RUNS AS. All of them read the surface as the head of supply chain, USR-03:
+ * the canvas is that persona's entry route (AAP 0.7, 0.12.4), and the permission matrix grants it
+ * `exception.read` — the canvas, its ribbon and its queue — together with `audit.read`, the trail the
+ * dock's events half shows. The ribbon, the stack and the dock are therefore read as the persona whose
+ * entry route the canvas is, and no second persona is reached through the navigation to read them.
  *
  * RULES THIS FILE SERVES.
  * - P-1: the persistent `Simulated data` badge is asserted on the route, each of the ribbon's six
@@ -96,8 +94,7 @@ const SYNTHETIC_COMPANY = 'Synthetic company';
  */
 const STAGE_FOUR_REASON = 'Arrives in stage S4';
 
-/** The screen's title, and the region names its two lenses and its stack declare. */
-const CANVAS_TITLE = 'FileMap canvas';
+/** The region names the canvas's ribbon, its two lenses and its stack declare. */
 const RIBBON_REGION = 'Canvas ribbon';
 const MAP_REGION = 'Network map';
 const GRAPH_REGION = 'Dependency graph';
@@ -151,7 +148,10 @@ const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'] as const;
 
 /** The family words the graph lens prints in its table view, which its own drawing announces too. */
 const FAMILY_SUPPLIER = 'Supplier';
-const FAMILY_ORIGIN = 'Tier-2 origin';
+const FAMILY_MATERIAL = 'Material';
+
+/** The sentence a lane the payload carries no nodes for states, so only the Lines stage may show it. */
+const EMPTY_LANE = 'No nodes in this view.';
 
 /** The path column's words: the selection, the two directions of the traced chain, and its complement. */
 const PATH_SELECTED = 'Selected node';
@@ -191,26 +191,36 @@ const LENS_CAPTION_PREFIX = 'Lens in view:';
 const EVIDENCE_DIALOG = 'Evidence';
 const CLOSE_DRAWER = 'Close';
 
+/**
+ * The drawer's four section captions, in the order it renders them, and the refusal that marks a
+ * drawer whose read failed.
+ *
+ * A composed `canvas:<key>` reference names an aggregate rather than a record, and the evidence read
+ * answers that family with the aggregate's own output, so all four sections are what a ribbon figure
+ * must show (AAP 0.2.1 F12, principle PR-6). Both strings are restated here because a browser spec
+ * compares rendered text.
+ */
+const EVIDENCE_SECTIONS: readonly string[] = [
+  'Value and formula',
+  'Source, record and time',
+  'Inputs, upstream and downstream',
+  'Confidence, missing inputs and documents',
+];
+const UNRESOLVED_REFERENCE = 'No record family answers the reference';
+
 /* ---------------------------------------------------------------------------------------------
  * The personas this file drives
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The persona T-19 begins as: the head of supply chain, for whom AAP 0.7 fixes `/canvas` as the entry
- * route, which is why the test can assert that the application itself lands there.
+ * The persona every test begins as: the head of supply chain, for whom AAP 0.7 fixes `/canvas` as the
+ * entry route, which is why the tests can assert that the application itself lands there.
+ *
+ * It is also the persona holding both permissions the surface's halves need — `exception.read` for the
+ * canvas, its ribbon and its queue, and `audit.read` for the trail the dock's events half shows — so
+ * the ribbon, the stack and the dock are read as the persona whose entry route the canvas is.
  */
 const CANVAS_PERSONA = 'USR-03';
-
-/**
- * The persona the ribbon, the stack and the dock are read as: the auditor, who holds `exception.read`
- * (the canvas, its ribbon and its queue) and `audit.read` (the trail the dock's events half shows).
- *
- * The permission matrix grants `audit.read` to the auditor and the platform administrator alone, and
- * the canvas is the entry route of the four planning personas, so no single persona is both. This
- * suite therefore reads the whole surface as the one persona who is: the auditor reaches `/canvas`
- * through the navigation entry, exactly as a reader of that persona would.
- */
-const FULL_CANVAS_PERSONA = 'USR-06';
 
 /* ---------------------------------------------------------------------------------------------
  * Reading the page — role and accessible name first, structure only to read a value
@@ -262,7 +272,7 @@ function mapDrawing(page: Page): Locator {
  * summary — so a node is a control a reader would name rather than an index into the drawing.
  */
 function graphNode(page: Page, label: string): Locator {
-  const family = '(?:Tier-2 origin|Supplier|Plant|Customer)';
+  const family = '(?:Tier-2 origin|Supplier|Material|Plant|Customer)';
   return graphDrawing(page).getByRole('button', {
     name: new RegExp(`^${escaped(label)}, ${family} node`),
   });
@@ -272,7 +282,9 @@ function graphNode(page: Page, label: string): Locator {
 function mapNode(page: Page, label: string): Locator {
   return mapDrawing(page)
     .getByRole('group', { name: 'Network nodes' })
-    .getByRole('button', { name: new RegExp(`^${escaped(label)}, (?:Plant|Supplier|Tier-2 origin|Customer)\\.`) });
+    .getByRole('button', {
+      name: new RegExp(`^${escaped(label)}, (?:Plant|Supplier|Material|Tier-2 origin|Customer)\\.`),
+    });
 }
 
 /** The control that switches the canvas to a lens, by its visible label. */
@@ -445,11 +457,7 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
   await expect(graphTable).toHaveCount(0);
 
   /* The chain the test walks, read from the rendered table: the plant the exception lands on, the three
-     tier-2 origins feeding it, and the one supplier their lanes pass through.
-     GAP: T-19's row speaks of "three named materials", and the canvas draws no material node — the
-     Materials lane states `No nodes in this view.` and AAP 0.12.2's topology carries four node
-     families only — so the three sources behind those materials stand in for them, and the lane's own
-     statement is asserted below rather than a node that does not exist. */
+     materials the trace marks upstream of it, and the one supplier the trace reaches. */
   const selectedRows = nodes.filter((node) => node.path === PATH_SELECTED);
   expect(selectedRows).toHaveLength(1);
 
@@ -464,15 +472,22 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
   const upstream = nodes.filter((node) => node.path === PATH_UPSTREAM);
   expect(upstream.length).toBeGreaterThan(0);
 
-  const origins = upstream.filter((node) => node.family === FAMILY_ORIGIN).slice(0, 3);
+  const materials = upstream.filter((node) => node.family === FAMILY_MATERIAL).slice(0, 3);
   const supplier = upstream.find((node) => node.family === FAMILY_SUPPLIER);
-  expect(origins.length).toBe(3);
+  expect(materials.length).toBe(3);
   expect(supplier).toBeDefined();
 
+  /* The Materials lane is a lane of nodes now: each material the trace marks is drawn in it, so the
+     column no longer states that it holds none. The one stage this payload carries no node for is
+     Lines, whose records belong to S4, so that column is the only place the note is left. */
   await expect(graphFrame.getByText('Materials', { exact: true })).toBeVisible();
-  await expect(graphFrame.getByText('No nodes in this view.').first()).toBeVisible();
+  await expect(graphFrame.getByText(EMPTY_LANE)).toHaveCount(1);
 
-  const chain = [...origins, ...(supplier === undefined ? [] : [supplier])];
+  for (const material of materials) {
+    await expect(graphNode(page, material.label)).toHaveCount(1);
+  }
+
+  const chain = [...materials, ...(supplier === undefined ? [] : [supplier])];
 
   /* Every node of the chain is chosen in the graph lens, drawn by the map lens, and found again as the
      selection once the graph lens is back: the carry-across is asserted in both directions, and the
@@ -480,6 +495,14 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
   for (const node of chain) {
     await graphNode(page, node.label).first().click();
     await expect(graphFrame.getByText(node.label, { exact: true }).last()).toHaveText(node.label);
+    /* The frame's own caption states the selection in words, so every node of the chain — the three
+       materials included — is proven to be the selection rather than merely present in the drawing
+       (rule B-3). */
+    await expect(
+      graphFrame.getByText(
+        new RegExp(`^Emphasis traces the upstream and downstream path of ${escaped(node.label)};`),
+      ),
+    ).toBeVisible();
 
     await lensControl(page, MAP_LENS).click();
     await expect(lensCaption(page, MAP_LENS)).toBeVisible();
@@ -488,13 +511,19 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
     await lensControl(page, GRAPH_LENS).click();
     await expect(lensCaption(page, GRAPH_LENS)).toBeVisible();
     await expect(graphFrame.getByText(node.label, { exact: true }).last()).toHaveText(node.label);
+    await expect(
+      graphFrame.getByText(
+        new RegExp(`^Emphasis traces the upstream and downstream path of ${escaped(node.label)};`),
+      ),
+    ).toBeVisible();
   }
 
   /* The canvas opens the selection on a plant, which is the selection that reaches an exception.
-     GAP: a supplier, an origin and a customer carry no member of an exception row to join on, so a
-     non-plant selection reaches no exception and the dock states that gap instead of projecting one —
-     the screen's own rule, asserted by its component suite as well. The assertion below records the
-     behaviour T-19's row would otherwise have stated differently; it is not a workaround. */
+     GAP: a supplier, a material, an origin and a customer carry no member of an exception row to join
+     on, so a non-plant selection reaches no exception and the dock states that gap instead of
+     projecting one — the screen's own rule, asserted by its component suite as well. The assertion
+     below records the behaviour T-19's row would otherwise have stated differently; it is not a
+     workaround. */
   await expect(page.getByRole('region', { name: DOCK_REGION })).toHaveCount(0);
   await expect(page.getByRole('button', { name: INVESTIGATE })).toHaveCount(0);
 
@@ -536,10 +565,7 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
 test('the ribbon, the right stack and the dock report one selection', async ({ page }) => {
   test.setTimeout(120_000);
 
-  await page.goto('/');
-  await switchRole(page, FULL_CANVAS_PERSONA);
-  await page.getByRole('link', { name: CANVAS_TITLE }).click();
-  await expect(page).toHaveURL(/\/canvas$/);
+  await landAs(page, CANVAS_PERSONA, /\/canvas$/);
   await expect(simulatedDataBadge(page)).toBeVisible({ timeout: 30_000 });
 
   /* The ribbon: six computed tiles, each labelled with the §5.3 string and each opening its own
@@ -560,6 +586,21 @@ test('the ribbon, the right stack and the dock report one selection', async ({ p
     await trigger.click();
     const drawer = page.getByRole('dialog', { name: EVIDENCE_DIALOG, exact: true });
     await expect(drawer).toBeVisible();
+
+    if (index === 0) {
+      /* One of the six is read in full: the tile's reference is the composed `canvas:<key>` form, and
+         the evidence read answers it with the aggregate's own output, so the drawer states all four of
+         its sections and reports no unresolved reference (AAP 0.2.1 F12, principle PR-6). */
+      for (const section of EVIDENCE_SECTIONS) {
+        await expect(
+          drawer.getByRole('region', { name: section }),
+          `the ribbon figure's evidence states its “${section}” section`,
+        ).toBeVisible();
+      }
+
+      await expect(drawer).not.toContainText(UNRESOLVED_REFERENCE);
+    }
+
     await drawer.getByRole('button', { name: CLOSE_DRAWER, exact: true }).click();
     await expect(drawer).toHaveCount(0);
   }

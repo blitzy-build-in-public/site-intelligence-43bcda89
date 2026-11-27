@@ -5,7 +5,7 @@
  * rather than from the implementation's shape: the bundled boundary file is the only geographic source
  * and no request is made for it (rule B-1, T-20); the three zoom levels and the five presets move the
  * projection; the five presets are native controls that report the view they were asked for; each of
- * the four node families reaches the map as a labelled, focusable control whose accessible name states
+ * the five node families reaches the map as a labelled, focusable control whose accessible name states
  * the family and the evidence-pin counts per state (rules B-3, P-6); activating a node reports the
  * selection and opens the evidence drawer for the reference the required mapper resolves for it, a
  * node the mapper cannot resolve declaring no drawer and opening none (rule P-8); the two zoom
@@ -60,13 +60,15 @@ function pinCounts(stated: Partial<PinCounts>): PinCounts {
 }
 
 /**
- * An eight-node network: two nodes of every family, the two lanes of the client's own chain, and pin
- * counts that between them cover each of the six `PinState` members.
+ * A ten-node network: two nodes of every family, the materials placed at the sites they ship from, the
+ * four lanes of the client's own chain, and pin counts that between them cover each of the six
+ * `PinState` members.
  *
  * The coordinates sit across Europe, the Gulf of Mexico and Japan so every node lands inside the world
  * view at every zoom level, which keeps a projection assertion about scale rather than about clipping.
  * A node absent from `pinsByNode` carries no pins, which is the case the accessible name states as
- * "No evidence pins".
+ * "No evidence pins" — and which is the only reading a material node has, because no evidence pin is
+ * attached to a material record.
  */
 const TOPOLOGY: Topology = {
   plants: [
@@ -100,6 +102,24 @@ const TOPOLOGY: Topology = {
       id: 'node-supplier-second',
       kind: 'supplier',
       label: 'Fjordvik Components',
+      latitude: 57.7,
+      longitude: 11.97,
+      productIds: ['product-two'],
+    },
+  ],
+  materials: [
+    {
+      id: 'node-material',
+      kind: 'material',
+      label: 'Rolled sheet steel',
+      latitude: 48.14,
+      longitude: 11.58,
+      productIds: ['product-one'],
+    },
+    {
+      id: 'node-material-second',
+      kind: 'material',
+      label: 'Fastener set, M8',
       latitude: 57.7,
       longitude: 11.97,
       productIds: ['product-two'],
@@ -143,7 +163,9 @@ const TOPOLOGY: Topology = {
   ],
   lanes: [
     { fromId: 'node-origin', toId: 'node-supplier' },
-    { fromId: 'node-supplier', toId: 'node-plant' },
+    { fromId: 'node-supplier', toId: 'node-material' },
+    { fromId: 'node-material', toId: 'node-plant' },
+    { fromId: 'node-supplier-second', toId: 'node-material-second' },
   ],
   pinsByNode: {
     'node-supplier': pinCounts({ pass: 2, fail: 1 }),
@@ -152,10 +174,11 @@ const TOPOLOGY: Topology = {
   },
 };
 
-/** Every node of the payload, counted across the four families rather than restated as a literal. */
+/** Every node of the payload, counted across the five families rather than restated as a literal. */
 const NODE_COUNT =
   TOPOLOGY.plants.length +
   TOPOLOGY.suppliers.length +
+  TOPOLOGY.materials.length +
   TOPOLOGY.origins.length +
   TOPOLOGY.customers.length;
 
@@ -274,6 +297,49 @@ function nodeMarks(container: HTMLElement): readonly Element[] {
   return [...container.querySelectorAll('svg g[role="button"]')];
 }
 
+/**
+ * The centre of one node's painted mark, read from the mark the drawing put inside its group.
+ *
+ * A supplier is drawn as a circle, whose `cx` and `cy` are its centre; a material is drawn as a hexagon,
+ * whose six vertices average to its centre. The two are compared as rendered values rather than against a
+ * written coordinate, so a case can state that two marks do not coincide without fixing the geometry.
+ *
+ * @param container The rendered lens.
+ * @param label The node label the mark belongs to, read from its accessible name.
+ * @returns The mark's centre, or `undefined` when no node carries that label.
+ */
+function markCentreOf(
+  container: HTMLElement,
+  label: string,
+): readonly [number, number] | undefined {
+  const group = nodeMarks(container).find((element) =>
+    (element.getAttribute('aria-label') ?? '').startsWith(`${label},`),
+  );
+  const circle = group?.querySelector('circle[r="5"]');
+
+  if (circle !== null && circle !== undefined) {
+    return [Number(circle.getAttribute('cx')), Number(circle.getAttribute('cy'))];
+  }
+
+  const vertices = (group?.querySelector('polygon')?.getAttribute('points') ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter((pair) => pair !== '')
+    .map((pair) => pair.split(',').map(Number));
+
+  if (vertices.length === 0) {
+    return undefined;
+  }
+
+  const xs = vertices.map(([x]) => x ?? 0);
+  const ys = vertices.map(([, y]) => y ?? 0);
+
+  return [
+    xs.reduce((total, value) => total + value, 0) / xs.length,
+    ys.reduce((total, value) => total + value, 0) / ys.length,
+  ];
+}
+
 describe('MapCanvas', () => {
   it('draws the bundled boundaries without asking any origin for them', () => {
     const requested = vi.spyOn(globalThis, 'fetch');
@@ -369,6 +435,7 @@ describe('MapCanvas', () => {
     const labels = [
       ...TOPOLOGY.plants,
       ...TOPOLOGY.suppliers,
+      ...TOPOLOGY.materials,
       ...TOPOLOGY.origins,
       ...TOPOLOGY.customers,
     ].map((node) => node.label);
@@ -378,6 +445,20 @@ describe('MapCanvas', () => {
 
       expect(named).toBe(true);
     }
+  });
+
+  it('draws a material off its supplier’s site, so two marks never coincide', () => {
+    const { container } = renderLens();
+
+    const supplier = markCentreOf(container, 'Rheinstern Elektronik');
+    const material = markCentreOf(container, 'Rolled sheet steel');
+
+    expect(supplier).toBeDefined();
+    expect(material).toBeDefined();
+    /* A material carries its supplier's site coordinates, so the drawing is what separates the two
+       marks; the offset is fixed geometry, and a second render draws it at the same point. */
+    expect(material).not.toEqual(supplier);
+    expect(markCentreOf(renderLens().container, 'Rolled sheet steel')).toEqual(material);
   });
 
   it('names every node with its label, its family and the pin counts per state', () => {
@@ -398,6 +479,11 @@ describe('MapCanvas', () => {
     ).toHaveAccessibleName(
       'Kansai alloys origin, Tier-2 origin. Evidence pins: 1 awaiting review, 2 needing review, 1 with no record.',
     );
+    /* A material prints no place label — it stands at the site it ships from — so its name, its family
+       and its pins reach a reader through the accessible name and the table view alone. */
+    expect(
+      screen.getByRole('button', { name: /Rolled sheet steel/ }),
+    ).toHaveAccessibleName('Rolled sheet steel, Material. No evidence pins.');
   });
 
   it('prints a badge for each state a node carries a pin in', () => {

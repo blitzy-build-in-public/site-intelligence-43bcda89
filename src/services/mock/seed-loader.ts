@@ -36,8 +36,9 @@
  *
  * THE SURFACE, STATED ONCE. The whole module is three things: `loadSeed()`, a type-only re-export of
  * every name `src/seed/` declares so sibling modules can type their work without reaching the folder
- * themselves, and the five fixed scalar constants the adapter and the simulation popover address
- * records by. The `SEED` aggregate and every record array stay unexported on purpose: an exported
+ * themselves, and the six fixed scalar constants a consumer addresses the seed by — the four the
+ * adapter and the simulation popover key records on, and the assistant's two fixed texts. The `SEED`
+ * aggregate and every record array stay unexported on purpose: an exported
  * array would let a caller edit a seed module directly and break the reset behaviour this file
  * exists to provide. The option positions `src/seed/exception-scenarios.ts` publishes for the case
  * measured at call time are the one record set the aggregate does not gather, so `loadSeed()` clones
@@ -63,17 +64,19 @@ import type { SeededSolverOption, SeedRecordSet } from '../../seed';
 export type * from '../../seed';
 
 /* ---------------------------------------------------------------------------------------------
- * Scalar constants — the five names a consumer addresses records by
+ * Scalar constants — the six names a consumer addresses the seed by
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The fixed scalar constants of the record set, re-exported so no adapter, screen or control types
- * their value instead:
+ * The fixed scalar constants of the record set and of the assistant's fixed text, re-exported so no
+ * adapter, screen or control types their value instead:
  * - `BASELINE_CASE_ID` — the solver case the default exception is resolved against (AAP 0.8);
  * - `MARKET_PACK_VERSION` — the market-intelligence pack's release label;
  * - `SEEDED_EVENT_COUNT` — the number of events the seeded audit chain holds at start;
  * - `TAMPER_TARGET_ID` — the seeded event the simulation popover edits;
- * - `UNSCRIPTED_NOTICE` — the assistant's fixed answer outside its scripted questions.
+ * - `UNSCRIPTED_NOTICE` — the assistant's fixed answer outside its scripted questions;
+ * - `UNSCRIPTED_MISSING_INPUT` — the diagnostic that answer lists as the input it lacked (contracts
+ *   §10).
  *
  * The `SEED` aggregate and the record arrays are deliberately absent from this list.
  */
@@ -82,6 +85,7 @@ export {
   MARKET_PACK_VERSION,
   SEEDED_EVENT_COUNT,
   TAMPER_TARGET_ID,
+  UNSCRIPTED_MISSING_INPUT,
   UNSCRIPTED_NOTICE,
 } from '../../seed';
 

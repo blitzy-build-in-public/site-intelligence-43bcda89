@@ -37,11 +37,13 @@
  *
  * THE CORRELATION IDENTIFIER, DERIVED BECAUSE NO INPUT FIXES ITS PATTERN. contracts §1 fixes an
  * identifier pattern for every record it names and none for `traceId`, so `traceIdFor` derives one
- * from the demonstration day and the adapter's request counter: the day token comes from the constant
- * clock, and the counter is read and never incremented, so the identifier of a call is reproducible
- * and every event, result and failure of one call quotes the same value. The seeded trail occupies
- * the six-digit `TRC-nnnnnn` block and its authored events the `TRC-9nnnnn` block, so a live call's
- * identifier carries the day in front of the counter and cannot be mistaken for a seeded one.
+ * from the demonstration day and the ticket the adapter took for the call: the day token comes from
+ * the constant clock, and the ticket is the number the adapter writes once, at the call's entry, before
+ * it awaits anything. Spelling the identifier from that number rather than from the counter as it
+ * stands is what makes every event, result and failure of one call quote the same value while the
+ * session's other calls are in flight. The seeded trail occupies the six-digit `TRC-nnnnnn` block and
+ * its authored events the `TRC-9nnnnn` block, so a live call's identifier carries the day in front of
+ * the ticket and cannot be mistaken for a seeded one.
  *
  * WHAT A VERIFICATION SHOWS, AND WHAT IT DOES NOT. `verifyAuditChain` returns `verifyChain`'s report
  * unchanged: how many events were recomputed, every break as a `{ sequence, id }` pair, and how long
@@ -93,7 +95,7 @@ import type {
 import { runExclusive } from '../mock-state';
 import type { HandlerContext, MockState } from '../mock-state';
 import { SEEDED_EVENT_COUNT } from '../seed-loader';
-import { isSimulationOn } from '../simulation';
+import { demonstrationForbiddenReason, isSimulationOn } from '../simulation';
 
 /* ---------------------------------------------------------------------------------------------
  * The draft a caller supplies — AAP 0.12.1, contracts §6
@@ -236,22 +238,24 @@ const TRACE_COUNTER_DIGITS = 6;
 const DAY_TOKEN_WIDTH = 10;
 
 /**
- * The correlation identifier of the call the session is serving.
+ * The correlation identifier of one call, spelled from the ticket the call was given.
  *
  * contracts §1 fixes no pattern for a trace identifier while fixing one for every record it names, so
- * the form is derived here: the demonstration day from the constant clock, a hyphen, then the
- * adapter's request counter zero-padded. The counter is read and never incremented — the adapter owns
- * that — so a handler can stamp an event and build a failure with the same identifier, and the same
- * call always yields the same one. The seeded blocks are untouched by it: `TRC-nnnnnn` and
- * `TRC-9nnnnn` hold no day token.
+ * the form is derived here: the demonstration day from the constant clock, a hyphen, then the ticket
+ * zero-padded. The ticket is the number the adapter writes once, at the call's entry, before it awaits
+ * anything — it is not read from the session's counter here, because that counter moves under a call
+ * that is in flight and two calls served together would then be spelled with one value. Minting the
+ * identifier once per call is what makes an identifier a reader quotes lead back to exactly one call,
+ * which is the whole of this application's observability (AAP 0.18.1). The seeded blocks are untouched
+ * by it: `TRC-nnnnnn` and `TRC-9nnnnn` hold no day token.
  *
- * @param state - The session whose request counter is read. The state is not modified.
+ * @param ticket - The call's own number, taken from the session's counter by the adapter.
  * @returns The identifier, for the event an append records and the `Problem` a refusal throws.
  */
-export function traceIdFor(state: MockState): string {
+export function traceIdFor(ticket: number): string {
   const dayToken = DEMO_CLOCK.slice(0, DAY_TOKEN_WIDTH).replaceAll('-', '');
 
-  return `${TRACE_PREFIX}${dayToken}-${String(state.requestCount).padStart(TRACE_COUNTER_DIGITS, '0')}`;
+  return `${TRACE_PREFIX}${dayToken}-${String(ticket).padStart(TRACE_COUNTER_DIGITS, '0')}`;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -272,7 +276,7 @@ const DEFAULT_ACTOR_TYPE: AuditActorType = 'user';
  * demonstration control rather than production authorisation (rule P-3); the adapter evaluates them
  * itself regardless of what a screen offered, so a bypassed control grants nothing.
  *
- * @param ctx - The call's context, whose state supplies the trace and whose persona the reason names.
+ * @param ctx - The call's context, whose trace the failure carries and whose persona the reason names.
  * @param message - The reason, in the plain words the caller supplies.
  * @returns The `Problem` to throw.
  */
@@ -280,7 +284,7 @@ function auditReadProblem(ctx: HandlerContext, message: string): Problem {
   return {
     type: 'permission',
     message,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     requiredPermission: AUDIT_READ,
     rolesWithPermission: rolesWith(AUDIT_READ),
   };
@@ -304,7 +308,7 @@ function requireAuditRead(ctx: HandlerContext): void {
   if (isSimulationOn(ctx.state, 'forbidden')) {
     throw auditReadProblem(
       ctx,
-      `The audit trail is not readable in this state; reading it requires the ${AUDIT_READ} permission.`,
+      demonstrationForbiddenReason(ctx.actor.role, AUDIT_READ),
     );
   }
 
@@ -320,12 +324,12 @@ function requireAuditRead(ctx: HandlerContext): void {
  * The refusal a request the records cannot honour throws, for a draft that cannot name what it
  * records and for a page position this chain does not hold.
  *
- * @param ctx - The call's context, whose state supplies the trace the failure carries.
+ * @param ctx - The call's context, whose trace the failure carries.
  * @param message - The reason, in the plain words the caller supplies.
  * @returns The `Problem` to throw.
  */
 function validationProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'validation', message, traceId: traceIdFor(ctx.state) };
+  return { type: 'validation', message, traceId: ctx.traceId };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -338,12 +342,12 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  *
  * The two members this function decides are the instant and the correlation identifier, and it decides
  * neither from a clock or a counter it moves: the instant comes from the constant demonstration clock
- * advanced by the chain's own growth (`appendAdvanceSeconds`), and the identifier from the adapter's
- * request counter read as it stands (`traceIdFor`). Everything else is the caller's: the action, the
- * record it is about, the outcome, the policy where one decided it, the two payload halves, and the
- * actor, which defaults to the session's persona because a persona's own action is what most appends
- * record. A policy block passes `'policy'` with the persona it refused, so the refusal is recorded by
- * the mechanism that made it and still names who asked.
+ * advanced by the chain's own growth (`appendAdvanceSeconds`), and the identifier from the call's own
+ * context, which the adapter minted once from the ticket it took at the call's entry. Everything else
+ * is the caller's: the action, the record it is about, the outcome, the policy where one decided it,
+ * the two payload halves, and the actor, which defaults to the session's persona because a persona's
+ * own action is what most appends record. A policy block passes `'policy'` with the persona it refused,
+ * so the refusal is recorded by the mechanism that made it and still names who asked.
  *
  * The sequence number, the `AUD-nnnnnn` identifier, the payload hash, the predecessor's hash and the
  * event hash are all derived by `appendEvent` in `src/domain/audit/chain.ts` from the chain this
@@ -360,6 +364,14 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  * sequences. A draft this function refuses is refused before the queue is taken, so a refusal neither
  * waits behind a write nor holds one up.
  *
+ * The section also binds the chain it works on, once, and pushes onto that same array. The session's
+ * `auditEvents` is a member a reset replaces outright, so reading it again after the digests would
+ * follow whichever chain stood at that moment: an event whose predecessor lives in the old chain would
+ * be pushed onto the new one, and a verification would report a break nobody caused. Binding it keeps
+ * the digests and the push on one array, and the demonstration reset takes this queue for the matching
+ * reason — it installs a freshly hashed chain in place of the session's, and a reset that ran beside a
+ * section could replace it between the digests and the push.
+ *
  * No permission is evaluated here. A caller has already authorised the action it is recording, and a
  * refusal a policy made still has to reach the record — that is the event the policy block card points
  * at. The demonstration's forbidden trigger therefore does not stop an append; it stops the reads.
@@ -368,7 +380,7 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  * what it records is of no use to a reader, and an append cannot be taken back.
  *
  * @param ctx - The call's context: the chain to append to, the persona the event defaults its actor to,
- *   and the counter the trace identifier is derived from. The chain is extended in place.
+ *   and the correlation identifier the event records. The chain is extended in place.
  * @param draft - The event's content, without the identity the chain derives.
  * @returns The complete event, hashed and linked, as the state now holds it.
  * @throws Problem - A `'validation'` failure when the draft names no action or no record.
@@ -385,6 +397,13 @@ export async function appendAuditEvent(
   }
 
   return runExclusive(ctx.state, async () => {
+    // The section's chain, read once. Both digests below are computed over this array and the push has
+    // to land on the same one, so it is bound here rather than read from the session again after the
+    // awaits: a chain replaced in the meantime — the reset installs a freshly hashed one — would take
+    // the push onto its first event with the old tail's predecessor hash, and a verification would
+    // report a break nobody caused (contracts §6).
+    const chain = ctx.state.auditEvents;
+
     const chainDraft: AuditEventDraft = {
       timestamp: instantAfterSeconds(appendAdvanceSeconds(ctx.state)),
       actorType: draft.actorType ?? DEFAULT_ACTOR_TYPE,
@@ -397,12 +416,12 @@ export async function appendAuditEvent(
       ...(draft.policyId === undefined ? {} : { policyId: draft.policyId }),
       before: draft.before ?? null,
       after: draft.after ?? null,
-      traceId: traceIdFor(ctx.state),
+      traceId: ctx.traceId,
     };
 
-    const event = await appendEvent(ctx.state.auditEvents, chainDraft);
+    const event = await appendEvent(chain, chainDraft);
 
-    ctx.state.auditEvents.push(event);
+    chain.push(event);
 
     return event;
   });
@@ -578,7 +597,7 @@ function admitsQuery(event: AuditEvent, query: AuditQuery): boolean {
  *
  * @param ordered - The admitted events, already in the requested order.
  * @param cursor - The position the previous page ended at, or `undefined` for the first page.
- * @param ctx - The call's context, whose state supplies the trace a refusal carries.
+ * @param ctx - The call's context, whose trace a refusal carries.
  * @returns The index the page starts at.
  * @throws Problem - A `'validation'` failure when the cursor names no position of the ordered page.
  */
@@ -664,7 +683,7 @@ export async function getAuditEvent(ctx: HandlerContext, id: AuditEventId): Prom
     const notFound: Problem = {
       type: 'not-found',
       message: `The audit chain holds no event with the identifier ${id}.`,
-      traceId: traceIdFor(ctx.state),
+      traceId: ctx.traceId,
     };
 
     throw notFound;

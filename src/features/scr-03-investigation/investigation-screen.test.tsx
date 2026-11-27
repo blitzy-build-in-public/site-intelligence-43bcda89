@@ -11,7 +11,9 @@
  * evidence, that `Escape` returns focus to the node it was opened from, and that a node with no
  * evidence reference is static text with no focus stop (rule P-8); that the projection labels its zero
  * reference and draws every reading the records state, a negative one included, because `LineChart`
- * never clamps one; that the projection's table view holds the same dates and readings the marks
+ * never clamps one, and that it shades the idle window the record's own zero closing days span — with
+ * no span at all where no day reads zero — naming it in the screen's own words; that the projection's
+ * table view holds the same dates and readings the marks
  * carried and that the chart is unmounted rather than hidden while the table is up (success criterion
  * 9, rule B-3); that the missing-inputs panel lists the inputs the assessment could not read beside
  * the confidence, that the screen states "Cannot compute" instead of a partial figure, and that a
@@ -44,16 +46,12 @@
  * `STATE_BOUNDARY_TEXT`, `VIEW_AS_TABLE_LABELS`, `SIM_LABELS`, `SOURCE_LABELS`, `STATUS_LABEL_CLASS`,
  * `MONO_VALUE_CLASSES`, `CONTROL_STRUCTURE_CLASSES`).
  *
- * OPEN ITEMS THIS SUITE REPORTS RATHER THAN WORKS AROUND.
- * 1. The screen exposes no way to drive a state through a prop: each of the seven is derived from what
- *    the read settled to, so every state case drives it through the stub alone. That is the intended
- *    shape (AAP 0.12.1) and it is why no state case needs a hook in production code.
- * 2. `ScreenState` has no member for "current and complete", so a healthy read passes `undefined` and
- *    the content renders unchanged under the boundary — the case that follows a healthy read asserts
- *    the content, not a state value.
- * 3. `forbidden-card.tsx` does not export the prefix it puts before the permission it names, so
- *    {@link FORBIDDEN_TITLE_PREFIX} restates that one string; and `projected-stock-chart.tsx` does not
- *    export its table's date column header, so {@link DATE_COLUMN_HEADER} restates that one word.
+ * THREE CONSTRAINTS THE SUITE WORKS WITHIN. No state is driven through a prop: the screen derives each of
+ * the seven from what the read settled to, so every state case drives it through the stub alone (AAP
+ * 0.12.1); `ScreenState` has no member for "current and complete", so a healthy read passes `undefined`
+ * and the case following one asserts the content rather than a state value; and two strings the component
+ * layer keeps private are restated once, in {@link FORBIDDEN_TITLE_PREFIX} (the forbidden card's title
+ * prefix) and {@link DATE_COLUMN_HEADER} (the projected stock chart's date column header).
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or reaches outside the service boundary.
@@ -68,11 +66,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { MONO_VALUE_CLASSES } from '../../components/mono-value';
+import { runOutStatement } from '../../components/run-out-reading';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { STATUS_LABEL_CLASS } from '../../components/status-indicator';
 import { CONTROL_STRUCTURE_CLASSES } from '../../components/tooltip';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
-import { APPROVAL_GATE_SOURCE, DEMO_CLOCK, SIM_LABELS, SOURCE_IDS, SOURCE_LABELS } from '../../types';
+import {
+  ALREADY_OWNER_REASON,
+  APPROVAL_GATE_SOURCE,
+  DEMO_CLOCK,
+  SIM_LABELS,
+  SOURCE_IDS,
+  SOURCE_LABELS,
+} from '../../types';
 import type {
   ActiveUser,
   AffectedLine,
@@ -89,6 +95,8 @@ import type {
   Permission,
   Problem,
   Result,
+  RunOut,
+  Scenario,
   ScenarioSet,
   SimLabel,
   SourceId,
@@ -101,14 +109,14 @@ import { INVESTIGATION_TEXT, InvestigationScreen } from './investigation-screen'
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The prefix `forbidden-card.tsx` puts before the permission it names (open item 3).
+ * The prefix `forbidden-card.tsx` puts before the permission it names.
  *
  * The card's own heading is the region's accessible name, and the constant is private to that module,
  * so the one string is stated here once rather than spelled out at every assertion.
  */
 const FORBIDDEN_TITLE_PREFIX = 'Permission required: ';
 
-/** The projection's date column header, which `projected-stock-chart.tsx` keeps private (open item 3). */
+/** The projection's date column header, which `projected-stock-chart.tsx` keeps private. */
 const DATE_COLUMN_HEADER = 'Date';
 
 /* ---------------------------------------------------------------------------------------------
@@ -180,6 +188,25 @@ const SERIES: readonly DailyClosingStockPoint[] = [
   { date: isoDateAt(FIRST_DAY), units: 240 },
   { date: isoDateAt(NEGATIVE_DAY), units: NEGATIVE_READING },
   { date: isoDateAt(LAST_DAY), units: 0 },
+];
+
+/**
+ * A projection whose closing stock runs out inside the window and stays at zero to its end.
+ *
+ * The two zero days are what AAP 0.12.4's shaded idle window covers: the span runs from the first of
+ * them to the last, which this case proves the screen shades and names.
+ */
+const IDLE_WINDOW_SERIES: readonly DailyClosingStockPoint[] = [
+  { date: isoDateAt(FIRST_DAY), units: 240 },
+  { date: isoDateAt(NEGATIVE_DAY), units: 0 },
+  { date: isoDateAt(LAST_DAY), units: 0 },
+];
+
+/** A projection with stock on hand on every day of the window: no idle day, so no shaded span. */
+const STOCK_ALL_WINDOW_SERIES: readonly DailyClosingStockPoint[] = [
+  { date: isoDateAt(FIRST_DAY), units: 240 },
+  { date: isoDateAt(NEGATIVE_DAY), units: NEGATIVE_READING },
+  { date: isoDateAt(LAST_DAY), units: 240 },
 ];
 
 /** The customer order lines the exception puts at risk, which supply the table's promised dates. */
@@ -315,6 +342,79 @@ const NO_OPTIONS: ScenarioSet = {
   tradeOff: 'the service states no trade-off while no option passes its constraint check',
   rejected: [],
 };
+
+/**
+ * The run-out pair the fixture option carries: day four, half way through it.
+ *
+ * Beside the day it states a fraction the mapping reads as the middle of the day, so the reading the
+ * projection composes has to carry both halves of what AAP §0.8 requires rather than the day alone.
+ */
+const OPTION_RUN_OUT: RunOut = { day: 4, fractionOfDay: 0.5 };
+
+/** The option's identifier: an opaque placeholder, as every identifier in this suite is (rule P-6). */
+const OPTION_ID = 'fixture-option';
+
+/** The option's name, which the projection's reading names before the run-out it states. */
+const OPTION_NAME = 'Fixture transfer option';
+
+/**
+ * One response option the option-set read answers with.
+ *
+ * Only the members the projection reads are given values — the pair above, the levers at zero and a
+ * passing constraint check — and the closing-stock series is empty, because no case here draws the
+ * second series: what these cases prove is the reading under the figure's title, while the series the
+ * chart draws is proven elsewhere in this suite.
+ */
+const OPTION: Scenario = {
+  id: OPTION_ID,
+  exceptionId: EXCEPTION_ID,
+  name: OPTION_NAME,
+  origin: 'solver',
+  unitsLate: 0,
+  maxDaysLate: 0,
+  ordersOnTime: 0,
+  ordersTotal: 0,
+  addedCostEur: 0,
+  lineIdleDays: 0,
+  revenueDelayedEur: 0,
+  runOut: OPTION_RUN_OUT,
+  dailyClosingStock: [],
+  orders: [],
+  constraintCheck: 'pass',
+  constraintMessages: [],
+  sideEffects: [],
+  writeBacks: [],
+  levers: { airSets: 0, transferSets: 0 },
+  confidence: CONFIDENCE,
+};
+
+/** The option set the service answers with when it designates {@link OPTION} as the one to read. */
+const DESIGNATED_OPTION: ScenarioSet = {
+  exceptionId: EXCEPTION_ID,
+  scenarios: [OPTION],
+  recommendedId: OPTION_ID,
+  recommendationRule: 'the fewest units late first, then the lowest added cost',
+  tradeOff: 'the service states the trade-off of the option it recommends',
+  rejected: [],
+};
+
+/** The same option held by a set that designates none: the record is there, the choice is not. */
+const UNDESIGNATED_OPTION: ScenarioSet = {
+  exceptionId: EXCEPTION_ID,
+  scenarios: [OPTION],
+  recommendationRule: 'the fewest units late first, then the lowest added cost',
+  tradeOff: 'the service states no trade-off while it recommends nothing',
+  rejected: [],
+};
+
+/**
+ * The sentence the projection states under its title for {@link OPTION}.
+ *
+ * Composed the way the screen composes it — the option's own series label, the screen's joining words,
+ * and the run-out statement the wording module builds from the pair — so the case asserts the reading
+ * rather than a phrase retyped beside it (rule P-6).
+ */
+const OPTION_DESCRIPTION = `${INVESTIGATION_TEXT.selectedSeriesPrefix} ${OPTION_NAME}${INVESTIGATION_TEXT.runOutSeparator}${runOutStatement(OPTION_RUN_OUT)}`;
 
 /** A record the drawer can render in full, so an opened dialog shows content rather than a failure. */
 const EVIDENCE: Evidence = {
@@ -630,6 +730,29 @@ const APPEARANCES = [
 ] as const;
 
 /**
+ * The two conditions that leave "assign to me" disabled, each with the persona the session acts as,
+ * the owner the record states and the sentence the reader receives with the control.
+ *
+ * The sentences are read from the screen's own text map rather than retyped, and the already-owner
+ * member is the `ALREADY_OWNER_REASON` constant the exception queue renders too — one sentence with
+ * one owner for one condition (rule P-8), which this case proves reaches a reader of both screens.
+ */
+const DISABLED_ASSIGN_CONDITIONS = [
+  {
+    condition: 'the session reports no acting persona',
+    actingUser: null,
+    ownerId: OWNER_ID,
+    reason: INVESTIGATION_TEXT.assignUnavailable,
+  },
+  {
+    condition: 'the acting persona already owns the exception',
+    actingUser: ACTIVE_USER,
+    ownerId: ACTOR_ID,
+    reason: ALREADY_OWNER_REASON,
+  },
+] as const;
+
+/**
  * The projection's drawn surface, found by the name it is announced with.
  *
  * `LineChart` names the surface from the series it draws, so the baseline's own label is what locates
@@ -852,6 +975,44 @@ describe('SCR-03 investigation screen', () => {
       ).toBeVisible();
     });
 
+    it('shades the idle window the record’s own zero closing days span, and names it', async () => {
+      port.getExceptionDetail.mockResolvedValue(
+        envelope(detail({ stockSeries: [...IDLE_WINDOW_SERIES] })),
+      );
+
+      renderScreen();
+      await settledScreen();
+
+      const chart = chartSurface();
+      const bands = Array.from(chart.querySelectorAll('rect'));
+
+      // One span, drawn across the plot from the first zero closing day to the last (AAP 0.12.4).
+      expect(bands).toHaveLength(1);
+
+      const band = at(bands, 0, 'shaded idle window');
+      expect(Number(band.getAttribute('width'))).toBeGreaterThan(0);
+      expect(Number(band.getAttribute('height'))).toBeGreaterThan(0);
+
+      // The span carries the screen's own words, so it is not left to the shade alone (rule B-3).
+      expect(within(chart).getByText(INVESTIGATION_TEXT.idleWindowLabel)).toBeVisible();
+    });
+
+    it('shades no idle window where no closing day reads zero', async () => {
+      port.getExceptionDetail.mockResolvedValue(
+        envelope(detail({ stockSeries: [...STOCK_ALL_WINDOW_SERIES] })),
+      );
+
+      renderScreen();
+      await settledScreen();
+
+      const chart = chartSurface();
+
+      // A window with stock on hand every day states no idle span, so nothing is shaded and nothing
+      // claims one (rule P-6).
+      expect(chart.querySelectorAll('rect')).toHaveLength(0);
+      expect(within(chart).queryByText(INVESTIGATION_TEXT.idleWindowLabel)).toBeNull();
+    });
+
     it('replaces the projection with a table of the same dates and readings, and back, from the keyboard', async () => {
       const user = userEvent.setup();
 
@@ -896,6 +1057,30 @@ describe('SCR-03 investigation screen', () => {
 
       expect(screen.queryByRole('table', { name: PROJECTION_CAPTION })).toBeNull();
       expect(projectionSurfaceIsDrawn()).toBe(true);
+    });
+
+    it('states the designated option’s run-out under the figure’s title as the day and its half-day reading', async () => {
+      port.getScenarioSet.mockResolvedValue(optionsEnvelope(DESIGNATED_OPTION));
+
+      renderScreen();
+      await settledScreen();
+
+      /* AAP §0.8 requires the run-out pair rendered as "the day plus a half-day reading such as
+         'midday'", and the sentence names the option it belongs to, so a reader of the projection knows
+         whose supply runs out and when inside that day. */
+      expect(screen.getByText(OPTION_DESCRIPTION)).toBeVisible();
+    });
+
+    it('states no run-out reading where the set designates no option', async () => {
+      port.getScenarioSet.mockResolvedValue(optionsEnvelope(UNDESIGNATED_OPTION));
+
+      renderScreen();
+      await settledScreen();
+
+      /* The set holds the option and its pair, but nothing designates it, so the projection draws the
+         baseline alone and states no reading about an option it does not plot (AAP §0.8). */
+      expect(screen.queryByText(OPTION_DESCRIPTION)).toBeNull();
+      expect(screen.queryByText(runOutStatement(OPTION_RUN_OUT))).toBeNull();
     });
   });
 
@@ -1172,27 +1357,32 @@ describe('SCR-03 investigation screen', () => {
       });
     });
 
-    it('explains a control that cannot act, from the keyboard, without performing it', async () => {
-      const user = userEvent.setup();
+    it.each(DISABLED_ASSIGN_CONDITIONS)(
+      'explains a control that cannot act when $condition, from the keyboard, without performing it',
+      async ({ actingUser, ownerId, reason }) => {
+        const user = userEvent.setup();
 
-      // No acting persona, so there is nobody to assign the exception to.
-      session.activeUser = null;
+        session.activeUser = actingUser;
+        port.getExceptionDetail.mockResolvedValue(
+          envelope(detail({ exception: { ...EXCEPTION, ownerId } })),
+        );
 
-      renderScreen();
-      await settledScreen();
+        renderScreen();
+        await settledScreen();
 
-      const assign = screen.getByRole('button', { name: INVESTIGATION_TEXT.assignToMe });
+        const assign = screen.getByRole('button', { name: INVESTIGATION_TEXT.assignToMe });
 
-      expect(assign).toHaveAttribute('aria-disabled', 'true');
+        expect(assign).toHaveAttribute('aria-disabled', 'true');
 
-      await tabTo(user, assign);
-      expect(assign).toHaveFocus();
-      // The reason is the control's own description, so it reaches a reader the moment focus arrives.
-      expect(assign).toHaveAccessibleDescription(INVESTIGATION_TEXT.assignUnavailable);
+        await tabTo(user, assign);
+        expect(assign).toHaveFocus();
+        // The reason is the control's own description, so it reaches a reader the moment focus arrives.
+        expect(assign).toHaveAccessibleDescription(reason);
 
-      await user.keyboard('{Enter}');
-      expect(port.assignException).not.toHaveBeenCalled();
-    });
+        await user.keyboard('{Enter}');
+        expect(port.assignException).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('both themes', () => {

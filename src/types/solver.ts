@@ -57,15 +57,12 @@
  * - P-4: neither the run-out, nor the series, nor the write-backs below claim anything beyond the
  *   arithmetic that produces them.
  *
- * OPEN ITEM: `SolverResult.confidence` is required by the measure list AAP 0.12.1 states, and the
- * same sentence says the case supplies it, while the `SolverCase` member list the same section
- * fixes — opening stock, finished goods, rate, delayed purchase order, the two levers, the orders
- * and the two window bounds — carries no confidence slot. The confidence is therefore carried on
- * the result, taken from the case's own record by the adapter that composes a `Scenario`, and no
- * member is invented on `SolverCase` to hold it.
- * OPEN ITEM: `SolverFailure.input` names the failing input as a field path (`"airSets"`), because a
- * closed union of member names would have to enumerate every input of every case. The solver states
- * which path it names; the type cannot.
+ * `SolverResult.confidence` is required by the measure list AAP 0.12.1 states, which also says the
+ * case supplies it, while the `SolverCase` members that section fixes carry no confidence slot: the
+ * confidence travels on the result, from the case's own record through the adapter that composes a
+ * `Scenario`, and no member is invented on `SolverCase` to hold it. `SolverFailure.input` names the
+ * failing input as a field path (`"airSets"`), because a closed union of member names would have to
+ * enumerate every input of every case, so the solver states the path and the type cannot.
  */
 
 import type {

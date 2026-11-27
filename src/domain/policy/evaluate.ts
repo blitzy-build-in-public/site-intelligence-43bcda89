@@ -63,36 +63,39 @@
  * - B-1, B-2 and B-3: the module contacts nothing, holds no configuration and no credential, and
  *   writes reasons a screen can show as plain self-contained prose.
  *
- * RULE IDENTITY, RESOLVED. AAP 0.6.3 assigns both blocking conditions — material classified
- * `customer-confidential` and material whose residency is `eu-only` — to POL-007, and AAP 0.12.4
- * names the DOC-0031 block card as the POL-007 card, so this module denies a blocked question under
- * that one identifier rather than splitting the two conditions between rules. `platform-contracts.md`
- * §7.2 is not readable in this run and would be the only input able to move a condition to another
- * rule. POL-005 carries instead the response-option validation gate the policy record
- * `src/seed/policies.ts` states and AAP F7 evaluates: an option whose constraint check fails is not
- * sent for approval, and `decideApprovalRequest` below is that rule's one call site.
- * OPEN ITEM: AAP 0.12.1 lists `./permissions.ts` as this module's dependency, and it is not imported.
- * No predicate needs a permission lookup: who may request or decide, and who may ask the
- * assistant, are matrix cells the adapter evaluates through `hasPermission`, and
- * `Approval.eligibleApproverRoles` is that same matrix read from a record. Importing the matrix here
- * would create a second enforcement point for a question the adapter already owns — the reasoning
- * `./permissions.ts` records for own-vendor redaction — and the `actor` argument is read only for the
- * one fact POL-003 needs, the persona's identifier.
- * OPEN ITEM: `PolicyRecords` and `PolicyAction` are declared in this module rather than in
- * `src/types`, because `platform-contracts.md` defines no shape for either and AAP 0.12.1 fixes only
- * the function signature. `PolicyDecision`, `PolicyOutcome` and the entity types they compose come
- * from `src/types` unchanged; nothing here renames, widens or restates one of them.
- * OPEN ITEM: `Classification` and `Residency` are `string` aliases in `src/types`, so this module
- * cannot be exhaustive over their values. It names the two values POL-007 reads as module constants
- * and interprets no other value of either alias: a classification it does not name is not a blocking
- * condition here, which is why `contracts` §3's full member lists matter when they arrive.
- * OPEN ITEM: `PolicyDecision.policyId` is filled on an allow only where a rule's own condition is what
- * permitted the action — an endpoint on the allowed list, a persona that is not the requester, or a
- * response option whose constraint check passes. An assistant query is permitted by the absence of a
- * blocking condition rather than by one rule's permission, so its allow cites no rule and the member
- * is omitted under `exactOptionalPropertyTypes`.
+ * Which rule owns a block. AAP 0.6.3 assigns both blocking conditions — material classified
+ * `customer-confidential` and material whose residency is `eu-only` — to POL-007, AAP 0.12.4 names
+ * the DOC-0031 block card as the POL-007 card, and contracts §7.2 is the authority that would move a
+ * condition to another rule, so this module denies a blocked question under that single identifier.
+ * POL-005 carries the response-option validation gate instead: an option whose constraint check fails
+ * is not sent for approval (AAP F7, the policy record `src/seed/policies.ts`), and
+ * `decideApprovalRequest` below is that rule's one call site.
+ *
+ * No permission lookup. Who may request or decide, and who may ask the assistant, are matrix cells the
+ * adapter evaluates through `hasPermission`, and `Approval.eligibleApproverRoles` is that same matrix
+ * read from a record, so no predicate here needs one: importing the matrix would create a second
+ * enforcement point for a question the adapter already owns — the reasoning `./permissions.ts` states
+ * for own-vendor redaction — and the `actor` argument is read only for the one fact POL-003 needs, the
+ * persona's identifier.
+ *
+ * The shapes declared here. `PolicyRecords` and `PolicyAction` are declared in this module rather than
+ * in `src/types`, because `platform-contracts.md` defines no shape for either and AAP 0.12.1 fixes
+ * only the function signature; `PolicyDecision`, `PolicyOutcome` and the entity types they compose
+ * come from `src/types` unchanged, and nothing here renames, widens or restates one of them.
+ *
+ * The two open string aliases. `Classification` and `Residency` are `string` aliases in `src/types`,
+ * so this module cannot be exhaustive over their values: it names the two values POL-007 reads as
+ * module constants and interprets no other value of either alias, so a classification it does not name
+ * is not a blocking condition here, which is why contracts §3's full member lists matter.
+ *
+ * When an allow cites a rule. `PolicyDecision.policyId` is filled on an allow only where a rule's own
+ * condition is what permitted the action — an endpoint on the allowed list, a persona that is not the
+ * requester, or a response option whose constraint check passes. An assistant query is permitted by
+ * the absence of a blocking condition rather than by one rule's permission, so its allow cites no rule
+ * and the member is omitted under `exactOptionalPropertyTypes`.
  */
 
+import { SEGREGATION_OF_DUTIES_POLICY_ID } from '../../types';
 import type {
   ActiveUser,
   Approval,
@@ -118,8 +121,14 @@ import type {
  */
 const POL_OUTBOUND_EGRESS: PolicyId = 'POL-001';
 
-/** POL-003: an approval is decided by a persona other than the one who requested it. */
-const POL_SEGREGATION_OF_DUTIES: PolicyId = 'POL-003';
+/**
+ * POL-003: an approval is decided by a persona other than the one who requested it.
+ *
+ * The identifier is `SEGREGATION_OF_DUTIES_POLICY_ID` from `src/types/primitives.ts`, the one
+ * spelling of the rule in the tree, so this engine's denial and the screen that explains the rule
+ * before a decision is attempted cite one value rather than two literals that agree until one moves.
+ */
+const POL_SEGREGATION_OF_DUTIES = SEGREGATION_OF_DUTIES_POLICY_ID;
 
 /**
  * POL-005: a response option whose constraint check reports a breach is not sent for approval.

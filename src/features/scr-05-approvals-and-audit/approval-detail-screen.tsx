@@ -20,10 +20,17 @@
  *   recorded order. Its `meta.freshness` is what the freshness gate below reads.
  * - `getScenarioSet(exceptionId)` is the plan's own option, because `Approval` carries no member for
  *   the side effects an approver has to acknowledge: the option's `sideEffects` are the record's.
- * - `getExceptionDetail(exceptionId)` is the plant the plan lands on (see the gap note below) and the
- *   missing inputs the record states.
+ * - `getExceptionDetail(exceptionId)` is the plant the plan lands on (see what `Approval` does not
+ *   carry, below) and the missing inputs the record states.
  * - `getApprovalOutcome(approvalId)` is the outcome card's two measurements, read only once the plan
  *   is approved, because only an approved plan has a change whose effect can be set beside it.
+ *
+ * A fifth read, `getActiveUser`, goes through the demonstration capability that sits beside the port
+ * rather than through the port itself, and answers who the decision gate below is about. It is taken
+ * on mount rather than read from the persona the provider seeded at start-up, because a reader may
+ * have switched role since: the adapter is enforcing whichever persona the switch selected, and the
+ * gate has to describe the role a decision would actually be evaluated against. The capability is
+ * absent on an adapter without identity, and `skipToken` then reads nothing.
  *
  * Nothing is computed here. The two euro members are the record's, the side-effect figures are the
  * option's, the missing inputs are the exception's, the write-back steps are the approval's, and the
@@ -45,18 +52,29 @@
  *
  * THE DECISION GATE. Approve, reject and request changes each require a comment (AAP §0.12.2), and
  * approve additionally requires every side effect the plan carries to be acknowledged, one control per
- * side effect whose accessible name is {@link sideEffectAcknowledgement} of the plan's plant. The
- * comment and the acknowledgements are held in this component, sent to the port, and never written to
- * a record locally: a refused decision changes nothing on screen except the message the service
- * returned, which is what keeps the service the only author of what happened.
+ * side effect whose accessible name is {@link sideEffectAcknowledgement} of the plan's plant. Who may
+ * decide the plan is read from the record as well: POL-003 keeps its requester from deciding it, and
+ * the record names the roles that may, so a persona the record does not open to meets a disabled
+ * control carrying {@link decisionEligibilityReason} rather than the refusal the service would return
+ * (AAP §0.2.2, rule P-8). The persona that sentence is about is the adapter's own current answer, read
+ * through the demonstration capability's `getActiveUser` on mount rather than taken from the persona
+ * the provider seeded at start-up, so a reader who switched role is judged, and explained to, on the
+ * role the adapter is actually enforcing. That gate blocks only when the persona is known: while the
+ * read is pending or has failed, or the bound adapter carries no identity, the screen falls back to the
+ * comment and acknowledgement gate and to the service's own refusal, because a control disabled on a
+ * fact nobody knows yet is the control rule P-8 forbids. The comment and the acknowledgements are held
+ * in this component, sent to the port, and never written to a record locally: a refused decision
+ * changes nothing on screen except the message the service returned, which is what keeps the service
+ * the only author of what happened.
  *
- * THE SEVEN STATES — `platform-specification.md` §8, AAP §0.12.4. {@link deriveScreenState} is the one
- * place this screen decides which state its records are in, from facts the queries settled to: a
+ * THE SEVEN STATES — `platform-specification.md` §8, AAP §0.12.4. `src/components/screen-state.ts` is
+ * the one place any screen decides which state its records are in, from facts the queries settled to: a
  * permission refusal (of any read, or of a decision) is `forbidden`, a non-`Problem` rejection is
- * `offline`, a validation refusal of the read is `conflict`, a stale gating source is `stale`, an
- * unavailable one is `offline`, an incomplete one is `partial`, a pending read is `loading`, and a
- * route that named no approval is `empty`. A record missing a member this screen shows, or a plan
- * whose option could not be read, is `partial`. `StateBoundary` owns what each state looks like.
+ * `offline`, a validation refusal of the read is `conflict`, a `'not-found'` one is `empty`, a stale
+ * gating source is `stale`, an unavailable one is `offline`, an incomplete one is `partial`, a pending
+ * read is `loading`, and a route that named no approval is `empty`. A record missing a member this
+ * screen shows, or a plan whose option could not be read, is `partial`. `StateBoundary` owns what each
+ * state looks like.
  *
  * PERMISSION AND POLICY FAILURES. A decision refused for permission renders `ForbiddenCard` through
  * the boundary's forbidden state, naming `requiredPermission`, `rolesWithPermission` and `traceId`. A
@@ -65,33 +83,32 @@
  * Neither path creates an approval, a write-back or an audit record locally, and nothing here states
  * that the refusal establishes anything about the deployment (rule P-4).
  *
- * REPORTED GAPS AND DECISIONS.
- * - No text-input or toggle primitive exists in `src/components`, so {@link CommentField} and
- *   {@link AcknowledgementToggle} live in this file as non-exported components, as the file's
- *   instructions require. The comment field is a labelled `<textarea>`; the acknowledgement is a real
- *   toggle button because `ActionButton` accepts no `aria-pressed`, and it composes the shared
- *   `CONTROL_STRUCTURE_CLASSES` and `SECONDARY_CONTROL_CLASSES` so it keeps the same target size,
- *   focus ring and surface as every other control. The exception queue's dismiss reason faces the same
- *   gap.
- * - `Approval` carries no `sideEffects` member and `SideEffect` carries no plant, while AAP §0.12.4
- *   fixes the acknowledgement as "I have read the side effect on <plant>" for "that plan's plant". The
- *   side effects are therefore read from the approved option's own record, and the plant named is the
- *   exception's `plantId` — the plant the plan lands on — rather than a value invented here.
- * - `Approval` carries no missing-input member either, so the missing inputs shown are the exception's
- *   own `missingInputs`, which is the record that assessed them.
- * - `Approval` carries no evidence reference, so the two euro members open the evidence drawer through
- *   the approval's own identifier, exactly as the inbox's figure columns do (`APR-` reference to
- *   `GET /evidence?ref=`).
- * - The cache invalidation after a decision is performed here through `queryClient.invalidateQueries`
- *   with the port member's own name as the key prefix, rather than through a helper owned by the
- *   shell: this module may not import `src/app`, and a write's invalidation is one call per read, so
- *   the grant-exception dialog declares the same helper beside its own write. The reads a decision
- *   moves are named once, below.
- * - No control reviews the outcome (`reviewApprovalOutcome`). AAP §0.12.4's SCR-05 row asks the card
- *   to set planned against resulting figures and asks nothing of a review action, so none is offered
- *   rather than one the inputs do not name.
- * - The side-effect acknowledgements render inside the decision card, above the three controls they
- *   gate, so the gate and the reason for it sit together rather than in a later block.
+ * THE COMPONENTS THIS FILE OWNS. `TextAreaField` and `Button` in `src/components` own the `<textarea>`
+ * and the `<button>` this screen needs (AAP §0.5.2), so {@link CommentField} and
+ * {@link AcknowledgementToggle} compose those primitives and render no native control themselves. Both
+ * stay non-exported components of this file because each joins the primitive to this screen's own copy
+ * rather than owning an element: the comment field is a labelled `TextAreaField` with its hint, and the
+ * acknowledgement is a `Button` carrying `aria-pressed` and composing the shared
+ * `CONTROL_STRUCTURE_CLASSES` and `SECONDARY_CONTROL_CLASSES`, so it keeps the same target size, focus
+ * ring and surface as every other control. Both render inside the decision card, above the three
+ * controls they gate, so the gate and the reason for it sit together.
+ *
+ * WHAT `Approval` DOES NOT CARRY. It declares no `sideEffects` member and `SideEffect` carries no plant,
+ * while AAP §0.12.4 fixes the acknowledgement as "I have read the side effect on <plant>" for "that
+ * plan's plant": the side effects are read from the approved option's own record and the plant named is
+ * the exception's `plantId`, never a value invented here. It carries no missing-input member either, so
+ * the missing inputs shown are the exception's own `missingInputs`, the record that assessed them; and
+ * it carries no evidence reference, so the two euro members open the drawer through the approval's own
+ * identifier as the inbox's figure columns do (`APR-` reference to `GET /evidence?ref=`).
+ *
+ * THE INVALIDATION, AND THE ONE ACTION THE CARD DOES NOT OFFER. The cache is invalidated after a
+ * decision through `queryClient.invalidateQueries` with the port member's own name as the key prefix
+ * rather than through a helper owned by the shell: this module may not import `src/app`, and a write's
+ * invalidation is one call per read, so the grant-exception dialog declares the same helper beside its
+ * own write. The reads a decision moves are named once, below, and both writes invalidate them whichever
+ * way the call settled, because a decision can move the record even when it throws. No control reviews
+ * the outcome (`reviewApprovalOutcome`): AAP §0.12.4's SCR-05 row asks the card to set planned against
+ * resulting figures and names no review action, so none is offered.
  *
  * Rules this module is built to satisfy:
  * - P-1: the two euro members carry `Simulated calculation` from `SIM_LABELS`, every write-back step
@@ -119,24 +136,37 @@ import { useId, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 
+import { Button } from '../../components/button';
 import { Card } from '../../components/card';
 import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
 import { Panel } from '../../components/panel';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
+import { TextAreaField } from '../../components/text-area-field';
 import {
   ActionButton,
   CONTROL_STRUCTURE_CLASSES,
   SECONDARY_CONTROL_CLASSES,
 } from '../../components/tooltip';
-import { useService } from '../../services/service-provider';
+import { useDemonstration, useService } from '../../services/service-provider';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import {
+  APPROVAL_GATE_SOURCE,
+  SEGREGATION_OF_DUTIES_POLICY_ID,
+  SIM_LABELS,
+  SOURCE_LABELS,
+} from '../../types';
 import type {
+  ActiveUser,
   Approval,
   ApprovalId,
   ApprovalOutcome,
@@ -147,13 +177,10 @@ import type {
   Freshness,
   PlantId,
   PolicyId,
-  Problem,
-  ProblemType,
   Result,
   Scenario,
   ScenarioSet,
   Scope,
-  ScreenState,
   SideEffect,
   SimLabel,
   WriteBack,
@@ -299,6 +326,28 @@ export const APPROVAL_DETAIL_TEXT = {
 
   /** The decided sentence's second half. */
   decidedSuffix: 'and a decision is taken on a pending plan alone.',
+
+  /**
+   * The rule that keeps a plan's requester from deciding it, followed by the roles the record names
+   * as able to decide it (rule P-8, AAP §0.12.2). The rule identifier itself is prefixed from the
+   * shared constant, so the sentence opens by naming POL-003 before any attempt is made.
+   */
+  requesterRuleSuffix:
+    'keeps the requester of a plan from deciding it, and the roles that may decide it are',
+
+  /** The same rule, for a record that names no eligible role at all. */
+  requesterNoRoleSuffix:
+    'keeps the requester of a plan from deciding it, and the record names no role as able to decide this one.',
+
+  /** The sentence for an acting role the record does not name, followed by the roles it does name. */
+  actingRolePrefix: 'This plan may be decided by the roles',
+
+  /** The acting-role sentence's second half, which names what went wrong rather than only what is right. */
+  actingRoleSuffix: ', and the acting role is not among them.',
+
+  /** The same refusal for a record that names no eligible role at all. */
+  actingRoleNoRoles:
+    'The record names no role as able to decide this plan, so the acting role cannot decide it.',
 
   /** Why no decision can be taken while one is being recorded. */
   inFlightReason: 'A decision is being recorded.',
@@ -451,50 +500,8 @@ const PROBLEM_TEXT_CLASSES = 'min-w-0 break-words text-12 text-status-fail';
 const LINK_CLASSES = `${CONTROL_STRUCTURE_CLASSES} ${SECONDARY_CONTROL_CLASSES}`;
 
 /* ---------------------------------------------------------------------------------------------
- * The failure a call can produce — platform-contracts.md §2, AAP 0.12.3
+ * The sentence a failure states — platform-contracts.md §2, AAP 0.12.3
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * The causes a `Problem` names, quoted as `ProblemType` spells them.
- *
- * Declared here rather than imported as a value, because `ProblemType` is a type: the list is typed
- * against that union, so a cause the union gains or loses fails this file's compilation instead of
- * letting the guard accept a failure it does not describe.
- */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const satisfies readonly ProblemType[];
-
-/**
- * Whether a rejection is the port's typed failure rather than something the platform threw.
- *
- * A `Problem` is thrown rather than returned (AAP §0.12.3), so a screen that catches a call has to
- * tell the two apart before it can name a cause. Every member checked here is one a `Problem`
- * declares, so a `TypeError` from a broken module reaches the offline rendering rather than being read
- * as a permission refusal it never carried.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
 
 /**
  * The sentence a failure states, in the service's own words, or `undefined` when the rejection was not
@@ -506,32 +513,6 @@ function isProblem(error: unknown): error is Problem {
  */
 function problemMessageOf(error: unknown): string | undefined {
   return isProblem(error) ? error.message : undefined;
-}
-
-/**
- * The denial the forbidden rendering explains, or `undefined` when the failure was not a permission
- * refusal.
- *
- * The evidence is the failure's own: the permission the acting role lacks, the roles that hold it and
- * the correlation identifier of the refused call. A refusal that named no permission supplies no
- * record rather than one naming a permission nobody was refused for.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
 }
 
 /**
@@ -581,8 +562,8 @@ function policyBlockOf(error: unknown): PolicyBlockRecord | null {
 /**
  * The four approval states, quoted as `ApprovalStatus` spells them.
  *
- * Typed against that union for the reason the `Problem` causes are: a status the union gains fails this
- * file's compilation instead of reaching the screen unrendered.
+ * Typed against that union so a status the union gains fails this file's compilation instead of
+ * reaching the screen unrendered.
  */
 const APPROVAL_STATUSES = [
   'pending',
@@ -685,24 +666,6 @@ function gateFreshnessOf(freshness: readonly Freshness[]): Freshness | undefined
 }
 
 /**
- * The record the boundary's stale banner names, or `undefined` unless the gating source reports
- * `stale`.
- *
- * The banner prints the source's display name from `SOURCE_LABELS` and the instant it last answered,
- * both exactly as the record states them, so the banner and the controls cannot describe the staleness
- * differently (AAP §0.2.1, T-13). Nothing is derived from the instant — no age and no duration
- * (rule P-6). A source that did not answer at all is the offline condition {@link deriveScreenState}
- * reports, which is why only `stale` produces this record.
- */
-function staleOrderBookOf(gate: Freshness | undefined): StateBoundaryStale | undefined {
-  if (gate === undefined || gate.state !== 'stale') {
-    return undefined;
-  }
-
-  return { source: gate.source, label: SOURCE_LABELS[gate.source], asOf: gate.asOf };
-}
-
-/**
  * Why the three decision controls cannot act while the gating source is not current, or `null` when it
  * is.
  *
@@ -720,114 +683,6 @@ function gateRefusalReason(gate: Freshness | undefined): string | null {
   const label = SOURCE_LABELS[gate.source];
 
   return `${APPROVAL_DETAIL_TEXT.staleSourcePrefix} ${label} ${APPROVAL_DETAIL_TEXT.staleSourceSuffix} ${label} as of ${gate.asOf}.`;
-}
-
-/* ---------------------------------------------------------------------------------------------
- * The seven states — platform-specification.md §8, AAP 0.12.4
- * ------------------------------------------------------------------------------------------- */
-
-/** What {@link deriveScreenState} reads: what each read and the last write settled to. */
-interface ScreenStateInput {
-  /** Whether the route named an approval at all. */
-  readonly approvalId: ApprovalId | undefined;
-
-  /** Whether the approval read has not answered yet. */
-  readonly isPending: boolean;
-
-  /** What the approval read rejected with, or `null` while it has not. */
-  readonly error: unknown;
-
-  /** The approval read's result, or `undefined` until it settles. */
-  readonly result: Result<Approval> | undefined;
-
-  /** What the plan reads (the option set, the exception) rejected with, or `null`. */
-  readonly planError: unknown;
-
-  /** What the last write rejected with, or `null` when the last write succeeded or none ran. */
-  readonly writeError: unknown;
-}
-
-/**
- * The one place this screen decides which of the seven states its records are in.
- *
- * The failure side comes first, and a permission refusal outranks everything: a decision refused for
- * permission means the acting role may not decide this plan, so the forbidden card that names the role
- * which may act replaces the content rather than sitting beside controls that cannot work. Any other
- * write failure is deliberately *not* a screen state: a refusal that changed nothing is reported in the
- * decision block, in the service's own sentence, so a reader who has typed a comment does not lose the
- * screen they were working in (the pattern the exception queue's dismiss dialog uses).
- *
- * The read's own failure is fixed by the cause a `Problem` names: a permission refusal is `forbidden`, a
- * validation refusal is `conflict` — the record moved under the reader — and every other rejection,
- * including anything the platform threw, is `offline`, because nothing answered for the content.
- *
- * The record side then reads the freshness report the result itself carries, each member as the
- * condition it describes rather than folded into one: `unavailable` is `offline` (no source answered,
- * which is the state the simulation popover's offline trigger produces and the state in which the
- * service refuses a decision), `stale` is `stale` (the figures stay under the banner that names the
- * source and its as-of time), and `partial` is `partial` (the figures are shown with the notice that the
- * read was not whole). An absent entry raises no gate, because a notice naming a source nobody reported
- * would assert a record that does not exist.
- *
- * A route that named no approval is `empty`, a pending read is `loading`, and a record missing a member
- * this screen shows — or a plan whose option could not be read — is `partial`. Every other case returns
- * `undefined`, the boundary's documented "no exceptional state holds".
- */
-function deriveScreenState({
-  approvalId,
-  isPending,
-  error,
-  result,
-  planError,
-  writeError,
-}: ScreenStateInput): ScreenState | undefined {
-  if (approvalId === undefined) {
-    return 'empty';
-  }
-
-  if (forbiddenOf(writeError) !== undefined) {
-    return 'forbidden';
-  }
-
-  if (isProblem(error)) {
-    if (error.type === 'permission') {
-      return 'forbidden';
-    }
-
-    return error.type === 'validation' ? 'conflict' : 'offline';
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (forbiddenOf(planError) !== undefined) {
-    return 'forbidden';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const gate = gateFreshnessOf(result.meta.freshness);
-
-  if (gate !== undefined && gate.state === 'unavailable') {
-    return 'offline';
-  }
-
-  if (gate !== undefined && gate.state === 'stale') {
-    return 'stale';
-  }
-
-  if (gate !== undefined && gate.state === 'partial') {
-    return 'partial';
-  }
-
-  if (!isRenderable(result.data)) {
-    return 'partial';
-  }
-
-  return planError === null || planError === undefined ? undefined : 'partial';
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -918,8 +773,58 @@ function decidedReasonOf(status: ApprovalStatus): string | null {
   return `${APPROVAL_DETAIL_TEXT.decidedPrefix} ${status}, ${APPROVAL_DETAIL_TEXT.decidedSuffix}`;
 }
 
+/**
+ * Why the acting persona cannot decide this approval, or `null` when it can.
+ *
+ * Two facts of the record keep a persona from deciding it, and both are the service's own refusals
+ * stated before the attempt rather than after it (AAP §0.2.2): POL-003 keeps the plan's requester
+ * from deciding it (AAP §0.12.2), and an approval names the roles that may decide it, so a role the
+ * record does not name may not decide *this* plan even where the matrix lets that role decide
+ * others. The sentence names the rule or the roles the record holds, so a reader learns who may act
+ * and not only that they may not (rule P-8).
+ *
+ * An unknown persona blocks nothing: the screen reads the acting persona from the demonstration
+ * capability's fresh `getActiveUser`, which yields `null` while that read is pending or has failed and
+ * on an adapter that carries no identity, and a control disabled on a fact nobody knows yet would be a
+ * control that lies about what it can do. Both halves of the rule stay enforced in the service, which
+ * refuses the decision whether or not a control was reachable (rule P-3).
+ *
+ * Built from the record's own members and from the shared policy constant, so no rule identifier,
+ * role, amount or date is typed here (rule P-6). Exported so the colocated suite calls this function
+ * instead of re-spelling its sentences.
+ *
+ * @param approval - The approval the decision would be taken on.
+ * @param activeUser - The acting persona the adapter reported, or `null` while it is unknown.
+ * @returns The sentence explaining why the acting persona cannot decide, or `null` when it can.
+ */
+export function decisionEligibilityReason(
+  approval: Approval,
+  activeUser: ActiveUser | null,
+): string | null {
+  if (activeUser === null) {
+    return null;
+  }
+
+  const eligibleRoles = approval.eligibleApproverRoles;
+  const namedRoles = eligibleRoles.join(', ');
+
+  if (approval.requestedBy === activeUser.id) {
+    return eligibleRoles.length === 0
+      ? `${SEGREGATION_OF_DUTIES_POLICY_ID} ${APPROVAL_DETAIL_TEXT.requesterNoRoleSuffix}`
+      : `${SEGREGATION_OF_DUTIES_POLICY_ID} ${APPROVAL_DETAIL_TEXT.requesterRuleSuffix} ${namedRoles}.`;
+  }
+
+  if (eligibleRoles.includes(activeUser.role)) {
+    return null;
+  }
+
+  return eligibleRoles.length === 0
+    ? APPROVAL_DETAIL_TEXT.actingRoleNoRoles
+    : `${APPROVAL_DETAIL_TEXT.actingRolePrefix} ${namedRoles}${APPROVAL_DETAIL_TEXT.actingRoleSuffix}`;
+}
+
 /* ---------------------------------------------------------------------------------------------
- * The comment field — a reported gap in `src/components`, owned here
+ * The comment field — this screen's label and hint over the `TextAreaField` primitive
  * ------------------------------------------------------------------------------------------- */
 
 /** Props of {@link CommentField}. */
@@ -932,13 +837,13 @@ interface CommentFieldProps {
 }
 
 /**
- * The decision's comment: a labelled `<textarea>` and the sentence that says why it is required.
+ * The decision's comment: a labelled `TextAreaField` and the sentence that says why it is required.
  *
- * `src/components` declares no text-input primitive and a screen may not render an unlabelled form
- * control, so this component lives here rather than in the shared layer, and the gap is recorded in
- * the module header. The `<label>` is programmatically associated, so the control's accessible name is
- * the visible caption; the hint is its description, so the requirement is announced when the field is
- * reached rather than only once a control refuses. `aria-required` states the requirement the
+ * `TextAreaField` in `src/components` owns the `<textarea>` (AAP §0.5.2), so what this component owns
+ * is the copy a shared primitive must not: the visible caption and the hint. The `<label>` is
+ * programmatically associated with the field's `id`, so the control's accessible name is the visible
+ * caption; the hint is its description, so the requirement is announced when the field is reached
+ * rather than only once a control refuses. `aria-required` states the requirement the
  * `disabledReason` on the buttons enforces, and the control keeps the 24x24 px minimum target and the
  * theme's focus ring.
  */
@@ -951,16 +856,14 @@ function CommentField({ value, onChange }: CommentFieldProps): ReactElement {
       <label htmlFor={fieldId} className={CAPTION_CLASSES}>
         {APPROVAL_DETAIL_TEXT.commentLabel}
       </label>
-      <textarea
+      <TextAreaField
         id={fieldId}
         className={COMMENT_CONTROL_CLASSES}
         value={value}
         rows={3}
         aria-required="true"
         aria-describedby={hintId}
-        onChange={(event) => {
-          onChange(event.target.value);
-        }}
+        onChange={onChange}
       />
       <p id={hintId} className={CAPTION_CLASSES}>
         {APPROVAL_DETAIL_TEXT.commentHint}
@@ -1032,9 +935,11 @@ interface AcknowledgementToggleProps {
 /**
  * One side-effect acknowledgement, as a real toggle.
  *
- * The element is a `<button type="button">` carrying `aria-pressed`, rather than a native checkbox:
- * `src/components` declares no checkbox primitive, and the shared `ActionButton` accepts no
- * `aria-pressed`, so the toggle is composed from the class lists that component owns
+ * `Button` in `src/components` owns the `<button>` and takes `aria-pressed` (AAP §0.5.2), so this
+ * component composes it rather than the element. The control is a pressed toggle rather than a native
+ * checkbox because the acknowledgement is an action the reader takes on the plan at the moment of
+ * deciding it, not a form value submitted with the plan, and because `src/components` declares no
+ * checkbox primitive. The class list composes the same lists `ActionButton` owns
  * (`CONTROL_STRUCTURE_CLASSES` for the target size, boundary and focus ring, `SECONDARY_CONTROL_CLASSES`
  * for the surface and its pointer states) and adds the pressed treatment as an `aria-pressed` variant.
  * Its visible text is the whole accessible name, character for character
@@ -1049,14 +954,13 @@ function AcknowledgementToggle({
 }: AcknowledgementToggleProps): ReactElement {
   return (
     <span className={ACKNOWLEDGEMENT_ROW_CLASSES}>
-      <button
-        type="button"
+      <Button
         aria-pressed={acknowledged}
         onClick={onToggle}
         className={`${CONTROL_STRUCTURE_CLASSES} ${SECONDARY_CONTROL_CLASSES} ${ACKNOWLEDGEMENT_PRESSED_CLASSES}`}
       >
         {sideEffectAcknowledgement(plantId)}
-      </button>
+      </Button>
       <StatusIndicator
         meaning={acknowledged ? 'pass' : 'empty'}
         label={
@@ -1262,16 +1166,18 @@ export interface ApprovalDetailScreenProps {
 /**
  * The approval detail.
  *
- * Four reads through `useService()` (rule P-2), the state its records are in decided in one place, and
- * two writes — a decision and a write-back retry — that go to the port and invalidate the reads they
- * moved. Nothing on this screen writes a record itself, holds a figure of its own, or decides whether an
- * action is permitted: the service is the authority and this screen is the explanation beside it.
+ * Four reads through `useService()` (rule P-2), a fifth — the acting persona — through the
+ * demonstration capability beside it, the state its records are in decided in one place, and two
+ * writes — a decision and a write-back retry — that go to the port and invalidate the reads they
+ * moved. Nothing on this screen writes a record itself, holds a figure of its own, or decides whether
+ * an action is permitted: the service is the authority and this screen is the explanation beside it.
  *
  * @param props - The shell's plant and product selection.
  * @returns The page header, and the detail inside the state boundary.
  */
 export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): ReactElement {
   const service = useService();
+  const demonstration = useDemonstration();
   const queryClient = useQueryClient();
   const { approvalId } = useParams<{ approvalId: string }>();
 
@@ -1328,6 +1234,21 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
     retry: false,
   });
 
+  /*
+   * The acting persona. Read fresh on every mount rather than taken from the persona the shell seeded
+   * at start-up, because a reader may have switched role since: the adapter is enforcing whichever
+   * persona the switch selected, and the gate below has to describe the role a decision would actually
+   * be evaluated against. The capability is absent on an adapter without identity, and `skipToken`
+   * then reads nothing.
+   */
+  const actingUserQuery = useQuery<Result<ActiveUser>, unknown>({
+    queryKey: ['getActiveUser'],
+    queryFn: demonstration === null ? skipToken : () => demonstration.getActiveUser(),
+    retry: false,
+  });
+
+  const actingUser = actingUserQuery.data?.data ?? null;
+
   const gate = result === undefined ? undefined : gateFreshnessOf(result.meta.freshness);
   const scenario = useMemo(
     () => (scenarioId === undefined ? undefined : scenarioOf(scenarioQuery.data?.data, scenarioId)),
@@ -1339,34 +1260,58 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
   const missingInputs = detailQuery.data?.data.missingInputs;
   const planError = failureOf(scenarioQuery.error, detailQuery.error);
 
+  /*
+   * The read's own facts, plus this screen's facts about itself. A route that named no approval has
+   * nothing to read. A permission refusal from the last write or from a plan read means the acting role
+   * may not decide this plan, so the forbidden card that names the role which may act replaces the
+   * content rather than sitting beside controls that cannot work; any other write failure is
+   * deliberately *not* a screen state, because a refusal that changed nothing is reported in the
+   * decision block in the service's own sentence, so a reader who has typed a comment does not lose the
+   * screen they were working in. The approval-gate source is the one `decideApproval` refuses on, so the
+   * stale notice names it first (AAP 0.2.1, T-13). A record missing a member this screen shows, or a
+   * plan whose option could not be read, reports itself incomplete.
+   */
   const state = deriveScreenState({
-    approvalId,
+    namedNoRecord: approvalId === undefined,
     isPending: approvalQuery.isPending,
     error: approvalQuery.error,
-    result,
-    planError,
-    writeError,
+    freshness: result?.meta.freshness,
+    refusals: [writeError, planError],
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    payloadReportsPartial:
+      result !== undefined &&
+      (!isRenderable(result.data) || (planError !== null && planError !== undefined)),
   });
-  const staleRecord = staleOrderBookOf(gate);
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord =
     forbiddenOf(writeError) ?? forbiddenOf(approvalQuery.error) ?? forbiddenOf(planError);
   const conflictMessage = problemMessageOf(approvalQuery.error) ?? APPROVAL_DETAIL_TEXT.conflict;
 
   /*
    * The three decisions' shared blocker, in the order that matters to a reader: a source that is not
-   * current is the condition the service refuses on and outranks everything a reader could change, a
-   * policy block is the service's own verdict until something else is tried, a plan that is no longer
-   * pending is a fact of the record, a decision already being recorded is transient, and a comment is the
-   * one thing only the reader can supply.
+   * current is the condition the service refuses on and outranks everything a reader could change; the
+   * acting persona's eligibility is a fact of the record the service refuses on, so it follows the
+   * source and outranks a policy block received from an earlier attempt — an attempt the record itself
+   * would refuse again before any rule was consulted; a policy block is the service's own verdict until
+   * something else is tried; a plan that is no longer pending is a fact of the record; a decision
+   * already being recorded is transient; and a comment is the one thing only the reader can supply.
    */
   const gateReason = gateRefusalReason(gate);
+  const eligibilityReason =
+    approval === undefined ? null : decisionEligibilityReason(approval, actingUser);
   const policyReason = policyBlock === null ? null : policyBlock.reason;
   const decidedReason = approval === undefined ? null : decidedReasonOf(approval.status);
   const inFlightReason = submitting ? APPROVAL_DETAIL_TEXT.inFlightReason : null;
   const commentReason =
     comment.trim() === '' ? APPROVAL_DETAIL_TEXT.commentRequiredReason : null;
   const sharedBlockReason =
-    gateReason ?? policyReason ?? decidedReason ?? inFlightReason ?? commentReason;
+    gateReason ??
+    eligibilityReason ??
+    policyReason ??
+    decidedReason ??
+    inFlightReason ??
+    commentReason;
 
   /*
    * Approve carries one further condition: every side effect the plan defers another product's supply for
@@ -1405,9 +1350,11 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
   /**
    * Records one decision through the port.
    *
-   * The service is the only author of what happened: a success invalidates the reads it moved and clears
-   * the comment, and a refusal sets nothing but the message the service returned — plus the policy block
-   * when a rule refused it — so the screen never reports a decision the record does not hold.
+   * The service is the only author of what happened: a success clears the comment, and a refusal sets
+   * nothing but the message the service returned — plus the policy block when a rule refused it — so
+   * the screen never reports a decision the record does not hold. The reads a decision moves are
+   * invalidated whichever way the call settled, because a decision can move the record even when it
+   * fails at a write-back.
    */
   const submitDecision = async (action: DecisionAction): Promise<void> => {
     if (approvalId === undefined || submitting) {
@@ -1421,12 +1368,17 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
     try {
       await service.decideApproval(approvalId, { action, comment: comment.trim() });
       setComment('');
-      invalidateReads(queryClient, DECISION_INVALIDATES);
     } catch (error) {
       setWriteError(error);
       setPolicyBlock(policyBlockOf(error));
     } finally {
       setSubmitting(false);
+      /* `decideApproval` sets the record's status, records the decision and marks the step that failed
+         before it throws a `'simulated-write-back'` `Problem`, so the record moved even though the call
+         did not answer. Re-reading it is what mounts the tracker, the failed step and the retry that
+         completes the change, instead of leaving the reader on a record the service no longer holds as
+         pending (AAP §0.2.2, rule P-8). */
+      invalidateReads(queryClient, DECISION_INVALIDATES);
     }
   };
 
@@ -1435,8 +1387,10 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
    *
    * The step is addressed by the reference it writes, which is the only identifier the record carries, and
    * the service decides whether it may run: a step that already succeeded is refused rather than written
-   * twice, so a retry never leaves a second success record behind (AAP §0.2.2). A success invalidates the
-   * steps and the outcome the retry moved.
+   * twice, so a retry never leaves a second success record behind (AAP §0.2.2). The reads a retry moves —
+   * the steps it advanced and the outcome measured from them — are invalidated whichever way the call
+   * settled, because a retry re-attempts its step and then runs the steps the failure left untouched, so
+   * it too can move the record and throw.
    */
   const retryWriteBackStep = async (writeBackId: string): Promise<void> => {
     if (approvalId === undefined || retryingWriteBackId !== null) {
@@ -1448,12 +1402,12 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
 
     try {
       await service.retryWriteBack(approvalId, writeBackId);
-      invalidateReads(queryClient, RETRY_INVALIDATES);
     } catch (error) {
       setWriteError(error);
       setPolicyBlock(policyBlockOf(error));
     } finally {
       setRetryingWriteBackId(null);
+      invalidateReads(queryClient, RETRY_INVALIDATES);
     }
   };
 
@@ -1727,7 +1681,11 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
                   </p>
                 </Card>
               ) : (
-                <OutcomeCard planned={outcome.data.planned} resulting={outcome.data.resulting} />
+                <OutcomeCard
+                  planned={outcome.data.planned}
+                  resulting={outcome.data.resulting}
+                  evidenceRef={outcome.data.evidenceRef}
+                />
               )
             ) : null}
           </>

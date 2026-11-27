@@ -22,18 +22,19 @@
  * contract's `Approval` declares `addedCostEur` and `protectedRevenueEur` as required members, so each
  * record states them as the record set's own content, on one rule: the cost the option spends, against
  * the delayed revenue the option avoids — the delay the disruption leaves with nothing done, less the
- * delay the option itself still leaves. Both figures come from the option set the same exception
- * carries (`src/seed/exception-scenarios.ts`), so a seeded approval and the adapter's own calculation
- * for a plan requested in this session state one quantity the same way (AAP 0.8, AAP 0.12.2, AAP
- * 0.12.4). The adapter derives that pair for a newly requested plan from the option set as it is
- * loaded; nothing below is summed or rounded here, because a measure this module computed would be a
- * second answer to a question the solver or the option set already answers.
+ * delay the option itself still leaves. A seeded approval states the same two quantities the adapter
+ * computes for a plan requested in this session, because both are read from the one option set the
+ * exception's case measures (AAP 0.8, AAP 0.12.2, AAP 0.12.4): the adapter derives them when a request
+ * is made, from the option's own solve and from the delayed revenue `protectedRevenueOf` computes over
+ * that same measured set. Nothing below is summed or rounded here, because a measure this module
+ * computed would be a second answer to a question the solver already answers.
  *
  * References this module states but does not own. The exceptions are the records of
  * `src/seed/exceptions.ts` and the requesters and deciders are the personas of specification §3; the
  * seeded scenario identifiers are owned by `src/seed/exception-scenarios.ts`. `SCN-1184-C` is the
  * option the mock adapter's solver produces for the supply-delay case, whose measures are recomputed
- * at call time, so the record below stores the plan reference and no measure of its own. Scenario
+ * at call time, so the record below states that reference and only the two euro figures AAP 0.12.2
+ * requires of it, each equal to what the same option set produces. Scenario
  * identifiers follow the contracts §1 pattern `SCN-nnnn-x`, where the suffix is the option's letter
  * within that exception's own set, so the first option of a seeded set is `...-A`.
  *
@@ -260,10 +261,12 @@ export const APPROVALS: readonly Approval[] = [
   },
 
   // Pending: the supply-delay plan the planner journey approves end to end. Its option is the
-  // recommended one, and its two euro figures are that option's own measures, recomputed by the
-  // adapter from the solver at read time, so this record states the plan's reference and measures
-  // nothing here. The five steps are the set an approval sets in motion, in the plan's order, and
-  // every one of them awaits the decision.
+  // recommended one, so its two euro figures are what that option measures, and this record states
+  // them: the spend is 600 sets by air at 31 plus 900 by transfer at 3, 21,300, and the protected
+  // revenue is the case's do-nothing delayed revenue — 580 + 640 = 1,220 units late at 1,240 each,
+  // 1,512,800 — less the option's own residual, which is none of it because neither order is served
+  // late. The five steps are the set an approval sets in motion, in the plan's order, and every one of
+  // them awaits the decision.
   {
     id: 'APR-2026-104',
     exceptionId: 'EXC-2026-1184',
@@ -272,7 +275,7 @@ export const APPROVALS: readonly Approval[] = [
     eligibleApproverRoles: ['plant-manager', 'head-of-supply-chain'],
     status: 'pending',
     addedCostEur: 21300,
-    protectedRevenueEur: 2257000,
+    protectedRevenueEur: 1512800,
     writeBacks: [
       {
         sequence: 1,

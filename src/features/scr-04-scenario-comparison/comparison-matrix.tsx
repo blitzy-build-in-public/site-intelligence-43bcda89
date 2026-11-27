@@ -8,14 +8,17 @@
  * `ordersOnTime`, `addedCostEur`, `lineIdleDays`, `confidence` with its reason, `constraintCheck`
  * with its `constraintMessages`, and `sideEffects` — in the fixed order the SCR-04 row of AAP
  * §0.12.4 states: units late, maximum days late, orders on time, added cost, line idle days,
- * confidence, constraint check, side effects. There is no sum, no difference, no maximum, no
+ * confidence, constraint check, side effects. One row is added to those eight: the run-out reading,
+ * which AAP §0.8 requires every surface to render as "the day plus a half-day reading such as
+ * 'midday'" and which no surface rendered before it, drawn from the option's own `runOut` pair
+ * immediately after the idle days it explains. There is no sum, no difference, no maximum, no
  * percentage and no ordering anywhere in this file. The solver measured the options and the mock
  * adapter recommended one, so a matrix rendered here cannot disagree with the numbers behind it.
  *
  * WHY IT OWNS ITS `<table>` INSTEAD OF RENDERING `DataTable`. `src/components/data-table.tsx` is the
  * application's one table vocabulary, but it is row-oriented by construction: its `columns` are
  * fixed, its `rows` are records, and every header carries a controlled sort control driven by
- * `sort`/`onSort`. This matrix is transposed — one column per scenario, eight fixed measure rows — so
+ * `sort`/`onSort`. This matrix is transposed — one column per scenario, nine fixed measure rows — so
  * the scenarios cannot be its `columns` at all, and routing a sort through it would publish header
  * buttons that cannot change the order the specification fixes: a control with no function, which
  * rule P-8 forbids. The matrix therefore renders the table itself, with both header axes scoped
@@ -32,11 +35,15 @@
  *
  * A COMPUTATION THAT COULD NOT COMPLETE. When an option's `constraintCheck` is `'fail'`, its figures
  * are not comparable and none of them is shown: every measure row of that column except the
- * constraint-check row renders {@link CANNOT_COMPUTE_LABEL}, and that row carries the record's own
+ * constraint-check row renders {@link CANNOT_COMPUTE_LABEL}, and that row states the record's own
  * `constraintMessages` as the reason. No `NaN`, no substituted zero, no blank cell and no dash-only
- * cell reaches the screen (AAP §0.8). The reason is stated once per column rather than repeated in
- * each of the seven measure cells, because one reason per option is what the record holds and a
- * reader following the column meets it where the check is reported.
+ * cell reaches the screen (AAP §0.8). The reason is written once per column rather than painted into
+ * each of the seven measure cells, because one reason per option is what the record holds; every one
+ * of those cells still carries it, as its own accessible description, through `aria-describedby` on
+ * the id {@link constraintReasonId} builds for the element stating the messages. A reader who meets a
+ * bare "Cannot compute" therefore learns why from the record instead of from a paraphrase, and an
+ * assistive technology receives that reason with the cell, which is what rule B-3's level AA bar
+ * requires of a state the matrix reports but does not paint in full.
  *
  * WHAT IS THE SURFACE'S BUSINESS AND WHAT IS THE SCREEN'S. The recommendation's rule and its
  * trade-off sentence belong to the comparison screen (AAP §0.8, §0.12.4), as do the fixed empty-state
@@ -73,9 +80,11 @@
  */
 import type { ReactElement, ReactNode } from 'react';
 
+import { Button } from '../../components/button';
 import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
+import { runOutReading } from '../../components/run-out-reading';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { CANNOT_COMPUTE_LABEL, SIM_LABELS } from '../../types';
@@ -110,7 +119,8 @@ export { CANNOT_COMPUTE_LABEL };
 /**
  * Every word this matrix states itself, held here so its wording has one owner.
  *
- * The eight measure labels are AAP §0.12.4's SCR-04 row verbatim, in the order that row lists them.
+ * Eight of the nine measure labels are AAP §0.12.4's SCR-04 row verbatim, in the order that row lists
+ * them; the ninth names the run-out reading AAP §0.8 requires that row's screens to render beside them.
  * The rest is grouping vocabulary the plan leaves to the implementation — the caption naming what
  * the table compares, the corner cell naming the row axis, the constraint states a `ConstraintCheck`
  * reports, the field labels inside one side effect, and the two state markers for an empty set and
@@ -126,19 +136,23 @@ export const COMPARISON_MATRIX_TEXT = {
   /** The corner cell, which names the row axis: every row below it is one measure. */
   cornerLabel: 'Measure',
 
-  /** The one cell an empty set renders, in place of the eight measure rows. */
+  /** The one cell an empty set renders, in place of the nine measure rows. */
   emptySet: 'No options',
 
   /** The heading of the list carrying the options the set held back. */
   rejectedLabel: 'Set aside',
 
-  /** The eight measure rows, in the order AAP §0.12.4's SCR-04 row states them. */
+  /**
+   * The nine measure rows: AAP §0.12.4's SCR-04 row in the order it states them, with the run-out
+   * reading AAP §0.8 requires carried after the idle days it explains.
+   */
   rows: {
     unitsLate: 'Units late',
     maxDaysLate: 'Maximum days late',
     ordersOnTime: 'Orders on time',
     addedCost: 'Added cost',
     lineIdleDays: 'Line idle days',
+    runOut: 'Run-out',
     confidence: 'Confidence',
     constraintCheck: 'Constraint check',
     sideEffects: 'Side effects',
@@ -267,9 +281,14 @@ const SELECTED_NAME_CLASS = 'underline decoration-accent decoration-2 underline-
  * The scroll container around the table. A matrix with several options is wider than a narrow
  * viewport, and content a keyboard user cannot scroll to is content they cannot read, so the
  * container is focusable and named by the table's own caption.
+ *
+ * It is positioned so the absolutely positioned, visually hidden text the matrix renders inside its
+ * cells — the caption and each evidence trigger's suffix — is laid out against this box and clipped
+ * by its `overflow-x-auto`, instead of escaping a static ancestor and widening the document until
+ * the page itself scrolls sideways.
  */
 const SCROLL_CLASS =
-  'overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring';
+  'relative overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring';
 
 /* ---------------------------------------------------------------------------------------------
  * The cells that carry more than one record field
@@ -355,15 +374,48 @@ function SideEffectValues({ sideEffects, evidenceRef }: SideEffectValuesProps): 
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The eight measure rows, in the order the specification states them
+ * The id a "Cannot compute" cell describes itself with
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The prefix of the id the element stating one option's constraint messages carries.
+ *
+ * A constant rather than an id built inside the component, because the id has to be the same one in
+ * two places at once: the list in the constraint-check row that states the messages, and the measure
+ * cells of that column that point at it. Neither place may recompute a value the other holds.
+ */
+const CONSTRAINT_REASON_ID_PREFIX = 'comparison-constraint-reason';
+
+/**
+ * The id of the element stating one option's constraint messages, or `undefined` when the record
+ * states none.
+ *
+ * Derived from the option's own identifier, so it is stable across renders and identical for the list
+ * that states the reason and the cells that point at it; nothing counts, generates or caches it. The
+ * `undefined` arm is what keeps the reference from dangling: an option whose `constraintMessages` is
+ * empty renders no list at all, so its cells carry no description rather than pointing at an element
+ * that does not exist.
+ *
+ * @param scenario - The option whose reason is being referenced, exactly as the set carries it.
+ * @returns The id of the element holding that option's messages, or `undefined` when it holds none.
+ */
+function constraintReasonId(scenario: Scenario): string | undefined {
+  return scenario.constraintMessages.length === 0
+    ? undefined
+    : `${CONSTRAINT_REASON_ID_PREFIX}-${scenario.id}`;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The nine measure rows, in the order the specification states them
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * One row of the matrix: the measure it names, and how that measure is drawn for one option.
  *
- * `reportsConstraint` marks the row that reports the option's own constraint state. It is the one
- * row a failed column still fills, because it is where the record's `constraintMessages` are stated:
- * every other row of that column reports {@link CANNOT_COMPUTE_LABEL} instead of a figure (AAP §0.8).
+ * `reportsConstraint` marks the row that reports the option's own constraint state. It is the one row
+ * a failed column still fills, because it states the record's `constraintMessages` and gives that
+ * statement the id the column's other cells describe themselves with: every other row of that column
+ * reports {@link CANNOT_COMPUTE_LABEL} instead of a figure (AAP §0.8).
  */
 interface MeasureRow {
   /** Stable row id, used as the React key. */
@@ -372,19 +424,27 @@ interface MeasureRow {
   readonly label: string;
   /** How the measure is drawn for one option. It reads the record's field and formats nothing. */
   readonly render: (scenario: Scenario) => ReactNode;
-  /** Whether this is the row a failed column still fills with the record's own reason. */
+  /**
+   * Whether this is the row a failed column still fills with the record's own reason.
+   *
+   * It is the row that states the messages and the one that gives the element holding them the id
+   * {@link constraintReasonId} builds, which is what the column's other measure cells point at so a
+   * reader meets the reason on whichever cell they reach first.
+   */
   readonly reportsConstraint?: boolean;
 }
 
 /**
- * The eight measure rows, in the order AAP §0.12.4's SCR-04 row fixes — units late, maximum days
- * late, orders on time, added cost, line idle days, confidence, constraint check, side effects — and
- * each reading exactly the `Scenario` member that states it.
+ * The nine measure rows: the eight AAP §0.12.4's SCR-04 row fixes — units late, maximum days late,
+ * orders on time, added cost, line idle days, confidence, constraint check, side effects — and the
+ * run-out reading AAP §0.8 requires, which sits immediately after the idle days it explains. Each row
+ * reads exactly the `Scenario` member that states it.
  *
  * Counts and days are rendered as the record's own number with no formatting, because no input fixes
  * a presentation convention for them and `MonoValue`'s four kinds are money, identifier, timestamp
- * and hash. Money goes through `MonoValue kind="money"`, the application's one money formatter, and
- * the confidence and side-effect cells compose their several fields in the components above.
+ * and hash. Money goes through `MonoValue kind="money"`, the application's one money formatter, the
+ * run-out pair through the one component that owns its wording (AAP §0.8), and the confidence and
+ * side-effect cells compose their several fields in the components above.
  */
 const MEASURE_ROWS: readonly MeasureRow[] = [
   {
@@ -417,6 +477,16 @@ const MEASURE_ROWS: readonly MeasureRow[] = [
     render: (scenario) => <EvidenceRef ref={scenario.id}>{scenario.lineIdleDays}</EvidenceRef>,
   },
   {
+    /* AAP §0.8 requires the run-out rendered as the day plus a half-day reading, and this is where a
+       reader compares options against it. The wording is the presentation module's, the day is the
+       record's own, and the cell opens the same evidence reference every sibling measure opens. */
+    id: 'run-out',
+    label: COMPARISON_MATRIX_TEXT.rows.runOut,
+    render: (scenario) => (
+      <EvidenceRef ref={scenario.id}>{runOutReading(scenario.runOut)}</EvidenceRef>
+    ),
+  },
+  {
     id: 'confidence',
     label: COMPARISON_MATRIX_TEXT.rows.confidence,
     render: (scenario) => (
@@ -435,12 +505,18 @@ const MEASURE_ROWS: readonly MeasureRow[] = [
       /* A `<div>` and not a `<span>`: the reasons are a list, which is flow content, and a span may
          hold nothing but phrasing content. The list carries no `list-disc` marker because a flex
          container blockifies its items and a blockified `<li>` loses the marker it was given; each
-         message therefore sits on its own line with the gap between lines doing the separating. */
+         message therefore sits on its own line with the gap between lines doing the separating. It is
+         also the statement the column's other measure cells point at, so it carries the id
+         `constraintReasonId` builds for this option and states each message exactly as the record
+         holds it — the cells repeat none of this text (AAP §0.8, rule B-3, rule P-6). */
       return (
         <div className="flex flex-col items-start gap-1">
           <StatusIndicator meaning={presentation.meaning} label={presentation.label} />
           {scenario.constraintMessages.length === 0 ? null : (
-            <ul className="flex flex-col gap-1 text-12 text-text-secondary">
+            <ul
+              id={constraintReasonId(scenario)}
+              className="flex flex-col gap-1 text-12 text-text-secondary"
+            >
               {scenario.constraintMessages.map((message, index) => (
                 <li key={`${index}-${message}`} className="break-words">
                   {message}
@@ -533,7 +609,7 @@ export interface ComparisonMatrixProps {
 }
 
 /**
- * Renders the comparison matrix: one column per option, eight measure rows, the recommended column
+ * Renders the comparison matrix: one column per option, nine measure rows, the recommended column
  * marked, and the options the set held back listed beneath the table.
  *
  * @param props The option set, the optional caption and the controlled selection. See
@@ -587,7 +663,7 @@ export function ComparisonMatrix({
                           {scenario.name}
                         </span>
                       ) : (
-                        <button
+                        <Button
                           type="button"
                           aria-pressed={isSelected}
                           onClick={() => {
@@ -599,7 +675,7 @@ export function ComparisonMatrix({
                           )}
                         >
                           {scenario.name}
-                        </button>
+                        </Button>
                       )}
                       {/* The option's own identifier, so every column is identifiable by the
                           reference the rest of the screen quotes — the recommendation block, the
@@ -639,15 +715,29 @@ export function ComparisonMatrix({
                   <th scope="row" className={ROW_HEADER_CLASS}>
                     {row.label}
                   </th>
-                  {scenarios.map((scenario) => (
-                    <td key={scenario.id} className={CELL_CLASS}>
-                      {scenario.constraintCheck === 'fail' && row.reportsConstraint !== true ? (
-                        <StatusIndicator meaning="fail" label={CANNOT_COMPUTE_LABEL} />
-                      ) : (
-                        row.render(scenario)
-                      )}
-                    </td>
-                  ))}
+                  {scenarios.map((scenario) => {
+                    /* A measure this option cannot state reports the fixed sentence, and describes
+                       itself with the record's own reason — the list the constraint-check row states
+                       for the column — so the reason reaches the cell rather than only the row that
+                       reports the check (AAP §0.8, rule B-3). An option whose record carries no
+                       message has no element to point at, so its cells carry no description. */
+                    const cannotCompute =
+                      scenario.constraintCheck === 'fail' && row.reportsConstraint !== true;
+
+                    return (
+                      <td
+                        key={scenario.id}
+                        className={CELL_CLASS}
+                        aria-describedby={cannotCompute ? constraintReasonId(scenario) : undefined}
+                      >
+                        {cannotCompute ? (
+                          <StatusIndicator meaning="fail" label={CANNOT_COMPUTE_LABEL} />
+                        ) : (
+                          row.render(scenario)
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             )}

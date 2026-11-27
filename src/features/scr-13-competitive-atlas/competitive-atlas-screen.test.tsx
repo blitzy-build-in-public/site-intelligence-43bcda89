@@ -41,6 +41,9 @@
  *    reader makes one (WCAG 2.2 SC 4.1.3).
  * 10. Both themes draw the same surface, read through accessible names, roles and text rather than
  *     through a colour value (rule B-3).
+ * 11. The chokepoint alert strip leads the content once the read settles — one alert per crossing the
+ *     payload carried, in the payload's order, each carrying the market-intelligence label and no
+ *     control at all (AAP 0.14.1's S3 row, AAP 0.7's S3 stage row, rules P-1, P-5 and P-8).
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a
  * screen may read through (rule P-2), so no seed module, no adapter, no HTTP client and nothing from
@@ -64,26 +67,26 @@
  * `COMPETITOR_NETWORK_TEXT`, `RADAR_CHART_TEXT`, `VIEW_AS_TABLE_LABELS`), so a reworded label reaches
  * one place and this suite fails rather than silently asserting wording the interface no longer shows.
  *
- * RULE DIVERGENCE, REPORTED AND NOT RESOLVED HERE (the same note `src/components/legend.tsx`,
- * `./competitor-network.tsx` and `src/components/radar-chart.test.tsx` carry). Rule P-5's literal
- * wording fixes the competitor tag with one company word, while AAP §0.10's companion-string row
- * pairs the same tag with a different one. `src/types/primitives.ts` settles the pair by shipping
- * `COMPETITOR_NAME_TAG` as the rule's own wording, naming the rule — the highest-ranked input, per
- * AAP §0.1 — as the winner in that constant's documentation. This suite imports the constant and
- * compares against it, so it encodes neither literal and follows the resolution wherever it moves.
+ * The competitor tag is imported, never compared as a literal. Rule P-5's literal wording fixes it
+ * with one company word, while AAP §0.10's companion-string row pairs the same tag with a different
+ * one. `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the rule's
+ * own wording, naming the rule — the highest-ranked input, per AAP §0.1 — as the winner in that
+ * constant's documentation. This suite imports the constant and compares against it, so it encodes
+ * neither literal and follows the resolution wherever it moves.
  *
- * REPORTED GAPS, each recorded where it bites.
- * 1. `chokepoint-table.tsx` keeps its seven column headers in a module-private constant and exports
- *    no accessor, so {@link CHOKEPOINT_COLUMNS} restates them once here. They are structural names
- *    rather than specification strings, and a reworded header reaches exactly one place.
- * 2. jsdom implements neither `URL.createObjectURL` nor `URL.revokeObjectURL`, and the screen's
- *    download path calls both directly. The export case installs them as spies, stubs
- *    `HTMLAnchorElement.prototype.click` so the file that would be offered is observed rather than
- *    navigated to, and restores the globals afterwards.
- * 3. The claim vocabulary rule P-4 forbids is not typed here. `tests/source-checks` rejects it
- *    anywhere under `src/`, and this folder sits inside that scan, so a case that wrote it into an
- *    assertion would turn the project's own gate red to prove the screen does not say it. The
- *    property is held by the source check, and the refusal case asserts what the card does say.
+ * `chokepoint-table.tsx` keeps its seven column headers in a module-private constant and exports no
+ * accessor, so {@link CHOKEPOINT_COLUMNS} restates them once here: they are structural names rather
+ * than specification strings, and a reworded header reaches exactly one place.
+ *
+ * jsdom implements neither `URL.createObjectURL` nor `URL.revokeObjectURL`, and the screen's download
+ * path calls both directly, so the export case installs them as spies, stubs
+ * `HTMLAnchorElement.prototype.click` so the file that would be offered is observed rather than
+ * navigated to, and restores the globals afterwards.
+ *
+ * The claim vocabulary rule P-4 forbids is not typed here. `tests/source-checks` rejects it anywhere
+ * under `src/`, and this folder sits inside that scan, so a case that wrote it into an assertion
+ * would turn the project's own gate red to prove the screen does not say it. The property is held by
+ * the source check, and the refusal case asserts what the card does say.
  *
  * Rules this suite is written to hold to:
  * - B-1: the request spies prove the surface fetches nothing while it is drawn and exported, and the
@@ -134,6 +137,7 @@ import type {
   CompetitorId,
   CompetitorNetwork,
   ExportPayload,
+  Evidence,
   Freshness,
   FreshnessState,
   Meta,
@@ -157,10 +161,14 @@ import { COMPETITOR_NETWORK_TEXT } from './competitor-network';
  *
  * Typed as a `Pick` of the port rather than as a shape of this file's own, so the stub cannot drift
  * from the interface: a member the screen starts to call that the stub does not carry fails the type
- * check here instead of arriving at run time as a call on `undefined`. The screen makes exactly one
- * read and one action, and no other member of `SiteIntelligenceService` answers this surface.
+ * check here instead of arriving at run time as a call on `undefined`. The screen makes one read and
+ * one action, and the drawer a radar vertex opens makes its own evidence read; no other member of
+ * `SiteIntelligenceService` answers this surface.
  */
-type AtlasPort = Pick<SiteIntelligenceService, 'getAtlas' | 'exportChokepointBrief'>;
+type AtlasPort = Pick<
+  SiteIntelligenceService,
+  'getAtlas' | 'exportChokepointBrief' | 'getEvidence'
+>;
 
 /**
  * The stub every case drives: one mock per member, each typed by the port's own signature.
@@ -171,6 +179,7 @@ type AtlasPort = Pick<SiteIntelligenceService, 'getAtlas' | 'exportChokepointBri
 const port: { readonly [K in keyof AtlasPort]: Mock<AtlasPort[K]> } = vi.hoisted(() => ({
   getAtlas: vi.fn<SiteIntelligenceService['getAtlas']>(),
   exportChokepointBrief: vi.fn<SiteIntelligenceService['exportChokepointBrief']>(),
+  getEvidence: vi.fn<SiteIntelligenceService['getEvidence']>(),
 }));
 
 /**
@@ -187,7 +196,7 @@ vi.mock('../../services/service-provider', () => ({
 }));
 
 /* ---------------------------------------------------------------------------------------------
- * The one piece of wording this suite cannot import — reported gap 1
+ * The one piece of wording this suite cannot import
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -442,6 +451,26 @@ const EMPTY_PACK: Atlas = {
 };
 
 /**
+ * The evidence the drawer renders for whichever series a case opens.
+ *
+ * The case below asserts which reference the screen asked the service for, not what the drawer says
+ * about it, so this payload states no figure of its own: its strings are this file's own words and the
+ * one §5.3 label a market-intelligence reading carries arrives from `SIM_LABELS` (rules P-1, P-5, P-6).
+ */
+const EVIDENCE: Evidence = {
+  value: 'the scores the market pack states',
+  provenance: 'market_intelligence',
+  label: SIM_LABELS[5],
+  formula: 'The scoring relation the pack states, quoted by the read.',
+  inputs: ['input-one'],
+  upstream: [],
+  downstream: [],
+  confidence: { level: 'high', reason: 'Every value is a field of the record itself.' },
+  missingInputs: [],
+  documents: [],
+};
+
+/**
  * One `Result<Atlas>` envelope: the payload, the freshness report a case asks for, the literal
  * `simulated: true` every response carries and this suite's correlation identifier.
  *
@@ -500,14 +529,12 @@ const DENIAL: Problem = {
 };
 
 /**
- * A failure that is neither a refusal nor a conflict, so the boundary reports it as a source that
- * did not answer and offers the retry it is allowed to offer (rule P-8).
+ * A rejection that did not arrive in the port's `Problem` shape: the read stopped without answering,
+ * so the boundary reports it as a source that did not answer and offers the retry it is allowed to
+ * offer (rule P-8). A `'not-found'` refusal is the unified `'empty'` on every screen, and
+ * `src/components/screen-state.test.ts` proves that mapping once for all of them.
  */
-const FAILURE: Problem = {
-  type: 'not-found',
-  message: 'The atlas could not be read.',
-  traceId: TRACE_ID,
-};
+const FAILURE = new Error('the atlas read stopped without answering');
 
 /** A refusal made while the records moved under the reader, which the boundary shows as a conflict. */
 const CONFLICT: Problem = {
@@ -517,7 +544,7 @@ const CONFLICT: Problem = {
 };
 
 /* ---------------------------------------------------------------------------------------------
- * The browser's download path, stubbed because jsdom implements none of it — reported gap 2
+ * The browser's download path, stubbed because jsdom implements none of it
  * ------------------------------------------------------------------------------------------- */
 
 /** The object URL the stubbed factory hands back, which nothing resolves. */
@@ -687,6 +714,10 @@ beforeEach(() => {
   }
 
   port.getAtlas.mockResolvedValue(envelope(ATLAS));
+  port.getEvidence.mockResolvedValue({
+    data: EVIDENCE,
+    meta: { freshness: [], simulated: true, traceId: TRACE_ID },
+  });
   port.exportChokepointBrief.mockResolvedValue({
     data: { ...EXPORT_PAYLOAD },
     meta: { freshness: [], simulated: true, traceId: TRACE_ID },
@@ -788,6 +819,28 @@ describe('CompetitiveAtlasScreen', () => {
         expect(text).toContain(SIM_LABELS[5]);
       }
     }
+  });
+
+  it('asks the service for the series behind the vertex a reader activates', async () => {
+    const user = userEvent.setup();
+    const series = at(SERIES, 0, 'radar series');
+
+    renderScreen();
+
+    const card = await radarCard();
+    const drawing = within(card).getByRole('group', { name: RADAR_CHART_TEXT.groupLabel });
+    const vertices = within(drawing).getAllByRole('button');
+
+    /* One control per mark, so every vertex of every series opens its own evidence (AAP 0.2.1 F12). */
+    expect(vertices).toHaveLength(SERIES.length * AXES.length);
+
+    await user.click(at(vertices, 0, 'radar vertex'));
+    await screen.findByRole('dialog');
+
+    /* The reference names the series, which is the record the pack states the scores in: the drawer
+       is asked for that series and for no other (rule P-5, one series per payload). */
+    expect(port.getEvidence).toHaveBeenCalledTimes(1);
+    expect(port.getEvidence.mock.calls[0]?.[0]).toBe(`atlas:${series.id}`);
   });
 
   it('tags the client’s own series as a self-assessment and never as a second simulated-data label', async () => {
@@ -976,6 +1029,42 @@ describe('CompetitiveAtlasScreen', () => {
         expect(within(bufferCell).getByText(String(days))).toBeInTheDocument();
       }
     });
+  });
+
+  it('leads the atlas content with one alert per crossing the payload carried, each labelled market intelligence', async () => {
+    renderScreen();
+
+    const band = await screen.findByRole('region', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointAlertCardTitle,
+    });
+
+    /* The band leads the content the read supplied, so it renders before the selector card a reader
+       meets next (AAP 0.14.1's S3 row, AAP 0.7's S3 stage row). */
+    const selector = screen.getByRole('region', { name: COMPETITIVE_ATLAS_TEXT.selectorTitle });
+
+    expect(band.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    /* One alert per crossing the stubbed payload supplied, counted from that payload rather than typed,
+       in the order the pack lists them: nothing dropped, nothing re-ordered (AAP 0.8, rule P-6). */
+    const alerts = within(band).getAllByRole('listitem');
+
+    expect(alerts).toHaveLength(CHOKEPOINTS.length);
+
+    CHOKEPOINTS.forEach((crossing, index) => {
+      const alert = at(alerts, index, 'chokepoint alert');
+
+      expect(within(alert).getByText(crossing.id)).toBeInTheDocument();
+      expect(within(alert).getByText(crossing.label)).toBeInTheDocument();
+      expect(within(alert).getByText(crossing.contentionNote)).toBeInTheDocument();
+
+      /* Every alert is market intelligence, and the label is on the alert itself rather than on the
+         page around it (rule P-1, rule P-5). */
+      expect(within(alert).getAllByText(SIM_LABELS[5])).toHaveLength(1);
+    });
+
+    /* The band acts on nothing, so it offers nothing to press (rule P-8). */
+    expect(within(band).queryByRole('button')).toBeNull();
+    expect(within(band).queryByRole('link')).toBeNull();
   });
 
   it('offers the chokepoint brief the service composed as the file it named, unchanged', async () => {

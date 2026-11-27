@@ -9,9 +9,9 @@
  * truthfully below the zero line (the `T-03` cases — the acceptance test's "never below zero" reading,
  * asserted here on the chart's own geometry because the solver's series is asserted in the solver's
  * suite), one focusable and named evidence mark per point, activation of that mark from the keyboard
- * and from a pointer opening exactly that point's drawer, the series' own simulation label read out
- * and never invented, both themes, and the fact that the surface emits no frame, table or control of
- * its own.
+ * and from a pointer opening exactly that point's drawer, the visible legend that names every series
+ * beside its own tone's swatch, the series' own simulation label read out per row and never invented,
+ * both themes, and the fact that the surface emits no frame, table or control of its own.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `EvidenceDrawer` reads through
  * (rule P-2), so no adapter, seed module or network is involved and the suite observes exactly the
@@ -25,13 +25,14 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEMO_CLOCK, SIM_LABELS } from '../types';
 import type { IsoDate, SimLabel } from '../types';
+import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 import { LineChart } from './line-chart';
 import type {
   LineBand,
@@ -237,6 +238,22 @@ function yAxisReadings(svg: SVGSVGElement): string[] {
   return Array.from(svg.querySelectorAll('text[text-anchor="end"]')).map(
     (node) => node.textContent ?? '',
   );
+}
+
+/**
+ * The legend row at a position, or a failure naming what was missing.
+ *
+ * `noUncheckedIndexedAccess` makes every indexed read a possible absence, and a case that reached for a
+ * missing row would otherwise compare against `undefined` and report the wrong thing.
+ */
+function legendRowAt(rows: readonly HTMLElement[], index: number): HTMLElement {
+  const row = rows[index];
+
+  if (row === undefined) {
+    throw new Error(`the legend row at position ${String(index)} is missing`);
+  }
+
+  return row;
 }
 
 /*
@@ -548,9 +565,44 @@ describe('LineChart', () => {
   it('reads each series’ own simulation label out and invents none for a series without one', () => {
     renderChart({ series: [BASELINE, OPTION] });
 
-    expect(screen.getByText(`${BASELINE_LABEL}, ${CALCULATION_LABEL}`)).toBeInTheDocument();
-    expect(screen.getByText(OPTION_LABEL)).toBeInTheDocument();
+    const rows = screen.getAllByRole('listitem');
+
+    /* Each row carries its own series' exact label, and only the series that declares one has it. */
+    expect(legendRowAt(rows, 0)).toHaveTextContent(`${BASELINE_LABEL}, ${CALCULATION_LABEL}`);
+    expect(legendRowAt(rows, 1)).toHaveTextContent(OPTION_LABEL);
+    expect(legendRowAt(rows, 1)).not.toHaveTextContent(CALCULATION_LABEL);
     expect(screen.queryByText(`${OPTION_LABEL}, ${CALCULATION_LABEL}`)).toBeNull();
+  });
+
+  it('shows a visible legend naming every series beside its own tone’s swatch', () => {
+    renderChart({ series: [BASELINE, OPTION] });
+
+    const legend = screen.getByRole('list');
+
+    /* The list is painted rather than screen-reader-only, and its rows wrap at a narrow width. */
+    expect(legend).not.toHaveClass('sr-only');
+    expect(legend.getAttribute('class')).toContain('flex-wrap');
+
+    const rows = within(legend).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+
+    [BASELINE, OPTION].forEach((spec, index) => {
+      const row = legendRowAt(rows, index);
+      const label = within(row).getByText(spec.label);
+
+      /* The series' name is visible text in the primary role, at the legend's own type step (B-3). */
+      expect(label).not.toHaveClass('sr-only');
+      expect(label.getAttribute('class')).toContain('text-13');
+      expect(label.getAttribute('class')).toContain('text-text-primary');
+      expect(label.getAttribute('class')).toContain('break-words');
+
+      /* The swatch resolves the same tone the series' path draws, from the one tone table. */
+      const swatch = row.querySelector('[aria-hidden="true"]');
+      expect(swatch?.getAttribute('class')).toContain(CHART_TONE_CLASSES[spec.tone].swatch);
+    });
+
+    /* Provenance still reaches a reader per series, in the row that names it (rules P-1, P-5). */
+    expect(within(legendRowAt(rows, 0)).getByText(`, ${CALCULATION_LABEL}`)).toBeInTheDocument();
   });
 
   it('labels both axes where the caller names them', () => {

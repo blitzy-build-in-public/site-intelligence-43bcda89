@@ -5,8 +5,9 @@
  *
  * A PURE SURFACE, NOT A FRAME. `src/components/chart-frame.tsx` owns the `<figure>`, its
  * `<figcaption>`, the "View as table" control and the table that replaces this surface, so this
- * module draws the marks only: it emits no `<figure>`, no `<table>`, no toggle and no `<button>`. A
- * charting dependency is never imported (AAP §0.9, rule B-1); every mark below is SVG written here.
+ * module draws the marks and their legend only: it emits no `<figure>`, no `<table>`, no toggle and no
+ * `<button>`. A charting dependency is never imported (AAP §0.9, rule B-1); every mark below is SVG
+ * written here.
  *
  * WHAT IT FORMATS — NOTHING (rule P-6). `LinePoint.yLabel` is the already-formatted value text,
  * produced by the module that computed the figure, and it is what a point's accessible name carries.
@@ -29,13 +30,17 @@
  * all. Every mark is focusable with `Enter` or `Space`, named with its series, its date and its
  * formatted value, and small enough not to obscure the line it belongs to.
  *
- * PROVENANCE (rules P-1, P-5). A series' `simLabel` is the exact specification §5.3 string, typed as
- * `SimLabel` and never spelled in this module; it is rendered in that series' accessible description
- * and nowhere else, so nothing is invented for a series that carries none — the surrounding frame
- * and legend supply the provenance there. A tone resolves through the one chart tone table
- * `./horizontal-bar-chart.tsx` owns, and no reading is shared between two series: each draws its own
- * path and its own marks, and nothing here sums, totals or blends a first-party figure with a
- * market-intelligence one.
+ * PROVENANCE AND THE LEGEND (rules P-1, P-5, B-3). A series' `simLabel` is the exact specification
+ * §5.3 string, typed as `SimLabel` and never spelled in this module; it is read out in that series'
+ * own legend row and nowhere else, so nothing is invented for a series that carries none — the
+ * surrounding frame states the frame-level label there. The legend itself is visible: one row per
+ * series in the order the series are drawn, each row the series' own tone as a swatch beside the
+ * series' own `label`, so a reader can tell two paths apart without relying on colour alone and
+ * without switching to the table view. The simLabel stays screen-reader-only inside the same row, the
+ * rows wrap at a narrow width, and the list carries no focus stop, no control and no animation. A tone
+ * resolves through the one chart tone table `./horizontal-bar-chart.tsx` owns, and no reading is shared
+ * between two series: each draws its own path and its own marks, and nothing here sums, totals or
+ * blends a first-party figure with a market-intelligence one.
  *
  * THE POINTER IS ANSWERED TOO (rule B-3). A mark is a focus stop with a drawn focus ring, so a
  * keyboard reader always sees where they are; the same ring is revealed by `group-hover` and held by
@@ -105,7 +110,7 @@ export interface LineSeriesSpec {
   /** The series' identifier, unique within one chart, so React can key the path and the marks. */
   readonly id: string;
 
-  /** The series' name, printed in its accessible description and in each mark's accessible name. */
+  /** The series' name, printed in the legend row beside its swatch and in each mark's accessible name. */
   readonly label: string;
 
   /** The role token the path and its marks draw in. */
@@ -143,10 +148,11 @@ export interface LineMarker {
 }
 
 /**
- * A shaded span of the x axis — the idle window the solver reports, in SCR-03's case.
+ * A shaded span of the x axis — the idle window SCR-03 shades over its projection.
  *
- * The span is a prop rather than something derived from the series: the solver owns the idle window,
- * so a chart that inferred one would be inventing a measure (rule P-6).
+ * The span is the caller's, passed as a prop rather than derived here: the caller reads it from the
+ * record's own readings, so this surface measures nothing and can shade no span the records do not
+ * state (rule P-6).
  */
 export interface LineBand {
   /** The first date of the span. */
@@ -313,8 +319,30 @@ const AXIS_LABEL_CLASSES = 'font-mono text-12';
 const POINT_CLASSES =
   'group cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring';
 
-/** The per-series descriptions: read out, never seen, so the series keep their own provenance. */
-const DESCRIPTION_LIST_CLASSES = 'sr-only';
+/**
+ * The legend beneath the surface: one wrapping row, so it sits under the chart it describes and wraps
+ * rather than overflowing its container at a narrow width. It is the arrangement `./legend.tsx` uses.
+ */
+const LEGEND_CLASSES = 'flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1';
+
+/** One legend row: the series' swatch, then its name, wrapping together as a single item. */
+const LEGEND_ITEM_CLASSES = 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1';
+
+/**
+ * The swatch: the 12 px mark on the 4 px grid with the 2 px control radius `./legend.tsx` draws, taking
+ * the series' own tone from the one chart tone table so a row and the path it describes cannot disagree.
+ * It is decorative, so `aria-hidden` is set at the call site and the label beside it carries the meaning.
+ */
+const LEGEND_SWATCH_CLASSES = 'inline-block size-3 shrink-0 rounded-control';
+
+/** The series' name: the primary text role, so its contrast is the ratio the theme measured for it. */
+const LEGEND_LABEL_CLASSES = 'min-w-0 break-words text-13 text-text-primary';
+
+/**
+ * The series' own simulation label, read out rather than painted: the frame already states the
+ * frame-level label, so this stays inside the row as the provenance a screen reader receives with it.
+ */
+const LEGEND_PROVENANCE_CLASSES = 'sr-only';
 
 /* ---------------------------------------------------------------------------------------------
  * Geometry — the only arithmetic in the module
@@ -917,12 +945,20 @@ export function LineChart({
         )}
       </svg>
 
-      {/* Each series' accessible description, and the only place its simulation label is read out. */}
+      {/* The legend: a visible row per series, naming it beside its own tone's swatch (rule B-3). */}
       {series.length === 0 ? null : (
-        <ul className={DESCRIPTION_LIST_CLASSES}>
+        <ul role="list" className={LEGEND_CLASSES}>
           {series.map((spec) => (
-            <li key={`description-${spec.id}`}>
-              {spec.simLabel === undefined ? spec.label : `${spec.label}, ${spec.simLabel}`}
+            <li key={`legend-${spec.id}`} className={LEGEND_ITEM_CLASSES}>
+              <span
+                aria-hidden="true"
+                className={`${LEGEND_SWATCH_CLASSES} ${CHART_TONE_CLASSES[spec.tone].swatch}`}
+              />
+              <span className={LEGEND_LABEL_CLASSES}>{spec.label}</span>
+              {/* The only place this series' own simulation label is read out (rules P-1, P-5). */}
+              {spec.simLabel === undefined ? null : (
+                <span className={LEGEND_PROVENANCE_CLASSES}>{`, ${spec.simLabel}`}</span>
+              )}
             </li>
           ))}
         </ul>

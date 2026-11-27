@@ -31,31 +31,12 @@
  * - P-1: no label string is typed here. The seven exact labels of specification §5.3 are the
  *   `SimLabel` union in `./primitives`, and the components carry them.
  *
- * OPEN ITEM: `ChangedSinceLastVisitItem.ref`, `Citation.ref`, `ImpactChainNode.ref` and
- * `SearchHit.ref` are `string`. AAP 0.12.2 fixes each of them as `ref: string` because a reference
- * in the evidence drawer and in the search results spans every record kind — an exception, an order,
- * a document, a pin — and `./primitives` types that vocabulary one entity at a time. A closed union
- * would have to enumerate the record set and would reject a legitimate reference.
- * OPEN ITEM: `SearchHit.entityType` is an open `string` on the same reasoning: the search groups its
- * hits by the seed's own record kinds (specification §5.1), and those kinds are record content
- * rather than a vocabulary the inputs enumerate.
- * OPEN ITEM: `PolicyDetail.statement` is a `string` slot. Contracts §7.2 is the display text's
- * source and the seed record holds it; that wording is not quoted in the inputs available in this
- * run, so none of it is written here, and a screen that needs it reads the record (rule P-6).
- * OPEN ITEM: `Answer.modelId` is a `string` because `./primitives` declares no model identifier and
- * `./models` owns the model catalogue. This module's import whitelist is `./primitives`,
- * `./entities` and `./solver`, so the answer carries the catalogue's identifier as a plain string
- * rather than importing a second vocabulary for it.
- * OPEN ITEM: `SovereigntyRow.id` and `LedgerRow.endpoint` are `string`. The row keys are the seed
- * record's own (`SD-1` upwards) and the endpoint strings are the outbound ledger's record content
- * (AAP 0.6.3, 0.12.2); neither is a vocabulary the contracts enumerate, and writing a set of keys
- * here would type a record value into a type module (rule P-6).
- * OPEN ITEM: `ExceptionDetail.missingInputs` and `ExceptionDetail.confidence` repeat the pair that
- * `OperationalException` already carries. They are kept because AAP 0.12.2's `ExceptionDetail` row
- * lists "missing inputs and confidence" among the detail's own panels beside the impact chain and
- * the stock series, and a screen that renders that panel reads it from the detail rather than
- * reaching into the record. Nothing else on the detail repeats a member of `exception`: the header
- * fields and `whatChanged` are read from the record alone.
+ * Open `string` members carry record content rather than an enumerated vocabulary: the four
+ * `ref`s, which span every record kind, `SearchHit.entityType`, which groups by the seed's own
+ * record kinds (specification §5.1), `PolicyDetail.statement`, `SovereigntyRow.id` and
+ * `LedgerRow.endpoint`, because writing such a set here would type a record value into a type
+ * module (rule P-6). `Answer.modelId` is `string` because `./models` owns the model catalogue
+ * and this module's import whitelist is `./primitives`, `./entities` and `./solver`.
  */
 
 import type {
@@ -296,6 +277,10 @@ export interface ImpactChainNode {
  * Fixing input: AAP 0.12.2's `ExceptionDetail` row — the header fields and `whatChanged` travel on
  * `exception`, and the impact chain, the stock series, the affected orders, the missing inputs and
  * confidence, and the activity history travel here beside it.
+ *
+ * `missingInputs` and `confidence` repeat the pair `exception` carries, because AAP 0.12.2 lists
+ * both among the detail's own panels, so a screen that renders that panel reads the detail rather
+ * than reaching into the record. Nothing else on the detail repeats a member of `exception`.
  *
  * `stockSeries` is the baseline projection plotted for the case's window, never below zero, and the
  * selected option is plotted over the same series (T-03). `activity` is the audit trail
@@ -712,6 +697,22 @@ export interface ApprovalOutcome {
 
   /** The state the approval's write-backs left, measured on the same case. */
   resulting: SolverResult;
+
+  /**
+   * The record this comparison is about: the approval whose plan was measured and whose simulated
+   * write-backs produced the resulting reading.
+   *
+   * It is the reference `getEvidence` resolves, and the same `APR-` reference the approvals inbox
+   * wraps its own amounts in, so either column of the card opens the drawer on the record the
+   * comparison belongs to (AAP 0.2.1's F12, principle PR-6). It is deliberately not a reference to
+   * the option the plan names: an option a set computes in this session has no stored record for the
+   * evidence read to resolve — that read searches the seeded scenario sets and nothing else — so an
+   * option reference would open the drawer's not-found region instead of its four sections.
+   *
+   * Fixing input: AAP 0.2.1's F12 and AAP 0.12.4's SCR-05 row, with rule P-6 fixing that no screen
+   * composes a reference of its own for a figure the service measured.
+   */
+  readonly evidenceRef: string;
 }
 
 /**

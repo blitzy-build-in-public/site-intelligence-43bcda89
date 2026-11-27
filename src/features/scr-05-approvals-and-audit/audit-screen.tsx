@@ -39,6 +39,15 @@
  * absent by omission: nothing here states that the chain resists tampering, prevents copying or
  * establishes anything about the store behind a browser page (rule P-4).
  *
+ * HOW LONG A REPORT LIVES. Until the next activation replaces it, or until the records behind the
+ * trail are re-issued — whichever comes first. A report describes the chain as it stood at the moment
+ * of the check, and the application re-issues its reads whenever a record may have moved: every write,
+ * every simulation trigger and `Reset demo data` invalidate the query cache. So this screen subscribes
+ * to that cache and drops the report when the trail's own read is invalidated, rather than leaving a
+ * verdict about an edited chain standing above the restored one it no longer describes. A reader's
+ * filter change reads a different cache entry and invalidates nothing, so narrowing the trail never
+ * discards a verdict.
+ *
  * THE FIXED NOTE, AND WHY IT AND THE CLAIM SCAN HOLD TOGETHER. {@link AUDIT_CHAIN_NOTE} is the
  * sentence the "Verify chain" row of AAP §0.10 and the SCR-05 row of AAP §0.12.4 fix for this screen,
  * and rule P-4 requires the chain to carry it. It is rendered character for character: it names the
@@ -63,32 +72,34 @@
  * this file (rule P-6, and `tests/source-checks/no-typed-figures.test.ts` scans this folder).
  *
  * THE SEVEN STATES. Every read-driven screen renders inside `StateBoundary` (AAP 0.12.4) and the state
- * is derived once, in {@link deriveScreenState}, from what the query settled to and from the freshness
- * report the result carries: a permission refusal is `forbidden`, a validation refusal is `conflict`,
- * any other rejection is `offline`, a pending read is `loading`, a source that did not answer is
- * `offline`, an order book reported `stale` is `stale`, a source that answered incompletely is
- * `partial`, and an empty result is `empty`. Each state therefore describes what a source did, and
- * none is inferred from the shape of a record the table happens to hold. `StateBoundary` owns what
- * each state looks like, so no banner, skeleton or denial card is composed here.
+ * is derived once, in `src/components/screen-state.ts`, from what the query settled to and from the
+ * freshness report the result carries: a refusal is the state the cause names, a pending read is
+ * `loading`, a source that did not answer is `offline`, an order book reported `stale` is `stale`, a
+ * source that answered incompletely is `partial`, and an empty result is `empty`. Each state therefore
+ * describes what a source did, and none is inferred from the shape of a record the table happens to
+ * hold. `StateBoundary` owns what each state looks like, so no banner, skeleton or denial card is
+ * composed here.
  *
- * REPORTED GAPS AND DECISIONS.
- * - No drawer primitive for arbitrary payloads exists in `src/components` — `EvidenceDrawer` is bound
- *   to an evidence reference — so {@link AuditDetailDrawer} lives in this file as a non-exported
- *   component, as the file's instructions require.
- * - No text-input or select primitive exists in `src/components` either, so the filter controls are the
- *   two non-exported components {@link FilterTextField} and {@link FilterChoiceField}, each a labelled,
- *   keyboard-operable control built from role tokens in this file.
- * - `AuditResult` and `ProblemType` are types in `src/types`, with no runtime member list beside them,
- *   so the option lists below are declared here and typed against those unions: a member the union
- *   gains or loses fails this file's compilation instead of being hand-typed into a control.
- * - The port's `listAuditEvents(query)` takes no scope, because the chain is not plant-scoped — a
- *   persona either holds `audit.read` or does not. The scope this screen receives is therefore carried
- *   in the query *key*, so a scope change re-reads the trail as every other screen's reads do, while
- *   the request itself stays exactly the port's signature.
- * - A failure whose cause the state mapping does not name — a `policy`, `simulated-write-back` or
- *   `not-found` refusal of a list read — is rendered `offline`: the boundary's offline rendering is the
- *   one that withholds content, says nothing answered and offers a retry, and a cause it cannot name
- *   must not be presented as content that exists.
+ * THE COMPONENTS THIS FILE OWNS. No drawer primitive for arbitrary payloads exists in `src/components`
+ * — `EvidenceDrawer` is bound to an evidence reference — so {@link AuditDetailDrawer} is a
+ * non-exported component in this file. `TextField` and `SelectField` own the `<input>` and the
+ * `<select>` the filters need (AAP §0.5.2), so {@link FilterTextField} and {@link FilterChoiceField}
+ * compose those primitives and render no native control themselves; each stays a non-exported
+ * component of this file because it binds the primitive to one filter's visible label and hint, which
+ * is this screen's own copy.
+ *
+ * THE READING, THE FILTERS AND A FAILURE THE MAPPING CANNOT NAME. `AuditResult` and `ProblemType` are
+ * types in `src/types` with no runtime member list beside them, so the option lists below are declared
+ * here and typed against those unions: a member the union gains or loses fails this file's compilation
+ * instead of being hand-typed into a control. The port's `listAuditEvents(query)` takes no scope,
+ * because the chain is not plant-scoped — a persona either holds `audit.read` or does not — so the
+ * scope this screen receives is carried in the query *key*, a scope change re-reads the trail as every
+ * other screen's reads do, and the request itself stays exactly the port's signature. A failure whose
+ * cause the state mapping does not name — a `policy` or `simulated-write-back` refusal of a list read —
+ * is rendered `offline`: the boundary's offline rendering withholds content, says nothing answered and
+ * offers a retry, and a cause it cannot name must not be presented as content that exists. A
+ * `not-found` refusal is `empty` on every screen, from the one mapping in
+ * `src/components/screen-state.ts`.
  *
  * Rules this module is built to satisfy:
  * - P-1: the chain's verification carries its own `Simulated control` label beside the figures it
@@ -109,23 +120,31 @@
  *   credential; the whole screen is in-browser computation over records the service already holds.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode } from 'react';
 
 import { DataTable } from '../../components/data-table';
 import type { TableColumn, TableSort } from '../../components/data-table';
+import { DialogHeading } from '../../components/dialog-heading';
 import { MonoValue } from '../../components/mono-value';
 import type { MonoValueKind } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
 import { Panel } from '../../components/panel';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
+import { SelectField } from '../../components/select-field';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
+import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import { APPROVAL_GATE_SOURCE, SIM_LABELS } from '../../types';
 import type {
   AuditEvent,
   AuditPayload,
@@ -133,13 +152,8 @@ import type {
   AuditResult,
   ChainBreak,
   ChainReport,
-  Freshness,
-  FreshnessState,
-  Problem,
-  ProblemType,
   Result,
   Scope,
-  ScreenState,
   SimLabel,
 } from '../../types';
 
@@ -423,191 +437,6 @@ function buildAuditQuery(filters: AuditFilterValues): AuditQuery {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The failure, the freshness and the seven states
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The five causes `Problem` distinguishes, in the contract's own spelling.
- *
- * Declared beside the guard rather than imported as a value, because `ProblemType` is a type in
- * `src/types/service.ts`: this list is typed against that union, so a cause the union gains or loses
- * fails this file's compilation instead of making the guard accept a failure it does not describe.
- */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const satisfies readonly ProblemType[];
-
-/**
- * Whether a rejection is the port's typed failure rather than something the platform threw.
- *
- * A `Problem` is thrown rather than returned (AAP 0.12.3), so a screen that catches a read has to tell
- * the two apart before it can name a cause: a refusal of the record is not the same condition as a
- * failure of the call itself, and the seven states render them differently. Every member the guard
- * checks is one a `Problem` declares, so a `TypeError` from a broken module reaches the offline
- * rendering rather than being read as a permission refusal it never carried.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
-
-/**
- * The stale record the boundary's banner names, or `undefined` unless the order book itself reports
- * `stale`.
- *
- * The banner and the disabled controls of a screen that writes on ERP's freshness quote the same
- * record (AAP 0.2.1, T-13), so the record is handed over whole: the source key, the display name the
- * freshness strip prints for it from `SOURCE_LABELS`, and the instant it last answered. The source is
- * `APPROVAL_GATE_SOURCE`, declared once in `src/types/sources.ts`, so this banner and the service's
- * refusal name one source rather than two literals that agree only until the gate moves.
- *
- * Only `stale` raises this banner. A source that did not answer at all is the `unavailable` condition
- * {@link reportsState} reports and {@link deriveScreenState} renders as `offline`, and an incomplete
- * answer is its `partial`, so neither is described here as an order book that is merely out of date.
- * Nothing is derived from the instant — no age and no duration (rule P-6).
- */
-function staleOrderBookOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const orderBook = freshness.find(
-    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
-  );
-
-  if (orderBook === undefined) {
-    return undefined;
-  }
-
-  return {
-    source: orderBook.source,
-    label: SOURCE_LABELS[orderBook.source],
-    asOf: orderBook.asOf,
-  };
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the failure was not a permission
- * refusal.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that hold
- * it and the trace identifier of the refused call. A refusal that named no permission supplies no card
- * rather than a card naming a permission nobody was refused for, and the boundary's neutral notice
- * stands in its place.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * Whether a source in the read's freshness report answered in the state asked about.
- *
- * The report is the adapter's own account of what each of the six sources did — `Result.meta.freshness`
- * — so `unavailable` there means a source did not answer and `partial` means one answered
- * incompletely. Reading the states from that report, rather than from the shape of a record the table
- * happened to receive, is what keeps each state describing a source (AAP 0.2.1).
- */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/** What {@link deriveScreenState} reads: what the query settled to. */
-interface ScreenStateInput {
-  /** Whether the read has not answered yet. */
-  readonly isPending: boolean;
-
-  /** What the read rejected with, or `null` while it has not. */
-  readonly error: unknown;
-
-  /** The read's result, or `undefined` until it settles. */
-  readonly result: Result<AuditEvent[]> | undefined;
-}
-
-/**
- * The one place this screen decides which of the seven states its records are in.
- *
- * The failure side comes first and is fixed: a permission refusal is `forbidden`, a validation refusal
- * is `conflict`, any other rejection is `offline`, and a pending read is `loading`. The record side
- * then reads the freshness report the result itself carries, in this order: a source reported
- * `unavailable` is `offline`, because nothing answered for the content on screen; the order book
- * reported exactly `stale` is `stale`; a source reported `partial` is `partial`, an answer that
- * arrived incomplete; and an empty trail is `empty`. Every other case returns `undefined`, which is
- * the boundary's documented "no exceptional state holds" — the content renders exactly as handed in.
- *
- * Nothing here reads the shape of a record. A state describes what a source did, so an event that
- * arrived without a member is listed as the record holds it rather than re-labelling the whole trail
- * `partial`.
- *
- * Its input is the query's own settled facts rather than a flag of this screen's, so the state cannot
- * disagree with the read it describes and no effect is needed to keep the two in step.
- */
-function deriveScreenState({
-  isPending,
-  error,
-  result,
-}: ScreenStateInput): ScreenState | undefined {
-  if (isProblem(error)) {
-    return error.type === 'permission'
-      ? 'forbidden'
-      : error.type === 'validation'
-        ? 'conflict'
-        : 'offline';
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleOrderBookOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return result.data.length === 0 ? 'empty' : undefined;
-}
-
-/* ---------------------------------------------------------------------------------------------
  * The outcome's status meaning, and the ordering of the rows
  * ------------------------------------------------------------------------------------------- */
 
@@ -825,7 +654,7 @@ function monoKindForKey(key: string): MonoValueKind | undefined {
 
 
 /* ---------------------------------------------------------------------------------------------
- * The filter controls — no text-input or select primitive exists in `src/components`
+ * The filter controls — this screen's labels over the `TextField` and `SelectField` primitives
  * ------------------------------------------------------------------------------------------- */
 
 /** Props of {@link FilterTextField}: one free-text filter, labelled and controlled. */
@@ -846,10 +675,10 @@ interface FilterTextFieldProps {
 /**
  * One labelled free-text filter.
  *
- * Declared in this file because `src/components` holds no text-input primitive and a screen may not
- * render a raw form control: this is the one place a text field's label, identifier and hint are
- * joined, and the control keeps the 24 by 24 px target and the theme's focus ring (rule B-3). It holds
- * no state — the caller owns the value — so a render never fights the reader's typing.
+ * `TextField` in `src/components` owns the `<input>` (AAP §0.5.2); this component is the one place a
+ * filter's label, identifier and hint are joined to it, and the control keeps the 24 by 24 px target
+ * and the theme's focus ring (rule B-3). It holds no state — the caller owns the value — so a render
+ * never fights the reader's typing.
  */
 function FilterTextField({ label, value, onChange, hint }: FilterTextFieldProps): ReactElement {
   const fieldId = useId();
@@ -860,13 +689,11 @@ function FilterTextField({ label, value, onChange, hint }: FilterTextFieldProps)
       <label htmlFor={fieldId} className={LABEL_CLASSES}>
         {label}
       </label>
-      <input
+      <TextField
         id={fieldId}
         type="text"
         value={value}
-        onChange={(changeEvent) => {
-          onChange(changeEvent.target.value);
-        }}
+        onChange={onChange}
         aria-describedby={hint === undefined ? undefined : hintId}
         className={CONTROL_CLASSES}
       />
@@ -906,10 +733,10 @@ interface FilterChoiceFieldProps {
 /**
  * One labelled enumerated filter.
  *
- * A native `select` for the reason the text field is a native `input`: the platform's own control is
- * the one that is keyboard operable, announced as a list box and rendered with the reader's own input
- * device, and no component in `src/components` offers one. The options are the union's own members,
- * supplied by the caller, so the control can never offer a value the records cannot hold.
+ * `SelectField` in `src/components` owns the `<select>` (AAP §0.5.2), and its element is the
+ * platform's own control — keyboard operable and announced as a list box — so a filter keeps the
+ * interaction the reader's own device gives it. The options are the union's own members, supplied by
+ * the caller, so the control can never offer a value the records cannot hold.
  */
 function FilterChoiceField({
   label,
@@ -924,20 +751,13 @@ function FilterChoiceField({
       <label htmlFor={fieldId} className={LABEL_CLASSES}>
         {label}
       </label>
-      <select
+      <SelectField
         id={fieldId}
         value={value}
-        onChange={(changeEvent) => {
-          onChange(changeEvent.target.value);
-        }}
+        options={options}
+        onChange={onChange}
         className={CONTROL_CLASSES}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      />
     </div>
   );
 }
@@ -1222,9 +1042,9 @@ function AuditDetailDrawer({ auditEvent, onClose }: AuditDetailDrawerProps): Rea
         className={DRAWER_CLASSES}
       >
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-          <h2 id={titleId} className={DRAWER_TITLE_CLASSES}>
+          <DialogHeading id={titleId} className={DRAWER_TITLE_CLASSES}>
             {SCREEN_TEXT.drawerTitlePrefix} <MonoValue value={auditEvent.id} kind="id" />
-          </h2>
+          </DialogHeading>
           <ActionButton onClick={onClose}>{SCREEN_TEXT.closeDetail}</ActionButton>
         </div>
 
@@ -1418,6 +1238,15 @@ const COLUMNS: readonly TableColumn<AuditEvent>[] = [
  * The screen
  * ------------------------------------------------------------------------------------------- */
 
+/**
+ * The name the trail's read is cached under: the port's method the read calls, which is the first
+ * element of the query key and the value the screen's cache subscription matches.
+ *
+ * Declared once so the key and the match cannot name different reads: an invalidation is recognised by
+ * the same string the query was cached with.
+ */
+const TRAIL_READ = 'listAuditEvents';
+
 /** Props of {@link AuditScreen}. */
 export interface AuditScreenProps {
   /**
@@ -1438,8 +1267,10 @@ export interface AuditScreenProps {
  * cache entry per filter combination, and — only when the reader asks for it — the chain's
  * verification through `verifyAuditChain`. The first read's settled facts decide the screen's state in
  * one place ({@link deriveScreenState}); the second is an action whose report is held here until the
- * next activation replaces it, because a verification that ran a moment ago is a statement about that
- * moment and not about the records now.
+ * next activation replaces it or the records behind the trail are re-issued, because a verification
+ * that ran a moment ago is a statement about that moment and not about the records now. An
+ * invalidation of the trail's read is the application saying those records may have moved, so a verdict
+ * the records have outrun is dropped rather than shown above a chain it does not describe.
  *
  * Nothing on this screen writes: no event is appended, no record is edited and nothing is repaired by
  * the verification. The only state this component owns is what the reader chose — the filters, the
@@ -1452,6 +1283,7 @@ export interface AuditScreenProps {
  */
 export function AuditScreen({ scope }: AuditScreenProps): ReactElement {
   const service = useService();
+  const queryClient = useQueryClient();
 
   const [filters, setFilters] = useState<AuditFilterValues>(NO_FILTERS);
   const [sort, setSort] = useState<TableSort | null>(null);
@@ -1469,19 +1301,58 @@ export function AuditScreen({ scope }: AuditScreenProps): ReactElement {
    * retry for the case where repeating the call can succeed.
    */
   const eventsQuery = useQuery<Result<AuditEvent[]>, unknown>({
-    queryKey: ['listAuditEvents', auditQuery, scope.plants, scope.products],
+    queryKey: [TRAIL_READ, auditQuery, scope.plants, scope.products],
     queryFn: () => service.listAuditEvents(auditQuery),
     retry: false,
   });
 
+  /*
+   * The report's lifetime, ended by the records moving under it. Every invalidation of the trail's read
+   * is the application's own statement that the records behind it may have moved: every write, every
+   * simulation trigger and `Reset demo data` re-issue the reads through this cache. A report describes
+   * the chain as it stood when the check ran, so it is dropped the moment that read is invalidated
+   * rather than left standing above a trail it no longer describes.
+   *
+   * A filter change is not an invalidation — it reads a different cache entry — so narrowing the trail
+   * leaves the verdict in place. The subscription is returned as the effect's cleanup, so a screen that
+   * unmounts stops listening.
+   */
+  useEffect(
+    () =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (event.type !== 'updated' || event.action.type !== 'invalidate') {
+          return;
+        }
+
+        const invalidatedKey: readonly unknown[] = event.query.queryKey;
+
+        if (invalidatedKey[0] !== TRAIL_READ) {
+          return;
+        }
+
+        setReport(null);
+        setVerifyFailure(null);
+      }),
+    [queryClient],
+  );
+
   const result = eventsQuery.data;
   const rows = useMemo(() => orderRows(result?.data ?? [], sort), [result, sort]);
+  /*
+   * The read's own facts, plus this screen's reading of its answer: the trail is written on the order
+   * book's currency, so the stale notice names ERP first (AAP 0.2.1, T-13), and an empty trail is the
+   * empty state. Nothing here reads the shape of a record: a state describes what a source did, so an
+   * event that arrived without a member is listed as the record holds it.
+   */
   const state = deriveScreenState({
     isPending: eventsQuery.isPending,
     error: eventsQuery.error,
-    result,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    hasContent: (result?.data.length ?? 0) > 0,
   });
-  const staleRecord = result === undefined ? undefined : staleOrderBookOf(result.meta.freshness);
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord = forbiddenOf(eventsQuery.error);
 
   const retryRead = (): void => {
@@ -1539,8 +1410,10 @@ export function AuditScreen({ scope }: AuditScreenProps): ReactElement {
   /*
    * One activation, one call, one report. The previous report stays on screen while the new call runs
    * — the control says a check is already running, so the reading is understood as the earlier one —
-   * and is cleared only when the verification itself could not run, because a report about a moment the
-   * service never answered for would be a reading nothing produced.
+   * and is cleared here only when the verification itself could not run, because a report about a
+   * moment the service never answered for would be a reading nothing produced. The other place it is
+   * dropped is the cache subscription above, and for the other reason: there the records behind the
+   * report moved.
    */
   const verifyChain = async (): Promise<void> => {
     setIsVerifying(true);

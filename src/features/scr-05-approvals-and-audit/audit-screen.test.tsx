@@ -351,6 +351,16 @@ const UI = {
 const THEMES = ['command', 'paper'] as const;
 
 /**
+ * The name the trail's read is cached under: the port's own method name, which is the read the
+ * application invalidates on `Reset demo data` and on every simulation trigger.
+ *
+ * Typed here rather than imported, because what the case proves is that the screen reacts to the
+ * invalidation the shell issues for that read — an import of the screen's own constant would let both
+ * sides drift together and keep the case green.
+ */
+const TRAIL_READ = 'listAuditEvents';
+
+/**
  * The vocabulary of an unimplemented claim, assembled from fragments (rule P-4).
  *
  * It is built rather than typed so that this file does not itself carry the words
@@ -423,8 +433,16 @@ type UserSession = ReturnType<typeof userEvent.setup>;
 /**
  * Renders the screen as the shell mounts it: behind an in-memory router, inside a cache of its own,
  * with retries off so a refusal fails the same way however often it is repeated.
+ *
+ * The cache is handed back because the cache is how the application re-issues a read: `Reset demo
+ * data` and every simulation trigger invalidate it (`src/app/simulation-controls.tsx`), so a case
+ * that has to prove what the screen does once the records behind its reads have moved has to drive
+ * the same cache the screen observes.
+ *
+ * @returns The cache the screen renders inside, for a case that invalidates a read the way the shell
+ *   does.
  */
-function renderScreen(): void {
+function renderScreen(): QueryClient {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   render(
@@ -434,6 +452,8 @@ function renderScreen(): void {
       </QueryClientProvider>
     </MemoryRouter>,
   );
+
+  return queryClient;
 }
 
 /**
@@ -855,6 +875,76 @@ describe('a chain that does not verify', () => {
     expect(rowsAfter).toEqual(rowsBefore);
     expect(mockService.listAuditEvents).toHaveBeenCalledTimes(1);
     expect(calledMembers()).toEqual(['listAuditEvents', 'verifyAuditChain']);
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 7b. The lifetime of a verdict, once the records behind the trail are re-issued — T-17
+ * ------------------------------------------------------------------------------------------- */
+
+describe('a verdict whose records are re-issued', () => {
+  it('T-17 drops a verdict the re-issued records outran, keeping the note and the control', async () => {
+    const user = userEvent.setup();
+    mockService.verifyAuditChain.mockResolvedValue(envelope(REPORTS.oneBreak));
+    const queryClient = renderScreen();
+    await screen.findByRole('table');
+
+    const report = await verifyChain(user);
+
+    expect(report).toHaveTextContent(String(FIRST_BREAK.sequence));
+
+    /* One invalidation of the trail's read, as `Reset demo data` issues it after restoring the seed:
+       the records behind the trail may have moved, so the invalidation is the application's own
+       statement that a verdict about how they stood is no longer a statement about them. */
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: [TRAIL_READ], refetchType: 'none' });
+    });
+
+    const panel = verificationPanel();
+
+    /* The verdict is gone: the break it reported belongs to a chain the reader can no longer see. */
+    expect(within(panel).queryByRole('status')).toBeNull();
+    expect(panel).not.toHaveTextContent(String(FIRST_BREAK.sequence));
+
+    /* What the group is for survives the drop — the fixed note of the mechanism (rules P-1 and P-4)
+       and a control that can still act (rule P-8) — so the reader can verify the restored chain. */
+    expect(screen.getByText(AUDIT_CHAIN_NOTE)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: UI.verifyChain })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+
+    /* And it does: the restored chain verifies, which is the reading the panel now carries. */
+    mockService.verifyAuditChain.mockResolvedValue(envelope(REPORTS.unbroken));
+
+    const restored = await verifyChain(user);
+
+    expect(restored.querySelector(`.${MEANING_COLOUR_CLASSES.pass}`)).not.toBeNull();
+    expect(restored.querySelector(`.${MEANING_COLOUR_CLASSES.fail}`)).toBeNull();
+  });
+
+  it('T-17 keeps the verdict when the reader changes a filter, which reads another entry', async () => {
+    const user = userEvent.setup();
+    mockService.verifyAuditChain.mockResolvedValue(envelope(REPORTS.oneBreak));
+    renderScreen();
+    await screen.findByRole('table');
+
+    const report = await verifyChain(user);
+
+    await applyFilter(user, {
+      label: UI.actor,
+      member: 'actorId',
+      value: 'persona-alpha',
+      kind: 'text',
+    });
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(2);
+    });
+
+    /* A filter is a different cache entry and invalidates nothing, so the verdict still describes the
+       chain the reader is looking at and must not be discarded by a reader narrowing the trail. */
+    expect(verificationPanel()).toContainElement(report);
+    expect(report).toHaveTextContent(String(FIRST_BREAK.sequence));
+    expect(mockService.verifyAuditChain).toHaveBeenCalledTimes(1);
   });
 });
 

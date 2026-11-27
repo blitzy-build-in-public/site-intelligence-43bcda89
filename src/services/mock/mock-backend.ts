@@ -3,121 +3,29 @@
  * `SiteIntelligenceService` over the demonstration's seeded, mutable state, and `DemonstrationControls`
  * beside it (AAP 0.6.2, AAP 0.12.1 "Mock adapter" row, AAP 0.12.3, rule P-2).
  *
- * WHAT THIS CLASS IS. Rule P-2 requires that all data access goes through the one typed service
- * interface, bound to an in-browser mock backend, with components and screens never reaching a seed
- * record. This class is that backend. It owns nothing itself: the session it serves lives in
- * `./mock-state.ts`, the triggers the simulation popover sets live in `./simulation.ts`, and every
- * read and write is a function of one of the nine families under `./handlers/`. Each port member
- * below is therefore a dispatcher — it awaits the bootstrap, waits the call's latency, resolves the
- * acting persona from the session, delegates to the matching family and wraps what comes back in the
- * envelope. No business arithmetic lives here, and no figure, amount, identifier or label is typed
- * here (rule P-6, rule P-1).
+ * The session it serves lives in `./mock-state.ts`, the triggers the simulation popover sets in
+ * `./simulation.ts`, and every read and write in one of the nine families under `./handlers/`, so each
+ * port member below is a dispatcher and no business arithmetic lives here. Every permission check,
+ * policy check and redaction happens inside the adapter, on the value about to be returned.
  *
- * THE ENVELOPE AND THE OBSERVABLE BEHAVIOUR BOTH ADAPTERS SHARE (AAP 0.12.3). Every call resolves to
- * `Result<T>` whose `meta` carries the six sources' freshness, the literal `simulated: true` and the
- * call's `traceId`; every failure is thrown as a `Problem` whose `type` names its cause, so a caller
- * cannot read a payload beside a refusal. Three properties make the swap to `ApiClient` invisible and
- * are applied here once rather than per method:
+ * The stage S4 and S5 families are carried for interface conformance: the package, pin and element-review
+ * reads are implemented because the seed holds those records, while the production plan grid and the exit
+ * package are refused with a `'not-found'` naming the absent record family, because inventing a record is
+ * forbidden (rule P-6).
  *
- * 1. Latency inside the 150-400 ms band, so a loading state is observable. The delay is a ladder over
- *    the session's own request counter — never `Math.random`, never a clock — so the n-th call of a
- *    session takes the same time in every run (AAP 0.18.2).
- * 2. The correlation identifier comes from `traceIdFor` in `./handlers/audit.ts`, which is the module
- *    that already stamps every appended event and every refusal this adapter produces. Using one
- *    derivation means the `traceId` of a `Result` and the `traceId` of the `Problem` thrown by the
- *    same call are one value, and an identifier a reader quotes leads back to the record.
- * 3. The acting persona is resolved from the session's own state, never from a caller. No port member
- *    accepts a role, so a caller cannot widen its own reach, and the permission matrix of contracts
- *    §7.1 and the policy engine are evaluated against the persona the demonstration claims to be.
- *
- * WHO ACTS, AND WHAT THAT MEANS (rule P-3). The persona comes from the role switcher, which is a
- * demonstration control: the checks behind it run in the browser of a build with no backend, no
- * sign-in and no session, so they are not production authorisation. They are nevertheless evaluated
- * here and in each family rather than trusted from the caller, so bypassing the visible control
- * changes nothing about what this adapter returns. `switchRole` carries the same statement on the
- * member itself.
- *
- * WHAT IT DOES NOT DO, AND WHY. It performs no network request of any kind (rule B-1): every read is
- * a function over records already in memory, and the three exports are built as text for the browser
- * to offer as a download. It reads no configuration, environment value or credential and holds none
- * (rule B-2). It types no label — the seven fixed simulation labels live in `src/types/primitives.ts`
- * and are applied where an element surfaces (rule P-1) — and it states no figure, currency amount or
- * record identifier of its own (rule P-6); the identifiers it passes through are the ones a record
- * carries. It names no real company, customer, carmaker or cloud product (rule P-7). It makes no claim
- * that the application establishes a configuration, prevents a copy or defeats an edit: the chain is a
- * mechanism the interface labels from `src/types/primitives.ts` wherever it surfaces, and a
- * verification recomputes hashes and repairs nothing (rule P-4). A simulated write-back that fails
- * carries the fixed write-back label of specification §5.3 beside the failure's own message where the
- * screen shows it; no label text is stated here and none is invented.
- *
- * REDACTION HAPPENS INSIDE THE ADAPTER, ON THE VALUE ABOUT TO BE RETURNED (AAP 0.6.2, AAP 0.12.3).
- * A customer-confidential document body never crosses this boundary for a persona without
- * `document.confidential.read`, and the external supplier engineer receives its own vendor's evidence
- * pins and no other's. Both are applied by the family that owns the record — `getDocument` withholds
- * the body through the evidence family and `listPins` returns the evidence family's visible set — so
- * there is one enforcement point per rule. This file copies no document body into any payload it
- * builds, including the before-and-after payload of an audit event, so a withheld body cannot leak
- * through a record this adapter composed.
- *
- * THE DEMONSTRATION CONTROLS (AAP 0.6.2, AAP 0.12.1). `setSimulation` and `resetDemo` are port members
- * with no HTTP counterpart, and the API client implements them as documented no-ops. The tampered-audit
- * trigger additionally edits the seeded event the tamper control addresses, through
- * `tamperAuditEvent`, so a verification then reports that event's position and repairs nothing; turning
- * the trigger off clears the flag and leaves the edit in place, because a repair would hide the very
- * disagreement the control exists to show. The role switch and the read of the acting persona are the
- * capability the port does not carry, declared together in
- * `src/services/demonstration-controls.ts`, and this class implements both from its own state.
- *
- * DETERMINISM. The only state consulted is the session's; the only platform facility used is the
- * timer that makes a loading state observable. No clock, no random source and no module-level mutable
- * value is read, so the same session driven by the same calls yields the same answers in every run.
- *
- * Rules this class is built to satisfy: P-1 (no label typed; `simulated: true` in every envelope),
- * P-2 (the port is the only contract, and no module under `src/seed/` is imported — records arrive
- * through `./seed-loader.ts` inside the state), P-3 (the role switch is a demonstration control and
- * the matrix is enforced here), P-4 (no overclaim, and the chain is labelled where it surfaces), P-6
- * (no number, amount or identifier typed here), P-7 (synthetic naming only), P-8 (every refusal names
- * its cause, with the permission and the roles that hold it), B-1 (no request leaves for any host) and
- * B-2 (no configuration, no credential).
- *
- * HOW THE PORT'S `Scope` REACHES THE FAMILIES (AAP 0.2.1). Six port members take a scope, and all six
- * are narrowed by one reading of it: `selectionOf` carries the whole plant selection the caller named —
- * every plant it lists, or nothing when it lists none — together with the one selected product, into the
- * single resolver `resolveScope` in `src/domain/aggregation/scope.ts`, which intersects the plants with
- * the acting role's scope and passes the product through. `getOverview`, `listExceptions`, `getTopology`
- * and `getCanvasRibbon` hand that selection to the family that owns the read, and the family resolves it
- * once through the same resolver, so a filtered queue, a filtered overview, a narrowed canvas and its
- * ribbon describe one population instead of four. `listApprovals` and `searchIdentifiers` apply the
- * plant half here, because neither an approval nor a search hit carries a product to narrow by, and both
- * take the plant set from `scopedPlants`, which is the resolver's own answer rather than a second copy
- * of the rule. A two-plant selection therefore narrows to those two plants everywhere it reaches, and a
- * selection naming no plant resolves to every plant the acting role reaches — never to every plant in the
- * record set. The product half travels the same way and is passed through the resolver unchanged, because
- * no role narrows a product; a selection naming no product means "all products".
- * OPEN ITEM — `getAffectedLines` returns the exception record's own affected lines. The
- * baseline-measured view of the same orders is `ExceptionDetail.affectedOrders`, derived by the
- * exception family from the solver case; deriving the lines a second time here would be a second
- * answer to one measurement, so this member delegates and returns the record's lines.
- * OPEN ITEM — `searchIdentifiers` is carried here rather than in a family, because no family owns the
- * identifier search (see the port's own OPEN ITEM on the member). The record-kind words it groups
- * hits under are record content no seeded module holds, so they are stated here; the route spellings
- * are the ones specification §5.2 and AAP 0.12.4 fix, and `src/app/router.tsx` declares them
- * authoritatively.
- * OPEN ITEM — the stage S4 and S5 families are carried for interface conformance: the package, pin and
- * element-review reads are implemented because the seed holds those records, while the production plan
- * grid and the exit package are refused with a `'not-found'` naming the absent record family, because
- * no seeded module holds one and inventing a record or a figure is forbidden (rule P-6).
- * OPEN ITEM — this class's public surface is exactly the port's members plus the two members the
- * demonstration capability declares — `switchRole` and `getActiveUser` — plus `whenReady`, which is the
- * readiness promise `src/services/create-service.ts` awaits; a conformance check that compares the
- * class's keys against the two interfaces must subtract all three, and
+ * The class's public surface is exactly the port's members plus the three names the demonstration
+ * capability declares — `switchRole`, `getActiveUser` and the optional `listPersonas` — plus `whenReady`,
+ * the readiness promise `src/services/create-service.ts` awaits; a conformance check that compares the
+ * class's keys against the two interfaces subtracts all four, and
  * `src/services/service-conformance.test.ts` owns that comparison.
  */
 
+import { UnpriceableLineError } from '../../domain/aggregation/exceptions';
+import { UnlocatableClockError } from '../../domain/aggregation/ledger';
 import { resolveScope } from '../../domain/aggregation/scope';
 import type { ScopeFilterInput } from '../../domain/aggregation/scope';
 import { hasPermission, plantScopeFor, rolesWith } from '../../domain/policy/permissions';
-import { PERMISSIONS } from '../../types';
+import { EXCEPTION_QUEUE_PATH, PERMISSIONS } from '../../types';
 import type {
   ActiveUser,
   AffectedLine,
@@ -194,7 +102,7 @@ import * as exceptions from './handlers/exceptions';
 import * as governance from './handlers/governance';
 import * as scenarios from './handlers/scenarios';
 import * as topology from './handlers/topology';
-import { createMockState, restoreSeed } from './mock-state';
+import { createMockState, restoreSeed, runExclusive } from './mock-state';
 import type { HandlerContext, MockState } from './mock-state';
 import type { SeedRecordSet } from './seed-loader';
 import {
@@ -202,6 +110,7 @@ import {
   emptiesLists,
   freshnessFor,
   holdsReads,
+  refusesReads,
   setSimulationFlag,
   tamperAuditEvent,
 } from './simulation';
@@ -223,18 +132,33 @@ const LATENCY_STEP_MS = 50;
 const LATENCY_STEPS = 6;
 
 /**
- * The latency one call takes, from the session's request counter alone.
+ * The ticket a session's first call takes.
  *
- * A ladder rather than a random draw: the counter starts at the value a fresh session takes and
- * advances once per call, so the first six calls of a session take each of the band's six values in
- * turn and the seventh starts again. Two sessions driven by the same calls therefore wait the same
- * amounts, which is what keeps a run reproducible (AAP 0.18.2).
+ * One past the counter's initial value: the counter holds the last ticket taken, so a call's ticket is
+ * that number plus one and a fresh session's first call is numbered from here. It is also the ladder's
+ * own first step, which is why subtracting it lands the first call of a session on the band's floor.
+ */
+const FIRST_TICKET = 1;
+
+/**
+ * The latency one call takes, from the ticket that call took at its entry.
  *
- * @param state - The session whose counter is read. Not modified.
+ * A ladder rather than a random draw: the session's counter starts at the value a fresh session takes
+ * and each call takes the next number, so the first six calls of a session take each of the band's six
+ * values in turn and the seventh starts again. Two sessions driven by the same calls therefore wait the
+ * same amounts, which is what keeps a run reproducible (AAP 0.18.2). The ticket is one-based and the
+ * ladder's first step is its floor, so the first call of a session still waits the floor.
+ *
+ * The ticket is passed in rather than the session being read here, because the counter has moved on by
+ * the time a call that overlapped another is served: two calls issued together would read one value
+ * between them, wait one ladder step and, worse, be spelled with one correlation identifier
+ * (AAP 0.18.1).
+ *
+ * @param ticket - The call's own number, taken from the session's counter at its entry.
  * @returns The delay, in milliseconds, inside the band AAP 0.12.1 fixes.
  */
-function latencyFor(state: MockState): number {
-  return LATENCY_FLOOR_MS + (state.requestCount % LATENCY_STEPS) * LATENCY_STEP_MS;
+function latencyForTicket(ticket: number): number {
+  return LATENCY_FLOOR_MS + ((ticket - FIRST_TICKET) % LATENCY_STEPS) * LATENCY_STEP_MS;
 }
 
 /**
@@ -242,7 +166,7 @@ function latencyFor(state: MockState): number {
  *
  * The only platform facility this adapter uses. Nothing is fetched, no clock is read for business
  * logic and no random source is consulted: the delay is what makes a pending call observable, and the
- * value comes from `latencyFor`.
+ * value comes from `latencyForTicket`.
  *
  * @param milliseconds - How long to wait; zero resolves on the next turn.
  * @returns A promise that settles once the delay has passed.
@@ -260,12 +184,11 @@ function wait(milliseconds: number): Promise<void> {
 /**
  * The permissions the contracts §7.1 matrix grants a role.
  *
- * `src/domain/policy/permissions.ts` owns the matrix and documents that the adapter derives this
- * member from it, so the list is the matrix's own answer for every permission the vocabulary holds
- * rather than a second table. The permission is evaluated with no subject, because the question here
- * is what the role holds at all; the plant a call is narrowed to is decided per record by the family
- * that reads it. The probe actor satisfies the signature and is not read for a subject-less
- * evaluation, which is the reading `hasPermission` documents.
+ * `src/domain/policy/permissions.ts` owns the matrix, so the list is the matrix's own answer for every
+ * permission the vocabulary holds rather than a second table. Each permission is evaluated with no
+ * subject, because the question here is what the role holds at all — the probe actor satisfies the
+ * signature and is not read — while the plant a call is narrowed to is decided per record by the family
+ * that reads it.
  *
  * @param role - The role whose held permissions are wanted.
  * @returns Every permission the matrix grants the role, in the vocabulary's order.
@@ -286,14 +209,12 @@ function permissionsOf(role: Role): Permission[] {
 /**
  * The persona the session is acting as, resolved from the session's own state.
  *
- * The port carries no acting user, so this is where the demonstration's identity is decided: the
- * record the role switcher selected, its role's plant scope and its role's permissions. Every read
- * and write of this adapter is evaluated against the result, so a caller cannot pass a wider identity
- * than the session holds.
- *
- * A session whose active identifier matches no seeded persona is a broken state rather than a caller's
- * mistake — the reset and the bootstrap both install a persona from the same record set — so it fails
- * loudly instead of answering every call as an identity that does not exist.
+ * The port carries no acting user, so this is where the demonstration's identity is decided from the
+ * record the role switcher selected: every read and write of this adapter is evaluated against the
+ * result, so a caller cannot pass a wider identity than the session holds. A session whose active
+ * identifier matches no seeded persona is a broken state rather than a caller's mistake — the reset and
+ * the bootstrap both install a persona from the same record set — so it fails loudly instead of
+ * answering every call as an identity that does not exist.
  *
  * @param state - The session whose active persona is resolved. Not modified.
  * @returns The persona, with the plant scope and permissions its role holds.
@@ -304,8 +225,9 @@ function actorOf(state: MockState): ActiveUser {
 
   if (record === undefined) {
     throw new Error(
-      `The session acts as ${state.activeUserId}, which the seeded record set does not carry; ` +
-        'src/services/mock/mock-state.ts installs a persona from that set on every start and reset.',
+      `The session acts as ${state.activeUserId}, which the seeded record set does not carry. ` +
+        'Every start and every demonstration reset installs the acting persona from that set, so the ' +
+        'session must name one of its user records.',
     );
   }
 
@@ -316,10 +238,8 @@ function actorOf(state: MockState): ActiveUser {
  * One persona record as the identity surface reports it: the shape both the acting-persona read and
  * the roster answer with, built in one place so the two cannot describe the same record differently.
  *
- * The plant scope and the permissions are the role's rather than the record's, exactly as the
- * adapter enforces them: a caller that acts as this persona is narrowed to the scope below and
- * allowed exactly these permissions, so a switch and the roster do not disagree about what a persona
- * can do.
+ * The plant scope and the permissions are the role's rather than the record's, exactly as the adapter
+ * enforces them, so a switch and the roster cannot disagree about what a persona can do.
  *
  * @param record - One of the seeded persona records.
  * @returns The persona, with the plant scope and permissions its role holds.
@@ -342,11 +262,17 @@ function activeUserOf(record: MockState['records']['users'][number]): ActiveUser
  * A fresh object on each call, with a freshly built freshness array, so a caller that keeps or
  * rewrites one result's metadata cannot alter the next.
  *
+ * The identifier arrives as an argument rather than being read from the session here: it was minted
+ * once from the ticket the call took at its entry, and the counter has moved on since — by the time a
+ * slow call builds its envelope, the calls issued behind it have each taken a ticket, so reading the
+ * counter again would label this result with a neighbour's identifier (AAP 0.18.1).
+ *
  * @param state - The session the call was served from. Not modified.
+ * @param traceId - The call's correlation identifier, minted from its own ticket.
  * @returns The envelope's `meta`.
  */
-function metaFor(state: MockState): Meta {
-  return { freshness: freshnessFor(state), simulated: true, traceId: audit.traceIdFor(state) };
+function metaFor(state: MockState, traceId: string): Meta {
+  return { freshness: freshnessFor(state), simulated: true, traceId };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -357,7 +283,8 @@ function metaFor(state: MockState): Meta {
  * The refusal a call this adapter authorises itself throws: the cause, the reason in plain words, the
  * call's trace and the two members a forbidden card needs to name who may act instead (rule P-8).
  *
- * @param ctx - The call's context, whose persona the reason can name.
+ * @param ctx - The call's context, whose persona the reason can name and whose trace the refusal
+ *   carries.
  * @param permission - The permission the call requires.
  * @param message - The reason, in the plain words the caller supplies.
  * @returns The `Problem` to throw.
@@ -366,7 +293,7 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
   return {
     type: 'permission',
     message,
-    traceId: audit.traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     requiredPermission: permission,
     rolesWithPermission: rolesWith(permission),
   };
@@ -375,13 +302,42 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
 /**
  * The refusal a call naming a record the session does not hold throws.
  *
- * @param ctx - The call's context, whose state supplies the trace.
+ * @param ctx - The call's context, whose trace the refusal carries.
  * @param message - The reason, naming the identifier and the records the session does hold where that
  *   helps a reader follow a stale reference.
  * @returns The `Problem` to throw.
  */
 function notFoundProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'not-found', message, traceId: audit.traceIdFor(ctx.state) };
+  return { type: 'not-found', message, traceId: ctx.traceId };
+}
+
+/**
+ * The refusal a read meets while the simulation's `conflict` trigger is in effect.
+ *
+ * The trigger stands for records another persona changed between the moment a screen read them and the
+ * moment this adapter served it, so the read is refused rather than answered from the set that replaced
+ * the one the reader was reading: a reader shown a set that changed under them cannot tell which half is
+ * current. `ProblemType` fixes five causes and none of them is a conflict, so it is reported as
+ * `'validation'` — a request that cannot be honoured against the records as they stand, the reading the
+ * stale-source refusal and the approvals family's write refusal also take (AAP 0.12.1, AAP 0.12.3).
+ *
+ * The message states in plain words what happened and what the reader can do about it, because the
+ * screen that renders it is showing the conflicting-update state and nothing else (rule P-8). It words
+ * the refusal differently from the decision the approvals family refuses, which says the change is
+ * refused rather than merged: the two report one condition and two different actions.
+ *
+ * @param traceId - The correlation identifier of the call being refused, minted at its entry, so the
+ *   identifier a reader quotes is the one the same call's metadata would have carried.
+ * @returns The `Problem` to throw.
+ */
+function conflictProblem(traceId: string): Problem {
+  return {
+    type: 'validation',
+    message:
+      'This record changed while it was being read, so the read was refused rather than served stale. ' +
+      'Lift the conflicting update in the simulation controls and read again.',
+    traceId,
+  };
 }
 
 /**
@@ -410,27 +366,69 @@ function isProblem(value: unknown): value is Problem {
 }
 
 /**
- * Gives a refusal the correlation identifier of the call that produced it.
+ * The refusal a typed refusal from the domain core is reported as: one `Problem` naming a
+ * `'validation'` cause, carrying the aggregate's own reason and this call's correlation identifier.
  *
- * A family composes its refusals from the records it reads and has no request counter of its own, so
- * it reports the empty identifier rather than inventing one — two of them say so in their own words.
- * This adapter owns the counter, so it is the one place that can fill the value in, and doing it here
- * means every refusal a caller meets carries the same `traceId` its `Result` would have carried, which
- * is what makes an identifier a user quotes lead back to the call (AAP 0.12.1, rule P-8).
+ * The pure aggregates answer a figure or refuse, and AAP 0.12.1 and AAP 0.12.2 fix what they answer —
+ * a `Money`, an `ExceptionRow[]`, a `LedgerRow[]` — with no member for an outcome, so a refusal cannot
+ * travel back as a value. It travels as the typed error the aggregate raises instead:
+ * `UnpriceableLineError` when an affected line names a product the record bundle does not carry, and
+ * `UnlocatableClockError` when the demonstration clock is not an instant the ledger's window can be
+ * derived from. This is the one place those two become the failure AAP 0.2.2 requires the port to
+ * report: the cause is a validation of the records the call was served from, the message is the
+ * aggregate's own wording — it already names the record or the value that could not be used — and the
+ * identifier is the one this call's `meta` carries, so a reader quoting it leads back to the call.
  *
- * A refusal that already names an identifier keeps it, and a value that is not a refusal is returned
- * untouched: only the empty case is filled, and only for a `Problem`.
+ * Any other thrown value answers `null`, so the caller keeps handling every other error as it did.
  *
  * @param error - Whatever a family call threw.
- * @param state - The session the call was served from, whose counter spells the identifier.
- * @returns The refusal to throw, carrying the call's identifier where it had none.
+ * @param traceId - The call's correlation identifier, minted from the ticket it took at its entry.
+ * @returns The `Problem` the domain refusal is reported as, or `null` when the value is not one.
  */
-function withCallTrace(error: unknown, state: MockState): unknown {
+function aggregateRefusalProblem(error: unknown, traceId: string): Problem | null {
+  if (!(error instanceof UnpriceableLineError) && !(error instanceof UnlocatableClockError)) {
+    return null;
+  }
+
+  return { type: 'validation', message: error.message, traceId };
+}
+
+/**
+ * Gives a refusal the correlation identifier of the call that produced it, and reports a refusal the
+ * domain core raised as the `Problem` the port reports failures with.
+ *
+ * A family composes a few of its refusals from the records it reads and reports the empty identifier
+ * rather than inventing one — two of them say so in their own words. This adapter is the one that
+ * minted the call's identifier from the ticket it took at the call's entry, so it is the one place that
+ * can fill the value in, and doing it here means every refusal a caller meets carries the same
+ * `traceId` its `Result` would have carried, which is what makes an identifier a user quotes lead back
+ * to the call (AAP 0.12.1, rule P-8). A refusal that already names an identifier keeps it, and a value
+ * that is not a refusal is returned untouched: only the empty case is filled, and only for a `Problem`.
+ *
+ * A typed refusal from the domain core is classified first, by `aggregateRefusalProblem`: a `Money`, an
+ * `ExceptionRow[]` or a `LedgerRow[]` is what AAP 0.12.1 and AAP 0.12.2 let an aggregate answer, so a
+ * refusal has no result member to arrive in and reaches here as an error instead. Reporting it as a
+ * `'validation'` `Problem` with this call's identifier is what keeps an untyped exception from crossing
+ * the port (AAP 0.2.2). Every other error keeps the behaviour above unchanged, so a mislabelled record
+ * still propagates untouched rather than being passed to a screen as a refusal.
+ *
+ * @param error - Whatever a family call threw.
+ * @param traceId - The call's correlation identifier, minted from its own ticket.
+ * @returns The refusal to throw: the `Problem` a domain refusal is reported as, or the value it was
+ *   given with the call's identifier where it had none.
+ */
+function withCallTrace(error: unknown, traceId: string): unknown {
+  const refusal = aggregateRefusalProblem(error, traceId);
+
+  if (refusal !== null) {
+    return refusal;
+  }
+
   if (!isProblem(error) || error.traceId !== '') {
     return error;
   }
 
-  return { ...error, traceId: audit.traceIdFor(state) };
+  return { ...error, traceId };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -493,8 +491,11 @@ const TAMPER_FLAG: SimulationFlag = 'tampered-audit';
  * A hit whose record has a screen opens that screen by its identifier; a record the workspace shows
  * only through the evidence drawer opens by its reference instead, which is why only three families
  * carry a route and the rest carry one of these prefixes.
+ *
+ * The queue's prefix is the shared declaration in `src/types/routes.ts`, so a search hit that opens an
+ * exception follows the same one path the navigation entry, the stage-notice page and the screens build.
  */
-const EXCEPTION_ROUTE = '/exceptions/';
+const EXCEPTION_ROUTE = `${EXCEPTION_QUEUE_PATH}/`;
 const APPROVAL_ROUTE = '/approvals/';
 const POLICY_ROUTE = '/admin/policies/';
 
@@ -557,15 +558,13 @@ function selectedProductOf(scope: Scope): Scope['products'][number] | undefined 
 /**
  * The shell's selection as the one scope resolver reads it: the plants and the product it names.
  *
- * This is the adapter's whole reading of a `Scope`, and it exists so no family read can be handed half
- * of the top bar's selection: both members travel to `resolveScope` in
- * `src/domain/aggregation/scope.ts`, which intersects the plants with the acting role's scope and
- * passes the product through, so a filtered queue, a filtered overview, a narrowed canvas and its
- * ribbon resolve the same scope from the same filters (AAP 0.2.1, AAP 0.12.1 "Scope resolution"). The
- * plant half travels as the whole list the caller named, so a two-plant selection narrows to those two
- * plants instead of widening to every plant the role reaches; a list naming no plant is left out of the
- * input rather than carried as an empty one, which is the shape `exactOptionalPropertyTypes` reads as
- * "All plants" or "All products" and the shape the top bar's absent filters take.
+ * This is the adapter's whole reading of a `Scope`, and it exists so no family read is handed half of
+ * the top bar's selection: a filtered queue, a filtered overview, a narrowed canvas and its ribbon all
+ * resolve the same scope from the same filters through `resolveScope` (AAP 0.2.1, AAP 0.12.1 "Scope
+ * resolution"). The plant half travels as the whole list the caller named, so a two-plant selection
+ * narrows to those two plants instead of widening to every plant the role reaches; a list naming no
+ * plant is left out rather than carried as an empty one, which is the shape `exactOptionalPropertyTypes`
+ * reads as "All plants" or "All products" — the shape the top bar's absent filters take.
  *
  * @param scope - The shell's selection as the caller passed it. Not modified.
  * @returns The resolver's input, with each member present only when the selection names one.
@@ -664,12 +663,10 @@ function plantOfException(records: SeedRecordSet, exceptionId: ExceptionId): Pla
  * Every record the acting persona's search may return, in the order the families are grouped.
  *
  * A family is included only when the persona holds the permission its read requires, so the search
- * cannot become a way around a forbidden read: the exception, approval, scenario and order families
- * need `exception.read`, the documents, packages and pins need `evidence.read`, the trail needs
- * `audit.read` and the policies need `policy.read`. Records that name a plant are returned as
- * plant-scoped candidates and are narrowed by the shell's selection afterwards; the rest name none. An
- * approval or a scenario whose exception the records do not hold is left out rather than indexed as a
- * record naming no plant, so the search fails closed on a subject it cannot place.
+ * cannot become a way round a forbidden read. Records that name a plant are returned as plant-scoped
+ * candidates and are narrowed by the shell's selection afterwards; the rest name none. An approval or a
+ * scenario whose exception the records do not hold is left out rather than indexed as a record naming
+ * no plant, so the search fails closed on a subject it cannot place.
  *
  * @param state - The session whose records are indexed. Not modified.
  * @param actor - The persona the call acts as, whose permissions decide the families.
@@ -787,16 +784,18 @@ function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandid
  * Every port member is a dispatcher and nothing more: it awaits the bootstrap, waits the call's
  * latency, takes the persona from the session, delegates to the family that owns the record and wraps
  * the answer in the envelope. The private `serve` method is the whole of that mechanism, so the timing,
- * the trace and the persona are decided in one place rather than in every member, and the three methods
- * built on it decide which of the simulation's two call-wide triggers a member meets: `dispatch` serves
- * a call the `loading` trigger holds, `dispatchControl` serves the demonstration controls that must
- * answer anyway so the popover can lift that trigger (rule P-8), and `dispatchCollection` serves a read
- * whose payload is a collection, which the `empty` trigger empties (AAP 0.12.1).
+ * the trace and the persona are decided in one place rather than in every member, and the four methods
+ * built on it decide which of the simulation's trigger-wide behaviours a member meets: `dispatchRead`
+ * serves a read, which the `conflict` trigger refuses (AAP 0.12.1); `dispatch` serves a call that trigger
+ * leaves alone because it is not a read — a write, a measurement, an answer or an export; `dispatchControl`
+ * serves the demonstration controls that must answer whatever is in effect so the popover can lift it
+ * (rule P-8); and `dispatchCollection` serves a read whose payload is a collection, which the `empty`
+ * trigger empties beside the behaviours every read meets.
  *
- * The public surface is deliberately the port's own set plus the three names its callers need: the
- * readiness promise, the role switch and the read of the persona the session is acting as. Nothing
- * else is public, so a screen cannot reach the families, the state or the chain except through the
- * contract they were declared against.
+ * The public surface is deliberately the port's own set plus the four names its callers need: the
+ * readiness promise, the role switch, the read of the persona the session is acting as and the roster
+ * a switch may name. Nothing else is public, so a screen cannot reach the families, the state or the
+ * chain except through the contract they were declared against.
  */
 export class MockBackend implements SiteIntelligenceService, DemonstrationControls {
   /**
@@ -824,44 +823,73 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   }
 
   /**
-   * Serves one call: the timing, the persona, the delegation and the envelope.
+   * Serves one call: the ticket, the timing, the persona, the delegation and the envelope.
    *
    * The order is fixed and each step depends on the one before it. The bootstrap settles first, so the
-   * records and the chain are whole. The latency is waited next, from the counter's value at entry, so
-   * the ladder follows the session's own call sequence and a pending screen has something to show. The
-   * counter then advances, once per call, so the `traceId` this call's metadata carries is the one the
-   * families stamp on the events and refusals they produce. The persona is resolved from the session
-   * after any change the previous step made, and only then does the family run.
+   * records and the chain are whole. The call's ticket is taken next and before anything is awaited —
+   * the counter holds the last ticket taken, so this call's is the next number — and the correlation
+   * identifier is minted from that same number once. The delay is then waited, from the ticket rather
+   * than from the counter, so the ladder follows the session's own call sequence, a pending screen has
+   * something to show, and two calls issued together wait the ladder steps of their own tickets. The
+   * persona is resolved from the session, and only then does the family run.
+   *
+   * Reading the counter at the end instead would be the same mistake twice over: several reads fired by
+   * one screen mount enter before any of them answers, so each would wait one step and each would be
+   * labelled with whichever ticket the last of them took — and the `traceId` a reader quotes would name
+   * no single call, which is the whole of this application's observability (AAP 0.18.1).
    *
    * The simulation's `loading` trigger is decided here, once for every call the adapter serves, because
    * it changes what the call does rather than what one family's records look like (AAP 0.12.1): once
-   * the counter has advanced, a holdable call the trigger covers never settles, so the screen that
+   * the call has taken its ticket, a holdable call the trigger covers never settles, so the screen that
    * asked renders the pending state it renders for any call still in flight (AAP 0.2.1 F10, AAP 0.2.2).
    * `holdable` is what keeps the demonstration controls out of the hold, because the popover has to be
    * able to lift the trigger it set and a control that could not answer would leave the session pending
    * with no way back (rule P-8). The wait happens before the hold, so a held call still occupies the
    * latency band every other call does rather than answering differently.
    *
-   * A refusal propagates as it was thrown, with one addition: a family composes its refusals from the
-   * records rather than from a request counter, so a refusal that names no correlation identifier is
-   * given this call's before it leaves. Either way a caller meets one identifier, and it is the value
-   * the same call's `meta` would have carried.
+   * A refusal propagates as it was thrown, with two additions. The pure domain aggregates answer a
+   * figure or refuse, and AAP 0.12.1 and AAP 0.12.2 fix their results with no member for an outcome, so
+   * a refusal arrives here as the typed error the aggregate raised
+   * (`UnpriceableLineError`, `UnlocatableClockError`); `withCallTrace` reports each of them as a
+   * `'validation'` `Problem` carrying the aggregate's own reason, so no untyped exception crosses the
+   * port (AAP 0.2.2). A family also composes a few of its refusals from the records without a
+   * correlation identifier, and those are given this call's before they leave. Either way a caller
+   * meets one identifier, and it is the value the same call's `meta` carries.
+   *
+   * The simulation's `conflict` trigger is decided in the same place and for the same reason (AAP
+   * 0.12.1): once the loading trigger has been answered, a refusable call is refused before its family
+   * runs, so every read family reports the conflicting update the one way a screen can render rather
+   * than each family deciding for itself what a changed set means (AAP 0.12.3). `refusable` is what keeps
+   * the calls that are not reads out of the refusal: a write is refused by the family that owns it, and
+   * the demonstration controls have to answer so the popover can lift the trigger it set (rule P-8).
    *
    * @param work - The family call to serve, given the session and the acting persona.
    * @param holdable - Whether the `loading` trigger holds this call; `false` only for the demonstration
    *   controls.
+   * @param refusable - Whether the `conflict` trigger refuses this call; `true` for every read the port
+   *   declares, `false` for a write or a demonstration control.
    * @returns The payload the family produced inside the envelope every port member returns, or a
    *   promise that never settles while the `loading` trigger holds a holdable call.
-   * @throws Problem - Whatever the family refused the call with, carrying this call's identifier.
+   * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a refusable call, or
+   *   whatever the family refused the call with, carrying this call's identifier.
    */
   private async serve<T>(
     work: (ctx: HandlerContext) => T | Promise<T>,
     holdable: boolean,
+    refusable: boolean,
   ): Promise<Result<T>> {
     const state = await this.bootstrap;
 
-    await wait(latencyFor(state));
-    state.requestCount += 1;
+    // The ticket is written before anything is awaited, which is the whole of the fix this method
+    // needed: the counter holds the last ticket taken, so a call's number is the next one, and a call
+    // that read it after a delay would read a number another call had already taken (AAP 0.18.1).
+    const ticket = state.requestCount + FIRST_TICKET;
+
+    state.requestCount = ticket;
+
+    const traceId = audit.traceIdFor(ticket);
+
+    await wait(latencyForTicket(ticket));
 
     if (holdable && holdsReads(state)) {
       // The `loading` trigger's whole behaviour: the call is served by never answering it, which is the
@@ -869,20 +897,33 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
       return new Promise<Result<T>>(() => undefined);
     }
 
-    const ctx: HandlerContext = { state, actor: actorOf(state) };
+    if (refusable && refusesReads(state)) {
+      // The `conflict` trigger's whole behaviour for a read: the records moved under the reader, so the
+      // read is refused rather than answered from the set that replaced them (AAP 0.12.1, AAP 0.12.3).
+      throw conflictProblem(traceId);
+    }
+
+    const ctx: HandlerContext = { state, actor: actorOf(state), traceId };
 
     try {
       const data = await work(ctx);
 
-      return { data, meta: metaFor(state) };
+      return { data, meta: metaFor(state, traceId) };
     } catch (error) {
-      throw withCallTrace(error, state);
+      throw withCallTrace(error, traceId);
     }
   }
 
   /**
-   * Serves one call the simulation may hold: the reading every member takes unless it is a
-   * demonstration control or a read whose payload is a collection.
+   * Serves one call the simulation's `conflict` trigger leaves alone because it is not a read: a write,
+   * a measurement, an answer or a browser-built export.
+   *
+   * Such a call acts on records the caller already holds rather than reading them afresh, so the
+   * trigger's half of the condition is the family's own refusal: the approvals family names the record
+   * that moved and refuses to merge the change, which is the write refusal this demonstration shows
+   * (AAP 0.12.4 SCR-05). Every read the port declares goes through {@link dispatchRead} or
+   * {@link dispatchCollection} instead, so a screen that derives a state reports the conflicting update
+   * (AAP 0.2.1 F10).
    *
    * @param work - The family call to serve, given the session and the acting persona.
    * @returns The payload the family produced, inside the envelope every port member returns, or a
@@ -890,16 +931,29 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - Whatever the family refused the call with, carrying this call's identifier.
    */
   private async dispatch<T>(work: (ctx: HandlerContext) => T | Promise<T>): Promise<Result<T>> {
-    return this.serve(work, true);
+    return this.serve(work, true, false);
+  }
+
+  /**
+   * Serves one read the simulation may hold and the `conflict` trigger refuses: the reading every member
+   * of the port that answers a record takes, whatever the screen that asked renders.
+   *
+   * @param work - The family read to serve, given the session and the acting persona.
+   * @returns The payload the family produced, inside the envelope every port member returns, or a
+   *   promise that never settles while the `loading` trigger is in effect.
+   * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a read, or whatever the
+   *   family refused the call with, carrying this call's identifier.
+   */
+  private async dispatchRead<T>(work: (ctx: HandlerContext) => T | Promise<T>): Promise<Result<T>> {
+    return this.serve(work, true, true);
   }
 
   /**
    * Serves one demonstration control, which answers while the `loading` trigger is in effect.
    *
-   * `setSimulation` and `resetDemo` are how the popover lifts a trigger, `switchRole` is how the
-   * session changes hands, and `getActiveUser` is how the shell learns who it is acting as, so none of
-   * the four can be held: a control that never answered would leave the session pending with no way
-   * back, and rule P-8 will not have a control that cannot act.
+   * None of the four controls can be held: each is a lever the popover or the role switcher has to be
+   * able to operate while the trigger is set, and a control that never answered would leave the session
+   * pending with no way back (rule P-8).
    *
    * @param work - The control's own work, given the session and the acting persona.
    * @returns The payload the control produced, inside the envelope every port member returns.
@@ -908,7 +962,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   private async dispatchControl<T>(
     work: (ctx: HandlerContext) => T | Promise<T>,
   ): Promise<Result<T>> {
-    return this.serve(work, false);
+    return this.serve(work, false, false);
   }
 
   /**
@@ -917,11 +971,13 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * The read is served in full — its permission and policy checks run, and a refused call is still
    * refused — and only the records it answers with are withheld while the trigger is in effect, so an
    * emptied list is an answer the caller was entitled to receive rather than a way round the matrix
-   * (AAP 0.12.1). The `loading` trigger holds the call exactly as it holds any other.
+   * (AAP 0.12.1). The `loading` trigger holds the call exactly as it holds any other, and the `conflict`
+   * trigger refuses it exactly as it refuses a read that answers one record.
    *
    * @param work - The family read to serve, given the session and the acting persona.
    * @returns The records the family read, or no records while the `empty` trigger is in effect.
-   * @throws Problem - Whatever the family refused the call with, carrying this call's identifier.
+   * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a read, or whatever the
+   *   family refused the call with, carrying this call's identifier.
    */
   private async dispatchCollection<T>(
     work: (ctx: HandlerContext) => T[] | Promise<T[]>,
@@ -933,6 +989,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
         return emptiesLists(ctx.state) ? [] : records;
       },
       true,
+      true,
     );
   }
 
@@ -943,15 +1000,15 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Reads the overview over the records the acting persona may see, narrowed by the shell's selection.
    *
-   * The four tiles, the by-plant rows and the fourteen-day series are the exception family's
-   * aggregation, computed in `src/domain/aggregation/overview.ts`; this member only supplies the scope.
+   * The whole payload is the exception family's aggregation, computed in
+   * `src/domain/aggregation/overview.ts`; this member only supplies the scope.
    *
    * @param scope - The shell's plant and product selection.
    * @returns The overview, with the six sources' freshness in its metadata.
    * @throws Problem - A `'permission'` failure when the role may not read the exception family.
    */
   async getOverview(scope: Scope): Promise<Result<Overview>> {
-    return this.dispatch((ctx) => exceptions.getOverview(ctx, selectionOf(scope)));
+    return this.dispatchRead((ctx) => exceptions.getOverview(ctx, selectionOf(scope)));
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -984,9 +1041,6 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
       exceptions.listExceptions(
         ctx,
         query,
-        // The queue's own filter replaces the shell's plant selection outright where it is present,
-        // rather than joining it: it is the narrower statement of the same fact, so the list the
-        // selection named is cleared to the one plant the reader typed.
         query.plantId === undefined
           ? selection
           : { ...selection, plantId: query.plantId, plantIds: [] },
@@ -1004,7 +1058,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   `'permission'` failure for one outside the role's reach.
    */
   async getExceptionDetail(exceptionId: ExceptionId): Promise<Result<ExceptionDetail>> {
-    return this.dispatch((ctx) => exceptions.getException(ctx, exceptionId));
+    return this.dispatchRead((ctx) => exceptions.getException(ctx, exceptionId));
   }
 
   /**
@@ -1013,7 +1067,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * The lines are the exception record's own, copied so a caller cannot reach the adapter's state
    * through them. The family's baseline-measured view of the same orders travels as
    * `ExceptionDetail.affectedOrders`; deriving the lines a second time here would be a second answer
-   * to one measurement (the third OPEN ITEM in this module's header).
+   * to one measurement.
    *
    * @param exceptionId - The exception whose lines are read.
    * @returns The affected lines, each with a usable unit count; none while the simulation's `empty`
@@ -1098,7 +1152,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   `'not-found'` failure for an identifier the set does not hold.
    */
   async getScenarioSet(exceptionId: ExceptionId): Promise<Result<ScenarioSet>> {
-    return this.dispatch((ctx) => scenarios.getScenarioSet(ctx, exceptionId));
+    return this.dispatchRead((ctx) => scenarios.getScenarioSet(ctx, exceptionId));
   }
 
   /**
@@ -1124,13 +1178,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Reads the approval inbox: the approvals that answer the query, in scope, ordered and paged.
    *
-   * The family owns the whole read. It applies the acting role's plant scope together with the plant set
-   * the shell's selection resolves to, narrows the population by the status the query names, and only
-   * then orders it, continues from the cursor and cuts the page — so a `limit` bounds the approvals that
-   * answer the query rather than a page the filter is applied to afterwards, and an approval whose
-   * exception the records do not hold reaches nobody (the port's `listApprovals` states the same rule;
-   * AAP 0.2.1). This member therefore supplies the resolved plant set and nothing else: it filters no
-   * record, maps none and slices nothing.
+   * The family owns the whole read, so a `limit` bounds the approvals that answer the query rather than
+   * a page the filter is applied to afterwards, and an approval whose exception the records do not hold
+   * reaches nobody (the port's `listApprovals` states the same rule; AAP 0.2.1). This member therefore
+   * supplies the resolved plant set and nothing else: it filters no record, maps none and slices nothing.
    *
    * @param query - The paging, order and optional status filter.
    * @param scope - The shell's plant and product selection.
@@ -1148,15 +1199,14 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   }
 
   /**
-   * Reads one approval: the plan, its cost against the revenue it protects, the eligible approver
-   * roles, the decision taken where one exists and the write-backs it sets in motion.
+   * Reads one approval: its plan, its cost against the revenue it protects and its write-backs.
    *
    * @param approvalId - The approval to read.
    * @returns The approval record.
    * @throws Problem - A `'not-found'` failure for an identifier the set does not hold.
    */
   async getApproval(approvalId: ApprovalId): Promise<Result<Approval>> {
-    return this.dispatch((ctx) => approvals.getApproval(ctx, approvalId));
+    return this.dispatchRead((ctx) => approvals.getApproval(ctx, approvalId));
   }
 
   /**
@@ -1174,7 +1224,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   the exception carries no solver case.
    */
   async getApprovalOutcome(approvalId: ApprovalId): Promise<Result<ApprovalOutcome>> {
-    return this.dispatch((ctx) => approvals.getApprovalOutcome(ctx, approvalId));
+    return this.dispatchRead((ctx) => approvals.getApprovalOutcome(ctx, approvalId));
   }
 
   /**
@@ -1203,9 +1253,8 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Records a decision on an approval and appends the `decision` audit event.
    *
-   * Every refusal leaves the approval as it stood and creates no write-back: the `Problem` names the
-   * permission with the roles that may act, the policy with the alternative it permits, or the stale
-   * source with its as-of time, which is the sentence the disabled controls repeat (rule P-8).
+   * Every refusal leaves the approval as it stood and creates no write-back, naming the permission, the
+   * policy or the stale source with its as-of time, which the disabled controls repeat (rule P-8).
    *
    * @param approvalId - The approval being decided.
    * @param decision - The action taken and the comment it requires.
@@ -1281,7 +1330,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   `'not-found'` failure naming an identifier the chain does not hold.
    */
   async getAuditEvent(auditEventId: AuditEventId): Promise<Result<AuditEvent>> {
-    return this.dispatch((ctx) => audit.getAuditEvent(ctx, auditEventId));
+    return this.dispatchRead((ctx) => audit.getAuditEvent(ctx, auditEventId));
   }
 
   /**
@@ -1297,7 +1346,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'permission'` failure when the role does not hold `audit.read`.
    */
   async verifyAuditChain(): Promise<Result<ChainReport>> {
-    return this.dispatch((ctx) => audit.verifyAuditChain(ctx));
+    return this.dispatchRead((ctx) => audit.verifyAuditChain(ctx));
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -1315,7 +1364,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
    */
   async getModelCatalogue(): Promise<Result<ModelCatalogue>> {
-    return this.dispatch((ctx) => assistant.listModels(ctx));
+    return this.dispatchRead((ctx) => assistant.listModels(ctx));
   }
 
   /**
@@ -1328,7 +1377,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
    */
   async listSuggestedQuestions(): Promise<Result<SuggestedQuestion[]>> {
-    return this.dispatch((ctx) => assistant.listSuggestedQuestions(ctx));
+    return this.dispatchRead((ctx) => assistant.listSuggestedQuestions(ctx));
   }
 
   /**
@@ -1339,11 +1388,16 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * reason, the alternative it permits and the event it appended, which is what the block card shows
    * with its one-click switch to the in-boundary model (AAP 0.12.4).
    *
+   * A body the acting role may not open never reaches an answer either: where a question cites a
+   * customer-confidential document the persona does not hold `document.confidential.read` for, the
+   * call is refused exactly as the document read refuses the same body, so the two paths withhold it
+   * alike (AAP 0.2.1, AAP 0.12.3).
+   *
    * @param query - The question, the model the selector chose and the records it runs over.
    * @returns The answer: its text, its citations, the queries it ran, its model and its gaps.
    * @throws Problem - A `'policy'` failure where POL-007 blocks the requested model, a
-   *   `'permission'` failure for a role that may not read the evidence, a `'not-found'` failure for a
-   *   model the catalogue does not hold.
+   *   `'permission'` failure for a role that may not read the evidence or may not open the body of a
+   *   document the question cites, a `'not-found'` failure for a model the catalogue does not hold.
    */
   async askAssistant(query: {
     question: string;
@@ -1365,8 +1419,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * ----------------------------------------------------------------------------------------- */
 
   /**
-   * Reads the sovereignty screen's payload: the deployment summary, the ten declared rows and the
-   * outbound ledger with its thirty-day counts.
+   * Reads the sovereignty payload: the deployment summary, the ten declared rows and the ledger.
    *
    * Every part of it describes declared configuration, so the screen renders the summary and each row
    * under `SIM_LABELS[6]`, the declared-configuration label; nothing here reports a state that was
@@ -1377,12 +1430,11 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'permission'` failure when the role does not hold `sovereignty.read`.
    */
   async getSovereigntyStatus(): Promise<Result<SovereigntyStatus>> {
-    return this.dispatch((ctx) => governance.getSovereignty(ctx));
+    return this.dispatchRead((ctx) => governance.getSovereignty(ctx));
   }
 
   /**
-   * Reads the outbound ledger on its own: one row per endpoint, with its purpose, its declared state,
-   * its last attempt and its allowed and blocked counts over the window.
+   * Reads the outbound ledger on its own: one row per endpoint, with its allowed and blocked counts.
    *
    * The list parameters `query` carries are the ones contracts §9 fixes for every list read
    * (AAP 0.6.3, AAP 0.12.3), applied by the governance family to the rows `computeLedger` produced.
@@ -1422,7 +1474,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   failure for an identifier the set does not hold.
    */
   async getPolicy(policyId: PolicyId): Promise<Result<PolicyDetail>> {
-    return this.dispatch((ctx) => governance.getPolicy(ctx, policyId));
+    return this.dispatchRead((ctx) => governance.getPolicy(ctx, policyId));
   }
 
   /**
@@ -1467,16 +1519,15 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   failure for a record outside the role's reach.
    */
   async getEvidence(ref: string): Promise<Result<Evidence>> {
-    return this.dispatch((ctx) => evidence.getEvidence(ctx, ref));
+    return this.dispatchRead((ctx) => evidence.getEvidence(ctx, ref));
   }
 
   /**
    * Reads one document's body as the calling persona may receive it.
    *
    * A body classified customer-confidential is withheld before it reaches this boundary for a persona
-   * without `document.confidential.read`: the call is refused with a `'permission'` failure rather
-   * than answered with an empty body, so a redaction cannot be mistaken for an empty document
-   * (AAP 0.6.2, AAP 0.12.3).
+   * without `document.confidential.read`, refused as a `'permission'` failure rather than answered with
+   * an empty body, so a redaction cannot be mistaken for an empty document (AAP 0.6.2, AAP 0.12.3).
    *
    * @param documentId - The document to read.
    * @returns The body, for a caller permitted to receive it.
@@ -1484,7 +1535,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   identifier the set does not hold.
    */
   async getDocument(documentId: DocumentId): Promise<Result<DocumentBody>> {
-    return this.dispatch((ctx) => evidence.getDocument(ctx, documentId));
+    return this.dispatchRead((ctx) => evidence.getDocument(ctx, documentId));
   }
 
   /**
@@ -1507,10 +1558,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Records a review of one pin's state and appends the event that review leaves behind.
    *
-   * Carried for interface conformance with the stage that shows pins (AAP 0.12.3). The reviewer is
-   * the acting persona, which has to hold `evidence.review`; the state is the vocabulary the canvas
-   * badges already render. The adapter authorises the review itself rather than trusting a screen to
-   * have hidden a control.
+   * Carried for interface conformance with the stage that shows pins (AAP 0.12.3). The reviewer is the
+   * acting persona, which has to hold `evidence.review`, and the adapter authorises the review itself
+   * rather than trusting a screen to have hidden a control.
    *
    * @param pinId - The pin under review.
    * @param state - The state the reviewer sets.
@@ -1560,9 +1610,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Reads the part approval packages with the elements whose states the evidence rules decided.
    *
-   * Each record is read through the package read, so one permission check and one copy rule serve the
-   * list and the detail rather than two (AAP 0.12.3). Readiness travels on the record: it is the
-   * package's own whole-percent figure and no percentage is computed here (rule P-6).
+   * The list's own `evidence.read` gate runs before any record is read, and each record is still read
+   * through the package read, so one copy rule serves the list and the detail rather than two
+   * (AAP 0.12.3). Readiness travels on the record: it is the package's own whole-percent figure and no
+   * percentage is computed here (rule P-6).
    *
    * The list parameters `query` carries are the ones contracts §9 fixes for every list read
    * (AAP 0.6.3, AAP 0.12.3), applied by the evidence family.
@@ -1586,12 +1637,11 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   failure for an identifier the set does not hold.
    */
   async getPackage(packageId: PackageId): Promise<Result<PpapPackage>> {
-    return this.dispatch((ctx) => evidence.getPackage(ctx, packageId));
+    return this.dispatchRead((ctx) => evidence.getPackage(ctx, packageId));
   }
 
   /**
-   * Records a review of one extracted element value, re-runs the evidence rules and returns the
-   * package as it now stands.
+   * Records a review of one extracted element value, re-runs the evidence rules and returns the package.
    *
    * The reviewer is the acting persona, which has to hold `evidence.review`; a caller never applies
    * the rules itself, so one module decides what an element's state is (contracts §8).
@@ -1615,12 +1665,11 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Searches the identifiers the caller may see, grouped by the record kind they belong to.
    *
    * Only the families the acting persona may read are indexed, so the search cannot become a way round
-   * a forbidden read, and the records that name a plant are narrowed by the role's scope intersected
-   * with the shell's selection. A record that names no plant at all — a document, a package, a pin, an
-   * event, a policy — is not plant-scoped and is returned; a record that should name one and cannot,
-   * such as an approval or a scenario whose exception the records do not hold, is absent from the index
-   * rather than offered as one that names none. A hit opens its own screen where one exists and the
-   * evidence drawer otherwise; an empty term returns nothing rather than every record.
+   * a forbidden read, and the records that name a plant are narrowed by the role's scope intersected with
+   * the shell's selection. A record that should name one and cannot — an approval or a scenario whose
+   * exception the records do not hold — is absent from the index rather than offered as one that names
+   * none, while a record the workspace never plant-scopes is returned. An empty term returns nothing
+   * rather than every record.
    *
    * @param term - What the reader typed.
    * @param scope - The shell's plant and product selection.
@@ -1655,30 +1704,27 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * ----------------------------------------------------------------------------------------- */
 
   /**
-   * Reads the topology both lenses of the FileMap canvas draw: the four node families, the lanes
-   * between them and the evidence-pin counts of each node, narrowed to the shell's selection.
+   * Reads the topology both lenses of the FileMap canvas draw, narrowed to the shell's selection.
    *
-   * The canvas family owns the payload, applies the role's reach and narrows the network to the scope
-   * `resolveScope` returns, so a plant chosen in the top bar narrows the graph exactly as it narrows the
-   * queue (AAP 0.2.1, AAP 0.12.3 "`exception.read` in scope"). The pin counts travel here, so a node
-   * badge needs no second call.
+   * A plant chosen in the top bar narrows the graph exactly as it narrows the queue (AAP 0.2.1,
+   * AAP 0.12.3 "`exception.read` in scope"), and the pin counts travel here, so a node badge needs no
+   * second call.
    *
    * @param scope - The shell's plant and product selection.
    * @returns The nodes, the lanes and the per-node pin counts the resolved scope retains.
    * @throws Problem - A `'permission'` failure when the role may not read the canvas.
    */
   async getTopology(scope: Scope): Promise<Result<Topology>> {
-    return this.dispatch((ctx) => topology.getTopology(ctx, selectionOf(scope)));
+    return this.dispatchRead((ctx) => topology.getTopology(ctx, selectionOf(scope)));
   }
 
   /**
    * Reads the six computed tiles of the FileMap canvas ribbon for the shell's selection.
    *
-   * The ribbon is the exception family's aggregation, not this adapter's arithmetic:
-   * `computeRibbonTiles` copies the overview's aggregate values across and counts the rows the same
-   * scope returns, so the only thing this member supplies is the scope. The shell's selection reaches
-   * the canvas family through `selectionOf`, exactly as `getOverview` and `getTopology` map it, so the
-   * ribbon, the overview and the canvas count the same records.
+   * The ribbon is the exception family's aggregation, not this adapter's arithmetic, so the only thing
+   * this member supplies is the scope. That scope reaches the canvas family through `selectionOf`, as
+   * `getOverview` and `getTopology` map it, so the ribbon, the overview and the canvas count the same
+   * records.
    *
    * @param scope - The shell's plant and product selection.
    * @returns Six tiles, in the order the aggregation states them.
@@ -1686,7 +1732,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   `'validation'` failure when a record a tile's figure is drawn from does not resolve.
    */
   async getCanvasRibbon(scope: Scope): Promise<Result<RibbonTile[]>> {
-    return this.dispatch((ctx) => topology.getCanvasRibbon(ctx, selectionOf(scope)));
+    return this.dispatchRead((ctx) => topology.getCanvasRibbon(ctx, selectionOf(scope)));
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -1694,8 +1740,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * ----------------------------------------------------------------------------------------- */
 
   /**
-   * Reads the simulated market-intelligence pack's atlas: the client's sites, the three competitor
-   * networks, the shared chokepoints and the radar axes and series.
+   * Reads the simulated market-intelligence pack's atlas: the client's and the competitors' networks.
    *
    * The payload separates the client's series from the competitors' rather than combining them, and
    * each series carries its own label, so no figure on the screen mixes first-party records with
@@ -1706,7 +1751,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'permission'` failure when the role does not hold `competitive.read`.
    */
   async getAtlas(): Promise<Result<Atlas>> {
-    return this.dispatch((ctx) => atlas.getAtlas(ctx));
+    return this.dispatchRead((ctx) => atlas.getAtlas(ctx));
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -1723,7 +1768,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'permission'` failure while the demonstration's forbidden trigger is on.
    */
   async getSourceCatalogue(): Promise<Result<SourceCatalogue>> {
-    return this.dispatch((ctx) => governance.getSourceCatalogue(ctx));
+    return this.dispatchRead((ctx) => governance.getSourceCatalogue(ctx));
   }
 
   /**
@@ -1739,7 +1784,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'not-found'` failure naming the plant or the absent plan-grid record family.
    */
   async getPlanGrid(plantId: PlantId): Promise<Result<PlanGrid>> {
-    return this.dispatch((ctx) => {
+    return this.dispatchRead((ctx) => {
       const plant = ctx.state.records.plants.find((candidate) => candidate.id === plantId);
 
       if (plant === undefined) {
@@ -1770,7 +1815,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @throws Problem - A `'not-found'` failure naming the absent exit-package record family.
    */
   async getExitPackage(): Promise<Result<ExitPackage>> {
-    return this.dispatch((ctx) => {
+    return this.dispatchRead((ctx) => {
       throw notFoundProblem(
         ctx,
         'The record set holds no exit package and no exit-package section: the exit workspace and the ' +
@@ -1789,11 +1834,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * The pack is composed from the declared deployment record, the outbound ledger and the audit trail, so
    * exporting it is gated by the two permissions those reads are gated by — `sovereignty.read` for the
-   * record and the ledger, `audit.read` for the trail and its verification. The API client composes the
-   * same document from those same reads, so this gate is what keeps the two adapters from disagreeing
-   * about who may export: a persona refused here meets the same refusal there (AAP 0.12.3). The export
-   * records itself: one `export` event is appended through the chain after the document is built, so the
-   * file describes the session as it stood when the reader asked for it (contracts §6, AAP 0.6.2).
+   * record and the ledger, `audit.read` for the trail and its verification — and the API client composes
+   * the same document from the same reads, so a persona refused here meets the same refusal there
+   * (AAP 0.12.3). The export records itself: one `export` event is appended after the document is built,
+   * so the file describes the session as it stood when the reader asked for it (contracts §6).
    *
    * @returns The payload: the suggested file name, the media type and the pack's JSON text, built in
    *   the browser and offered as a file rather than sent.
@@ -1938,15 +1982,24 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * and the request counter return to what a fresh session holds (contracts §1). It answers while the
    * `loading` trigger is in effect, so a reader can always put the session back (rule P-8).
    *
+   * The reset runs as a section of the session's write queue, the queue an audited append takes. A
+   * reset that ran beside an append would install the freshly hashed chain between that append's two
+   * digests and its push, and the chain a reader verified afterwards would report a break nobody
+   * caused; queueing it means the reset lands either wholly before an append or wholly after it, so the
+   * chain is whole either way (contracts §6). `restoreSeed` deliberately takes no section of its own,
+   * so a section waiting here can always be released by this one.
+   *
    * @returns The literal `true`, in the envelope every call returns.
    */
   async resetDemo(): Promise<Result<true>> {
-    return this.dispatchControl<true>(async (ctx): Promise<true> => {
-      await restoreSeed(ctx.state);
-      clearSimulationFlags(ctx.state);
+    return this.dispatchControl<true>((ctx) =>
+      runExclusive(ctx.state, async (): Promise<true> => {
+        await restoreSeed(ctx.state);
+        clearSimulationFlags(ctx.state);
 
-      return true;
-    });
+        return true;
+      }),
+    );
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -1964,11 +2017,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * switcher states so where the control is offered, and the README repeats it. A deployment replaces
    * this capability with real identity and real authorisation.
    *
-   * An identifier the record set does not carry is refused with a `'not-found'` failure naming the
-   * personas it does carry, and the acting persona stays as it stood: the switch is recorded only
-   * once the persona it names has been resolved, so a refused call leaves neither an identity nor an
-   * event changed. A successful switch appends the `role switch` event, carrying the persona before
-   * and after it, so the trail records who acted as whom (contracts §6).
+   * The switch is recorded only once the persona it names has been resolved, so a refused call leaves
+   * neither an identity nor an event changed, and a successful one appends the `role switch` event with
+   * the persona before and after it, so the trail records who acted as whom (contracts §6).
    *
    * @param userId - The identifier of one of the seeded personas.
    * @returns The persona the session now acts as, in the envelope every call returns.
@@ -2009,11 +2060,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Reads the persona the session is acting as.
    *
-   * `actorOf`'s own resolution of `state.activeUserId`, and nothing else: the persona's identifier and
-   * name, its role, that role's plant scope and permissions, and the home route the router sends it to.
-   * The record is therefore the identity this adapter authorises every other call against rather than a
-   * second account of it, and a demonstration reset that puts `state.activeUserId` back to the seeded
-   * persona is reported by the next read instead of leaving a caller holding the role it switched to.
+   * `actorOf`'s own resolution of `state.activeUserId`, and nothing else. The record is therefore the
+   * identity this adapter authorises every other call against rather than a second account of it, and a
+   * demonstration reset that puts `state.activeUserId` back to the seeded persona is reported by the next
+   * read instead of leaving a caller holding the role it switched to.
    *
    * It goes through `dispatchControl` for the same reason `switchRole` does: it must answer while the
    * simulation's `loading` trigger holds, so the shell can always learn who it is acting as. The read
@@ -2031,9 +2081,8 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * The roster the shell's role switcher offers as its options: each record is built by the same
    * {@link activeUserOf} the acting-persona read uses, so an option and the identity a switch to it
-   * produces cannot describe one persona two ways. The order is the seed's order, which is also the
-   * order the session's opening persona is taken from, so the first option is the persona a fresh
-   * session acts as.
+   * produces cannot describe one persona two ways. The order is the seed's order, so the first option is
+   * the persona a fresh session acts as.
    *
    * It changes nothing and records nothing: reading who the demonstration could act as is not one of
    * the acts contracts §6 records, so this member appends no audit event and asks no permission. It

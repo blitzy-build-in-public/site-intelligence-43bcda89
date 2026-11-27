@@ -84,6 +84,24 @@ const AUDIT_CHAIN_NOTE =
   'Simulated control: this shows the mechanism, not production tamper resistance.';
 
 /**
+ * The pass reading a verification of the restored chain states: the audit screen's own sentence for a
+ * report that found no break.
+ *
+ * No input fixes this wording, so it is stated here rather than read back from the screen the assertion
+ * is checking — a reading the suite took from the screen itself could agree with any sentence at all.
+ */
+const CHAIN_VERIFIED_HEADLINE = 'The chain verified at the moment of this check';
+
+/**
+ * What a verification that found a break reports, matched without the position.
+ *
+ * The two assertions below are about that reading being absent — before the check is re-run, so no
+ * verdict about the edited chain is left standing, and after it, so the restored chain is not described
+ * by the break the edit produced — so the position has no part in either of them.
+ */
+const CHAIN_BREAK_READING = /does not verify/;
+
+/**
  * The sequence number of the seeded audit event the tamper control edits — the one structural literal
  * this file holds (see the module documentation).
  */
@@ -108,13 +126,6 @@ const RETRY_LABEL = 'Try again';
 /** The accessible name of the control that recomputes every hash in the chain, on the audit trail. */
 const VERIFY_CHAIN_LABEL = 'Verify chain';
 
-/** The caption that appears on an approval only once a decision has been recorded on it. */
-const DECISION_TAKEN_LABEL = 'Decision taken';
-
-/** The visible label of the decision comment field, and the button that approves a plan. */
-const COMMENT_LABEL = 'Comment';
-const APPROVE_LABEL = 'Approve';
-
 /* ---------------------------------------------------------------------------------------------
  * The states' own wording — src/components/state-boundary.tsx and the screens that feed it
  * ------------------------------------------------------------------------------------------- */
@@ -128,9 +139,10 @@ const APPROVE_LABEL = 'Approve';
  * screen that renders them fixes as well.
  */
 const LOADING_HEADLINE = 'Loading';
+const RELOAD_LABEL = 'Reload';
 const PARTIAL_HEADLINE = 'Some inputs are missing';
 const OFFLINE_HEADLINE = 'No source is answering';
-const ROLES_THAT_MAY_ACT = 'Roles that may act';
+const ROLES_THAT_HOLD_THE_PERMISSION = 'Roles that hold this permission';
 const PERMISSION_REQUIRED_PREFIX = 'Permission required:';
 const STALE_SUFFIX = /is not current/;
 const STALE_AS_OF_PREFIX = /As of/;
@@ -138,16 +150,28 @@ const STALE_AS_OF_PREFIX = /As of/;
 /** The queue's own sentence for an answer that holds no row. */
 const QUEUE_EMPTY = 'No exceptions match the current filters.';
 
+/**
+ * The overview's own sentence for a scope holding nothing to summarise.
+ *
+ * The screen reports an emptied population in words rather than as four confident zeros, so this is the
+ * rendering the empty state gives on that screen (specification §8, AAP §0.12.4).
+ */
+const OVERVIEW_EMPTY = 'No exception is open in this scope, so there is nothing to summarise.';
+
 /** The not-found page's heading and the stage notice's arrival sentence for the S4 routes. */
 const NOT_FOUND_HEADING = 'Page not found';
 const STAGE_NOTICE_ARRIVAL = /arrives in stage S\d/i;
 
 /**
- * The words the approval handler uses when the conflict trigger refuses a decision: the record changed
- * under the reader, so the change is refused rather than merged. Asserting the refusal is what proves
- * the conflict is reported instead of silently resolved.
+ * The headline the state boundary gives the conflicting-update state.
+ *
+ * The state is reached from the popover's "Conflicting update" trigger, whose service behaviour is to
+ * refuse a read made against records that moved, so every screen that derives a state reports it. The
+ * write half of the same condition — a decision refused rather than merged — is proved at the service
+ * layer in `src/services/mock/mock-backend.test.ts`, because the reads a decision is composed from are
+ * refused here too.
  */
-const CONFLICT_REFUSAL = /refused rather than merged/i;
+const CONFLICT_HEADLINE = 'This record changed while you were reading it';
 
 /**
  * The vocabulary rule P-4 forbids anywhere in the interface: the application never states that it
@@ -556,7 +580,7 @@ test('T-15 the Simulated data badge labels every route the shell renders', async
     /open evidence/,
     'The approvals inbox never rendered the plan it holds.',
   );
-  await approvalRows.first().dblclick();
+  await approvalRows.first().getByRole('cell').first().click();
   await expect(page, 'An inbox row did not open the plan it names.').toHaveURL(
     /\/approvals\/[^/]+$/,
   );
@@ -581,7 +605,10 @@ test('T-15 the Simulated data badge labels every route the shell renders', async
     policies.getByRole('table'),
     'The policy list never rendered the policies the engine evaluates.',
   );
-  await policyRow.dblclick();
+  /* The row's policy cell holds an evidence reference — a control that opens the drawer for the policy
+     it names (principle PR-6) — so the row is activated through a cell that carries no control of its
+     own, which is how a reader opens a record from this table. */
+  await policyRow.getByRole('cell').nth(1).click();
   await expect(page, 'A policy row did not open its own detail.').toHaveURL(
     /\/admin\/policies\/[^/]+$/,
   );
@@ -733,7 +760,7 @@ test('T-17 the offline state withholds the figures and offers a retry', async ({
   await resetDemoData(page);
 });
 
-test('T-17 the forbidden state names the permission and the roles that may act', async ({ page }) => {
+test('T-17 the forbidden state names the permission and the roles that hold it', async ({ page }) => {
   const queue = await triggerThenOpenQueue(page, 'forbidden');
 
   const card = queue.getByRole('region', {
@@ -744,81 +771,63 @@ test('T-17 the forbidden state names the permission and the roles that may act',
     'The refusal did not name the permission the call required, so a reader is told only that something was denied.',
   ).toHaveCount(1);
   await expect(card).toBeVisible();
-  await expect(card.getByText(ROLES_THAT_MAY_ACT, { exact: true })).toBeVisible();
+  await expect(card.getByText(ROLES_THAT_HOLD_THE_PERMISSION, { exact: true })).toBeVisible();
   await expect(
     card.getByRole('listitem').first(),
-    'The refusal names no role that may act, so a reader has nobody to take the action to.',
+    'The refusal names no role that holds the permission, so a reader has nobody to take the action to.',
   ).toBeVisible();
   await expect(queue.getByRole('button', { name: /^Open\s*:/ })).toHaveCount(0);
 
   await resetDemoData(page);
 });
 
-test('T-17 the conflicting-update state refuses a decision instead of merging it', async ({ page }) => {
+test('T-17 the conflicting-update state replaces the record on every screen the trigger reaches', async ({
+  page,
+}) => {
   await enterDemonstration(page);
 
-  /* The decision needs a role that may take it, and the inbox the role lands on is where the plan that
-     awaits one is listed. */
+  /* The inbox is the screen this trigger used to leave untouched: its read is refused now, so a reader
+     meets the moved record rather than a list the service will not stand behind. */
   await switchRole(page, 'USR-02');
-
   await triggerSimulationState(page, 'conflict');
   await closeSimulationPanel(page);
   await clickNavEntry(page, 'Approvals', '/approvals');
 
-  const inbox = screen(page).getByRole('table');
-
-  /* The one plan that still awaits a decision: every other row of the seeded inbox carries the decision
-     already recorded on it. Waiting for that row is also how the read's latency is waited out, without
-     counting rows — an inbox holding one plan has as many rows as an empty one. */
-  const pendingRow = inbox.getByRole('row').filter({ hasText: 'pending' });
-  await expect(pendingRow, 'The inbox holds no plan awaiting a decision.').toHaveCount(1);
-  await pendingRow.first().dblclick();
-  await expect(page, 'An inbox row did not open the plan it names.').toHaveURL(
-    /\/approvals\/[^/]+$/,
-  );
-
-  const detail = screen(page);
-  const decision = detail.getByRole('region', { name: 'Decision', exact: true });
-  await expect(decision).toBeVisible();
-  await decision.getByLabel(COMMENT_LABEL).fill(
-    'A decision taken against a record that changed while it was being read.',
-  );
-
-  /* Every side effect the plan defers another product's supply for has to be acknowledged before it may be
-     approved, and that list arrives with the plan's own read rather than with the page: the wait is for the
-     first acknowledgement, not for the click that follows it. */
-  const acknowledgements = decision.getByRole('button', { name: /I have read the side effect/ });
+  const inbox = screen(page);
+  const notice = inbox.getByRole('status').filter({ hasText: CONFLICT_HEADLINE });
   await expect(
-    acknowledgements.first(),
-    'The plan lists no side effect to acknowledge, so the gate this decision has to pass is not on screen.',
-  ).toBeVisible();
-  for (const acknowledgement of await acknowledgements.all()) {
-    if ((await acknowledgement.getAttribute('aria-pressed')) !== 'true') {
-      await acknowledgement.click();
-    }
-  }
-
-  const approve = decision.getByRole('button', { name: APPROVE_LABEL, exact: true });
-  await expect(
-    approve,
-    'Approve stayed disabled after the comment and the side effect were given, so no decision could be attempted.',
-  ).toBeEnabled();
-  await approve.click();
-
-  const refusal = detail.getByRole('status').filter({ hasText: CONFLICT_REFUSAL });
-  await expect(
-    refusal,
-    'The conflicting-update trigger refused the decision without reporting it to the reader.',
+    notice,
+    'The inbox listed plans while the records behind them had moved, so its content was presented as current.',
   ).toHaveCount(1);
-  await expect(refusal).toBeVisible();
-
-  /* Reported rather than silently resolved: the plan still carries no decision. */
+  await expect(notice).toBeVisible();
   await expect(
-    detail.getByText(DECISION_TAKEN_LABEL, { exact: true }),
-    'A decision was recorded against a record the service refused to write to, so the conflict was resolved silently.',
+    inbox.getByRole('table'),
+    'The inbox kept its table while the conflicting-update state was in effect, so the state did not replace the content it qualifies.',
   ).toHaveCount(0);
 
+  /* The state offers the way back the boundary owns; a state that withheld the record without one would
+     leave the reader no route to it (rule P-8). */
+  await expect(
+    inbox.getByRole('button', { name: RELOAD_LABEL, exact: true }),
+    'The conflicting-update state offered no way to read the record as it now stands.',
+  ).toBeVisible();
+
+  /* A second screen, reached the way a reader reaches it, reports the same condition: the trigger's
+     consequence is the service's rather than one screen's. */
+  await clickNavEntry(page, 'Exceptions', '/exceptions');
+  await expect(
+    screen(page).getByRole('status').filter({ hasText: CONFLICT_HEADLINE }),
+    'A second screen kept rendering its records while the same trigger was in effect, so the state reaches one screen instead of every screen.',
+  ).toHaveCount(1);
+
+  /* Once the change is lifted the same inbox lists its plans again, so the refusal was the trigger's
+     doing rather than an inbox holding nothing. */
   await resetDemoData(page);
+  await clickNavEntry(page, 'Approvals', '/approvals');
+  await expect(
+    screen(page).getByRole('table'),
+    'The inbox did not report its plans again after the demonstration was reset.',
+  ).toBeVisible();
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -876,7 +885,49 @@ test('T-17 the edited audit result makes verification report the break and repai
     'The audit trail states a property of the deployment that the demonstration cannot establish (rule P-4).',
   ).not.toMatch(UNIMPLEMENTED_CLAIM);
 
+  /* `Reset demo data` restores the seeded chain and re-issues the reads behind every screen, so the
+     verdict above describes records that are no longer on screen. Left standing, it would tell a reader
+     the restored chain does not verify at a position the check they are looking at never examined. */
   await resetDemoData(page);
+
+  const cleared = screen(page).getByRole('region', { name: 'Chain verification', exact: true });
+  await expect(
+    cleared.getByRole('status').filter({ hasText: CHAIN_BREAK_READING }),
+    'A verdict from a check that ran before the reset is still on screen, so the panel reports a break in a chain the reader can no longer see.',
+  ).toHaveCount(0);
+  await expect(
+    cleared,
+    'The reset dropped the note that states the chain shows a mechanism rather than tamper resistance (rule P-4).',
+  ).toContainText(AUDIT_CHAIN_NOTE);
+
+  /* The reset also returns the session to the seeded persona, which does not hold the permission the
+     trail needs, so the restored chain is verified as the auditor the trail belongs to. */
+  await switchRole(page, 'USR-06');
+  await clickNavEntry(page, 'Audit trail', '/audit');
+
+  const restored = screen(page).getByRole('region', { name: 'Chain verification', exact: true });
+  const recheck = restored.getByRole('button', { name: VERIFY_CHAIN_LABEL, exact: true });
+
+  await expect(
+    recheck,
+    'The verification control cannot act on the restored chain, so a reader has no way to check the records the reset put back (rule P-8).',
+  ).toBeEnabled();
+  await recheck.click();
+
+  const verified = restored.getByRole('status');
+
+  await expect(
+    verified,
+    'Verifying the restored chain reported nothing, so no reading tells the reader whether the records the reset put back hold together.',
+  ).toHaveCount(1);
+  await expect(
+    verified,
+    'A break is reported for records no edit has touched since the reset, so the reset did not restore the chain.',
+  ).not.toContainText(CHAIN_BREAK_READING);
+  await expect(
+    verified,
+    'The verification of the restored chain does not report it as verified, so the check ran against something other than the restored records.',
+  ).toContainText(CHAIN_VERIFIED_HEADLINE);
 });
 
 test('T-17 the emptied exception queue leaves the queue and the overview agreeing nothing is open', async ({
@@ -890,17 +941,19 @@ test('T-17 the emptied exception queue leaves the queue and the overview agreein
   ).toHaveCount(1);
   await expect(queue.getByRole('button', { name: /^Open\s*:/ })).toHaveCount(0);
 
-  /* The overview computes its figures from the same records, so its open-exceptions tile has to read zero
-     while the queue holds nothing: the two screens agreeing is the whole assertion. The figure is read
-     from the tile's own evidence trigger, whose accessible name begins with it, so no figure is typed
-     here (rule P-6). */
+  /* The overview computes its figures from the same records, so an emptied population reaches it as
+     nothing to summarise: the two screens agreeing that nothing is open is the whole assertion, and the
+     overview states it in its own sentence rather than as four confident zeros a reader cannot tell
+     apart from computed figures (specification §8, AAP §0.12.4, rule P-6). */
   await clickNavEntry(page, 'Overview', '/overview');
-  const openExceptions = screen(page).getByRole('region', { name: 'Open exceptions', exact: true });
-  await expect(openExceptions).toBeVisible();
   await expect(
-    openExceptions.getByRole('button').first(),
-    'The overview reports an open exception while the queue holds none, so the two screens describe different record sets.',
-  ).toHaveAccessibleName(/^0\b/);
+    screen(page).getByRole('status').filter({ hasText: OVERVIEW_EMPTY }),
+    'The overview reported the emptied queue as figures rather than as the empty state, so a zero on it is indistinguishable from a computed reading.',
+  ).toHaveCount(1);
+  await expect(
+    screen(page).getByRole('region', { name: 'Open exceptions', exact: true }),
+    'The overview kept its open-exceptions tile while the queue holds nothing, so the two screens describe different record sets.',
+  ).toHaveCount(0);
 
   await resetDemoData(page);
 

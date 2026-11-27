@@ -6,10 +6,12 @@
  * This screen lays those ways side by side with their arithmetic — one column per option, the eight
  * measures AAP 0.12.4 names as its rows — states which option the recommendation rule picked, the rule
  * it applied and the trade-off it makes, lists nothing of its own about the options that were set
- * aside (see gap 2), compares the orders the options leave late, previews the write-back the selected
+ * aside, compares the orders the options leave late, previews the write-back the selected
  * option would set in motion, and lets the reader duplicate one option at their own lever values. It
  * approves nothing: requesting an approval is the last thing it does, and the decision belongs to
- * SCR-05, which is where a successful request lands.
+ * SCR-05, which is where a successful request lands. It does report the decision a plan has already
+ * taken, where one exists, because a reader who returns to the comparison has to be able to tell that
+ * the option in front of them has been decided rather than merely put forward.
  *
  * WHERE EVERY FIGURE COMES FROM — contracts §3 `ScenarioSet`, contracts §4 rules 1 to 11, rule P-6.
  * The measures are the solver's: the domain layer computes them, the adapter composes the `Scenario`
@@ -31,6 +33,31 @@
  * ALL DATA THROUGH ONE BOUNDARY — rule P-2. `useService()` is the only path to a record: no seed
  * module, no adapter, no API client and no domain module is imported here, and the export's CSV text is
  * composed by the service rather than by this file.
+ *
+ * THE TWO READS, AND WHY THE SECOND ONE EXISTS — AAP 0.2.2, rule P-8. `getScenarioSet` states the
+ * options and the steps each of them would write, and it states no approval: whether an option has
+ * already been decided is the approval record's answer. The screen therefore reads the approval list
+ * as a second query, keyed under `listApprovals` so the invalidation a request and a decision perform
+ * reaches it, and derives from that list the plan that decides the selected option: the approved record
+ * naming it, whichever request followed it in that list, because that is the record the adapter's own
+ * refusal reads. A plan that stands approved disables the request control with one sentence naming the
+ * record and its status, because a control that cannot act explains why (rule P-8), and its own
+ * write-backs replace the option's always-pending steps in the preview, so a reader returning after the
+ * write-back reads the states the records reached rather than the states the option shipped in. A read
+ * that is refused, or one that answers nothing, leaves this screen behaving exactly as it does without
+ * it: the control decides from the option alone and the preview renders the option's own steps. Nothing
+ * about the plan is typed here — the identifier, the status and the steps are the record's members.
+ *
+ * THE FRESHNESS GATE, IN BOTH HALVES — AAP 0.2.1, T-13, rule P-8. `requestApproval` is refused while
+ * `APPROVAL_GATE_SOURCE` reports `stale` or `unavailable`, and this screen states the same rule rather
+ * than leaving it to the service: the boundary renders the stale banner naming the source and the
+ * instant it last answered, and the request control is disabled with a sentence naming that same source
+ * and instant, read from the same freshness report. The sentence is assembled from
+ * `SCENARIO_COMPARISON_TEXT`'s two halves plus the record's own label and as-of value; SCR-05's approval
+ * detail states the same words for the same record, and a feature may not import another feature
+ * (AAP 0.18.1), so the wording is held here as well by design rather than shared. Only `stale` and
+ * `unavailable` block the request: a source reported `partial` is one the service accepts, and a control
+ * disabled where the service would act would lie about what it can do.
  *
  * FOUR GAPS THIS SCREEN REPORTS RATHER THAN WORKS AROUND.
  * 1. `getScenarioSet(exceptionId)` takes no `Scope`, so the shell's plant and product selection cannot
@@ -85,25 +112,28 @@ import { GroupedBarChart } from '../../components/grouped-bar-chart';
 import type { BarGroup, BarSeries, BarTone } from '../../components/grouped-bar-chart';
 import { MonoValue } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { STATE_BOUNDARY_TEXT, StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { StatusIndicator } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
 import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type {
   Approval,
+  ApprovalStatus,
   ExportPayload,
   Freshness,
-  FreshnessState,
   Problem,
-  ProblemType,
   Result,
   Scenario,
   ScenarioId,
   ScenarioSet,
   Scope,
-  ScreenState,
   SimLabel,
 } from '../../types';
 import { CANNOT_COMPUTE_LABEL, COMPARISON_MATRIX_TEXT, ComparisonMatrix } from './comparison-matrix';
@@ -158,6 +188,16 @@ export const WRITE_BACK_PREVIEW_LABEL = 'Write-back preview';
 const RECOMMENDATION_LABEL: SimLabel = SIM_LABELS[2];
 const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
 
+/**
+ * The approval status that closes an option.
+ *
+ * AAP 0.2.2's journey ends at an approved plan whose write-back landed, so an approved plan is the one
+ * thing this screen must not offer to request again. The member is named once here rather than compared
+ * as a bare literal, so both the sentence that explains the control and the read that supplies it state
+ * the same condition.
+ */
+const APPROVED_STATUS: ApprovalStatus = 'approved';
+
 /* ---------------------------------------------------------------------------------------------
  * The wording this screen states itself
  * ------------------------------------------------------------------------------------------- */
@@ -172,9 +212,6 @@ const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
  * Held here so the wording has one owner and the suite names it rather than retyping it.
  */
 export const SCENARIO_COMPARISON_TEXT = {
-  /** The eyebrow above the title: the product name rule P-7 fixes. */
-  eyebrow: 'Site Intelligence',
-
   /** The chart's caption, composed from AAP 0.12.4's own words for the surface. */
   chartTitle: 'Units late by order',
 
@@ -193,6 +230,20 @@ export const SCENARIO_COMPARISON_TEXT = {
 
   /** Why the primary action cannot act while a request is already in flight. */
   requestInFlight: 'A request for approval is in flight, and its outcome follows when it settles.',
+
+  /**
+   * Why the primary action cannot act while the source the request is refused on is not current, in
+   * the two parts the sentence is assembled from: the source's display name and its as-of instant are
+   * filled in from the record, so neither is typed here (rule P-6).
+   *
+   * SCR-05's approval detail states the same sentence for the same condition, because both screens
+   * describe one record and one rule; the words are held here as well because a feature may not import
+   * another feature (AAP 0.18.1).
+   */
+  staleSourcePrefix: 'Approvals need a current',
+
+  /** The stale sentence's second half, before the source's label and as-of instant. */
+  staleSourceSuffix: 'source.',
 
   /** The heading of the card a policy refusal is reported in, beside the rule's identifier. */
   requestRefused: 'The approval request was refused',
@@ -268,7 +319,7 @@ const NOTICE_CLASSES =
   'flex min-w-0 flex-col gap-2 rounded-card border border-hairline bg-surface-2 px-3 py-2';
 
 /* ---------------------------------------------------------------------------------------------
- * Narrowing the service's failure, and reading the freshness report
+ * The neutral collections a memoised member or a `??` fallback needs
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -277,174 +328,7 @@ const NOTICE_CLASSES =
  */
 const NO_SCOPE: Scope = { plants: [], products: [] };
 const NO_SCENARIOS: readonly Scenario[] = [];
-
-/**
- * The five causes a `Problem` may name, listed once against the port's own union so a rejection can be
- * narrowed to the service's failure shape without widening anything.
- */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const satisfies readonly ProblemType[];
-
-/**
- * Whether a rejection is the port's typed failure rather than something the platform threw.
- *
- * The port fails by throwing a `Problem` (AAP 0.12.3), so a screen that catches a call has to tell the
- * two apart before it can name a cause: a refusal of the request is not the same condition as a failure
- * of the call, and reading a `TypeError` as a refusal would report a cause nobody raised.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the failure was not a permission refusal.
- *
- * The card's evidence is the failure's own — the permission the acting role lacks, the roles that hold
- * it and the correlation identifier of the refused call — so nothing is translated between the service
- * and the explanation a reader receives.
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * The source behind a stale comparison, with the display name to print and the instant it last answered.
- *
- * The approval gate is looked for first, because it is the source whose state the approval request is
- * refused on (AAP 0.2.1, T-13), and another stale source is reported when the gate is current. The label
- * comes from `SOURCE_LABELS`, the map that owns the six display names, so the banner and the top bar's
- * pill say the same words about the same source. Nothing is derived from the instant — no age and no
- * duration (rule P-6).
- */
-function staleRecordOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const gate = freshness.find(
-    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
-  );
-  const stale = gate ?? freshness.find((entry) => entry.state === 'stale');
-
-  if (stale === undefined) {
-    return undefined;
-  }
-
-  return { source: stale.source, label: SOURCE_LABELS[stale.source], asOf: stale.asOf };
-}
-
-/** Whether a source in the read's freshness report answered in the state asked about. */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/** What {@link deriveScreenState} reads: the route's identifier and the read's settled facts. */
-interface ScreenStateInput {
-  /** Whether the route names an exception at all. */
-  readonly hasExceptionId: boolean;
-
-  /** Whether the read has yet to answer. */
-  readonly isPending: boolean;
-
-  /** The read's rejection, or `null` when it did not fail. */
-  readonly error: unknown;
-
-  /** The payload, `undefined` until the read settles. */
-  readonly result: Result<ScenarioSet> | undefined;
-}
-
-/**
- * The one place this screen decides which of the seven states its records are in.
- *
- * The failure side comes first, because a refusal is final: a permission refusal is `forbidden`, an
- * identifier no record answers is `empty`, a validation refusal is `conflict`, a policy or simulated
- * write-back refusal and every other rejection are `offline`. A read still in flight is `loading`. The
- * record side then reads the freshness report the result itself carries: a source that did not answer
- * makes the page `offline`, a stale source makes it `stale`, and a source that answered incompletely
- * makes it `partial`. An empty option set is `empty`, and the screen supplies that state's fixed
- * sentence. Everything else returns `undefined`, the boundary's documented "no exceptional state holds".
- *
- * The input is the query's settled facts rather than a flag of this screen's, so the state cannot
- * disagree with the read it describes and no effect is needed to keep the two in step.
- */
-function deriveScreenState({
-  hasExceptionId,
-  isPending,
-  error,
-  result,
-}: ScreenStateInput): ScreenState | undefined {
-  if (!hasExceptionId) {
-    return 'empty';
-  }
-
-  if (isProblem(error)) {
-    switch (error.type) {
-      case 'permission':
-        return 'forbidden';
-      case 'not-found':
-        return 'empty';
-      case 'validation':
-        return 'conflict';
-      case 'policy':
-      case 'simulated-write-back':
-        return 'offline';
-    }
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleRecordOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return result.data.scenarios.length === 0 ? 'empty' : undefined;
-}
+const NO_APPROVALS: readonly Approval[] = [];
 
 /* ---------------------------------------------------------------------------------------------
  * The route a request lands on, and the tone each series is drawn in
@@ -545,10 +429,10 @@ function orderSeriesOf(scenarios: readonly Scenario[]): readonly BarSeries[] {
  * The axis ceiling the grouped bars are scaled against, taken from the cells the surface draws.
  *
  * `GroupedBarChart` requires this as a prop, because only the caller knows whether the data's own
- * maximum is the right scale (see gap 3 in the module note). Every value read here is a figure the
- * solver produced and the screen only passes on, the zero floor keeps a set of all-zero counts drawable,
- * and the surface marks its axis guides `aria-hidden`, so no reader is offered a number this file
- * computed in place of the record's own value.
+ * maximum is the right scale. Every value read here is a figure the solver produced and the screen
+ * only passes on, the zero floor keeps a set of all-zero counts drawable, and the surface marks its
+ * axis guides `aria-hidden`, so no reader is offered a number this file computed in place of the
+ * record's own value.
  *
  * @param series - The series the chart draws, exactly as {@link orderSeriesOf} built them.
  * @returns The largest cell, or zero when the surface has no cell to draw.
@@ -685,24 +569,153 @@ function offerExportFile(payload: ExportPayload): boolean {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * Whether one approval answers one option: the exception and the option, both as the record states them.
+ *
+ * An approval names the exception it answers and the option it puts forward, so a record and an option
+ * agree exactly when both members are the option's. Nothing beyond them is compared.
+ *
+ * @param record - The approval record the read answered with.
+ * @param option - The option the reader has chosen.
+ * @returns Whether the record names that option.
+ */
+function namesOption(record: Approval, option: Scenario): boolean {
+  return record.exceptionId === option.exceptionId && record.scenarioId === option.id;
+}
+
+/**
+ * The latest plan naming one option, whatever it stands in, or `undefined` when no record names it.
+ *
+ * This is the option's record for the preview, and deliberately not the record that decides it: the
+ * steps a plan states are worth showing whatever the plan's status, and identifiers ascend in creation
+ * order, so the highest of them is the plan lodged last. Whether the option has been decided is
+ * {@link decidedPlanForOption}'s answer. The two are read separately because they answer different
+ * questions: the later record of one option can be the pending one while the decision sits on the
+ * earlier record, so the highest identifier is not the record that carries the decision's state.
+ *
+ * @param approvals - The approval records the read answered with.
+ * @param option - The option the reader has chosen, or `undefined` when the set holds none.
+ * @returns The highest-identified plan naming that option, or `undefined` when none does.
+ */
+function planForOption(
+  approvals: readonly Approval[],
+  option: Scenario | undefined,
+): Approval | undefined {
+  if (option === undefined) {
+    return undefined;
+  }
+
+  let latest: Approval | undefined;
+
+  for (const record of approvals) {
+    if (!namesOption(record, option)) {
+      continue;
+    }
+
+    if (latest === undefined || record.id > latest.id) {
+      latest = record;
+    }
+  }
+
+  return latest;
+}
+
+/**
+ * The plan that decides one option, or `undefined` when no record does.
+ *
+ * An approved plan closes the option it names: `requestApproval` refuses a second request while *any*
+ * record of the same exception and option stands approved (`./approvals.ts`'s
+ * `requireNoDecidedPlan`), so this screen reads the same set the refusal reads — every record naming
+ * the option, of which the approved ones are the decision. The status is therefore tested before the
+ * identifier is, and the highest-identified approved record is the one named: identifiers ascend in
+ * creation order, so it is the latest of the decisions on that option. A pending record beside it
+ * changes nothing — the documented journey requests an option the seeded plan already holds pending —
+ * and neither does a rejected or a changes-requested one, which invite the option to be put forward
+ * again once it has been reworked.
+ *
+ * @param approvals - The approval records the read answered with.
+ * @param option - The option the reader has chosen, or `undefined` when the set holds none.
+ * @returns The approved plan naming that option, or `undefined` when none does.
+ */
+function decidedPlanForOption(
+  approvals: readonly Approval[],
+  option: Scenario | undefined,
+): Approval | undefined {
+  if (option === undefined) {
+    return undefined;
+  }
+
+  let decided: Approval | undefined;
+
+  for (const record of approvals) {
+    if (!namesOption(record, option) || record.status !== APPROVED_STATUS) {
+      continue;
+    }
+
+    if (decided === undefined || record.id > decided.id) {
+      decided = record;
+    }
+  }
+
+  return decided;
+}
+
+/**
+ * Why the request cannot act on an option whose plan is already approved.
+ *
+ * One sentence, naming the record and the status it stands in, because that is what a reader needs in
+ * order to stop looking for a request to make and read the decision instead (rule P-8). It states no
+ * figure and no identifier of its own: both are the record's, and the wording is the same whatever
+ * option the reader has selected.
+ *
+ * @param plan - The approved plan naming the selected option.
+ * @returns The sentence the disabled control explains itself with.
+ */
+function decidedPlanReason(plan: Approval): string {
+  return (
+    `${plan.id} already holds this option and stands ${plan.status}, so there is no second request ` +
+    'to make: the decision and the write-back that followed it are recorded against that approval.'
+  );
+}
+
+/**
  * Why the approval request cannot act, or `null` when it can.
  *
  * One sentence per way the control is blocked, in the order a reader can act on: there is no option to
- * put forward (the row's own fixed sentence), a request is already running, or the selected option's own
- * constraint check failed and the record's messages are the reason it cannot be recommended or sent. The
- * gate decides presentation only — the adapter refuses the write for the same reasons, so bypassing the
- * control changes no outcome (rule P-8).
+ * put forward, the source the request is refused on is not current (the same sentence the stale banner
+ * states), the option already carries an approved plan so the decision is taken and nothing is left to
+ * request, a request is already running, or the selected option's own constraint check failed and the
+ * record's messages are the reason it cannot be recommended or sent. The gate decides presentation only
+ * — the adapter refuses the write for the same reasons, so bypassing the control changes no outcome
+ * (rule P-8), and the decided plan this gate reads is the one the adapter's own refusal reads, so the
+ * control is disabled exactly where a click would be refused.
  *
  * @param selected - The option the reader has chosen, or `undefined` when the set holds none.
+ * @param emptySentence - The sentence the boundary states for the state that left no option to put
+ *   forward: a set with no option, or the refusal that emptied it. Both the notice and the control
+ *   state that one sentence, so a reader is never given two reasons for one condition.
+ * @param gateReason - Why the gating source blocks the request, or `null` when it is current.
  * @param isRequesting - Whether a request is already in flight.
+ * @param decided - The approved plan naming the selected option, or `undefined` when no read answered
+ *   one.
  * @returns The sentence the disabled control explains itself with, or `null` when it can act.
  */
 function approvalBlockerOf(
   selected: Scenario | undefined,
+  emptySentence: string,
+  gateReason: string | null,
   isRequesting: boolean,
+  decided: Approval | undefined,
 ): string | null {
   if (selected === undefined) {
-    return EMPTY_SCENARIO_SET_MESSAGE;
+    return emptySentence;
+  }
+
+  if (gateReason !== null) {
+    return gateReason;
+  }
+
+  if (decided !== undefined) {
+    return decidedPlanReason(decided);
   }
 
   if (isRequesting) {
@@ -789,6 +802,7 @@ function refusalRegionOf(refusal: RequestRefusal | null, onRetry: () => void): R
       <ForbiddenCard
         permission={permission}
         roles={problem.rolesWithPermission ?? []}
+        reason={problem.message}
         traceId={problem.traceId}
       />
     );
@@ -824,6 +838,41 @@ function refusalRegionOf(refusal: RequestRefusal | null, onRetry: () => void): R
 }
 
 
+/**
+ * The read's report on the one source whose currency decides whether an approval can be requested.
+ *
+ * `Result.meta.freshness` carries the six sources' state at the moment of the call. The entry returned
+ * here is `APPROVAL_GATE_SOURCE` — the source `requestApproval` refuses on — so the banner, the
+ * disabled control and the service's own refusal describe one source rather than three literals that
+ * agree only until the gate moves. `undefined` means the read reported nothing for it.
+ */
+function gateFreshnessOf(freshness: readonly Freshness[]): Freshness | undefined {
+  return freshness.find((entry) => entry.source === APPROVAL_GATE_SOURCE);
+}
+
+/**
+ * Why the approval request cannot act while the gating source is not current, or `null` when it is.
+ *
+ * The sentence names the source's display name and its as-of instant, both taken from the record, so
+ * the reason a reader is given and the reason the service would refuse with describe one state
+ * (AAP 0.2.1, T-13). It is built for the two states the service refuses on — `stale` and `unavailable`
+ * — and for no other: a source reported `partial` is one the service accepts, and a control disabled
+ * where the service would act would be a control that lies about what it can do.
+ *
+ * @param gate - The report on `APPROVAL_GATE_SOURCE`, or `undefined` when the read carried none.
+ * @returns The sentence the disabled control explains itself with, or `null` when the source is current.
+ */
+function approvalGateReasonOf(gate: Freshness | undefined): string | null {
+  if (gate === undefined || (gate.state !== 'stale' && gate.state !== 'unavailable')) {
+    return null;
+  }
+
+  const label = SOURCE_LABELS[gate.source];
+  const { staleSourcePrefix, staleSourceSuffix } = SCENARIO_COMPARISON_TEXT;
+
+  return `${staleSourcePrefix} ${label} ${staleSourceSuffix} ${label} as of ${gate.asOf}.`;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The screen — AAP 0.12.4 SCR-04, rules P-2, P-8 and P-1
  * ------------------------------------------------------------------------------------------- */
@@ -835,9 +884,9 @@ export interface ScenarioComparisonScreenProps {
    * (AAP 0.18.1). Optional so the route may mount the screen without one.
    *
    * The option read itself is not scope-parameterised: `getScenarioSet` takes the exception's
-   * identifier, and the adapter applies the acting role's plant scope before it answers (see gap 1 in
-   * the module note). The selection is carried in this screen's cache key, so a change in the top bar
-   * re-reads the comparison the way every other screen's reads do.
+   * identifier, and the adapter applies the acting role's plant scope before it answers. The
+   * selection is carried in this screen's cache key, so a change in the top bar re-reads the
+   * comparison the way every other screen's reads do.
    */
   readonly scope?: Scope;
 }
@@ -846,11 +895,11 @@ export interface ScenarioComparisonScreenProps {
  * Renders SCR-04: one exception's response options, their arithmetic, the recommendation and the plan
  * the reader puts forward.
  *
- * The read is keyed on the method's name, the identifier and the shell's selection, and its settled
- * facts decide the state in one place ({@link deriveScreenState}); the boundary owns how that state
- * looks. The only state this component owns is what the reader chose — the selected option, whether a
- * request or a download is running, and what a refused request left behind — so a re-render can never
- * move a record (rule P-6).
+ * Both reads are keyed on the method's name and the shell's selection — the option set on the
+ * exception the route names beside them — and the set's settled facts decide the state in one place
+ * ({@link deriveScreenState}); the boundary owns how that state looks. The only state this component
+ * owns is what the reader chose — the selected option, whether a request or a download is running, and
+ * what a refused request left behind — so a re-render can never move a record (rule P-6).
  *
  * @param props - The shell's plant and product selection.
  * @returns The header with its three controls, the notices a refused request or export left, and — inside
@@ -885,6 +934,22 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
     retry: false,
   });
 
+  /*
+   * The approvals, which are what say whether the option in front of the reader has already been
+   * decided: the option set states no approval, so this is a read of its own, named as the port names
+   * it. Every invalidation a request, a decision and a write-back retry perform carries the
+   * `listApprovals` prefix, so those writes reach this entry and a reader returning from SCR-05 reads
+   * the decision rather than the state the comparison was first drawn in. It is keyed on the shell's
+   * selection beside the method, exactly as the inbox keys its own entry. A refusal here is not turned
+   * into a state of the page: the comparison below behaves as it does without the read (see the module
+   * note), so an inbox this persona may not read never breaks the comparison they may.
+   */
+  const approvalsQuery = useQuery<Result<Approval[]>, unknown>({
+    queryKey: ['listApprovals', scope.plants, scope.products],
+    queryFn: () => service.listApprovals({}, scope),
+    retry: false,
+  });
+
   const result = scenarioQuery.data;
   const scenarioSet = result?.data;
   const scenarios = scenarioSet?.scenarios ?? NO_SCENARIOS;
@@ -899,20 +964,50 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
   const selected =
     selectionId === undefined ? undefined : scenarios.find((option) => option.id === selectionId);
 
+  /* The two answers the approval list gives about the selected option, both read from the records rather
+     than from the option because the set states no approval. The decided plan is the record the
+     adapter's own refusal reads — a plan standing approved that names this exception and this option,
+     whatever else the list holds for it — and it is what shuts the request control. The latest plan of
+     any status is the preview's fallback, and it is not the decision: the later record of an option can
+     be the pending one while the decision sits on the earlier record. Nothing about either is typed
+     here; the identifier, the status and the steps are the records' own members. */
+  const approvals = approvalsQuery.data?.data ?? NO_APPROVALS;
+  const plan = planForOption(approvals, selected);
+  const decidedPlan = decidedPlanForOption(approvals, selected);
+
   const recommendedId = scenarioSet?.recommendedId;
   const recommended =
     recommendedId === undefined
       ? undefined
       : scenarios.find((option) => option.id === recommendedId);
 
+  /*
+   * The read's own facts, plus this screen's reading of its payload: a route that names no exception
+   * has nothing to read; the approval gate is the source the approval request is refused on, so the
+   * stale notice names it first (AAP 0.2.1, T-13); and an option set holding no option is the empty
+   * state, whose sentence the screen supplies below.
+   */
   const state = deriveScreenState({
-    hasExceptionId: exceptionId !== undefined,
+    namedNoRecord: exceptionId === undefined,
     isPending: scenarioQuery.isPending,
     error: scenarioQuery.error,
-    result,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    hasContent: scenarios.length > 0,
   });
 
-  const staleRecord = result === undefined ? undefined : staleRecordOf(result.meta.freshness);
+  const staleRecord =
+    result === undefined
+      ? undefined
+      : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
+
+  /* The same read's report on the source the request is refused on, in the words the request control
+     states while that source is not current: one record explains the banner and the disabled control
+     both (AAP 0.2.1, T-13). */
+  const approvalGateReason = approvalGateReasonOf(
+    result === undefined ? undefined : gateFreshnessOf(result.meta.freshness),
+  );
+
   const forbiddenRecord = forbiddenOf(scenarioQuery.error);
 
   /* A refusal's own sentence explains the empty state when the refusal is what emptied it; the fixed
@@ -1026,8 +1121,19 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
       });
   };
 
-  const approvalBlocker = approvalBlockerOf(selected, isRequesting);
+  const approvalBlocker = approvalBlockerOf(
+    selected,
+    emptyMessage,
+    approvalGateReason,
+    isRequesting,
+    decidedPlan,
+  );
   const exportBlocker = exportBlockerOf(exceptionId !== undefined, isExporting);
+
+  /* The steps the preview shows: the decided plan's own where the records hold the decision, because the
+     state a step reached is what a reader returning to a decided plan needs, then the latest plan naming
+     the option, then the option's own always-pending steps. */
+  const previewWriteBacks = decidedPlan?.writeBacks ?? plan?.writeBacks ?? selected?.writeBacks;
 
   return (
     <div className={SCREEN_CLASSES}>
@@ -1037,9 +1143,18 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
         without the sentence that explains why (rule P-8). The constraints control is disabled for the
         whole of this run, because custom constraints belong to the optimisation service of a later
         stage (AAP 0.14.2).
+
+        The eyebrow names the record this screen belongs to — the exception the route was opened for —
+        the way SCR-03's header reads its own record's identifier, rather than naming the product every
+        route already carries in the top bar and the badge: a reader looking at a comparison needs to
+        know whose options these are. It comes from the route, so it is stated before the read settles
+        and cannot disagree with it, and a route that names no exception carries no eyebrow at all
+        rather than an empty one.
       */}
       <PageHeader
-        eyebrow={SCENARIO_COMPARISON_TEXT.eyebrow}
+        eyebrow={
+          exceptionId === undefined ? undefined : <MonoValue kind="id" value={exceptionId} />
+        }
         title={SCENARIO_COMPARISON_TITLE}
         actions={
           <>
@@ -1098,8 +1213,8 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
               The comparison itself: one column per option and the eight measures of AAP 0.12.4's row,
               each column labelled from its own origin, the recommended column marked structurally, and
               the options the set held back listed with the constraint that blocked each (that list is
-              the matrix's own — see gap 2). The selection is controlled from here, so the column a
-              reader chose and the option this screen would put forward cannot disagree.
+              the matrix's own). The selection is controlled from here, so the column a reader chose
+              and the option this screen would put forward cannot disagree.
             */}
             <ComparisonMatrix
               scenarioSet={scenarioSet}
@@ -1153,20 +1268,24 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
             )}
 
             {/*
-              What the selected option would write, in the record's own order, each step labelled by the
-              component that renders it. An option that sets nothing in motion renders no block at all:
-              no heading and no empty placeholder stands where a write-back would be.
+              What the plan for this option would write — or has written, where the records hold a
+              decision — in the record's own order, each step labelled by the component that renders it.
+              The steps are the decided plan's own where one exists, because a recorded step that
+              succeeded or failed is what a reader returning to a decided plan needs to see; then the
+              latest plan naming the option; then the option's own. An option that sets nothing in motion
+              renders no block at all: no heading and no empty placeholder stands where a write-back
+              would be.
             */}
-            {selected === undefined || selected.writeBacks.length === 0 ? null : (
+            {previewWriteBacks === undefined || previewWriteBacks.length === 0 ? null : (
               <Card title={WRITE_BACK_PREVIEW_LABEL}>
-                <WriteBackPreview writeBacks={selected.writeBacks} />
+                <WriteBackPreview writeBacks={previewWriteBacks} />
               </Card>
             )}
 
             {/*
               The sandbox: a duplicate of the selected option, measured again by the service at the
               reader's own lever values. Its measurement is rendered by the sandbox itself, because no
-              member of the port publishes a recomputed option into the set (see gap 4).
+              member of the port publishes a recomputed option into the set.
             */}
             <ScenarioSandbox scenario={selected ?? null} />
           </div>

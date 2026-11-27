@@ -26,15 +26,16 @@
  *    format and never reaches a screen, so it is written for a reader's engine rather than a reader's
  *    eye: a dot decimal, no grouping separator and exactly two decimals.
  * 4. An amount inside an aggregate's evidence — `src/services/mock/handlers/evidence.ts`. The drawer a
- *    computed figure opens states that figure as the aggregate's own number, ungrouped, with the unit
- *    named in words in the reading itself: the Overview's revenue tile prints `3.348.000 EUR` here and
- *    its drawer reads `3348000 euro of revenue at risk`, and a by-plant bar's drawer reads the same
- *    number the same way with the plant named. It is composed there rather than formatted here because
- *    the service tier may not import `src/components` — AAP §0.18.1's boundary discipline keeps every
- *    figure on the port with nothing of this layer behind it, and rule P-2 keeps the reading inside the
- *    typed service interface — and because the number has to stay the aggregate's own exact figure, so
- *    that a drawer and the tile it explains cannot disagree. No formatter is added at that site: the
- *    handler concatenates the member the aggregate returned and the words the reading already holds.
+ *    computed figure opens states that figure as the aggregate's own number, ungrouped, with the
+ *    currency code beside it rather than the grouped form above: the Overview's revenue tile prints
+ *    `3.348.000 EUR` here and its drawer reads `3348000 EUR at risk`, and a by-plant bar's drawer reads
+ *    the same number the same way, with the plant named after it. It is composed there rather than
+ *    formatted here because the service tier may not import `src/components` — AAP §0.18.1's boundary
+ *    discipline keeps every figure on the port with nothing of this layer behind it, and rule P-2 keeps
+ *    the reading inside the typed service interface — and because the number has to stay the aggregate's
+ *    own exact figure, so that a drawer and the tile it explains cannot disagree. No formatter is added
+ *    at that site: the handler concatenates the member the aggregate returned and the words the reading
+ *    already holds.
  *
  * A fifth rendering is not a fifth decision. A surface that needs an amount written another way adds
  * no formatter of its own — it records the departure in this passage first, so a maintainer reads one

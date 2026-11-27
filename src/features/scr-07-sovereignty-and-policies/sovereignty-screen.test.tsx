@@ -11,16 +11,18 @@
  * role colour together (rule B-3); that the outbound ledger prints its six columns and each row's own
  * endpoint, purpose, state, instant and two counts under the two fixed labels it separates — the
  * declared label on the four columns that state declared configuration, and the label a computed
- * figure carries on the two counts, with every cell naming its own label by id (rules P-1 and P-4);
- * that the export action calls the port once and hands the payload the service returned to the
- * browser's download path unchanged, `simulated: true` included; that the grant action opens the
- * dialog named by its own heading and closes without sending a request; that one row per recorded
- * decision renders the event's own values, most recent first; that a policy row opens that policy's
- * route; that the seven states specification §8 fixes each render from the read's own outcome; that a
- * grant control which cannot act is disabled with its reason reachable from the keyboard (rule P-8);
- * that nothing the screen was not given reaches the page, so no claim about the deployment can arrive
- * unasserted (rule P-4); that both themes render the same declaration and the same two actions; and
- * that both actions are reached with `Tab` and show the focus ring (rule B-3, T-16).
+ * figure carries on the two counts, each cell naming its own label by id (rules P-1 and P-4); that
+ * the export action calls the port once and hands the payload the service returned to the browser's
+ * download path unchanged, `simulated: true` included; that each policy row's own grant action opens
+ * the dialog named by its own heading for that row's policy and closes without sending a
+ * request, while a policy the engine never evaluates offers none and says why; that one row per
+ * recorded decision renders the event's own values, most recent first; that a policy row opens that
+ * policy's route; that the seven states specification §8 fixes each render from the read's own
+ * outcome; that a grant control which cannot act is disabled with its reason reachable from the
+ * keyboard (rule P-8); that nothing the screen was not given reaches the page, so no claim about the
+ * deployment can arrive unasserted (rule P-4); that both themes render the same declaration and the
+ * same actions; and that the export action and a row's grant action are each reached with `Tab` and
+ * show the focus ring (rule B-3, T-16).
  *
  * WHERE THE DATA COMES FROM. The service and the demonstration capability are mocked at
  * `service-provider.tsx`, the one boundary a screen may read through (rule P-2), so no seed module, no
@@ -41,28 +43,30 @@
  * the suite imports every sentence it drives by name and retypes only the three strings a composed
  * sibling owns privately, named once under "the wording this suite must restate" below.
  *
- * REPORTED DECISIONS AND GAPS, each recorded where it bites.
- * 1. The claim vocabulary of rule P-4 is NOT typed here. `tests/source-checks/forbidden-strings.test.ts`
- *    rejects those phrases anywhere under `src/`, and this folder sits inside that scan, so writing
- *    them into an assertion would turn the project's own gate red to prove the screen does not say
- *    them. The property is proved structurally instead, by the one case that walks every rendered text
- *    node and requires it to be a string the screen, the boundary or the payload supplied: a claim
- *    phrase is by definition a sentence no input here supplies, so it cannot pass. The vocabulary
- *    itself stays owned by the source check. This is the same course `grant-exception-dialog.test.tsx`
- *    records for the same reason.
- * 2. `forbidden-card.tsx` does not export the prefix it puts before the permission a denial names, and
- *    `outbound-ledger.tsx` does not export its six column headers or the dash it shows for an endpoint
- *    no attempt was recorded against. A test cannot reach a private const, so those three strings are
- *    restated once below; a reworded one reaches exactly one place here.
- * 3. All seven `ScreenState` values are reachable from this screen's own service surface, so none of
- *    the seven is skipped: the two reads it makes supply the failure that maps to `forbidden`,
- *    `empty` and `conflict`, every other rejection and a source that did not answer supply `offline`,
- *    a never-settling read supplies `loading`, and the freshness report the result itself carries
- *    supplies `stale` and `partial`.
- * 4. jsdom implements neither `URL.createObjectURL` nor `URL.revokeObjectURL`, and the screen's export
- *    path returns early without them. The export case therefore installs both as spies and restores
- *    the globals afterwards, and it stubs `HTMLAnchorElement.prototype.click` so the file that would be
- *    offered is observed rather than navigated to.
+ * THE CLAIM VOCABULARY IS NOT TYPED (rule P-4). `tests/source-checks/forbidden-strings.test.ts`
+ * rejects those phrases anywhere under `src/`, and this folder sits inside that scan, so writing
+ * them into an assertion would turn the project's own gate red to prove the screen does not say
+ * them. The property is proved structurally instead, by the one case that walks every rendered text
+ * node and requires each to be a string the screen, the boundary or the payload supplied: a claim
+ * phrase is by definition a sentence no input here supplies, so it cannot pass. The vocabulary
+ * itself stays owned by the source check.
+ *
+ * THREE STRINGS THIS SUITE MUST RESTATE. `forbidden-card.tsx` does not export the prefix it puts
+ * before the permission a denial names, and `outbound-ledger.tsx` exports neither its six column
+ * headers nor the dash it shows for an endpoint no attempt was recorded against. A test cannot reach
+ * a private const, so those are restated once below; a reworded one reaches exactly one place here.
+ *
+ * ALL SEVEN STATES ARE REACHABLE. Every `ScreenState` value specification §8 fixes is reachable from
+ * this screen's own service surface, so none of the seven is skipped: the two reads it makes supply
+ * the failure that maps to `forbidden`, `empty` and `conflict`, every other rejection and a source
+ * that did not answer supply `offline`, a never-settling read supplies `loading`, and the freshness
+ * report the result itself carries supplies `stale` and `partial`.
+ *
+ * THE DOWNLOAD PATH IS STUBBED IN THE EXPORT CASE. jsdom implements neither `URL.createObjectURL`
+ * nor `URL.revokeObjectURL`, and the screen's export path returns early without them, so the export
+ * case installs both as spies, restores the globals afterwards, and stubs
+ * `HTMLAnchorElement.prototype.click` so the file that would be offered is observed rather than
+ * navigated to.
  *
  * WHAT EACH CASE WOULD CATCH. A dropped per-row label fails the row case, which reads the label inside
  * the status cell. A count hard-coded in the screen fails the two-payload case, which renders a
@@ -92,6 +96,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { MEANING_COLOUR_CLASSES } from '../../components/status-indicator';
 import { CONTROL_STRUCTURE_CLASSES } from '../../components/tooltip';
@@ -100,6 +105,7 @@ import type { SiteIntelligenceService } from '../../services/site-intelligence-s
 import {
   APPROVAL_GATE_SOURCE,
   DEMO_CLOCK,
+  LEDGER_WINDOW_DAYS,
   SIM_LABELS,
   SOURCE_IDS,
   SOURCE_LABELS,
@@ -109,6 +115,7 @@ import type {
   AuditEvent,
   Density,
   DeploymentSummary,
+  Evidence,
   ExportPayload,
   Freshness,
   FreshnessState,
@@ -147,17 +154,26 @@ const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
 const SIMULATED_CONTROL_LABEL: SimLabel = SIM_LABELS[4];
 
 /**
- * The prefix `forbidden-card.tsx` puts before the permission a denial names, which it does not export
- * (reported gap 2). The permission itself is appended from the fixture, as the card appends it.
+ * The prefix `forbidden-card.tsx` puts before the permission a denial names, which it does not
+ * export. The permission itself is appended from the fixture, as the card appends it.
  */
 const PERMISSION_REQUIRED_PREFIX = 'Permission required: ';
 
 /**
  * The outbound ledger's six column headers, in the order it renders them, and the dash it shows for an
  * endpoint the trail records no attempt against. Both belong to `outbound-ledger.tsx`, which exports
- * neither (reported gap 2).
+ * neither (reported gap 2). The two count headers name the window their figures cover, composed from
+ * the `LEDGER_WINDOW_DAYS` constant the aggregate measures with, so this list states the window in the
+ * same terms the component does.
  */
-const LEDGER_HEADERS = ['Endpoint', 'Purpose', 'State', 'Last attempt', 'Allowed', 'Blocked'] as const;
+const LEDGER_HEADERS = [
+  'Endpoint',
+  'Purpose',
+  'State',
+  'Last attempt',
+  `Allowed, ${LEDGER_WINDOW_DAYS} days`,
+  `Blocked, ${LEDGER_WINDOW_DAYS} days`,
+] as const;
 const NO_LAST_ATTEMPT_MARKER = '—';
 
 /**
@@ -165,6 +181,15 @@ const NO_LAST_ATTEMPT_MARKER = '—';
  * against. The screen holds it privately, so it is restated here beside the ledger's own marker.
  */
 const NO_REQUESTS_MARKER = '—';
+
+/**
+ * The suffix each policy row's grant control appends to its fixed label, so that the copies of one
+ * action never share an accessible name. The screen holds the template privately, so it is restated
+ * here and compared with the text the page actually rendered.
+ */
+function grantNameSuffix(policyId: string): string {
+  return `: ${policyId}`;
+}
 
 /**
  * The route a policy row opens, from AAP 0.12.4's SCR-07 row. The screen holds it as a private
@@ -427,7 +452,8 @@ const PENDING_EXCEPTION: PolicyException = {
 
 /**
  * The policy set the read answers with: one policy the engine evaluates, holding a pending request and
- * two decisions supplied out of order, and one the deployment only declares.
+ * two decisions supplied out of order; one the deployment only declares; and a second evaluated policy
+ * whose own grant action acts, so a case can prove the dialog names a row other than the first.
  */
 const POLICIES: readonly PolicyDetail[] = [
   {
@@ -446,6 +472,14 @@ const POLICIES: readonly PolicyDetail[] = [
     recentDecisions: [MIDDLE_EVENT],
     pendingExceptions: [],
   },
+  {
+    id: 'policy-gamma',
+    title: 'Policy gamma',
+    statement: 'statement-gamma',
+    evaluated: true,
+    recentDecisions: [],
+    pendingExceptions: [],
+  },
 ];
 
 /**
@@ -458,20 +492,32 @@ const DECISIONS: readonly { readonly policyId: string; readonly event: AuditEven
   { policyId: 'policy-alpha', event: OLDEST_EVENT },
 ];
 
-/** The persona the session acts as, holding the write the grant flow makes. */
+/**
+ * The persona the session acts as, holding everything the page's two controls gate on: the write the
+ * grant flow makes, and both permissions the export requires.
+ *
+ * The export's pair is the one `MockBackend.exportEvidencePack` enforces — the pack carries the
+ * declared deployment record and the audit trail — so a persona without them cannot reach the download
+ * path at all, and this fixture carries them so the export cases exercise an enabled control.
+ */
 const PERMITTED_ACTOR: ActiveUser = {
   id: 'persona-alpha',
   name: 'Persona Alpha',
   role: 'platform-administrator',
   plantIds: ['plant-alpha'],
-  permissions: ['policy.read', 'policy.exception.request'],
+  permissions: ['audit.read', 'sovereignty.read', 'policy.read', 'policy.exception.request'],
   homeRoute: '/admin/sovereignty',
 };
 
-/** The same persona without the write's permission, so the grant control cannot act (rule P-8). */
+/**
+ * The same persona without the write's permission, so the grant control cannot act (rule P-8).
+ *
+ * It keeps both permissions the export requires, which is what lets a case prove the grant control is
+ * disabled while the export beside it still acts.
+ */
 const UNPERMITTED_ACTOR: ActiveUser = {
   ...PERMITTED_ACTOR,
-  permissions: ['policy.read'],
+  permissions: ['audit.read', 'sovereignty.read', 'policy.read'],
 };
 
 /** The roster a second approver is chosen from, which the screen offers without the acting persona. */
@@ -558,15 +604,36 @@ const EXPORT_PAYLOAD: ExportPayload = {
   content: JSON.stringify({ simulated: true, records: [{ ref: 'record-alpha' }] }),
 };
 
+/**
+ * The evidence a figure's drawer read answers with: one payload of opaque placeholder values, so a
+ * case can prove the drawer resolved *a record* — the read happened, and its own value, formula and
+ * reference reached the dialog — without asserting anything about the aggregate the service computes.
+ *
+ * Its `label` is the tuple member a computed figure carries, because the figures this page opens are
+ * the ledger's counts; the drawer prints the label beside the value rather than choosing one.
+ */
+const EVIDENCE: Evidence = {
+  value: 'evidence-value-alpha',
+  provenance: 'computed',
+  label: CALCULATION_LABEL,
+  formula: 'evidence-formula-alpha',
+  inputs: ['evidence-input-alpha'],
+  upstream: ['evidence-upstream-alpha'],
+  downstream: ['evidence-downstream-alpha'],
+  confidence: { level: 'high', reason: 'evidence-reason-alpha' },
+  missingInputs: [],
+  documents: [],
+};
+
 
 /* ---------------------------------------------------------------------------------------------
  * The service boundary — mocked at the provider, never at the network
  * ------------------------------------------------------------------------------------------- */
 
-/** The port members this suite drives: the two reads the page makes and the write its export calls. */
+/** The port members this suite drives: the two reads the page makes, the drawer's read and the write its export calls. */
 type ScreenReads = Pick<
   SiteIntelligenceService,
-  'getSovereigntyStatus' | 'listPolicies' | 'exportEvidencePack' | 'requestPolicyException'
+  'getSovereigntyStatus' | 'listPolicies' | 'getEvidence' | 'exportEvidencePack' | 'requestPolicyException'
 >;
 
 /** The demonstration capability the screen reads its acting persona and its roster through. */
@@ -582,6 +649,7 @@ type IdentityReads = Pick<DemonstrationControls, 'getActiveUser' | 'switchRole'>
 const mockService = vi.hoisted(() => ({
   getSovereigntyStatus: vi.fn<ScreenReads['getSovereigntyStatus']>(),
   listPolicies: vi.fn<ScreenReads['listPolicies']>(),
+  getEvidence: vi.fn<ScreenReads['getEvidence']>(),
   exportEvidencePack: vi.fn<ScreenReads['exportEvidencePack']>(),
   requestPolicyException: vi.fn<ScreenReads['requestPolicyException']>(),
 }));
@@ -642,9 +710,9 @@ const createObjectUrl = vi.fn<(value: Blob) => string>(() => OBJECT_URL);
 const revokeObjectUrl = vi.fn<(value: string) => void>();
 
 /**
- * Supplies both object-URL members jsdom leaves undefined, so the export path is reachable at all
- * (reported decision 4). `Object.defineProperty` is used rather than `vi.spyOn` because there is no
- * property to spy on; {@link removeObjectUrlStubs} puts the globals back afterwards.
+ * Supplies both object-URL members jsdom leaves undefined, so the export path is reachable at all.
+ * `Object.defineProperty` is used rather than `vi.spyOn` because there is no property to spy on;
+ * {@link removeObjectUrlStubs} puts the globals back afterwards.
  */
 function installObjectUrlStubs(): void {
   Object.defineProperty(URL, 'createObjectURL', {
@@ -711,6 +779,22 @@ function collapse(text: string): string {
   return text.replace(/\s+/gu, ' ').trim();
 }
 
+/**
+ * A matcher for the accessible name of a figure that opens its evidence: the visible value leading
+ * the name the drawer's trigger gives it, followed by that trigger's own suffix
+ * (`EVIDENCE_DRAWER_TEXT.openSuffix`).
+ *
+ * The value is pinned as the name's start rather than compared whole, because the join between the
+ * figure and the visually hidden suffix is the accessible-name computation's business and not this
+ * suite's: what a case has to prove is that the figure itself names the control, which is what a
+ * speech-input user says to reach it (WCAG 2.2 SC 2.5.3).
+ */
+function evidenceTriggerName(value: string): RegExp {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+
+  return new RegExp(`^${escaped}`, 'u');
+}
+
 /** Every string an element's subtree holds, with its whitespace collapsed. */
 function collapsedTextOf(element: HTMLElement): string {
   return collapse(element.textContent ?? '');
@@ -720,6 +804,15 @@ function collapsedTextOf(element: HTMLElement): string {
 function dataRowsOf(table: HTMLElement): readonly HTMLElement[] {
   return within(table).getAllByRole('row').slice(1);
 }
+
+/**
+ * The number of focus moves a keyboard walk may make before it is abandoned.
+ *
+ * The page holds fewer than twenty focus stops, so a walk that has not reached the control it is
+ * looking for within this bound has found a control the keyboard cannot reach, which is what the walk
+ * exists to report.
+ */
+const FOCUS_LIMIT = 20;
 
 /** One row's cells, in column order. */
 function cellsOf(row: HTMLElement): readonly HTMLElement[] {
@@ -736,24 +829,45 @@ async function settledRowsTable(): Promise<HTMLElement> {
   return screen.findByRole('table', { name: TEXT.rowsCaption });
 }
 
-/** The grant control's accessible name, which is also the dialog's heading. */
+/**
+ * The grant control's visible label, which AAP 0.12.4 fixes for every copy of it. Each copy appends
+ * its own row's identifier as an `sr-only` suffix, so the label on its own names none of them.
+ */
 const GRANT_ACTION_NAME = TEXT.grantAction;
 
+/** The policy set's table, once the read has resolved it onto the page. */
+async function settledPoliciesTable(): Promise<HTMLElement> {
+  return screen.findByRole('table', { name: TEXT.policiesCaption });
+}
+
 /**
- * The grant control, once the acting persona's permissions have settled onto the page.
+ * One policy row's grant control.
  *
- * Before that read answers, the control is disabled with the sentence saying the persona is still being
- * read, so a case that acts on it waits for the settled state rather than for the element.
+ * The control's accessible name is the fixed label followed by its row's own identifier, so a case
+ * reaches exactly one of the copies by that name. The identifier alone is not enough to select it: the
+ * same row's identifier is also the visible text of the evidence trigger beside it, so a pattern over
+ * the identifier alone would match both controls.
  */
-async function settledGrantAction(): Promise<HTMLElement> {
+function grantActionOf(policy: PolicyDetail): HTMLElement {
+  return screen.getByRole('button', {
+    name: `${GRANT_ACTION_NAME}${grantNameSuffix(policy.id)}`,
+  });
+}
+
+/**
+ * That row's grant control, once the acting persona's permissions have settled onto the page.
+ *
+ * Before that read answers, every copy is disabled with the sentence saying the persona is still being
+ * read, so a case that acts on one waits for the settled state rather than for the element.
+ */
+async function settledGrantAction(policy: PolicyDetail): Promise<HTMLElement> {
+  await settledPoliciesTable();
+
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: GRANT_ACTION_NAME })).not.toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
+    expect(grantActionOf(policy)).not.toHaveAttribute('aria-disabled', 'true');
   });
 
-  return screen.getByRole('button', { name: GRANT_ACTION_NAME });
+  return grantActionOf(policy);
 }
 
 /** Every port member a call was observed on, in the order the stub object declares them. */
@@ -769,16 +883,18 @@ function membersCalled(): readonly string[] {
 
 /**
  * Every string these fixtures and the modules they drive account for: the screen's own wording object,
- * the state boundary's wording, the dialog's wording, the seven fixed labels, the ledger's six column
- * headers, each fixture value a cell prints, and the one status word the declared rows carry.
+ * the state boundary's wording, the dialog's wording, the drawer trigger's suffix on every figure that
+ * opens its evidence, the seven fixed labels, the ledger's six column headers, each fixture value a cell
+ * prints, and the one status word the declared rows carry.
  *
  * A text node outside this set is a sentence no input of this suite supplied — which is exactly what a
- * claim about the deployment would be (rule P-4, reported decision 1).
+ * claim about the deployment would be (rule P-4).
  */
 const ACCOUNTED_TEXT: readonly string[] = [
   ...Object.values(TEXT),
   ...Object.values(STATE_BOUNDARY_TEXT),
   ...Object.values(GRANT_EXCEPTION_DIALOG_TEXT),
+  EVIDENCE_DRAWER_TEXT.openSuffix,
   ...SIM_LABELS,
   ...ROW_SPECS.flatMap((spec) => [spec.id, spec.label, spec.record, spec.lastDeclaredOn]),
   ...MORE_ROW_SPECS.flatMap((spec) => [spec.id, spec.label, spec.record, spec.lastDeclaredOn]),
@@ -808,6 +924,8 @@ const ACCOUNTED_TEXT: readonly string[] = [
       request.status,
     ]),
   ]),
+  // The `sr-only` half of each grant control's accessible name, which is a text node of its own.
+  ...POLICIES.map((policy) => grantNameSuffix(policy.id)),
   ...DECISIONS.flatMap(({ event }) => [
     event.id,
     event.timestamp,
@@ -853,6 +971,7 @@ function unaccountedText(container: HTMLElement): readonly string[] {
 beforeEach(() => {
   mockService.getSovereigntyStatus.mockReset().mockResolvedValue(envelope(STATUS));
   mockService.listPolicies.mockReset().mockResolvedValue(envelope([...POLICIES]));
+  mockService.getEvidence.mockReset().mockResolvedValue(envelope({ ...EVIDENCE }));
   mockService.exportEvidencePack.mockReset().mockResolvedValue(envelope(EXPORT_PAYLOAD));
   mockService.requestPolicyException.mockReset().mockResolvedValue(envelope(PENDING_EXCEPTION));
 
@@ -1029,10 +1148,19 @@ describe('SovereigntyScreen', () => {
         );
       }
 
-      // Both counts are printed as the aggregate supplied them, each tied to the label above them —
-      // the calculation label, never the declared one.
-      expect(collapsedTextOf(at(cells, 4, 'allowed cell'))).toBe(String(row.allowed));
-      expect(collapsedTextOf(at(cells, 5, 'blocked cell'))).toBe(String(row.blocked));
+      // Both counts are printed as the aggregate supplied them, each tied to the calculation label
+      // above them — never the declared one — and each a control that opens the evidence of the
+      // endpoint it was counted for (AAP 0.2.1 F12).
+      expect(
+        within(at(cells, 4, 'allowed cell')).getByRole('button', {
+          name: evidenceTriggerName(String(row.allowed)),
+        }),
+      ).toBeVisible();
+      expect(
+        within(at(cells, 5, 'blocked cell')).getByRole('button', {
+          name: evidenceTriggerName(String(row.blocked)),
+        }),
+      ).toBeVisible();
       expect(at(cells, 4, 'allowed cell').querySelector('[aria-describedby]')).toHaveAttribute(
         'aria-describedby',
         calculationLabelId,
@@ -1042,6 +1170,56 @@ describe('SovereigntyScreen', () => {
         calculationLabelId,
       );
     });
+  });
+
+  it('names the window both counts cover in their headers and in the region caption', async () => {
+    renderScreen();
+
+    const ledger = await screen.findByRole('region', { name: TEXT.ledgerCaption });
+    const table = within(ledger).getByRole('table', { name: TEXT.ledgerCaption });
+    const headers = within(table).getAllByRole('columnheader').map(collapsedTextOf);
+    const countHeaders = headers.slice(-2);
+
+    // Each count column states the window its figure covers, in the same terms the ledger aggregate
+    // measures it with, so the number means something to a reader who arrives at the column without
+    // the heading above the table (qa-w013-I30).
+    expect(countHeaders).toEqual([
+      `Allowed, ${LEDGER_WINDOW_DAYS} days`,
+      `Blocked, ${LEDGER_WINDOW_DAYS} days`,
+    ]);
+
+    // Neither column states its figure with the window named only elsewhere.
+    expect(headers).not.toContain('Allowed');
+    expect(headers).not.toContain('Blocked');
+
+    // The region's own caption names the same window, so the column and the region cannot disagree.
+    expect(TEXT.ledgerCaption).toContain(`trailing ${LEDGER_WINDOW_DAYS} days`);
+  });
+
+  it('opens the evidence of the endpoint a ledger count was counted for', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const table = await screen.findByRole('table', { name: TEXT.ledgerCaption });
+    const target = at(LEDGER, 0, 'ledger row');
+    const cells = cellsOf(at(dataRowsOf(table), 0, 'ledger row'));
+
+    await user.click(
+      within(at(cells, 4, 'allowed cell')).getByRole('button', {
+        name: evidenceTriggerName(String(target.allowed)),
+      }),
+    );
+
+    const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    // The reference the figure carries is the row's own endpoint — the row key, and the value the
+    // aggregate counted against — and the read it made resolved a record that reached the dialog
+    // (AAP 0.2.1 F12, principle PR-6).
+    expect(mockService.getEvidence).toHaveBeenCalledTimes(1);
+    expect(mockService.getEvidence).toHaveBeenCalledWith(target.endpoint);
+    expect(drawer).toHaveTextContent(EVIDENCE.value);
+    expect(drawer).toHaveTextContent(target.endpoint);
   });
 
   /* -------------------------------------------------------------------------------------------
@@ -1102,20 +1280,41 @@ describe('SovereigntyScreen', () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith(OBJECT_URL);
   });
 
-  it('opens the grant dialog for the first policy and closes it without sending a request', async () => {
+  it('opens the grant dialog for the policy whose own row was pressed, and closes it unsent', async () => {
     const user = userEvent.setup();
 
     renderScreen();
 
-    await user.click(await settledGrantAction());
+    /*
+     * A policy that is not the first of the set, so the case shows the dialog follows the row a reader
+     * acted on rather than a position this screen chose; the first policy's title is asserted absent
+     * from it for the same reason.
+     */
+    const pressed = at(POLICIES, POLICIES.length - 1, 'policy');
+    const first = at(POLICIES, 0, 'policy');
+
+    await user.click(await settledGrantAction(pressed));
 
     const dialog = await screen.findByRole('dialog', {
       name: GRANT_EXCEPTION_DIALOG_TEXT.heading,
     });
 
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    // The dialog names the policy the payload supplies first, from the record itself (rule P-6).
-    expect(dialog).toHaveTextContent(at(POLICIES, 0, 'policy').title);
+    // The dialog names the policy the reader acted on, from that record itself (rule P-6).
+    expect(dialog).toHaveTextContent(pressed.title);
+    expect(dialog).not.toHaveTextContent(first.title);
+
+    // One copy of the action per policy, and each carries its own row's identifier, so the copies never
+    // share an accessible name (rule B-3).
+    expect(screen.getAllByRole('button', { name: new RegExp(GRANT_ACTION_NAME) })).toHaveLength(
+      POLICIES.length,
+    );
+
+    POLICIES.forEach((policy) => {
+      expect(grantActionOf(policy).textContent).toBe(
+        `${GRANT_ACTION_NAME}${grantNameSuffix(policy.id)}`,
+      );
+    });
 
     await user.click(
       within(dialog).getByRole('button', { name: GRANT_EXCEPTION_DIALOG_TEXT.cancel }),
@@ -1128,6 +1327,47 @@ describe('SovereigntyScreen', () => {
     // Closing the dialog sends nothing: the write belongs to the form's own submit.
     expect(mockService.requestPolicyException).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { level: 1, name: TEXT.title })).toBeVisible();
+  });
+
+  it('offers no exception against a policy the engine never evaluates, and says why', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const declared = at(
+      POLICIES.filter((policy) => !policy.evaluated),
+      0,
+      'declared policy',
+    );
+    const evaluated = at(
+      POLICIES.filter((policy) => policy.evaluated),
+      0,
+      'evaluated policy',
+    );
+
+    await settledPoliciesTable();
+
+    const declaredAction = grantActionOf(declared);
+
+    await waitFor(() => {
+      expect(declaredAction).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    // The sentence names the record's own condition rather than a permission the reader could ask for
+    // (rules P-4 and P-8), and it is read the way assistive technology receives it.
+    declaredAction.focus();
+    expect(declaredAction).toHaveFocus();
+
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent(TEXT.grantNeverEvaluated);
+    });
+
+    // A policy does not need to be the first of the set to offer the flow: an evaluated row still acts.
+    expect(await settledGrantAction(evaluated)).not.toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(declaredAction);
+
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
 
@@ -1179,7 +1419,13 @@ describe('SovereigntyScreen', () => {
     POLICIES.forEach((policy, index) => {
       const cells = cellsOf(at(rows, index, 'policy row'));
 
-      expect(collapsedTextOf(at(cells, 0, 'policy cell'))).toBe(policy.id);
+      // The identifier is the record's own, and it is the control that opens that policy's evidence
+      // (AAP 0.2.1 F12).
+      expect(
+        within(at(cells, 0, 'policy cell')).getByRole('button', {
+          name: evidenceTriggerName(policy.id),
+        }),
+      ).toBeVisible();
       expect(collapsedTextOf(at(cells, 1, 'title cell'))).toBe(policy.title);
 
       // Whether the engine evaluates the policy, or the deployment only declares it (rule P-4).
@@ -1205,6 +1451,31 @@ describe('SovereigntyScreen', () => {
 
     expect(navigateMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith(`${POLICY_DETAIL_ROUTE}/${target.id}`);
+  });
+
+  it('opens the evidence of the policy a row’s identifier names', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const table = await screen.findByRole('table', { name: TEXT.policiesCaption });
+    const target = at(POLICIES, 0, 'policy');
+    const cells = cellsOf(at(dataRowsOf(table), 0, 'policy row'));
+
+    await user.click(
+      within(at(cells, 0, 'policy cell')).getByRole('button', {
+        name: evidenceTriggerName(target.id),
+      }),
+    );
+
+    const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    // The record's own identifier is the reference, and opening the evidence is the cell's own control
+    // rather than the row's activation: the policy route is left to the row (AAP 0.2.1 F12).
+    expect(mockService.getEvidence).toHaveBeenCalledTimes(1);
+    expect(mockService.getEvidence).toHaveBeenCalledWith(target.id);
+    expect(drawer).toHaveTextContent(EVIDENCE.value);
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   /* -------------------------------------------------------------------------------------------
@@ -1333,14 +1604,26 @@ describe('SovereigntyScreen', () => {
    * A control that cannot act, the page's own text, both themes and the keyboard
    * ----------------------------------------------------------------------------------------- */
 
-  it('disables the grant action with the sentence naming the permission the acting persona lacks', async () => {
+  it('disables every row’s grant action with the sentence naming the permission the acting persona lacks', async () => {
     const user = userEvent.setup();
 
     mockDemonstration.getActiveUser.mockResolvedValue(envelope(UNPERMITTED_ACTOR));
 
     renderScreen();
 
-    const action = screen.getByRole('button', { name: GRANT_ACTION_NAME });
+    await settledPoliciesTable();
+
+    /*
+     * An evaluated policy's copy, because the gate answers a record's own condition before it answers
+     * a permission: the sentence read below must be the permission one, and it can only be that on a
+     * policy the engine evaluates.
+     */
+    const evaluated = at(
+      POLICIES.filter((policy) => policy.evaluated),
+      0,
+      'evaluated policy',
+    );
+    const action = grantActionOf(evaluated);
 
     await waitFor(() => {
       expect(action).toHaveAttribute('aria-disabled', 'true');
@@ -1350,7 +1633,10 @@ describe('SovereigntyScreen', () => {
     // brings up rather than off the page's standing text (rule P-8, rule B-3).
     action.focus();
     expect(action).toHaveFocus();
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(TEXT.grantNotPermitted);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tooltip')).toHaveTextContent(TEXT.grantNotPermitted);
+    });
 
     // A control that cannot act does nothing, and the export beside it still can.
     await user.click(action);
@@ -1360,6 +1646,154 @@ describe('SovereigntyScreen', () => {
       'aria-disabled',
       'true',
     );
+  });
+
+  it('keeps each grant label’s hidden identifier inside a positioned box, so it cannot widen the page', async () => {
+    renderScreen();
+
+    await settledPoliciesTable();
+
+    for (const policy of POLICIES) {
+      const action = grantActionOf(policy);
+      const hidden = within(action).getByText(`: ${policy.id}`);
+
+      /*
+       * `sr-only` is absolutely positioned: with no containing block inside the cell it resolves
+       * against the initial containing block, escapes the table's own horizontal scroll area and
+       * widens the document at a narrow viewport (measured at 375 px on SCR-07). jsdom computes no
+       * layout, so the class that supplies that containing block is what a case can observe.
+       */
+      expect(hidden.parentElement?.className.split(' ')).toContain('relative');
+    }
+  });
+
+  it.each([
+    { title: 'neither permission the pack requires', holds: [] },
+    { title: 'sovereignty.read alone', holds: ['sovereignty.read'] },
+    { title: 'audit.read alone', holds: ['audit.read'] },
+  ] as const)(
+    'disables the export with its reason when the persona holds $title',
+    async ({ holds }) => {
+      /*
+       * The grant's own permissions are carried by every persona here, so a case cannot pass by
+       * disabling both controls: what it observes is the export's gate on the pair the service asks
+       * for, with the sibling control still able to act.
+       */
+      mockDemonstration.getActiveUser.mockResolvedValue(
+        envelope({
+          ...PERMITTED_ACTOR,
+          permissions: ['policy.read', 'policy.exception.request', ...holds],
+        }),
+      );
+
+      renderScreen();
+
+      const action = screen.getByRole('button', { name: TEXT.exportAction });
+
+      await waitFor(() => {
+        expect(action).toHaveAttribute('aria-disabled', 'true');
+      });
+
+      // The reason names both permissions the service requires, read off the hint a keyboard focus
+      // brings up rather than off a title attribute (rule P-8, rule B-3).
+      action.focus();
+      expect(action).toHaveFocus();
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(TEXT.exportNotPermitted);
+
+      const enabledRow = POLICIES.find((policy) => policy.evaluated);
+
+      expect(enabledRow, 'the fixture holds an evaluated policy whose grant action acts').toBeDefined();
+
+      if (enabledRow !== undefined) {
+        expect(await settledGrantAction(enabledRow)).not.toHaveAttribute('aria-disabled', 'true');
+      }
+    },
+  );
+
+  it.each([
+    {
+      title: 'while the acting persona is still being read',
+      sentence: TEXT.exportIdentityPending,
+      configure: (): void => {
+        mockDemonstration.getActiveUser.mockReturnValue(
+          new Promise<Result<ActiveUser>>(() => {
+            /* never settles: the persona read the gate stands in for */
+          }),
+        );
+      },
+    },
+    {
+      title: 'when the acting persona could not be read',
+      sentence: TEXT.exportIdentityFailed,
+      configure: (): void => {
+        mockDemonstration.getActiveUser.mockRejectedValue(UNANSWERED);
+      },
+    },
+  ])('disables the export $title, naming why', async ({ sentence, configure }) => {
+    configure();
+
+    renderScreen();
+
+    const action = screen.getByRole('button', { name: TEXT.exportAction });
+
+    await waitFor(() => {
+      expect(action).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    action.focus();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(sentence);
+  });
+
+  it.each([
+    {
+      title: 'is still being read',
+      configure: (): void => {
+        mockService.listPolicies.mockReturnValue(
+          new Promise<Result<PolicyDetail[]>>(() => {
+            /* never settles: the policy read the gate stands in for */
+          }),
+        );
+      },
+    },
+    {
+      title: 'was refused for policy.read',
+      configure: (): void => {
+        mockService.listPolicies.mockRejectedValue(DENIAL);
+      },
+    },
+    {
+      title: 'could not be read at all',
+      configure: (): void => {
+        mockService.listPolicies.mockRejectedValue(UNANSWERED);
+      },
+    },
+  ])('claims nothing about the policy set while it $title', async ({ configure }) => {
+    configure();
+
+    renderScreen();
+
+    /*
+     * No policy row was read, so no row carries a grant control, and the page states no empty set: the
+     * sentence that reports an empty policy set describes a read that answered with nothing, and none
+     * of these states answered (rule P-8, rule P-6, qa-w013-I29).
+     */
+    await waitFor(() => {
+      expect(screen.queryByText(TEXT.policiesEmpty)).toBeNull();
+    });
+
+    expect(screen.queryAllByRole('button', { name: new RegExp(GRANT_ACTION_NAME) })).toHaveLength(0);
+  });
+
+  it('states the empty policy set only for a read that succeeded and returned no policy', async () => {
+    // The one state the empty sentence describes: the read answered, and the set it answered with
+    // holds nothing — so the page states what the payload said and offers no control to request an
+    // exception against a policy that does not exist (rule P-8, rule P-6).
+    mockService.listPolicies.mockResolvedValue(envelope([]));
+
+    renderScreen();
+
+    expect(await screen.findByText(TEXT.policiesEmpty)).toBeVisible();
+    expect(screen.queryAllByRole('button', { name: new RegExp(GRANT_ACTION_NAME) })).toHaveLength(0);
   });
 
   it('renders nothing the page was not given, and duplicates no badge of its own', async () => {
@@ -1373,7 +1807,7 @@ describe('SovereigntyScreen', () => {
 
     // Every text node is a string the screen, the boundary or the payload supplied, so no sentence of
     // the screen's own — and with it no claim about the deployment — can reach the page unasserted
-    // (rule P-4, reported decision 1).
+    // (rule P-4).
     expect(unaccountedText(container)).toEqual([]);
   });
 
@@ -1394,12 +1828,12 @@ describe('SovereigntyScreen', () => {
 
       // What a case asserts is what a reader receives, never a colour: jsdom resolves no custom
       // property, so the two themes are asserted through the same structure and the same names.
-      expect(await settledGrantAction()).toBeVisible();
+      expect(await settledGrantAction(at(POLICIES, 0, 'policy'))).toBeVisible();
       expect(screen.getByRole('button', { name: TEXT.exportAction })).toBeVisible();
     },
   );
 
-  it('reaches both actions with Tab, shows each focus ring, and exports from the keyboard', async () => {
+  it('reaches the export action and a row’s grant action with Tab and acts from the keyboard', async () => {
     const user = userEvent.setup();
 
     installObjectUrlStubs();
@@ -1408,7 +1842,7 @@ describe('SovereigntyScreen', () => {
     });
 
     renderScreen();
-    await settledGrantAction();
+    await settledPoliciesTable();
 
     // The ring is the shared control structure's, read from that list rather than retyped (rule B-3):
     // jsdom paints nothing, so the utilities the control carries are what a case observes.
@@ -1418,16 +1852,11 @@ describe('SovereigntyScreen', () => {
 
     expect(ringClasses.length).toBeGreaterThan(0);
 
-    await user.tab();
-
-    const grant = screen.getByRole('button', { name: GRANT_ACTION_NAME });
-
-    expect(grant).toHaveFocus();
-
-    for (const ringClass of ringClasses) {
-      expect(grant.className.split(' ')).toContain(ringClass);
-    }
-
+    /*
+     * The export action is the page header's only control now, so the tab order opens on it. The grant
+     * action is offered per policy row, below the header and below the tables that precede the policy
+     * set, so the walk after it follows the document's own order instead of assuming a position.
+     */
     await user.tab();
 
     const exportAction = screen.getByRole('button', { name: TEXT.exportAction });
@@ -1447,6 +1876,47 @@ describe('SovereigntyScreen', () => {
     });
 
     expect(mockService.exportEvidencePack).toHaveBeenCalledTimes(1);
+
+    let grant: HTMLElement | undefined;
+
+    for (let step = 0; step < FOCUS_LIMIT && grant === undefined; step += 1) {
+      await user.tab();
+
+      const focused = document.activeElement;
+
+      if (focused instanceof HTMLElement && focused.textContent?.startsWith(GRANT_ACTION_NAME)) {
+        grant = focused;
+      }
+    }
+
+    expect(grant, 'a policy row’s grant action is reachable with Tab (rule B-3)').toBeDefined();
+
+    if (grant === undefined) {
+      return;
+    }
+
+    for (const ringClass of ringClasses) {
+      expect(grant.className.split(' ')).toContain(ringClass);
+    }
+
+    /*
+     * The copy the keyboard reached is one that acts, and it opens the flow for its own policy: the
+     * identifier its accessible name carries is the policy the dialog then names (AAP 0.12.4, rule B-3).
+     */
+    expect(grant).not.toHaveAttribute('aria-disabled', 'true');
+
+    const reachedText = grant.textContent ?? '';
+    const pressed = POLICIES.filter((policy) => reachedText.includes(policy.id));
+
+    expect(pressed).toHaveLength(1);
+
+    await user.keyboard('{Enter}');
+
+    const dialog = await screen.findByRole('dialog', {
+      name: GRANT_EXCEPTION_DIALOG_TEXT.heading,
+    });
+
+    expect(dialog).toHaveTextContent(at(pressed, 0, 'policy the keyboard reached').title);
   });
 });
 

@@ -10,7 +10,9 @@
  *   whose `objectRef` is the endpoint, split by result, as integers with no rounding.
  * - AAP 0.12.1's "Ledger aggregates" row, which fixes the public interface —
  *   `computeLedger(events, sovereignty, clock)` returning `LedgerRow[]` — and records the module's
- *   dependency as types only.
+ *   dependency as types only. The one dependency it gains is `../solver/calendar`, the pure core's
+ *   single civil-date implementation: the day an event falls on is that module's answer rather than a
+ *   second copy of the same arithmetic.
  * - AAP 0.6.3, which fixes the declared outbound endpoints as blocked by policy and never contacted:
  *   the ledger reports what the trail recorded about them and generates no traffic of its own.
  *
@@ -27,51 +29,56 @@
  * configuration and the counted columns cannot drift apart.
  *
  * Determinism and purity (AAP 0.2.1, AAP 0.18.2). The window is derived from the `clock` argument —
- * the demonstration clock — and never from the system clock: the module reads no system time, builds
- * no `Date` object, opens no random source and holds no mutable module-level state. Timestamps are
- * located by integer arithmetic over their own fields, so the same input yields the same rows on every
+ * the demonstration clock — and never from the system clock: the module reads no system time, opens no
+ * random source and holds no mutable module-level state, and the only `Date` its arithmetic reaches is
+ * the UTC timestamp `../solver/calendar` builds from a date the record itself states, so no host zone
+ * is read. A timestamp is located by integer arithmetic over its own fields and the calendar date it
+ * falls on comes from that same calendar module, so the same input yields the same rows on every
  * engine and on every run. Counts are whole numbers, so no rounding is applied and none is needed; no
  * money value, percentage or locale formatting passes through the module. Both input arrays are read
  * and never modified.
  *
+ * REFUSING A CLOCK IT CANNOT PLACE (AAP 0.2.2, AAP 0.12.3). The clock fixes the window's end, so an
+ * instant the module cannot locate leaves no window to count over, and a silently empty window would
+ * report a count of zero for every endpoint. The aggregate therefore refuses, and the refusal is typed:
+ * `UnlocatableClockError` carries the clock value it was handed, and the mock adapter reports it as a
+ * `'validation'` `Problem` naming that cause with the call's trace identifier, so nothing untyped
+ * crosses the service port. It is raised rather than returned because AAP 0.12.1 fixes the result as
+ * `LedgerRow[]`, which has no member for an outcome. An event whose own timestamp cannot be located is
+ * not a refusal: it contributes to no column and is never a last attempt, since the counts cover the
+ * events that can be placed.
+ *
  * Rules this module is built to satisfy:
  * - P-6: every number in a row is counted from the events handed in. The module types no count, no
- *   endpoint and no threshold, and the one fixed number it carries is the contracts' window length.
+ *   endpoint and no threshold, and the one fixed number it measures against — the window's length —
+ *   is read from the `LEDGER_WINDOW_DAYS` constant of `src/types` rather than typed here.
  * - P-4: a row reports what the configuration declares and what the audit trail recorded, and claims
  *   no verified state. The screen renders the declared half under the fixed `Declared, not verified`
  *   label, and this module supplies no member with which a screen could claim more.
- * - P-2: it imports the shared types and nothing else — no seed record, no adapter, no service module
- *   and no React — so it cannot become a second data boundary.
+ * - P-2: it imports the shared types and the pure core's calendar module — no seed record, no adapter,
+ *   no service module and no React — so it cannot become a second data boundary. The calendar date an
+ *   event falls on is `../solver/calendar`'s answer, not a copy of the arithmetic kept beside it.
  * - P-5: the ledger counts first-party audit events only; no market-intelligence value reaches it and
  *   nothing here blends a competitor figure into a first-party count.
  * - B-1 and B-2: the module contacts nothing and reads no configuration, because a count is derived
  *   from records that already exist. There is no request, no address and no credential in it.
  *
- * OPEN ITEM: an event belongs to a row when its `objectRef` equals the row's endpoint exactly, which
- * is the rule AAP 0.8 states. A deployment whose trail names an endpoint differently — a full URL
- * where the record holds a host, or the reverse — counts zero against that row; closing the gap needs
- * a normalisation rule the inputs do not state, so none is invented here.
- * OPEN ITEM: `LedgerRow` declares no member for the action an attempt recorded, so a row cannot say
- * what was attempted. The instant, the declared text and the two counts are the whole of what the DTO
- * declares, and nothing is added to it.
- */
-
-import type { AuditEvent, AuditResult, LedgerRow, Timestamp } from '../../types';
-
-/* ---------------------------------------------------------------------------------------------
- * Constants fixed by the contracts
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The number of calendar days a ledger count covers: the last thirty, fixed by contracts §5.
+ * Matching an event to a row. An event belongs to a row when its `objectRef` equals the row's endpoint
+ * exactly, which is the rule AAP 0.8 states. A deployment whose trail names an endpoint differently —
+ * a full URL where the record holds a host, or the reverse — counts zero against that row; closing the
+ * gap needs a normalisation rule the inputs do not state, so none is invented here.
  *
- * Held once, so the window the counts are taken over exists in a single place and every endpoint is
- * measured against the same rule.
+ * What a row holds. `LedgerRow` declares no member for the action an attempt recorded, so a row cannot
+ * say what was attempted: the instant, the declared text and the two counts are the whole of what the
+ * DTO declares, and nothing is added to it.
  */
-const WINDOW_DAYS = 30;
+
+import { LEDGER_WINDOW_DAYS } from '../../types';
+import type { AuditEvent, AuditResult, IsoDate, LedgerRow, Timestamp } from '../../types';
+import { dayNumberFromIsoDate } from '../solver/calendar';
 
 /* ---------------------------------------------------------------------------------------------
- * Constants of the calendar arithmetic
+ * Constants of the instant arithmetic: the clock-time fields, the offset and the epoch second
  * ------------------------------------------------------------------------------------------- */
 
 const MINUTES_PER_HOUR = 60;
@@ -83,53 +90,6 @@ const SECONDS_PER_HOUR = MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const HOURS_PER_DAY = 24;
 
 const SECONDS_PER_DAY = HOURS_PER_DAY * SECONDS_PER_HOUR;
-
-/** Years in a Gregorian era, which is also the leap-cycle length for the century rule. */
-const ERA_YEARS = 400;
-
-/** Days in a Gregorian era: 400 common years plus the century-corrected leap days. */
-const ERA_DAYS = 146097;
-
-/** Days in a common year, before the leap day is added. */
-const COMMON_YEAR_DAYS = 365;
-
-const LEAP_CYCLE_YEARS = 4;
-
-const CENTURY_YEARS = 100;
-
-/**
- * Days from 1970-01-01 back to the origin of the day count below, so that the epoch itself reads as
- * day zero.
- */
-const CIVIL_EPOCH_SHIFT = 719468;
-
-/** Months in a year, the highest month a timestamp field may name. */
-const MONTHS_IN_YEAR = 12;
-
-/** Days in the longest month, which is every month other than February and the four short ones. */
-const DAYS_IN_LONGEST_MONTH = 31;
-
-/** Days in a short month: April, June, September and November. */
-const DAYS_IN_SHORT_MONTH = 30;
-
-/** Days in February of a common year, and in February of a year that carries the leap day. */
-const DAYS_IN_COMMON_FEBRUARY = 28;
-
-const DAYS_IN_LEAP_FEBRUARY = 29;
-
-/**
- * The month numbers the length rule below names by hand: February, whose length depends on the year,
- * and the four months that are shorter than the rest.
- */
-const FEBRUARY = 2;
-
-const APRIL = 4;
-
-const JUNE = 6;
-
-const SEPTEMBER = 9;
-
-const NOVEMBER = 11;
 
 /** The last hour of a day, and the last minute and second of an hour and a minute. */
 const LAST_HOUR_OF_DAY = 23;
@@ -211,66 +171,22 @@ function offsetMinutesOf(groups: Record<string, string>): number | null {
 }
 
 /**
- * The number of days from the epoch to a calendar date, in the proleptic Gregorian calendar.
+ * The calendar-date half of a matched instant, as `YYYY-MM-DD`, or `null` when a field is absent.
  *
- * The days-from-civil conversion: pure integer arithmetic over the date's own fields, so it reads no
- * clock, allocates nothing and answers identically on every engine. Dates are held as a day count
- * rather than as an instant because the window's boundary is stated in calendar days.
+ * The pattern's own date fields are read verbatim rather than re-formatted, so the string this
+ * produces is the one the record states and the calendar module judges it unaltered.
  *
- * The day-of-year step below is the conversion's own month-length expression — floor((153m + 2) / 5)
- * for the March-based month index `m` — whose constants come from the lengths of the twelve months
- * and carry no meaning of their own.
+ * @param groups The pattern's named groups for one matched timestamp.
+ * @returns The recorded calendar date, or `null` when the pattern supplied none of its three fields.
  */
-function dayNumberOf(year: number, month: number, dayOfMonth: number): number {
-  const shiftedYear = month <= 2 ? year - 1 : year;
-  const era = Math.floor(shiftedYear / ERA_YEARS);
-  const yearOfEra = shiftedYear - era * ERA_YEARS;
-  const marchMonth = month > 2 ? month - 3 : month + 9;
-  const dayOfYear = Math.floor((153 * marchMonth + 2) / 5) + dayOfMonth - 1;
-  const dayOfEra =
-    yearOfEra * COMMON_YEAR_DAYS +
-    Math.floor(yearOfEra / LEAP_CYCLE_YEARS) -
-    Math.floor(yearOfEra / CENTURY_YEARS) +
-    dayOfYear;
-  return era * ERA_DAYS + dayOfEra - CIVIL_EPOCH_SHIFT;
-}
-
-/**
- * Whether a year carries the Gregorian leap day: every year divisible by four, except a century year
- * that is not divisible by four hundred.
- *
- * Stated as arithmetic over the year's own field, for the reason `dayNumberOf` is: it allocates
- * nothing, reads no clock and builds no `Date` object, so its answer depends on the argument alone
- * (AAP 0.18.2).
- */
-function isLeapYear(year: number): boolean {
-  const divisibleByFour = year % LEAP_CYCLE_YEARS === 0;
-  const centuryYear = year % CENTURY_YEARS === 0;
-  const divisibleByFourCenturies = year % ERA_YEARS === 0;
-  return divisibleByFour && (!centuryYear || divisibleByFourCenturies);
-}
-
-/**
- * The number of days a month of the given year has, so a day-of-month can be held to its own month.
- *
- * February takes the leap rule above and the other eleven months take their fixed length. This is
- * what makes 31 November, or 29 February of a common year, unlocatable rather than silently rolled
- * forward into the next month by the civil-day arithmetic. The months are switched on rather than
- * looked up in a table, because `noUncheckedIndexedAccess` would turn every lookup into a possible
- * absence the calendar does not have; the caller has already held `month` to its bound.
- */
-function daysInMonthOf(year: number, month: number): number {
-  switch (month) {
-    case FEBRUARY:
-      return isLeapYear(year) ? DAYS_IN_LEAP_FEBRUARY : DAYS_IN_COMMON_FEBRUARY;
-    case APRIL:
-    case JUNE:
-    case SEPTEMBER:
-    case NOVEMBER:
-      return DAYS_IN_SHORT_MONTH;
-    default:
-      return DAYS_IN_LONGEST_MONTH;
+function dateTextOf(groups: Record<string, string>): IsoDate | null {
+  const year = groups['year'];
+  const month = groups['month'];
+  const day = groups['day'];
+  if (year === undefined || month === undefined || day === undefined) {
+    return null;
   }
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -278,11 +194,16 @@ function daysInMonthOf(year: number, month: number): number {
  *
  * A value that is not an ISO 8601 instant, or whose fields name a date, a time of day or an offset
  * that cannot exist, cannot be assigned to a day or ordered against another instant, so it is
- * reported as unlocatable rather than guessed at. The date is held to the length of its own month, so
- * 31 November and 29 February of a common year are unlocatable instead of rolling into the following
- * month; the time of day is checked field by field; and the offset is held to the same hour and
- * minute bounds, so `+99:99` is unlocatable while every offset a real zone keeps still resolves.
- * Every timestamp the adapter supplies is ISO 8601 with an offset by construction (contracts §1).
+ * reported as unlocatable rather than guessed at. The date's validity is `../solver/calendar`'s
+ * judgement, taken from `dayNumberFromIsoDate`: that is what makes 31 November and 29 February of a
+ * common year unlocatable instead of rolling them into the following month, and it is why the leap
+ * rule lives in one place rather than in a copy here. The time of day is checked field by field, and
+ * the offset is held to the same hour and minute bounds, so `+99:99` is unlocatable while every offset
+ * a real zone keeps still resolves. Every timestamp the adapter supplies is ISO 8601 with an offset by
+ * construction (contracts §1).
+ *
+ * @param timestamp The instant to place, as ISO 8601 with an offset.
+ * @returns The day it falls on and the epoch second it names, or `null` when it cannot be placed.
  */
 function locate(timestamp: Timestamp): LocatedInstant | null {
   const match = TIMESTAMP_PATTERN.exec(timestamp);
@@ -290,35 +211,23 @@ function locate(timestamp: Timestamp): LocatedInstant | null {
     return null;
   }
   const groups = match.groups;
-  const year = digitsOf(groups, 'year');
-  const month = digitsOf(groups, 'month');
-  const dayOfMonth = digitsOf(groups, 'day');
+  const date = dateTextOf(groups);
   const hour = digitsOf(groups, 'hour');
   const minute = digitsOf(groups, 'minute');
   const offsetMinutes = offsetMinutesOf(groups);
-  if (
-    year === null ||
-    month === null ||
-    dayOfMonth === null ||
-    hour === null ||
-    minute === null ||
-    offsetMinutes === null
-  ) {
+  if (date === null || hour === null || minute === null || offsetMinutes === null) {
+    return null;
+  }
+  const day = dayNumberFromIsoDate(date);
+  if (day === null) {
     return null;
   }
   const second = digitsOf(groups, 'second') ?? 0;
-  const fieldsDescribeAnInstant =
-    month >= 1 &&
-    month <= MONTHS_IN_YEAR &&
-    dayOfMonth >= 1 &&
-    dayOfMonth <= daysInMonthOf(year, month) &&
-    hour <= LAST_HOUR_OF_DAY &&
-    minute <= LAST_MINUTE_OF_HOUR &&
-    second <= LAST_SECOND_OF_MINUTE;
-  if (!fieldsDescribeAnInstant) {
+  const clockTimeDescribesAnInstant =
+    hour <= LAST_HOUR_OF_DAY && minute <= LAST_MINUTE_OF_HOUR && second <= LAST_SECOND_OF_MINUTE;
+  if (!clockTimeDescribesAnInstant) {
     return null;
   }
-  const day = dayNumberOf(year, month, dayOfMonth);
   const epochSeconds =
     day * SECONDS_PER_DAY +
     hour * SECONDS_PER_HOUR +
@@ -329,20 +238,46 @@ function locate(timestamp: Timestamp): LocatedInstant | null {
 }
 
 /**
- * The calendar day the ledger's window ends on: the clock's own day.
+ * The refusal `computeLedger` raises when the clock it was handed is not an instant it can place.
  *
- * Kept as one helper so the boundary rule exists in a single place and every endpoint is counted
- * against the same window.
- *
- * @throws RangeError When the clock is not an ISO 8601 instant, because no window can be derived and a
- *   silently empty window would report a count of zero for every endpoint.
+ * A bare `RangeError` would leave the adapter nothing to classify, so the refusal would cross the
+ * service port untyped. This class is the aggregate's own name for it: it carries the clock value the
+ * caller handed in, and the mock adapter reports it once, at the boundary, as a `'validation'`
+ * `Problem` carrying this message and the call's trace identifier (AAP 0.2.2, AAP 0.12.3). A caller can
+ * narrow it with `instanceof` and read the value that could not be placed.
  */
-function windowEndDayOf(clock: Timestamp): number {
-  const located = locate(clock);
-  if (located === null) {
-    throw new RangeError(
+export class UnlocatableClockError extends Error {
+  /** The clock value the aggregate could not place, exactly as the caller handed it in. */
+  readonly clock: Timestamp;
+
+  /**
+   * @param clock The clock value the aggregate could not place.
+   */
+  constructor(clock: Timestamp) {
+    super(
       `computeLedger needs the demonstration clock as an ISO 8601 instant with an offset; received "${clock}".`,
     );
+    this.name = 'UnlocatableClockError';
+    this.clock = clock;
+  }
+}
+
+/**
+ * The calendar day the ledger's window ends on: the clock's own day, or `null` when the clock is not an
+ * instant this module can place.
+ *
+ * Kept as one helper so the boundary rule exists in a single place and every endpoint is counted
+ * against the same window. Answering `null` is a decision rather than an exception: the caller is the
+ * one that knows no window follows from it, and `computeLedger` turns that answer into the typed
+ * `UnlocatableClockError` the adapter reports as a `'validation'` `Problem`.
+ *
+ * @param clock The demonstration clock, as ISO 8601 with an offset.
+ * @returns The calendar day the clock falls on, or `null` when it cannot be located.
+ */
+function windowEndDayOf(clock: Timestamp): number | null {
+  const located = locate(clock);
+  if (located === null) {
+    return null;
   }
   return located.day;
 }
@@ -415,7 +350,8 @@ interface DeclaredLedgerConfiguration {
  * rows this returns and keeps no second, hand-written copy of the counts.
  *
  * The counting rule, stated so that a reader can reproduce a row by hand:
- * - The window is the `WINDOW_DAYS` calendar days ending on the clock's own day, both ends included.
+ * - The window is the `LEDGER_WINDOW_DAYS` calendar days ending on the clock's own day, both ends
+ *   included.
  *   With the demonstration clock of 2026-12-03 the covered days therefore run from 2026-11-04 through
  *   2026-12-03, which is thirty days. Each event is assigned to the calendar day its own offset
  *   records, and the clock's day counts in full, so an instant recorded later on that day is inside
@@ -447,8 +383,10 @@ interface DeclaredLedgerConfiguration {
  *   here from `events`, which is why no hand-written number can reach a screen.
  * @param clock The demonstration clock the window ends on, as an ISO 8601 instant.
  * @returns One row per declared endpoint, in the declared order.
- * @throws RangeError When `clock` is not an ISO 8601 instant, because no window can be derived from
- *   it and a silently empty window would report a count of zero for every endpoint.
+ * @throws UnlocatableClockError When `clock` is not an ISO 8601 instant, because no window can be
+ *   derived from it and a silently empty window would report a count of zero for every endpoint. The
+ *   refusal carries the clock value, and the adapter reports it as a `'validation'` `Problem` naming
+ *   that cause, so nothing untyped leaves the aggregate (AAP 0.2.2).
  */
 export function computeLedger(
   events: readonly AuditEvent[],
@@ -456,7 +394,10 @@ export function computeLedger(
   clock: Timestamp,
 ): LedgerRow[] {
   const windowEndDay = windowEndDayOf(clock);
-  const windowStartDay = windowEndDay - (WINDOW_DAYS - 1);
+  if (windowEndDay === null) {
+    throw new UnlocatableClockError(clock);
+  }
+  const windowStartDay = windowEndDay - (LEDGER_WINDOW_DAYS - 1);
 
   return sovereignty.ledger.map((declared) => {
     let allowed = 0;

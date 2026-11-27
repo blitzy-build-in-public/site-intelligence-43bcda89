@@ -38,12 +38,9 @@
  * `AuditEvent` and `ChainReport` entities belong to `./entities`, which imports the vocabulary below
  * rather than redeclaring it.
  *
- * OPEN ITEM: contracts §6 fixes 16 audit action names and the inputs available in this run enumerate
- * 12 of them, so `AuditAction` stays an open alias over the canonical spellings recorded on it. A
- * closed union would either invent a member or reject a legitimate seed record at compile time.
- * OPEN ITEM: contracts §6 fixes the `result` term of the concatenated string without giving its
- * literals, so `AuditResult` carries the four values traceable to the ledger columns of AAP 0.12.4
- * and the simulated write-back behaviour of AAP 0.2.2.
+ * Two vocabularies stay open for the reason contracts §6 gives: 16 audit action names are fixed
+ * where the inputs enumerate 12, and the `result` term is fixed without its literals. `AuditAction`
+ * and `AuditResult` below carry that consequence rather than a closed set no input supports.
  */
 
 import type { AuditEventId, PolicyId, Timestamp } from './primitives';
@@ -62,26 +59,32 @@ export type AuditActorType = 'user' | 'policy' | 'system';
 /**
  * The outcome an event records, as the `result` term of contracts §6 names it.
  *
- * The four values are derived rather than quoted, because contracts §6 fixes the term and not its
- * literals (see the second OPEN ITEM above). `'allowed'` and `'blocked'` are the two counts the
- * outbound ledger reports per endpoint over its window (AAP 0.12.1, AAP 0.12.4). `'succeeded'` and
- * `'failed'` separate a completed write from a write recorded as having failed (AAP 0.2.2). A
- * blocked call and a failed call both leave the record unchanged.
+ * The four values are derived rather than quoted, because contracts §6 fixes the `result` term and
+ * not its literals. `'allowed'` and `'blocked'` are the two counts the outbound ledger reports per
+ * endpoint over its window (AAP 0.12.1, AAP 0.12.4). `'succeeded'` and `'failed'` separate a
+ * completed write from a write recorded as having failed (AAP 0.2.2). A blocked call and a failed
+ * call both leave the record unchanged.
  */
 export type AuditResult = 'allowed' | 'blocked' | 'succeeded' | 'failed';
 
 /**
  * The action an event records, spelled as the appending module spells it.
  *
- * contracts §6 fixes 16 action names (AAP 0.12.1). The 12 the inputs available in this run enumerate
- * are the canonical spellings for every act a screen or a policy decision appends: `assign`, `note`,
- * `dismiss`, `custom solve`, `approval request`, `decision`, `outcome review`, `assistant question`,
+ * contracts §6 fixes 16 action names (AAP 0.12.1). The 12 the inputs enumerate are the canonical
+ * spellings for every act a screen or a policy decision appends: `assign`, `note`, `dismiss`,
+ * `custom solve`, `approval request`, `decision`, `outcome review`, `assistant question`,
  * `policy block`, `extraction review`, `export` and `role switch` (the data flow AAP 0.6.2 sets
- * out). The adapter derives two further spellings for write paths that enumeration does not name, so
- * 14 distinct values are appended: `simulated write-back` for a write-back step's transition,
- * spelled in `src/services/mock/handlers/approvals.ts`, and `policy exception request` for a
- * time-boxed policy exception, spelled in `src/services/mock/handlers/governance.ts`. A supplied
- * contracts document supersedes either constant without a consumer change.
+ * out). The adapter derives three further spellings for acts that enumeration does not name, so
+ * 15 distinct values are appended: `simulated write-back` for a write-back step's transition and
+ * `resolved` for the resolution an approved plan's landed change records against its exception, both
+ * spelled in `src/services/mock/handlers/`, and `policy exception request` for a time-boxed policy
+ * exception, spelled in `src/services/mock/handlers/governance.ts`. A supplied contracts document
+ * supersedes any of the three without a consumer change.
+ *
+ * The remaining two of the 16 are named by no input, so this is an open alias over the canonical
+ * spellings rather than a closed union with an invented member: a closed union would either add a
+ * member or reject a legitimate seed record at compile time, and AAP 0.14.2 adds no capability the
+ * inputs do not name.
  *
  * The two demonstrations of the chain itself append nothing. A verification is a read — AAP 0.12.3
  * lists `GET /audit-events/verify` — so it reports the chain as it stands and leaves every record as
@@ -89,10 +92,6 @@ export type AuditResult = 'allowed' | 'blocked' | 'succeeded' | 'failed';
  * hash, and the break it leaves is the one a verification then reports (AAP 0.10): an appended event
  * would extend the chain rather than exhibit that disagreement, and a recomputed hash would be the
  * repair the control must not perform.
- *
- * OPEN ITEM: the remaining two of the 16 are named by no input available in this run, so this stays
- * an open alias over `string` rather than a closed union with an invented member — AAP 0.14.2 adds
- * no capability the inputs do not name.
  */
 export type AuditAction = string;
 
@@ -104,8 +103,8 @@ export type AuditAction = string;
  * the record. The keys are sorted and the whitespace omitted when the payload is serialised for
  * hashing, and a missing value is written as `null` (contracts §6). `unknown` rather than a wider
  * escape is what lets a caller write a payload without a cast and read one back only after checking
- * it. No input available in this run fixes a shaped payload, so this declaration is the module's
- * intended shape and not a stand-in for one.
+ * it. No input fixes a shaped payload, so this declaration is the module's intended shape and not a
+ * stand-in for one.
  */
 export type AuditPayload = Record<string, unknown>;
 

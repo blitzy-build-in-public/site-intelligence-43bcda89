@@ -6,7 +6,7 @@
  * `aria-sort` while the order stays the caller's own and whose caret turns only for an ascending
  * column, the `J`/`K` row cursor with its wrap-around, its single tab stop, its focus-ring token and
  * the clamp that keeps it tabbable when the row list shrinks under it (AAP §0.12.4, T-16), the row
- * key that keeps each row on its own DOM node across a re-sort, `Enter` and double-click activation,
+ * key that keeps each row on its own DOM node across a re-sort, `Enter` and click activation,
  * the keys the cursor must leave to the fields and controls it passes through and to a held modifier
  * or an event another handler already consumed, the alignment a column states in its header cell and
  * in its cells, row heights that resolve through `--row-height` rather than a pixel value, the same
@@ -445,15 +445,49 @@ describe('DataTable', () => {
     expect(onRowActivate).toHaveBeenCalledWith(ROWS[1]);
   });
 
-  it('opens a row on a double click', async () => {
+  it('opens a row on a single click', async () => {
     const user = userEvent.setup();
     const onRowActivate = vi.fn();
     renderTable({ onRowActivate });
 
+    await user.click(rowAt(2));
+
+    expect(onRowActivate).toHaveBeenCalledTimes(1);
+    expect(onRowActivate).toHaveBeenCalledWith(ROWS[2]);
+  });
+
+  it('opens a row once for a double click', async () => {
+    const user = userEvent.setup();
+    const onRowActivate = vi.fn();
+    renderTable({ onRowActivate });
+
+    // A row that opens something navigates when it does, so each activation is a history entry.
+    // The first click of a double click has already opened the row; opening it again on the second
+    // click would push a duplicate entry, leaving one Back press with the URL unchanged.
     await user.dblClick(rowAt(2));
 
     expect(onRowActivate).toHaveBeenCalledTimes(1);
     expect(onRowActivate).toHaveBeenCalledWith(ROWS[2]);
+  });
+
+  it('leaves a click on a control inside a row to that control', async () => {
+    const user = userEvent.setup();
+    const onRowActivate = vi.fn();
+    const columns = [
+      ...COLUMNS,
+      {
+        id: 'action',
+        header: 'Action',
+        render: (row: Row) => <button type="button">Inspect {row.name}</button>,
+      },
+    ] as const satisfies readonly TableColumn<Row>[];
+    renderTable({ columns, onRowActivate });
+
+    // The row advertises a click and opens on one, but a control it holds answers its own click:
+    // opening the row behind the control would take the reader somewhere they did not choose.
+    await user.click(within(rowAt(1)).getByRole('button'));
+
+    expect(onRowActivate).not.toHaveBeenCalled();
   });
 
   it('switches the row hover transition off under reduced motion', () => {

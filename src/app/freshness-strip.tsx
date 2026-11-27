@@ -42,10 +42,13 @@
  * - It states nothing about where a source runs, whether its traffic is confined, whether a record
  *   could be altered or whether anything was verified (rule P-4). A pill says how current an answer
  *   is and stops there.
- * - It takes no focus stop and answers no pointer. A source's state has nothing to operate, so the
- *   strip is a `role="group"` of indicators rather than a row of controls, and rule P-8's
- *   "works or is visibly disabled with its reason" never applies to it (rule B-3 keeps the group
- *   readable by keyboard because it is in the reading order, not because it is focusable).
+ * - It puts no focus stop on a source's state and answers no pointer with it. A state has nothing to
+ *   operate, so the pills are indicators inside a `role="group"` rather than a row of controls, and
+ *   rule P-8's "works or is visibly disabled with its reason" never applies to them (rule B-3 keeps
+ *   the group readable by keyboard because it is in the reading order, not because it is focusable).
+ *   The one control this module owns is the narrow-viewport disclosure described below, and it is a
+ *   `<button>` that really does open and close the pills it names rather than a trigger that goes
+ *   nowhere.
  * - It makes no request of its own (rule B-1): the read resolves from records already in the browser,
  *   and nothing here reads configuration or a credential (rule B-2).
  * - It spells no source name. The six come from the records' own `label`, which the service fills from
@@ -61,13 +64,32 @@
  *   (rule P-8 keeps this strip out of that path rather than offering a control that cannot act).
  * - Loaded: one pill per record, in the catalogue's order. An empty catalogue is stated as such
  *   rather than rendered as an empty row of nothing.
+ *
+ * WHY THE PILLS SIT BEHIND A DISCLOSURE BELOW THE `md` BREAKPOINT. The top bar is the shell's banner
+ * on every route, so every line it takes is taken off every screen. At a 375 px window the six pills
+ * wrapped onto two lines of their own and, together with the role switcher's labelled select, left
+ * the navigation and the route's own heading below the fold of a phone viewport: the header measured
+ * 584 px above a 328 px navigation in an 812 px viewport (QA finding qa-w013-I35). Everything below
+ * `md` — 48rem — therefore holds the pills behind one disclosure. Its trigger is this component's
+ * because the pills are the content it reveals (AAP §0.5.2), and the nine top-bar positions keep the
+ * order AAP §0.12.1 fixes either way, because the trigger stands where the pills stand. From `md` up
+ * the strip renders exactly what it rendered before: one group of six pills, no trigger, no extra
+ * element.
+ *
+ * THE DISCLOSURE NEVER HIDES A REFUSAL. Only the pills fold away. The pending caption, the unreadable
+ * notice and the empty statement render whatever the width and whatever the disclosure's state,
+ * because a read that did not happen has to be reported rather than collapsed out of sight; and the
+ * trigger is not rendered at all when there is no pill to reveal, so a reader never meets a control
+ * with nothing behind it (rule P-8).
  */
-import type { ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useId, useState } from 'react';
+import type { ReactElement } from 'react';
 
 import { FreshnessPill } from '../components/freshness-pill';
+import { CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from '../components/tooltip';
 import { useService } from '../services/service-provider';
-import type { SourceCatalogue } from '../types/sources';
+import type { SourceCatalogue, SourceHealth } from '../types/sources';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording, in the one place it is written
@@ -131,6 +153,100 @@ const STRIP_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
  */
 const NOTICE_CLASSES = 'min-w-0 max-w-full text-12 break-words text-text-secondary';
 
+/**
+ * The disclosure trigger the narrow presentation offers, built from the shared control surface.
+ *
+ * The structure and the appearance come from `src/components/tooltip.tsx` rather than being written
+ * out again here, so the trigger keeps the 24x24 px minimum target, the 2 px `focus-ring` focus ring
+ * on `focus-visible`, the control radius and the role-token colours that every other control in the
+ * shell has (rule B-3), and a token change there reaches this control too. No raw palette value, no
+ * shadow and no arbitrary value is added beside them (AAP §0.5.3, rule P-8).
+ */
+const TRIGGER_CLASSES = [CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES].join(' ');
+
+/**
+ * The region the trigger reveals, while it is closed.
+ *
+ * The region stays in the document when it is closed, because the trigger's `aria-controls` names it
+ * and a relationship pointing at an element that does not exist is not a relationship; it holds no
+ * pill at all, which is where the height the disclosure saves comes from. It is closed with
+ * `hidden`, so a closed region takes neither width nor height in the wrapping row.
+ */
+const CLOSED_REGION_CLASSES = 'hidden';
+
+/* ---------------------------------------------------------------------------------------------
+ * The narrow viewport, read synchronously and kept current
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The query that reports a window narrow enough for the six pills to cost the shell more height than
+ * they earn: everything below Tailwind's `md` breakpoint, which is `48rem`.
+ *
+ * Stated in `rem` and never in `px`, for the reason `src/components/evidence-drawer.tsx` states on its
+ * own docked query — a breakpoint's utilities resolve against the root font size, so a query fixed in
+ * pixels would keep reporting one presentation after the styling had changed for a reader whose
+ * default font size is not 16 px. The upper bound is the last thousandth of a rem below `48rem`, so
+ * the narrow and the wide presentation can never both match.
+ */
+const NARROW_QUERY = '(max-width: 47.999rem)';
+
+/**
+ * Whether the window is currently narrow, read synchronously.
+ *
+ * Read during the first render rather than after it, so the bar is laid out in the presentation the
+ * reader's viewport calls for on the frame it first appears and never flips once an effect has run.
+ * An environment with no `matchMedia` at all — the jsdom test environment, which implements no media
+ * query, and any pass without a DOM — answers `false` and therefore gets the wide presentation, which
+ * is the markup every existing suite was written against (see {@link useNarrowPresentation}).
+ */
+function matchesNarrowQuery(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+
+  return window.matchMedia(NARROW_QUERY).matches;
+}
+
+/**
+ * The presentation the strip is in, kept current while it stays mounted.
+ *
+ * The state starts from a synchronous read of the same query, and the effect subscribes to that
+ * query's `change` event, so a window resized across the breakpoint folds or unfolds the pills
+ * without a remount. The effect also re-reads the query once on mount, because a subscription only
+ * reports changes that happen after it exists. The listener is removed when the strip unmounts, so
+ * nothing stays registered behind it.
+ *
+ * This is the pattern `useDockedPresentation` in `src/components/evidence-drawer.tsx` uses. It is
+ * carried here as a second small helper rather than as a shared module because AAP §0.13 fixes the
+ * file tree and names no shared hook, and because the two queries answer different questions about
+ * different surfaces.
+ */
+function useNarrowPresentation(): boolean {
+  const [isNarrow, setIsNarrow] = useState(matchesNarrowQuery);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+
+    const query = window.matchMedia(NARROW_QUERY);
+
+    setIsNarrow(query.matches);
+
+    function handleChange(event: MediaQueryListEvent): void {
+      setIsNarrow(event.matches);
+    }
+
+    query.addEventListener('change', handleChange);
+
+    return () => {
+      query.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  return isNarrow;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The strip
  * ------------------------------------------------------------------------------------------- */
@@ -145,10 +261,21 @@ const NOTICE_CLASSES = 'min-w-0 max-w-full text-12 break-words text-text-seconda
  * announced as one named region rather than as six floating labels. `aria-busy` follows the read, so
  * assistive technology is told that the region is still being filled while it is being filled.
  *
- * @returns The group holding the pills, or the notice that stands in for them.
+ * Below the `md` breakpoint the group holds one disclosure trigger and the region behind it instead
+ * of the pills, and from `md` up it holds the pills exactly as it always has. Either way the notice
+ * that stands in for an unanswered read is rendered as it is, never behind the trigger.
+ *
+ * @returns The group holding the pills, the trigger that reveals them, or the notice standing in.
  */
 export function FreshnessStrip(): ReactElement {
   const service = useService();
+  const isNarrow = useNarrowPresentation();
+
+  /** Whether the narrow presentation's disclosure is open; it starts closed, so the bar is short. */
+  const [isRevealed, setIsRevealed] = useState(false);
+
+  /** The id of the region the trigger names, generated once so `aria-controls` resolves. */
+  const pillsId = useId();
 
   const catalogue = useQuery({
     queryKey: FRESHNESS_QUERY_KEY,
@@ -163,6 +290,7 @@ export function FreshnessStrip(): ReactElement {
   });
 
   const isReading = catalogue.status === 'pending';
+  const reading = readingOf(catalogue.status, catalogue.data, catalogue.error);
 
   return (
     <div
@@ -171,7 +299,30 @@ export function FreshnessStrip(): ReactElement {
       aria-busy={isReading}
       className={STRIP_CLASSES}
     >
-      {contentOf(catalogue.status, catalogue.data, catalogue.error)}
+      {isNarrow && reading.kind === 'pills' ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={isRevealed}
+            aria-controls={pillsId}
+            className={TRIGGER_CLASSES}
+            onClick={() => {
+              setIsRevealed(!isRevealed);
+            }}
+          >
+            {FRESHNESS_STRIP_TEXT.group}
+          </button>
+          {/*
+            * The revealed region reuses the group's own row, so an opened disclosure lays the six
+            * pills out exactly as the wide presentation does.
+            */}
+          <div id={pillsId} className={isRevealed ? STRIP_CLASSES : CLOSED_REGION_CLASSES}>
+            {isRevealed ? contentOf(reading) : null}
+          </div>
+        </>
+      ) : (
+        contentOf(reading)
+      )}
     </div>
   );
 }
@@ -181,7 +332,19 @@ export function FreshnessStrip(): ReactElement {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Chooses what the group renders for the read's state.
+ * What the read produced, in the two shapes the strip can render.
+ *
+ * Named as a union rather than as two separate questions about the query, so the disclosure can ask
+ * "are there pills to reveal?" and the rendering can ask "what do I draw?" of the same answer: a
+ * strip that decided one of those from the read's status and the other from its data would be two
+ * owners of one branch, free to disagree.
+ */
+type StripReading =
+  | { readonly kind: 'pills'; readonly records: readonly SourceHealth[] }
+  | { readonly kind: 'notice'; readonly text: string };
+
+/**
+ * Reads the query's state into what the group renders.
  *
  * Written as a function of the state rather than as inlined conditionals so the three outcomes are
  * exhaustive by construction — a fourth query state would have to be named here before it could
@@ -190,40 +353,52 @@ export function FreshnessStrip(): ReactElement {
  * @param status - The read's state as the query cache reports it.
  * @param result - The answered `Result<SourceCatalogue>`, present once the read has answered.
  * @param error - Whatever the read threw: a `Problem` when the adapter refused it.
- * @returns The pills, or the notice standing in for them.
+ * @returns The pill records, or the sentence that stands in for them.
  */
-function contentOf(
+function readingOf(
   status: 'pending' | 'error' | 'success',
   result: { readonly data: SourceCatalogue } | undefined,
   error: unknown,
-): ReactElement {
+): StripReading {
   if (status === 'pending') {
-    return <Notice text={FRESHNESS_STRIP_TEXT.reading} />;
+    return { kind: 'notice', text: FRESHNESS_STRIP_TEXT.reading };
   }
 
   if (status === 'error' || result === undefined) {
     const message = messageOf(error);
 
-    return (
-      <Notice
-        text={
-          message === null
-            ? FRESHNESS_STRIP_TEXT.unreadable
-            : `${FRESHNESS_STRIP_TEXT.unreadable} ${message}`
-        }
-      />
-    );
+    return {
+      kind: 'notice',
+      text:
+        message === null
+          ? FRESHNESS_STRIP_TEXT.unreadable
+          : `${FRESHNESS_STRIP_TEXT.unreadable} ${message}`,
+    };
   }
 
   const { health } = result.data;
 
   if (health.length === 0) {
-    return <Notice text={FRESHNESS_STRIP_TEXT.noneDeclared} />;
+    return { kind: 'notice', text: FRESHNESS_STRIP_TEXT.noneDeclared };
+  }
+
+  return { kind: 'pills', records: health };
+}
+
+/**
+ * Draws what the read produced.
+ *
+ * @param reading - The pills to render, or the sentence standing in for them.
+ * @returns One pill per record, or the one notice.
+ */
+function contentOf(reading: StripReading): ReactElement {
+  if (reading.kind === 'notice') {
+    return <Notice text={reading.text} />;
   }
 
   return (
     <>
-      {health.map((record) => (
+      {reading.records.map((record) => (
         <FreshnessPill key={record.source} health={record} />
       ))}
     </>

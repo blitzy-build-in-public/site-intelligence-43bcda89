@@ -3,23 +3,26 @@
  * six tiles of the ribbon above it.
  *
  * Implements the "Handlers" row of AAP 0.12.1 at the `handlers/` path AAP 0.13.1 fixes, in the shape
- * the parent folder's brief gives this entry: the S2 `Topology` payload — plants, suppliers, origins and
- * customers with coordinates, the lanes, `pinsByNode` copied from the seed's pin counts — together with
- * the six canvas ribbon tiles built from the aggregation modules, and with nothing that addresses a map
- * host and no competitor concept anywhere in it. `platform-contracts.md` §3 declares `Topology` among
- * the core types, and `src/types/topology.ts` is its declaration; this module fills that shape from the
- * session's records and computes nothing of its own.
+ * the parent folder's brief gives this entry: the S2 `Topology` payload — plants, suppliers, materials,
+ * origins and customers with coordinates, the lanes, `pinsByNode` copied from the seed's pin counts —
+ * together with the six canvas ribbon tiles built from the aggregation modules, and with nothing that
+ * addresses a map host and no competitor concept anywhere in it. `platform-contracts.md` §3 declares
+ * `Topology` among the core types, and `src/types/topology.ts` is its declaration; this module fills
+ * that shape from the session's records and computes nothing of its own.
  *
  * WHAT THE READ IS NARROWED BY (AAP 0.2.1, AAP 0.12.3). `getTopology` and `getCanvasRibbon` take the
  * shell's selection as one `ScopeFilterInput` and resolve it once through `resolveScope`, so the canvas
  * describes the same scope the queue and the overview beside it do. The plant half of that scope decides
- * which nodes and lanes the payload holds: the plant nodes are the plants in scope; a supplier-to-plant
+ * which nodes and lanes the payload holds: the plant nodes are the plants in scope; a material-to-plant
  * lane survives when it lands on one of them; a plant-to-customer lane survives when it leaves one of
- * them; and an origin-to-supplier lane survives when it reaches a retained supplier. A supplier, origin
- * or customer node survives when a retained lane touches it or when the records place it at no plant at
+ * them; a supplier-to-material lane survives when it reaches a material the payload still holds; and an
+ * origin-to-supplier lane survives when it reaches a retained supplier. A material, supplier, origin or
+ * customer node survives when a retained lane touches it or when the records place it at no plant at
  * all, and `pinsByNode` carries a count only for a node the payload still holds. An empty `scope.plants`
  * narrows the plant-anchored part of the network away entirely — it means nothing is in scope, never
- * "all plants" — which is the reading `src/domain/aggregation/scope.ts` fixes for that member.
+ * "all plants" — which is the reading `src/domain/aggregation/scope.ts` fixes for that member. A material
+ * is placed at the site its primary supplier ships from, because a material record holds no site of its
+ * own.
  *
  * WHY THE PIN COUNTS TRAVEL WITH THE TOPOLOGY. AAP 0.2.1 requires "supplier-to-product reach in the
  * seed, and pin counts per node, because the graph lens and the canvas node badges in S2 need both
@@ -27,7 +30,9 @@
  * "carries the per-node pin counts that S4 will later let a user open". The counts are therefore copied
  * out of the seeded tally the session holds, so the canvas badges a node without a second call and
  * without this module counting a pin record. All six `PinState` keys are copied onto every entry: a
- * badge then renders a state without an existence check, and a partial copy would not compile.
+ * badge then renders a state without an existence check, and a partial copy would not compile. A
+ * material is the one family the tally never lists, because no evidence pin is attached to a material
+ * record, so its node carries no entry and renders without a badge rather than with a badge of zeros.
  *
  * WHAT A NODE'S PRODUCT REACH IS, AND WHERE EACH FAMILY GETS IT. `TopologyNode.productIds` is the reach
  * the graph lens dims and traces by, and every family's share of it is derived from records rather than
@@ -35,19 +40,23 @@
  * - a plant reaches the products its own production orders build;
  * - a supplier reaches the products its materials go into, read from the materials it is the primary
  *   supplier of;
+ * - a material reaches the products it goes into, which is its own record's `productIds` — the reach that
+ *   decides which plants its lane carries on to;
  * - a tier-2 origin reaches what the suppliers it feeds reach, which is the reach that follows the lane
  *   the origin's own record names;
  * - a customer reaches products only through its customer orders, so its reach is empty, which
  *   `src/types/topology.ts` documents as "no product reach to dim or trace" rather than a gap.
  *
  * THE LANES ARE DERIVED, NEVER COMPLETED BY HAND. `src/types/topology.ts` fixes `TopologyLane` as a
- * pair ordered upstream to downstream, and the three families emitted here are the three the records
- * themselves imply: an origin to each supplier its `supplierIds` names, a supplier to each plant that
- * builds a product in the supplier's reach (the material-driven lane, since a purchase order carries
- * the supplier, the material and the plant), and a plant to each customer the order book ships to. A
- * lane whose endpoint the record set does not hold is reported as a validation failure naming both
- * records instead of being dropped, because a canvas that quietly lost an edge would look complete
- * while describing a network the records do not.
+ * pair ordered upstream to downstream, and the four families of lane emitted here are the four hops the
+ * records themselves imply: an origin to each supplier its `supplierIds` names, a supplier to each
+ * material it is the primary supplier of, a material to each plant that builds a product the material
+ * goes into, and a plant to each customer the order book ships to. A supplier's reach is not carried
+ * straight to a plant, because that edge would jump the Materials column of the graph lens; the two
+ * record-stated hops keep a lane between adjacent columns instead. A lane whose endpoint the record set
+ * does not hold is reported as a validation failure naming both records instead of being dropped,
+ * because a canvas that quietly lost an edge would look complete while describing a network the records
+ * do not.
  *
  * WHAT THE PAYLOAD DOES NOT CARRY (rules B-1 and P-5). There is no map address, no host, no port, no
  * projection setting and no request of any kind in the value below: the boundaries are bundled in
@@ -109,7 +118,7 @@
  * pair no order states, and no node is dropped, because the evidence-pin tally carries entries for
  * every customer record and dropping one would strand its counts.
  *
- * OPEN ITEM — the do-nothing levers. The two lever values below are the baseline of AAP 0.8,
+ * THE DO-NOTHING LEVERS. The two lever values below are the baseline of AAP 0.8,
  * `solveSupplyDelay(CASE-1184, { airSets: 0, transferSets: 0 })`, which is the measurement an exception's
  * affected lines are derived under. They are solver inputs rather than a business figure, and the solver
  * echoes them on the result it returns.
@@ -151,7 +160,7 @@ import { solveSupplyDelay } from '../../../domain/solver/solve-supply-delay';
 
 import type { HandlerContext, MockState } from '../mock-state';
 import type { Material, Origin, ProductionOrder, SeedRecordSet } from '../seed-loader';
-import { freshnessFor, isSimulationOn } from '../simulation';
+import { demonstrationForbiddenReason, freshnessFor, isSimulationOn } from '../simulation';
 
 /* ---------------------------------------------------------------------------------------------
  * The fixed values this family addresses — AAP 0.12.3, AAP 0.2.1, AAP 0.8
@@ -188,11 +197,15 @@ const DO_NOTHING_LEVERS: Levers = { airSets: 0, transferSets: 0 };
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The failure a role that may not read the canvas receives, and the one the forbidden trigger produces.
+ * The failure a role that may not read the network records receives, and the one the forbidden
+ * trigger produces.
  *
- * The members are the `Problem` members a permission cause carries: the cause itself, a sentence in
- * plain words naming the permission and the roles that hold it, the permission, and those roles — which
- * is what a forbidden card and a disabled control's explanation print (rule P-3, rule P-8).
+ * The members are the `Problem` members a permission cause carries: the cause itself, the sentence
+ * the caller composed for the cause it reports, the permission, and the roles that hold it — which is
+ * what a forbidden card and a disabled control's explanation print (rule P-3, rule P-8). The sentence
+ * arrives whole rather than as the clause this function would complete, because the trigger's refusal
+ * and the matrix's denial state different facts: the trigger withholds a view the role may read, and
+ * the matrix names a permission the role does not hold.
  *
  * The correlation identifier is the empty string because this handler does not form the call's `Meta`:
  * the adapter that dispatches to it owns the request counter the identifier is spelled from, so that
@@ -200,19 +213,16 @@ const DO_NOTHING_LEVERS: Levers = { airSets: 0, transferSets: 0 };
  * the empty member with that call's identifier before the failure reaches a caller, so this module
  * states nothing it does not know and no reader is left without an identifier to quote.
  *
+ * @param message The refusal in plain words, true of the cause being reported.
  * @returns A fresh permission failure, built per call so the role list is the matrix's current answer.
  */
-function permissionProblem(): Problem {
-  const roles = rolesWith(CANVAS_READ_PERMISSION);
-
+function permissionProblem(message: string): Problem {
   return {
     type: 'permission',
-    message:
-      `Reading the FileMap canvas needs the ${CANVAS_READ_PERMISSION} permission, which the acting role ` +
-      `does not hold. The roles that hold it are ${roles.join(', ')}.`,
+    message,
     traceId: '',
     requiredPermission: CANVAS_READ_PERMISSION,
-    rolesWithPermission: roles,
+    rolesWithPermission: rolesWith(CANVAS_READ_PERMISSION),
   };
 }
 
@@ -232,21 +242,34 @@ function recordGap(message: string): Problem {
 }
 
 /**
- * Refuses the read when the acting role may not read the canvas, or when the forbidden trigger is on.
+ * Refuses the read when the acting role may not read the network records, or when the forbidden
+ * trigger is on.
  *
- * The two causes produce the same failure on purpose: a screen renders one forbidden card and disables
- * one set of controls whether the refusal came from the matrix or from the popover, so the explanation a
- * reader sees is the one the matrix would give (AAP 0.12.4, T-17).
+ * The two causes produce the same failure shape on purpose: a screen renders one forbidden card and
+ * disables one set of controls whether the refusal came from the matrix or from the popover (AAP
+ * 0.12.4, T-17), and each states the fact true of it — the demonstration's own refusal from
+ * `demonstrationForbiddenReason`, or the permission the matrix found missing.
+ *
+ * The matrix sentence names the records rather than a screen, because this read serves two consumers:
+ * the canvas lens and the shell's scope-filter lists, whose notice prints the refusal in the top bar
+ * of every route. A message naming one of them would describe the other wrongly.
  *
  * @param ctx The session and the persona the call acts as.
  * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
  */
 function assertCanvasReadable(ctx: HandlerContext): void {
-  if (
-    isSimulationOn(ctx.state, 'forbidden') ||
-    !hasPermission(ctx.actor.role, CANVAS_READ_PERMISSION, null, ctx.actor)
-  ) {
-    throw permissionProblem();
+  if (isSimulationOn(ctx.state, 'forbidden')) {
+    throw permissionProblem(
+      demonstrationForbiddenReason(ctx.actor.role, CANVAS_READ_PERMISSION),
+    );
+  }
+
+  if (!hasPermission(ctx.actor.role, CANVAS_READ_PERMISSION, null, ctx.actor)) {
+    throw permissionProblem(
+      `The network records behind this view need the ${CANVAS_READ_PERMISSION} permission, which the ` +
+        `acting role (${ctx.actor.role}) does not hold. The roles that hold it are ` +
+        `${rolesWith(CANVAS_READ_PERMISSION).join(', ')}.`,
+    );
   }
 }
 
@@ -412,6 +435,44 @@ function supplierNodes(records: SeedRecordSet): TopologyNode[] {
 }
 
 /**
+ * The material nodes: each material's identifier, name, product reach and the site it ships from.
+ *
+ * A material record carries no site of its own — it names the supplier it is bought from — so a material
+ * node carries its primary supplier's site coordinates, which is where the purchase order leaves from.
+ * That is a record value copied from the supplier record, not one this module invents. Only the primary
+ * supplier is followed: `alternateSupplierId` names a second qualified supplier that can cover the
+ * material rather than the party it is bought from.
+ *
+ * @param records The loaded record set, read and not modified.
+ * @returns One node per material record, in record order.
+ * @throws Problem - A `'validation'` failure naming a material and the supplier it names that the record
+ *   set does not hold, because the material then has no site the map lens could draw it at.
+ */
+function materialNodes(records: SeedRecordSet): TopologyNode[] {
+  return records.materials.map((material): TopologyNode => {
+    const supplier = records.suppliers.find(
+      (candidate) => candidate.id === material.primarySupplierId,
+    );
+
+    if (supplier === undefined) {
+      throw recordGap(
+        `Material ${material.id} is bought from supplier ${material.primarySupplierId}, which the ` +
+          'supplier records do not hold, so the canvas has no site to place the material at.',
+      );
+    }
+
+    return {
+      id: material.id,
+      kind: 'material',
+      label: material.name,
+      latitude: supplier.latitude,
+      longitude: supplier.longitude,
+      productIds: [...material.productIds],
+    };
+  });
+}
+
+/**
  * The tier-2 origin nodes: each origin's identifier, facility name, site coordinates and the reach that
  * follows the suppliers it feeds.
  *
@@ -461,7 +522,7 @@ function customerNodes(records: SeedRecordSet): TopologyNode[] {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * Lanes — src/types/topology.ts, the three families the records imply
+ * Lanes — src/types/topology.ts, the four families the records imply
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -497,30 +558,46 @@ function originToSupplierLanes(records: SeedRecordSet): TopologyLane[] {
 }
 
 /**
- * The material-driven lanes from each supplier to each plant that builds a product in its reach.
+ * The lanes from each supplier to the materials it is the primary supplier of.
  *
- * A purchase order carries the supplier, the material and the plant, so the relation a lane states is the
- * one procurement records: this supplier's material is consumed where that product is built. The lane is
- * emitted once per supplier and plant, however many products the two share, because the topology types a
- * lane as a pair and nothing else.
+ * A material record names the supplier it is bought from, so this hop is read rather than derived: one
+ * lane per material, emitted in material-record order. Whether that supplier has a node is settled when
+ * the material nodes are built (`materialNodes`), which is where a reference the records do not hold is
+ * reported, so a lane is never produced for a supplier the payload does not carry.
  *
  * @param records The loaded record set, read and not modified.
- * @returns One lane per supplier-and-plant pair whose reaches intersect, supplier by supplier in record
- *   order and plant by plant within each supplier.
+ * @returns One lane per material, in material-record order.
  */
-function supplierToPlantLanes(records: SeedRecordSet): TopologyLane[] {
+function supplierToMaterialLanes(records: SeedRecordSet): TopologyLane[] {
+  return records.materials.map(
+    (material): TopologyLane => ({ fromId: material.primarySupplierId, toId: material.id }),
+  );
+}
+
+/**
+ * The lanes from each material to each plant that builds a product the material goes into.
+ *
+ * A material record names the products it is built into and a production order names the product a plant
+ * builds, so this hop is a reading of both: this material is consumed where that product is made. The
+ * lane is emitted once per material and plant, however many products the two share, because the topology
+ * types a lane as a pair and nothing else. Keeping the hop separate from the supplier's own reach is what
+ * keeps a lane between adjacent columns of the graph lens instead of one that jumps the Materials column.
+ *
+ * @param records The loaded record set, read and not modified.
+ * @returns One lane per material-and-plant pair whose reaches intersect, material by material in record
+ *   order and plant by plant within each material.
+ */
+function materialToPlantLanes(records: SeedRecordSet): TopologyLane[] {
   const lanes: TopologyLane[] = [];
   const plantReaches = records.plants.map((plant) => ({
     plantId: plant.id,
     productIds: plantProductReach(records.productionOrders, plant.id),
   }));
 
-  for (const supplier of records.suppliers) {
-    const reach = supplierProductReach(records.materials, supplier.id);
-
+  for (const material of records.materials) {
     for (const plantReach of plantReaches) {
-      if (reachesSharedProduct(reach, plantReach.productIds)) {
-        lanes.push({ fromId: supplier.id, toId: plantReach.plantId });
+      if (reachesSharedProduct(material.productIds, plantReach.productIds)) {
+        lanes.push({ fromId: material.id, toId: plantReach.plantId });
       }
     }
   }
@@ -695,9 +772,8 @@ function withinScope(scope: Scope, nodeId: string): boolean {
  *
  * A node is kept when a retained lane touches it. A node no lane touches anywhere in the whole network is
  * kept as well: the records place it at no plant, so no plant can narrow it, and dropping it would strand
- * the evidence-pin counts its record carries (the first OPEN ITEM in this module's header). An anchored
- * node whose lanes were all narrowed away is dropped, because the records do place it at a plant outside
- * the scope.
+ * the evidence-pin counts its record carries. An anchored node whose lanes were all narrowed away is
+ * dropped, because the records do place it at a plant outside the scope.
  *
  * @param nodes The family as the records state it, in record order.
  * @param retainedLanes The lanes the scope keeps, read and not modified.
@@ -728,7 +804,7 @@ function retainedNodes(
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Reads the FileMap canvas's topology: the four node families, the lanes joining them and each node's
+ * Reads the FileMap canvas's topology: the five node families, the lanes joining them and each node's
  * evidence-pin counts, narrowed to the one resolved scope.
  *
  * The whole payload is a reading of the session's records through the permission matrix; nothing is
@@ -736,11 +812,13 @@ function retainedNodes(
  * a scope cannot be described differently by the map and by the graph (AAP 0.12.4, SCR-12).
  *
  * The narrowing is the scope's, and it is the rule the module header states: the plant nodes are the
- * plants in scope, a lane survives when it is anchored on an in-scope plant or reaches a retained
- * supplier, and a supplier, origin or customer node survives when a retained lane touches it or when no
- * lane places it at a plant at all. `pinsByNode` carries a count only for a node the payload still holds,
- * so a badge can never outlive its node. An empty `scope.plants` therefore narrows the plant-anchored part
- * of the network away, which is the "nothing is in scope" reading rather than "all plants".
+ * plants in scope, and each hop is retained only while the node it reaches is retained — a
+ * material-to-plant lane while its plant is in scope, a supplier-to-material lane while its material is,
+ * an origin-to-supplier lane while its supplier is, and a plant-to-customer lane while its plant is. A
+ * material, supplier, origin or customer node survives when a retained lane touches it or when no lane
+ * places it at a plant at all. `pinsByNode` carries a count only for a node the payload still holds, so a
+ * badge can never outlive its node. An empty `scope.plants` therefore narrows the plant-anchored part of
+ * the network away, which is the "nothing is in scope" reading rather than "all plants".
  *
  * @param ctx The session and the persona the call acts as.
  * @param selection The shell's plant and product selection, which the one resolver intersects with the
@@ -759,40 +837,63 @@ export async function getTopology(
   const { records } = ctx.state;
   const scope = scopeOf(ctx, selection);
 
-  const supplierLanes = supplierToPlantLanes(records);
-  const retainedSupplierLanes = supplierLanes.filter((lane) => withinScope(scope, lane.toId));
+  const materialToPlant = materialToPlantLanes(records);
+  const retainedMaterialToPlant = materialToPlant.filter((lane) => withinScope(scope, lane.toId));
+  const materials = retainedNodes(
+    materialNodes(records),
+    retainedMaterialToPlant,
+    materialToPlant.map((lane) => lane.fromId),
+  );
+  const materialIds = materials.map((node) => node.id);
+
+  const supplierToMaterial = supplierToMaterialLanes(records);
+  const retainedSupplierToMaterial = supplierToMaterial.filter((lane) =>
+    materialIds.includes(lane.toId),
+  );
   const suppliers = retainedNodes(
     supplierNodes(records),
-    retainedSupplierLanes,
-    supplierLanes.map((lane) => lane.fromId),
+    retainedSupplierToMaterial,
+    supplierToMaterial.map((lane) => lane.fromId),
   );
   const supplierIds = suppliers.map((node) => node.id);
 
-  const originLanes = originToSupplierLanes(records);
-  const retainedOriginLanes = originLanes.filter((lane) => supplierIds.includes(lane.toId));
+  const originToSupplier = originToSupplierLanes(records);
+  const retainedOriginToSupplier = originToSupplier.filter((lane) =>
+    supplierIds.includes(lane.toId),
+  );
   const origins = retainedNodes(
     originNodes(records),
-    retainedOriginLanes,
-    originLanes.map((lane) => lane.fromId),
+    retainedOriginToSupplier,
+    originToSupplier.map((lane) => lane.fromId),
   );
 
-  const customerLanes = plantToCustomerLanes(records);
-  const retainedCustomerLanes = customerLanes.filter((lane) => withinScope(scope, lane.fromId));
+  const plantToCustomer = plantToCustomerLanes(records);
+  const retainedPlantToCustomer = plantToCustomer.filter((lane) =>
+    withinScope(scope, lane.fromId),
+  );
   const customers = retainedNodes(
     customerNodes(records),
-    retainedCustomerLanes,
-    customerLanes.map((lane) => lane.toId),
+    retainedPlantToCustomer,
+    plantToCustomer.map((lane) => lane.toId),
   );
 
   const plants = plantNodes(records).filter((node) => withinScope(scope, node.id));
-  const nodeIds = [...plants, ...suppliers, ...origins, ...customers].map((node) => node.id);
+  const nodeIds = [...plants, ...suppliers, ...materials, ...origins, ...customers].map(
+    (node) => node.id,
+  );
 
   return {
     plants,
     suppliers,
+    materials,
     origins,
     customers,
-    lanes: [...retainedOriginLanes, ...retainedSupplierLanes, ...retainedCustomerLanes],
+    lanes: [
+      ...retainedOriginToSupplier,
+      ...retainedSupplierToMaterial,
+      ...retainedMaterialToPlant,
+      ...retainedPlantToCustomer,
+    ],
     pinsByNode: copyPinCounts(records.pinsByNode, nodeIds),
   };
 }

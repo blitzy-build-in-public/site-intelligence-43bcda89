@@ -3,20 +3,29 @@
  *
  * WHAT IT PROVES. The decision gate (acceptance test `T-07`): all three decisions stay disabled
  * without a comment, each with a reason a reader can reach by keyboard and read as text rather than
- * a `title` attribute; a comment releases reject and request changes while approve waits for every
+ * a `title` attribute; an activation the gate refuses answers rather than swallowing the attempt,
+ * painting the reason past the pointer and announcing it from a live region; a comment releases
+ * reject and request changes while approve waits for every
  * side effect to be acknowledged; each decision then reaches the port once, with its own `Decision`
  * member and the trimmed comment, and the screen re-reads the record instead of writing it locally.
- * The stale gate (`T-13`): with the gating source not current, the boundary's banner names the source
- * and its instant and all three decisions are disabled with a reason naming the same two values —
+ * The acting persona is part of that gate, resolved through the demonstration capability's
+ * `getActiveUser` exactly as the screen reads it: a persona the record refuses — the plan's requester,
+ * or a role the record does not name as able to decide it — meets three disabled controls carrying
+ * POL-003 or the record's own roles, and the port is never asked (AAP §0.2.2, rule P-8), while an
+ * identity the adapter has not reported blocks nothing. The stale gate (`T-13`): with the gating
+ * source not current, the boundary's banner names the source and its instant and all three decisions
+ * are disabled with a reason naming the same two values —
  * both halves of one rule, in one test — and a disabled decision never reaches the service. The
  * detail's content: the plan summary, both euro members through the one money formatter, the missing
  * inputs and the write-back preview with the fixed tag. The two failure explanations the port can
  * return: a permission refusal through the forbidden card, and a policy refusal that names the rule
  * and leaves the decisions disabled. The decided approval: the tracker's steps in the record's own
- * order and the outcome card's two columns, and the caption that stands in when no resulting record
- * arrives. The seven screen states (`T-17`) and the accessibility contract (`T-16`): one level-one
- * heading, every decision reachable by `Tab` and operable by `Enter` and `Space`, a programmatically
- * labelled comment field, an `aria-pressed` acknowledgement, and the same structure in both themes.
+ * order and the outcome card's measures and closing-stock tables, each reading asserted through the
+ * evidence trigger that carries it, the drawer that trigger opens, and the caption that stands in
+ * when no resulting record arrives. The seven screen states (`T-17`) and the accessibility contract
+ * (`T-16`): one level-one heading, every decision reachable by `Tab` and operable by `Enter` and
+ * `Space`, a programmatically labelled comment field, an `aria-pressed` acknowledgement, and the same
+ * structure in both themes.
  *
  * WHERE THE DATA COMES FROM — rule P-2. The service is mocked at `service-provider.tsx`, the one
  * boundary the screen and the shared components are allowed to read through, so no seed module, no
@@ -44,29 +53,24 @@
  * component's formatter fails here instead of being silently accepted, and the presentation is never
  * embedded as a formatted literal.
  *
- * GAPS REPORTED RATHER THAN RESOLVED.
- * - `Approval` carries no plant member, so the screen reads the plant the plan lands on from
- *   `getExceptionDetail().exception.plantId`. The suite proves the acknowledgement's accessible name
- *   comes from that record — not from this file — by rendering a second plant and asserting the name
- *   follows it.
- * - The port's `decideApproval` carries no side-effect acknowledgement member, so the acknowledgement
- *   is a screen-side gate on approve. The suite asserts what the screen owes: approve stays disabled
- *   until every acknowledgement is given, and nothing else about the decision changes.
- * - Neither `Approval` nor `SolverResult` carries a "resulting" measure, so "the service supplies no
- *   resulting record" is expressed the only way the port can express it: a rejected
- *   `getApprovalOutcome`. The suite asserts the caption that stands in and that no zero-valued row
- *   appears in its place.
- * - Two symbols are imported from modules outside the plan's `depends_on_files` list for this file:
- *   `STATE_BOUNDARY_TEXT` from `../../components/state-boundary` and `OUTCOME_CARD_TEXT` from
- *   `./outcome-card`. Both own strings this suite has to assert — the stale banner's headline and
- *   the outcome card's column headings — and re-spelling them here would be a second copy of fixed
- *   text that could drift from the component that renders it. The agent prompt requires the real
- *   components to be rendered rather than mocked, so their constants are imported rather than
- *   restated, and nothing is written to either module.
- * - `tests/source-checks/no-typed-figures.test.ts` and `tests/source-checks/forbidden-strings.test.ts`
- *   are not in the tree at the time this suite is written; other lanes of this batch own them. The
- *   suite is written to their stated contract rather than around them, and the only source check
- *   present — `no-secrets.test.ts` — is run over this file as part of the validation.
+ * WHAT THE PORT DOES NOT CARRY, AND WHERE EACH ABSENCE IS FELT. `Approval` carries no plant member, so
+ * the screen reads the plant the plan lands on from `getExceptionDetail().exception.plantId`, and this
+ * suite proves the acknowledgement's accessible name comes from that record — not from this file — by
+ * rendering a second plant and asserting the name follows it. The port's `decideApproval` carries no
+ * side-effect acknowledgement member, so the acknowledgement is a screen-side gate on approve, and the
+ * suite asserts what the screen owes: approve stays disabled until every acknowledgement is given, and
+ * nothing else about the decision changes. Neither `Approval` nor `SolverResult` carries a "resulting"
+ * measure, so "the service supplies no resulting record" is expressed the only way the port can
+ * express it, a rejected `getApprovalOutcome`, and the suite asserts the caption that stands in and
+ * that no zero-valued row appears in its place.
+ *
+ * THREE SYMBOLS FROM MODULES OUTSIDE THIS FILE'S OWN LIST. `STATE_BOUNDARY_TEXT` from
+ * `../../components/state-boundary`, `EVIDENCE_DRAWER_TEXT` from `../../components/evidence-drawer` and
+ * `OUTCOME_CARD_TEXT` from `./outcome-card` own strings this suite has to assert — the stale banner's
+ * headline, the reading trigger's hidden completion and the outcome card's column headings — so all
+ * three are imported rather than re-spelled here: a second copy of fixed text could drift from the
+ * component that renders it, the real components are rendered rather than mocked, and nothing is
+ * written to either module.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or reaches outside the service boundary.
@@ -78,20 +82,26 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import {
   APPROVAL_GATE_SOURCE,
   DEMO_CLOCK,
+  SEGREGATION_OF_DUTIES_POLICY_ID,
   SIM_LABELS,
   SOURCE_IDS,
   SOURCE_LABELS,
 } from '../../types';
 import type {
+  ActiveUser,
   Approval,
   ApprovalOutcome,
+  DailyClosingStockPoint,
+  Evidence,
   ExceptionDetail,
   Freshness,
   FreshnessState,
+  IsoDate,
   Permission,
   PlantId,
   PolicyId,
@@ -109,6 +119,7 @@ import type {
 import {
   APPROVAL_DETAIL_TEXT,
   ApprovalDetailScreen,
+  decisionEligibilityReason,
   sideEffectAcknowledgement,
 } from './approval-detail-screen';
 import { OUTCOME_CARD_TEXT } from './outcome-card';
@@ -192,6 +203,36 @@ const SCOPE: Scope = { plants: [], products: [] };
 /** The roles the record names as able to decide the plan. */
 const APPROVER_ROLES: readonly Role[] = ['plant-manager', 'head-of-supply-chain'];
 
+/** The persona the session acts as by default: a role the record names, and not its requester. */
+const ACTING_APPROVER_ID = 'persona-approver';
+
+/** A role the record does not name as able to decide this plan, though the matrix grants it the permission. */
+const INELIGIBLE_ROLE: Role = 'auditor';
+
+/**
+ * The persona the mocked provider reports as acting, with the given role and identifier.
+ *
+ * The screen reads the acting persona through the demonstration capability's `getActiveUser`, which is
+ * the one boundary an acting identity reaches it through (rule P-3), so the suite resolves the persona
+ * on the same provider mock the service is handed over. Both members the screen compares are
+ * parameters, because they are the two facts the record is read against: the persona's identifier
+ * against `requestedBy`, its role against `eligibleApproverRoles`.
+ *
+ * @param role - The acting role, which decides whether the record opens to it.
+ * @param id - The acting persona's identifier, which decides whether it is the plan's requester.
+ * @returns The persona the screen acts as.
+ */
+function actingUser(role: Role, id: string = ACTING_APPROVER_ID): ActiveUser {
+  return {
+    id,
+    name: 'Acting approver',
+    role,
+    plantIds: [PLANT_ID],
+    permissions: [DECISION_PERMISSION],
+    homeRoute: APPROVALS_ROUTE,
+  };
+}
+
 /** The permission a decision requires, typed so a wrong name fails compilation. */
 const DECISION_PERMISSION: Permission = 'approval.decide';
 
@@ -231,8 +272,43 @@ function freshnessOf(state: FreshnessState, asOf: Timestamp): readonly Freshness
 /** Every source fresh: the state the happy-path cases run in. */
 const FRESH = freshnessOf('fresh', AS_OF);
 
-/** One measurement a `SolverResult` carries, built once and spread by the fixtures below. */
-function solverResult(unitsLate: number, addedCostEur: number): SolverResult {
+/**
+ * The dates the two daily closing-stock series report, and the units each record leaves at them.
+ *
+ * The planned record reaches the first two dates and the resulting record the second and a third of
+ * its own, so one date is shared while each record also carries a date the other does not. The joined
+ * order is not alphabetical, so a card that sorted the dates would fail below rather than pass
+ * unnoticed.
+ */
+const STOCK_DATES = {
+  plannedFirst: 'closes-first',
+  shared: 'closes-shared',
+  resultingOnly: 'closes-resulting',
+} as const satisfies Record<string, IsoDate>;
+
+/** The closes the plan projects, in the order its own solve states them. */
+const PLANNED_STOCK: readonly DailyClosingStockPoint[] = [
+  { date: STOCK_DATES.plannedFirst, units: 40 },
+  { date: STOCK_DATES.shared, units: 25 },
+];
+
+/** The closes the records reached, sharing one date with the plan and carrying one it omits. */
+const RESULTING_STOCK: readonly DailyClosingStockPoint[] = [
+  { date: STOCK_DATES.shared, units: 30 },
+  { date: STOCK_DATES.resultingOnly, units: 12 },
+];
+
+/**
+ * One measurement a `SolverResult` carries, built once and spread by the fixtures below.
+ *
+ * The closing stock is a parameter because the outcome card prints it as its own table, and the two
+ * records it sets side by side carry different series so a swapped column is visible.
+ */
+function solverResult(
+  unitsLate: number,
+  addedCostEur: number,
+  dailyClosingStock: readonly DailyClosingStockPoint[] = [],
+): SolverResult {
   return {
     unitsLate,
     maxDaysLate: 3,
@@ -242,7 +318,7 @@ function solverResult(unitsLate: number, addedCostEur: number): SolverResult {
     lineIdleDays: 1.5,
     revenueDelayedEur: 9000,
     runOut: { day: 4, fractionOfDay: 0.5 },
-    dailyClosingStock: [],
+    dailyClosingStock: [...dailyClosingStock],
     orders: [],
     constraintCheck: 'pass',
     constraintMessages: [],
@@ -337,6 +413,35 @@ function approvedApproval(): Approval {
   };
 }
 
+/**
+ * The state a write-back step reports when its simulated write stopped the run, as the record spells it.
+ *
+ * A record value rather than a label this suite invents: the tracker prints `WriteBack.state` itself
+ * (rule P-6), so the token is what tells the failed step from the ones the failure left untouched.
+ */
+const FAILED_STATE = 'failed';
+
+/**
+ * The record a failed write-back leaves behind: approved with its decision recorded, the run stopped at
+ * the step that failed, and every later step still `pending` because nothing after it ran (AAP §0.2.2).
+ *
+ * This is the record the adapter holds after `decideApproval` throws its `'simulated-write-back'`
+ * `Problem`, which is why the screen has to re-read it rather than keep the pending one it was showing.
+ */
+function interruptedApproval(): Approval {
+  return {
+    ...approvedApproval(),
+    writeBacks: writeBackCopies().map((step, index) => ({
+      ...step,
+      state: index === 0 ? ('failed' as const) : ('pending' as const),
+    })),
+  };
+}
+
+/** The sentence the port reports when a step of the approved change did not complete. */
+const WRITE_BACK_FAILURE_MESSAGE =
+  'Write-back step 1 of the plan did not complete: the simulated write of its record was refused, so no part of the approved change was applied and no later step ran.';
+
 /** The plan's own option: its name, its identity, and the side effects an approver must acknowledge. */
 const SCENARIO: Scenario = {
   ...solverResult(PLANNED_UNITS_LATE, ADDED_COST),
@@ -394,11 +499,76 @@ function exceptionDetail(plantId: PlantId = PLANT_ID): ExceptionDetail {
   };
 }
 
-/** The two measurements the outcome card sets side by side, distinct so a swap would be visible. */
-const APPROVAL_OUTCOME: ApprovalOutcome = {
-  planned: solverResult(PLANNED_UNITS_LATE, ADDED_COST),
-  resulting: solverResult(RESULTING_UNITS_LATE, 0),
+/**
+ * The records' measurement after the change landed, unlike the plan's in every measure the card
+ * prints.
+ *
+ * The two records are deliberately unlike each other, so a column reporting the other record's
+ * reading — or a row reporting the wrong measure — is visible in the cases below rather than passing
+ * as a plausible figure. Which levers a resulting measurement is taken at is AAP §0.2.2's decision
+ * and the service's to make; the card prints whichever two measurements it is handed.
+ */
+const RESULTING_RESULT: SolverResult = {
+  ...solverResult(RESULTING_UNITS_LATE, 0, RESULTING_STOCK),
+  maxDaysLate: 8,
+  ordersOnTime: 1,
+  ordersTotal: 3,
+  lineIdleDays: 2.5,
+  revenueDelayedEur: 4500,
 };
+
+/**
+ * The two measurements the outcome card sets side by side, each carrying its own closing-stock series.
+ *
+ * The reference every reading on the card opens is the approval's own record — the route the
+ * evidence read resolves — and not a reference the card composes.
+ */
+const APPROVAL_OUTCOME: ApprovalOutcome = {
+  planned: solverResult(PLANNED_UNITS_LATE, ADDED_COST, PLANNED_STOCK),
+  resulting: RESULTING_RESULT,
+  evidenceRef: APPROVAL_ID,
+};
+
+/**
+ * The evidence the drawer resolves for that reference: a record that fills all four of its sections.
+ *
+ * Its value and formula are the fixture's own, so the suite reads back what the service returned
+ * rather than matching a sentence the drawer invents, and its label is the fixed §5.3 one a computed
+ * figure carries (rule P-1).
+ */
+const OUTCOME_EVIDENCE: Evidence = {
+  value: 'The approval the comparison was measured from.',
+  provenance: 'computed',
+  label: SIM_LABELS[1],
+  formula: 'The plan’s own levers applied to the case the approval names.',
+  inputs: ['the approval’s recorded decision'],
+  upstream: [EXCEPTION_ID, SCENARIO_ID],
+  downstream: [],
+  confidence: { level: 'high', reason: 'The assessment read every order it measures.' },
+  missingInputs: [],
+  documents: [],
+};
+
+/**
+ * The seven measurements the card prints, in the order it prints them, each read from a record and
+ * presented the way the card presents it: the two amounts through the interface's one money
+ * presentation, the five counts as the records' own numbers.
+ *
+ * The card follows AAP §0.12.4's SCR-04 row — units late, maximum days late, orders on time, added
+ * cost, line idle days — and adds the two measures that make those readable: the number of orders
+ * measured beside the orders on time, and the revenue delayed as the exposure it reports last. A row
+ * that moves, or a column that reports one measure's reading under another measure's row, fails the
+ * case below rather than passing as a plausible figure.
+ */
+const MEASURE_READINGS: readonly ((result: SolverResult) => string)[] = [
+  (result) => String(result.unitsLate),
+  (result) => String(result.maxDaysLate),
+  (result) => String(result.ordersOnTime),
+  (result) => String(result.ordersTotal),
+  (result) => amountText(result.addedCostEur),
+  (result) => String(result.lineIdleDays),
+  (result) => amountText(result.revenueDelayedEur),
+];
 
 /** The permission refusal the port throws when the acting role may not decide the plan. */
 function permissionProblem(): Problem {
@@ -428,6 +598,15 @@ function outcomeProblem(): Problem {
   return {
     type: 'simulated-write-back',
     message: OUTCOME_UNAVAILABLE_MESSAGE,
+    traceId: REFUSAL_TRACE_ID,
+  };
+}
+
+/** The failure the port throws when a step of the approved change did not complete. */
+function writeBackProblem(): Problem {
+  return {
+    type: 'simulated-write-back',
+    message: WRITE_BACK_FAILURE_MESSAGE,
     traceId: REFUSAL_TRACE_ID,
   };
 }
@@ -476,21 +655,41 @@ function amountText(value: number): string {
 /**
  * The port members this suite observes.
  *
- * The six are exactly the reads and writes the screen makes: four reads keyed by the record they
- * answer for, the decision, and the write-back retry. `restoreMocks` in `vite.config.ts` clears each
- * one between cases, and {@link installHappyPath} gives every case its own resolved values.
+ * Seven: the screen's own reads and writes — four reads keyed by the record they answer for, the
+ * decision and the write-back retry — plus `getEvidence`, which the outcome card's readings reach
+ * only when a case activates one. `restoreMocks` in `vite.config.ts` clears each one between cases,
+ * and {@link installHappyPath} gives every case its own resolved values.
  */
 const mockService = vi.hoisted(() => ({
   getApproval: vi.fn(),
   getScenarioSet: vi.fn(),
   getExceptionDetail: vi.fn(),
   getApprovalOutcome: vi.fn(),
+  getEvidence: vi.fn(),
   decideApproval: vi.fn(),
   retryWriteBack: vi.fn(),
 }));
 
+/**
+ * The demonstration capability the mocked provider reports.
+ *
+ * `getActiveUser` is the member the screen reads the acting persona through; it sits on the capability
+ * beside the port rather than on the port itself because the contracts' interface declares no identity
+ * (rule P-3). The factory below is hoisted above every import and cannot close over a fixture directly,
+ * so the capability is hoisted too and its member is resolved by {@link beforeEach}: an approver the
+ * fixture record names, so a case that does not care about identity keeps the expectations it was
+ * written with, and a case about eligibility resolves the persona the record refuses instead.
+ * `restoreMocks` in `vite.config.ts` clears each mock's resolution between cases, so every case states
+ * its own.
+ */
+const mockDemonstration = vi.hoisted(() => ({
+  getActiveUser: vi.fn(),
+  switchRole: vi.fn(),
+}));
+
 vi.mock('../../services/service-provider', () => ({
   useService: () => mockService,
+  useDemonstration: () => mockDemonstration,
 }));
 
 /** One user-event session, as the suite's helpers take it. */
@@ -522,12 +721,16 @@ function installHappyPath(): void {
   mockService.getScenarioSet.mockResolvedValue(ok(SCENARIO_SET));
   mockService.getExceptionDetail.mockResolvedValue(ok(exceptionDetail()));
   mockService.getApprovalOutcome.mockResolvedValue(ok(APPROVAL_OUTCOME));
+  mockService.getEvidence.mockResolvedValue(ok(OUTCOME_EVIDENCE));
   mockService.decideApproval.mockResolvedValue(ok(approvedApproval()));
   mockService.retryWriteBack.mockResolvedValue(ok(WRITE_BACKS[0]));
 }
 
 beforeEach(() => {
   installHappyPath();
+  /* The default persona is one the record opens to: a role it names, and an identifier that is not
+     the plan's requester, so the eligibility explanation is silent unless a case asks for it. */
+  mockDemonstration.getActiveUser.mockResolvedValue(ok(actingUser(nth(APPROVER_ROLES, 0))));
 });
 
 afterEach(() => {
@@ -595,6 +798,49 @@ function describedByText(control: HTMLElement): string {
     .split(/\s+/)
     .map((id) => document.getElementById(id)?.textContent ?? '')
     .join(' ');
+}
+
+/**
+ * The control a reading cell shows, found by the reading it states.
+ *
+ * Every reading renders through `EvidenceRef`, whose accessible name is the visible reading followed
+ * by the hidden completion that says what activating it opens (WCAG 2.2 SC 2.5.3). A reading is
+ * therefore asserted through that name — the cell's own text also carries the completion — and a cell
+ * that holds the other record's reading, or no trigger at all, fails here.
+ */
+function readingTriggerIn(cell: HTMLElement, reading: string): HTMLElement {
+  return within(cell).getByRole('button', {
+    name: (name: string) => {
+      const normalized = name.replace(/\s+/g, ' ').trim();
+
+      return (
+        normalized.startsWith(reading) &&
+        normalized.endsWith(EVIDENCE_DRAWER_TEXT.openSuffix)
+      );
+    },
+  });
+}
+
+/** One series' closes, keyed by the date each belongs to, so two series can be compared by date. */
+function closesOf(series: readonly DailyClosingStockPoint[]): ReadonlyMap<string, number> {
+  return new Map(series.map((point) => [point.date, point.units]));
+}
+
+/**
+ * The dates the two closing-stock series report, in the order the card joins them: the dates the
+ * planned series states, then every date only the resulting series reaches.
+ *
+ * Derived from the two fixtures rather than typed, so the case compares the table against the records
+ * the service returned (rule P-6).
+ */
+function joinedStockDates(): readonly string[] {
+  const planned = closesOf(PLANNED_STOCK);
+  const resulting = closesOf(RESULTING_STOCK);
+
+  return [
+    ...planned.keys(),
+    ...[...resulting.keys()].filter((date) => !planned.has(date)),
+  ];
 }
 
 /** The named region a card or a panel renders, found by the heading it carries. */
@@ -701,6 +947,55 @@ describe('T-07 the decision gate', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent(
       APPROVAL_DETAIL_TEXT.commentRequiredReason,
     );
+  });
+
+  it('qa-w013-I22 answers a refused decision with a visible reason and an announcement', async () => {
+    const user = userEvent.setup();
+    await renderPendingDetail();
+
+    const decisionCard = regionNamed(APPROVAL_DETAIL_TEXT.decisionSection);
+    const approve = controlNamed(APPROVAL_DETAIL_TEXT.approve);
+
+    /* Nothing is said before the attempt: the reason exists only as the control's description, in the
+       `sr-only` element that mounted with it, so no hint is painted and no live region is mounted —
+       the silent state the finding records for a click that follows. */
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(describedByText(approve)).toContain(APPROVAL_DETAIL_TEXT.commentRequiredReason);
+
+    await user.click(approve);
+
+    /* The refused click is answered twice over. The sentence is painted in a hint the pointer does not
+       own — the hint is portalled onto the document body, so it is read where it paints rather than
+       inside the card — and it is announced from a live region in the card, while the record itself is
+       untouched and the status stays pending. */
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      APPROVAL_DETAIL_TEXT.commentRequiredReason,
+    );
+    expect(within(decisionCard).getByRole('alert')).toHaveTextContent(
+      APPROVAL_DETAIL_TEXT.commentRequiredReason,
+    );
+    expect(approve).toHaveAttribute('aria-disabled', 'true');
+    expect(mockService.decideApproval).not.toHaveBeenCalled();
+
+    /* The reader moves the pointer off the control it just clicked and keeps the reason. */
+    await user.unhover(approve);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      APPROVAL_DETAIL_TEXT.commentRequiredReason,
+    );
+
+    /* The second gate the finding names: with the comment supplied, approve is blocked by the
+       acknowledgement instead, and its refusal carries that sentence both ways. */
+    await giveComment(user, 'plan accepted');
+    await user.click(controlNamed(APPROVAL_DETAIL_TEXT.approve));
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      APPROVAL_DETAIL_TEXT.acknowledgementRequiredReason,
+    );
+    expect(within(decisionCard).getByRole('alert')).toHaveTextContent(
+      APPROVAL_DETAIL_TEXT.acknowledgementRequiredReason,
+    );
+    expect(mockService.decideApproval).not.toHaveBeenCalled();
   });
 
   it('T-07 releases the shared decisions on a comment and keeps approve behind the acknowledgements', async () => {
@@ -840,6 +1135,107 @@ describe('T-07 the decision gate', () => {
 /* ---------------------------------------------------------------------------------------------
  * The stale gate — AAP 0.2.1, T-13's visible half
  * ------------------------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------------------------
+ * The acting persona the record refuses — AAP §0.2.2, AAP §0.12.2, rule P-8
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The two personas an approval refuses, and the sentence each one meets.
+ *
+ * POL-003 keeps the plan's requester from deciding it, and the record names the roles that may decide
+ * it, so a persona inside neither condition is the one the controls have to explain (AAP §0.2.2). The
+ * sentence is named from the screen's own text object rather than retyped, and each case also asserts
+ * the roles the fixture record holds, so the explanation is proved to come from the record instead of
+ * from this suite.
+ */
+const REFUSED_PERSONAS = [
+  {
+    name: 'the persona who requested the plan',
+    user: actingUser(nth(APPROVER_ROLES, 0), REQUESTER_ID),
+    reason: APPROVAL_DETAIL_TEXT.requesterRuleSuffix,
+    namesRule: true,
+  },
+  {
+    name: 'a role the record does not name as able to decide it',
+    user: actingUser(INELIGIBLE_ROLE),
+    reason: APPROVAL_DETAIL_TEXT.actingRolePrefix,
+    namesRule: false,
+  },
+];
+
+describe('the acting persona the record refuses', () => {
+  it.each(REFUSED_PERSONAS)(
+    'disables all three decisions with the record’s own reason for $name, and sends nothing',
+    async ({ user, reason, namesRule }) => {
+      mockDemonstration.getActiveUser.mockResolvedValue(ok(user));
+
+      const session = userEvent.setup();
+      await renderPendingDetail();
+
+      /* The two duties only the reader can discharge are discharged first, so the reason the controls
+         carry is the record's own eligibility fact rather than a duty not yet met. */
+      await giveComment(session, 'plan accepted');
+      await acknowledgeEverySideEffect(session);
+
+      for (const label of [
+        APPROVAL_DETAIL_TEXT.approve,
+        APPROVAL_DETAIL_TEXT.reject,
+        APPROVAL_DETAIL_TEXT.requestChanges,
+      ]) {
+        const decision = controlNamed(label);
+
+        expect(decision).toHaveAttribute('aria-disabled', 'true');
+
+        const described = describedByText(decision);
+        expect(described).toContain(reason);
+        /* The roles that may act, read from the record the screen holds rather than from this file. */
+        expect(described).toContain(APPROVER_ROLES.join(', '));
+
+        if (namesRule) {
+          /* POL-003 is named before the attempt is made, not only by the refusal that follows it. */
+          expect(described).toContain(SEGREGATION_OF_DUTIES_POLICY_ID);
+        }
+      }
+
+      /* And the refusal the service would return is never asked for: nothing reaches the port. */
+      fireEvent.click(controlNamed(APPROVAL_DETAIL_TEXT.approve));
+      expect(mockService.decideApproval).not.toHaveBeenCalled();
+    },
+  );
+
+  it('releases the shared decisions for an approver the record names and holds no unknown persona against it', async () => {
+    const session = userEvent.setup();
+    await renderPendingDetail();
+
+    await giveComment(session, 'plan accepted');
+
+    /* The default persona is a role the record names and not its requester, so neither fact blocks
+       it: the shared decisions are released and approve waits on its acknowledgement alone. */
+    expect(controlNamed(APPROVAL_DETAIL_TEXT.reject)).not.toHaveAttribute('aria-disabled');
+    expect(controlNamed(APPROVAL_DETAIL_TEXT.requestChanges)).not.toHaveAttribute('aria-disabled');
+
+    const approve = controlNamed(APPROVAL_DETAIL_TEXT.approve);
+    expect(approve).toHaveAttribute('aria-disabled', 'true');
+    expect(describedByText(approve)).toBe(APPROVAL_DETAIL_TEXT.acknowledgementRequiredReason);
+
+    /* An identity the adapter has not reported yet — the read still pending, failed, or an adapter
+       that carries none — is not a persona who may not act: the explanation stays silent rather than
+       blocking on a fact nobody knows (rule P-8). */
+    expect(decisionEligibilityReason(pendingApproval(), null)).toBeNull();
+    expect(decisionEligibilityReason(pendingApproval(), actingUser(nth(APPROVER_ROLES, 0)))).toBeNull();
+
+    /* And a record that names no eligible role is stated in words rather than read out as an empty
+       list, for the requester and for any other role the record does not open to (rule P-8). */
+    const noEligibleRoles: Approval = { ...pendingApproval(), eligibleApproverRoles: [] };
+
+    expect(decisionEligibilityReason(noEligibleRoles, actingUser(nth(APPROVER_ROLES, 0), REQUESTER_ID)))
+      .toBe(`${SEGREGATION_OF_DUTIES_POLICY_ID} ${APPROVAL_DETAIL_TEXT.requesterNoRoleSuffix}`);
+    expect(decisionEligibilityReason(noEligibleRoles, actingUser(INELIGIBLE_ROLE))).toBe(
+      APPROVAL_DETAIL_TEXT.actingRoleNoRoles,
+    );
+  });
+});
 
 describe('T-13 the stale gate', () => {
   it('T-13 names the gating source and its instant in the banner and in every disabled decision’s reason', async () => {
@@ -1015,23 +1411,115 @@ describe('an approval that has been decided', () => {
       expect(nth(steps, index)).toHaveTextContent(step.description);
     });
 
-    /* The comparison: one row per measure, the record's planned figure in the second column and the
-       resulting figure in the third. Both sides are read from the two records the service returned,
-       so a swap or a single-sided card fails here. */
-    const outcome = await screen.findByRole('region', { name: OUTCOME_CARD_TEXT.title });
-    const rows = within(outcome).getAllByRole('row');
-    const firstMeasure = nth(rows, 1);
-    const cells = within(firstMeasure).getAllByRole('cell');
+    /* The measures: one row per measure, the plan's reading in the second column and the records'
+       reading in the third. Both columns are read from the two records the service returned, and
+       every reading is asserted through the trigger that carries it, so a swap between the columns, a
+       column that reports one record twice or a reading with no evidence route fails here. */
+    const measures = await screen.findByRole('table', { name: OUTCOME_CARD_TEXT.caption });
+    const outcome = screen.getByRole('region', { name: OUTCOME_CARD_TEXT.title });
+    const measureRows = within(measures).getAllByRole('row').slice(1);
 
-    expect(cells).toHaveLength(3);
-    expect(nth(cells, 1).textContent).toBe(String(APPROVAL_OUTCOME.planned.unitsLate));
-    expect(nth(cells, 2).textContent).toBe(String(APPROVAL_OUTCOME.resulting.unitsLate));
     expect(
-      within(outcome).getByRole('columnheader', { name: OUTCOME_CARD_TEXT.plannedHeader }),
+      within(measures).getByRole('columnheader', { name: OUTCOME_CARD_TEXT.plannedHeader }),
     ).toBeInTheDocument();
     expect(
-      within(outcome).getByRole('columnheader', { name: OUTCOME_CARD_TEXT.resultingHeader }),
+      within(measures).getByRole('columnheader', { name: OUTCOME_CARD_TEXT.resultingHeader }),
     ).toBeInTheDocument();
+    expect(measureRows).toHaveLength(MEASURE_READINGS.length);
+
+    MEASURE_READINGS.forEach((reading, index) => {
+      const cells = within(nth(measureRows, index)).getAllByRole('cell');
+      const planned = reading(APPROVAL_OUTCOME.planned);
+      const resulting = reading(APPROVAL_OUTCOME.resulting);
+
+      expect(cells).toHaveLength(3);
+      /* The label column names the measure and carries no figure, so it holds no trigger. */
+      expect(within(nth(cells, 0)).queryByRole('button')).toBeNull();
+      expect(planned).not.toBe(resulting);
+      expect(readingTriggerIn(nth(cells, 1), planned)).toBeInTheDocument();
+      expect(readingTriggerIn(nth(cells, 2), resulting)).toBeInTheDocument();
+    });
+
+    /* The closing stock: one row per date, in the order the card joins the two series — the planned
+       series' own order, then the dates only the resulting series reaches. Each row states both
+       records' reading at that close, and a date one of them does not carry keeps its row with the
+       absence caption in the column that does not reach it, never a substituted zero. */
+    const stock = within(outcome).getByRole('table', { name: OUTCOME_CARD_TEXT.stockCaption });
+    const stockRows = within(stock).getAllByRole('row').slice(1);
+    const dates = joinedStockDates();
+    const plannedCloses = closesOf(PLANNED_STOCK);
+    const resultingCloses = closesOf(RESULTING_STOCK);
+
+    /* The series is a block of its own on screen as well as in the accessibility tree: the panel
+       around it prints the visible caption that `DataTable`'s own caption cannot, because that one is
+       exposed to assistive technology only (rule B-3). */
+    expect(within(outcome).getByText(OUTCOME_CARD_TEXT.stockTitle)).toBeVisible();
+    expect(screen.getByRole('region', { name: OUTCOME_CARD_TEXT.stockTitle })).toContainElement(
+      stock,
+    );
+
+    /* Both tables sit in the one card, under the one `Simulated calculation` label. */
+    expect(outcome).toContainElement(measures);
+    expect(outcome).toContainElement(stock);
+    /* `getByText` fails when the card prints the label twice, so this is the card's single label. */
+    expect(within(outcome).getByText(SIM_LABELS[1])).toBeInTheDocument();
+
+    expect(
+      within(stock).getByRole('columnheader', { name: OUTCOME_CARD_TEXT.dateHeader }),
+    ).toBeInTheDocument();
+    expect(stockRows).toHaveLength(dates.length);
+
+    dates.forEach((date, index) => {
+      const cells = within(nth(stockRows, index)).getAllByRole('cell');
+      const planned = plannedCloses.get(date);
+      const resulting = resultingCloses.get(date);
+
+      expect(cells).toHaveLength(3);
+      /* The date is the record's own value, printed as plain text rather than as a figure. */
+      expect(nth(cells, 0).textContent).toBe(date);
+
+      if (planned === undefined) {
+        expect(nth(cells, 1).textContent).toBe(OUTCOME_CARD_TEXT.notApplicable);
+      } else {
+        expect(readingTriggerIn(nth(cells, 1), String(planned))).toBeInTheDocument();
+      }
+
+      if (resulting === undefined) {
+        expect(nth(cells, 2).textContent).toBe(OUTCOME_CARD_TEXT.notApplicable);
+      } else {
+        expect(readingTriggerIn(nth(cells, 2), String(resulting))).toBeInTheDocument();
+      }
+    });
+  });
+
+  it('opens the evidence drawer from a reading, on the record the comparison is about', async () => {
+    const user = userEvent.setup();
+    mockService.getApproval.mockResolvedValue(ok(approvedApproval()));
+
+    renderDetail();
+    await screen.findByRole('region', { name: APPROVAL_DETAIL_TEXT.planSection });
+
+    const measures = await screen.findByRole('table', { name: OUTCOME_CARD_TEXT.caption });
+    const firstRow = nth(within(measures).getAllByRole('row').slice(1), 0);
+    const plannedCell = nth(within(firstRow).getAllByRole('cell'), 1);
+    const planned = nth(MEASURE_READINGS, 0)(APPROVAL_OUTCOME.planned);
+
+    await user.click(readingTriggerIn(plannedCell, planned));
+
+    /* The drawer opens on the record the card's figures belong to, and the port is asked for the
+       reference the payload carried rather than for one the card composed (rule P-6, AAP §0.2.1's
+       F12): the approval's own identifier, which the evidence read resolves. */
+    const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    expect(mockService.getEvidence).toHaveBeenCalledTimes(1);
+    expect(mockService.getEvidence).toHaveBeenCalledWith(APPROVAL_OUTCOME.evidenceRef);
+    expect(await within(drawer).findByText(OUTCOME_EVIDENCE.formula)).toBeInTheDocument();
+
+    await user.click(within(drawer).getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
   });
 
   it('states that the comparison is not shown yet when no resulting record arrives', async () => {
@@ -1049,6 +1537,49 @@ describe('an approval that has been decided', () => {
     /* No zero-valued row, no empty grid: the comparison is absent until a record supports it. */
     expect(within(outcome).queryByRole('table')).toBeNull();
     expect(within(outcome).queryByText(OUTCOME_CARD_TEXT.notApplicable)).toBeNull();
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * A decision that fails at its write-back — AAP §0.2.2, rule P-8
+ * ------------------------------------------------------------------------------------------- */
+
+describe('a decision that fails at its write-back', () => {
+  it('leaves the failure, the failed step and its retry on the screen the decision was taken on', async () => {
+    mockService.decideApproval.mockRejectedValue(writeBackProblem());
+    /* The adapter set the record's status, recorded the decision and marked the step that failed before
+       it threw, so the next read returns the approved record rather than the pending one. */
+    mockService.getApproval
+      .mockResolvedValueOnce(ok(pendingApproval()))
+      .mockResolvedValue(ok(interruptedApproval()));
+
+    const session = userEvent.setup();
+    await renderPendingDetail();
+
+    await giveComment(session, 'plan accepted');
+    await acknowledgeEverySideEffect(session);
+    await session.click(controlNamed(APPROVAL_DETAIL_TEXT.approve));
+
+    /* The failure is reported in the service's own words, in the status region the decision block owns. */
+    expect(await screen.findByText(WRITE_BACK_FAILURE_MESSAGE)).toBeInTheDocument();
+
+    /* And the record the refusal left behind is on the same screen: nothing here navigates away, which
+       is what makes the failed step and the one control that retries it reachable. */
+    const tracker = await screen.findByRole('region', {
+      name: APPROVAL_DETAIL_TEXT.trackerSection,
+    });
+    const steps = within(tracker).getAllByRole('listitem');
+
+    expect(steps).toHaveLength(WRITE_BACKS.length);
+
+    const failedSteps = steps.filter((step) => (step.textContent ?? '').includes(FAILED_STATE));
+
+    expect(failedSteps).toHaveLength(1);
+    expect(within(nth(failedSteps, 0)).getByText(WRITE_BACK_TAG)).toBeInTheDocument();
+
+    /* One retry, on the one step that failed: a step the run never reached offers none, and a step that
+       succeeded is never offered for writing again (AAP §0.2.2). */
+    expect(within(tracker).getAllByRole('button', { name: /^Retry write-back / })).toHaveLength(1);
   });
 });
 

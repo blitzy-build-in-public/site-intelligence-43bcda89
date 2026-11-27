@@ -71,9 +71,9 @@
  * the service, imports a seed record or opens a request. It carries no competitor concept (rule P-5):
  * the first-party topology is all it draws and all it tabulates. It makes no claim about where a record
  * is held or whether it could be altered (rule P-4), fetches nothing (rule B-1) and reads no
- * configuration or secret (rule B-2). Every plant, supplier, origin and customer name it prints is the
- * payload's own (rule P-7), and no identifier, count, amount or date is written into this file (rule
- * P-6).
+ * configuration or secret (rule B-2). Every plant, supplier, material, origin and customer name it
+ * prints is the payload's own (rule P-7), and no identifier, count, amount or date is written into this
+ * file (rule P-6).
  */
 
 import type { ReactElement } from 'react';
@@ -96,6 +96,7 @@ import {
   DEPENDENCY_GRAPH_TEXT,
   DependencyGraph,
 } from '../../components/dependency-graph';
+import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from '../../components/graph-vocabulary';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording, in the one place it is written
@@ -161,41 +162,16 @@ export const GRAPH_LENS_TEXT = {
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
- * The payload's vocabulary — `src/types/topology.ts`
+ * The words a pin count is announced with — this lens's own wording, one per pinned state
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The word a node's family is printed with in the table view.
+ * The word each pin state is counted with in a summary.
  *
- * The map is keyed by `TopologyNodeKind` through `satisfies`, so a fifth family added to that union
- * fails to compile here instead of printing an empty cell. `Tier-2 origin` rather than `origin`
- * because the tier is what tells it apart from the supplier beside it in the next lane.
+ * The order the six states are listed in, and the word each node family is printed with in the table
+ * view, are shared with every other graph surface and live in `../../components/graph-vocabulary.ts`;
+ * what stays here is this lens's own wording for the six states a count is read with.
  */
-const FAMILY_WORDS = {
-  plant: 'Plant',
-  supplier: 'Supplier',
-  origin: 'Tier-2 origin',
-  customer: 'Customer',
-} as const satisfies Record<TopologyNodeKind, string>;
-
-/**
- * The six pin states in the order a summary prints them: the states that need attention first.
- *
- * The order is presentation only. `PinCounts` is keyed by the six `PinState` members of contracts
- * 4.2, which the type fixes; this list decides which of them a reader meets first and never which of
- * them exist. It is exhaustive by type, so a seventh state fails to compile here rather than
- * disappearing from a summary.
- */
-const PIN_STATE_ORDER = [
-  'fail',
-  'stale',
-  'pending',
-  'review',
-  'pass',
-  'empty',
-] as const satisfies readonly PinState[];
-
-/** The word each pin state is counted with in a summary. */
 const PIN_STATE_WORDS = {
   empty: 'empty',
   pending: 'pending',
@@ -230,10 +206,9 @@ const NO_PREVIEW_HANDLER = (): void => {};
  *
  * `undefined` is the drawing's honest answer for a node no record stands behind: activating the node
  * still reports the selection and opens no dialog, so a reader is never shown a refusal where a record
- * belongs. A node's evidence is the record the screen attributes to it — for the FileMap canvas the
- * node's own identifier, which the service's evidence read resolves for all four node families — and
- * this module cannot know which record a composition drew, so it derives no reference of its own
- * (rule P-6) and must not invent one.
+ * belongs. Which record a node was drawn from is the screen's to state — a plant, a supplier, an origin
+ * and a customer each carry their record's own identifier, and the evidence read resolves those
+ * families — so this module derives no reference of its own (rule P-6) and invents none.
  */
 const NO_NODE_EVIDENCE = (): undefined => undefined;
 
@@ -294,6 +269,8 @@ function nodesOfFamily(topology: Topology, kind: TopologyNodeKind): readonly Top
       return topology.origins;
     case 'supplier':
       return topology.suppliers;
+    case 'material':
+      return topology.materials;
     case 'plant':
       return topology.plants;
     case 'customer':
@@ -315,8 +292,8 @@ interface LaneGroup {
  *
  * The lanes come from `DEPENDENCY_GRAPH_LANES` rather than from a second list written here, so the
  * drawing's columns and this lens's table view cannot disagree about how many lanes there are or what
- * they are called. A lane the payload carries no node family for — the two stages whose records belong
- * to the stages that open them — is skipped: the drawing already states that it holds "No nodes in this
+ * they are called. A lane the payload carries no node family for — the one stage whose records belong to
+ * the stage that opens it — is skipped: the drawing already states that it holds "No nodes in this
  * view", and a table cannot show a lane it has no row for.
  */
 function laneGroups(topology: Topology): readonly LaneGroup[] {
@@ -532,7 +509,7 @@ function buildRows(topology: Topology, trace: GraphLensTrace): readonly GraphLen
       nodeId: node.id,
       lane: group.label,
       label: node.label,
-      family: FAMILY_WORDS[node.kind],
+      family: NODE_FAMILY_WORDS[node.kind],
       pins: pinSummary(topology.pinsByNode[node.id]),
       path: pathWordFor(node.id, trace),
     })),

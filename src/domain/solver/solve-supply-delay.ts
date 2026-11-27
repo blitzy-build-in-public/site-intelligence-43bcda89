@@ -54,10 +54,9 @@
  * returns the steps the case states, as fresh objects the caller may mark up, and the do-nothing
  * baseline sets nothing in motion and returns the empty list.
  *
- * OPEN ITEM — the confidence. `SolverResult.confidence` is required, and `SolverCase` has no member
- * holding one (the OPEN ITEM in `src/types/solver.ts` records the same gap from its side). The
- * result reports the lowest level with the reason that it is the lowest, and the adapter composing a
- * `Scenario` supplies the record's own confidence instead.
+ * The confidence. `SolverResult.confidence` is required and `SolverCase` carries no member holding one,
+ * so the result reports the lowest level with the reason that it is the lowest, and the adapter
+ * composing a `Scenario` supplies the record's own confidence instead.
  *
  * Purity and determinism (AAP 0.2.1, AAP 0.18.2). This is a pure function of its two arguments: it
  * reads no clock, no random source, no global state and no module-level mutable value, so the same
@@ -518,7 +517,7 @@ function writeBacksOf(caseRecord: SolverCase, levers: Levers): WriteBack[] {
 }
 
 /**
- * The confidence a measurement carries when the case states none (see the OPEN ITEM in the header).
+ * The confidence a measurement carries when the case states none.
  *
  * Nothing in the case supports a level, so the result reports the lowest one with the reason that it
  * is the lowest rather than leaving the required member empty. The adapter composing a `Scenario`

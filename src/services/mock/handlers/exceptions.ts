@@ -1,6 +1,8 @@
 /**
  * The exceptions family of the in-browser mock adapter: the overview read, the exception queue, the
- * investigation detail, and the three writes that change an exception — assign, note and dismiss.
+ * investigation detail, the three writes a persona performs on an exception — assign, note and
+ * dismiss — and the resolution an approved plan's completed write-back records (see
+ * `recordApprovedPlan`).
  *
  * Implements the "Handlers" row of AAP 0.12.1 at the `handlers/` path AAP 0.13.1 fixes, in the shape
  * the parent folder's brief gives this entry: "the queue list and the investigation detail:
@@ -14,12 +16,16 @@
  * `src/domain/aggregation/overview.ts` computes — four tiles, the changed-since list, the by-plant
  * rows and the fourteen-day series (contracts §5). `listExceptions` projects the queue rows
  * `src/domain/aggregation/exceptions.ts` computes, narrows them by the filters `ExceptionQuery`
- * declares, orders them with `sortUrgent` in `src/domain/aggregation/urgency.ts`, and pages them.
+ * declares — the six SCR-02 filters, and the day a reader chose on the overview's series, which keeps
+ * the exceptions that day was counted for through `openedOrResolvedOn` and nothing else — orders them
+ * with `sortUrgent` in `src/domain/aggregation/urgency.ts`, and pages them.
  * `getException` returns the investigation payload: the record, the impact chain from purchase order
  * to customer orders, the projected closing stock the solver measures, the affected orders, the
  * missing inputs and confidence the record carries, and the activity recorded against the exception.
- * The three writes update the session's record, append one history record and append exactly one
- * audit event.
+ * Each of the three writes a persona performs updates the session's record, appends one history
+ * record and appends exactly one audit event; `recordApprovedPlan` is the fourth write of the family
+ * and the exception's own account of the plan it decided, called by the approvals family once the
+ * approved change has landed.
  *
  * ONE SCOPE RESOLUTION, AND WHY IT LIVES HERE. AAP 0.2.1 requires one scope resolver combining the
  * top bar's selection with the role's plant scope, "used by every list call and every aggregate, so a
@@ -64,10 +70,15 @@
  * spells — `assign`, `note`, `dismiss` — the exception's identifier as `objectRef`, and `before`/`after`
  * payloads holding only the fields the write changed. It then edits the session's record and appends
  * one history record stamped with the instant the appended audit event itself carries, so the two
- * records of one action agree and no clock is read. `evaluate()` in `src/domain/policy/evaluate.ts` is
- * deliberately not called: its `PolicyAction` union covers an outbound endpoint, an approval decision,
- * an assistant query and a policy lookup, and none of the three actions here is one of them, so asking
- * it would be asking a question it does not answer.
+ * records of one action agree and no clock is read. `recordApprovedPlan` appends its event the same
+ * way and names the exception as `objectRef`, because the record a reader follows from it is the
+ * exception the plan answers; the approval remains the subject of the decision event the approvals
+ * family appends, and neither event is duplicated by the other. Its action is spelled `resolved`, from
+ * the trail's own past-tense vocabulary rather than from the twelve acts contracts §6 enumerates — the
+ * same kind of derivation the approvals family records for `simulated write-back`. `evaluate()` in
+ * `src/domain/policy/evaluate.ts` is deliberately not called: its `PolicyAction` union covers an
+ * outbound endpoint, an approval decision, an assistant query and a policy lookup, and none of the
+ * actions here is one of them, so asking it would be asking a question it does not answer.
  *
  * WHAT IT REFUSES, AND THE CAUSE EACH REFUSAL NAMES. An identifier the record set does not hold, and
  * one it holds outside the acting role's plant scope, both produce `'not-found'`: the first because no
@@ -134,25 +145,26 @@
  *   than a silent disabled button.
  *
  * WHY THE PRODUCT SELECTION TRAVELS BESIDE THE QUERY RATHER THAN INSIDE IT. `src/types/service.ts` gives
- * `ExceptionQuery` the plant, type, severity, status, owner and supplier filters and no product member,
- * because AAP 0.12.2 fixes that query as the queue's own filters. The shell's product selection reaches
+ * `ExceptionQuery` the plant, type, severity, status, owner and supplier filters, the day the overview's
+ * series narrows the queue to, and no product member, because AAP 0.12.2 fixes that query as the queue's
+ * own filters and AAP 0.12.4 fixes the series' dates as one of them. The shell's product selection reaches
  * the service as a member of `Scope` instead, so each read of this family takes the shell's selection as
  * a `ScopeFilterInput` of its own beside the query and resolves it once through `resolveScope`. A product
  * chosen in the top bar therefore narrows the queue and the overview through the same aggregate
  * predicate (`admitsProducts`) both already apply, and neither read is narrowed by a plant alone.
  *
- * OPEN ITEM — the cursor is a row identifier. `ListQuery.cursor` is opaque by contracts §9 and the
- * method returns rows rather than a paged envelope, so the position this module accepts is the
- * identifier of the last row the previous call returned, and the next page continues after it in the
- * order that call reported. A cursor no row carries is read as the start of the list rather than as a
- * failure, because a page that can answer is worth more than a refusal over a position.
+ * THE CURSOR IS A ROW IDENTIFIER. `ListQuery.cursor` is opaque by contracts §9 and the method returns
+ * rows rather than a paged envelope, so the position this module accepts is the identifier of the last
+ * row the previous call returned, and the next page continues after it in the order that call reported.
+ * A cursor no row carries is read as the start of the list rather than as a failure, because a page
+ * that can answer is worth more than a refusal over a position.
  *
- * OPEN ITEM — `ExceptionDetail.activity` is typed as audit events, and the seeded history records are
- * not audit events. `src/types/screen-dto.ts` fixes the member as `AuditEvent[]` — "the audit events
- * recorded against this exception, in chain order" — so it carries the chain's events whose
- * `objectRef` is the exception, shallow-copied per call. The seeded `EXCEPTION_HISTORY` records date
- * the overview's median-hours tile and are read by `overview.ts`; they are not a second activity list
- * and are not dressed up as chain events here.
+ * `ExceptionDetail.activity` CARRIES THE CHAIN'S EVENTS, NOT THE SEEDED HISTORY. The member is typed as
+ * audit events, and `src/types/screen-dto.ts` fixes it as `AuditEvent[]` — "the audit events recorded
+ * against this exception, in chain order" — so it carries the chain's events whose `objectRef` is the
+ * exception, shallow-copied per call. The seeded `EXCEPTION_HISTORY` records date the overview's
+ * median-hours tile and are read by `overview.ts`; they are not a second activity list and are not
+ * dressed up as chain events here.
  */
 
 /* ---------------------------------------------------------------------------------------------
@@ -162,6 +174,8 @@
 import { DEMO_CLOCK } from '../../../types';
 import type {
   AffectedLine,
+  Approval,
+  ApprovalStatus,
   AuditEvent,
   ExceptionDetail,
   ExceptionId,
@@ -181,6 +195,7 @@ import type {
   SourceId,
   Timestamp,
   UserId,
+  WriteBackState,
 } from '../../../types';
 
 import {
@@ -189,8 +204,8 @@ import {
   resolveAffectedLines,
 } from '../../../domain/aggregation/exceptions';
 import type { BaselineSolve } from '../../../domain/aggregation/exceptions';
-import { computeOverview } from '../../../domain/aggregation/overview';
-import type { OverviewInput } from '../../../domain/aggregation/overview';
+import { computeOverview, openedOrResolvedOn } from '../../../domain/aggregation/overview';
+import type { ActivityRecord, OverviewInput } from '../../../domain/aggregation/overview';
 import { resolveScope } from '../../../domain/aggregation/scope';
 import type { ScopeFilterInput } from '../../../domain/aggregation/scope';
 import { sortUrgent } from '../../../domain/aggregation/urgency';
@@ -206,8 +221,13 @@ import type {
   PurchaseOrder,
   SeededUser,
 } from '../seed-loader';
-import { freshnessFor, isSimulationOn } from '../simulation';
-import { appendAuditEvent, traceIdFor } from './audit';
+import {
+  demonstrationForbiddenReason,
+  emptiesLists,
+  freshnessFor,
+  isSimulationOn,
+} from '../simulation';
+import { appendAuditEvent } from './audit';
 
 /* ---------------------------------------------------------------------------------------------
  * A. Structural constants — contracts §1, §4 and §7.1
@@ -252,6 +272,24 @@ const OPEN_STATUS: ExceptionStatus = 'open';
 /** The status a dismissal leaves the exception in. */
 const DISMISSED_STATUS: ExceptionStatus = 'dismissed';
 
+/**
+ * The status an approved plan's completed change leaves the exception in.
+ *
+ * AAP 0.2.2's journey ends with the plan written back, and specification §3 gives an exception the
+ * three states `open`, `resolved` and `dismissed` (`ExceptionStatus`): a disruption whose response has
+ * been decided and written is resolved rather than dismissed, because nothing was set aside. The
+ * seeded trail spells the state the same way — `EXC-2026-1187` carries a `resolved` history record and
+ * this status (see `src/seed/exception-history.ts`) — so a live resolution and a seeded one read
+ * alike.
+ */
+const RESOLVED_STATUS: ExceptionStatus = 'resolved';
+
+/** The `Approval.status` a plan carries once its change may be written back — `ApprovalStatus`. */
+const APPROVED_PLAN_STATUS: ApprovalStatus = 'approved';
+
+/** The state a write-back step reaches when its write completed — `WriteBackState`. */
+const SUCCEEDED_WRITE_BACK: WriteBackState = 'succeeded';
+
 /** Digits in the sequence a history record's own key carries, as `src/seed/exception-history.ts` spells it. */
 const HISTORY_SEQUENCE_DIGITS = 2;
 
@@ -268,7 +306,7 @@ const HISTORY_SEQUENCE_DIGITS = 2;
  * own, from the one derivation in `./audit.ts`, so a reader can quote it and find the event the same
  * call appended.
  *
- * @param ctx - The call's context, whose state supplies the trace identifier.
+ * @param ctx - The call's context, whose trace identifier the failure carries.
  * @param permission - The permission the call required and the role lacks.
  * @param message - The reason, in plain words, naming the role and the permission.
  * @returns The `Problem` to throw.
@@ -277,7 +315,7 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
   return {
     type: 'permission',
     message,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     requiredPermission: permission,
     rolesWithPermission: rolesWith(permission),
   };
@@ -291,12 +329,12 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
  * are reported this way: the second is a record this read does not cover rather than a refusal of the
  * role's permission, which the family's reads already checked.
  *
- * @param ctx - The call's context, whose state supplies the trace identifier.
+ * @param ctx - The call's context, whose trace identifier the failure carries.
  * @param message - The reason, in plain words, naming the identifier.
  * @returns The `Problem` to throw.
  */
 function notFoundProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'not-found', message, traceId: traceIdFor(ctx.state) };
+  return { type: 'not-found', message, traceId: ctx.traceId };
 }
 
 /**
@@ -308,12 +346,12 @@ function notFoundProblem(ctx: HandlerContext, message: string): Problem {
  * has moved on, so the conflicting-update state is reported here with the record's current status in
  * the message rather than through an invented sixth cause.
  *
- * @param ctx - The call's context, whose state supplies the trace identifier.
+ * @param ctx - The call's context, whose trace identifier the failure carries.
  * @param message - The reason, in plain words.
  * @returns The `Problem` to throw.
  */
 function validationProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'validation', message, traceId: traceIdFor(ctx.state) };
+  return { type: 'validation', message, traceId: ctx.traceId };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -340,7 +378,7 @@ function requireRead(ctx: HandlerContext): void {
     throw permissionProblem(
       ctx,
       EXCEPTION_READ,
-      `The exception records are not readable in this state; reading them requires the ${EXCEPTION_READ} permission.`,
+      demonstrationForbiddenReason(ctx.actor.role, EXCEPTION_READ),
     );
   }
 
@@ -374,8 +412,7 @@ function requireWritable(ctx: HandlerContext): void {
   throw permissionProblem(
     ctx,
     EXCEPTION_WORK,
-    `The exception records are not writable in this state; writing to them requires the ` +
-      `${EXCEPTION_WORK} permission. The roles that hold it are ${rolesWith(EXCEPTION_WORK).join(', ')}.`,
+    demonstrationForbiddenReason(ctx.actor.role, EXCEPTION_WORK),
   );
 }
 
@@ -489,15 +526,23 @@ function readFreshness(ctx: HandlerContext): Freshness {
 /**
  * The exceptions a read of this family is computed over.
  *
- * The session's own collection, or an empty one while the emptied-queue trigger is in effect. The choice
- * is made here, once, so the queue's rows and the overview's counts are computed from the same input
- * rather than from two branches that could disagree (AAP 0.12.1, T-17).
+ * The session's own collection, or an empty one while the emptied-queue trigger is in effect or the
+ * simulation's `empty` trigger has emptied the session's collections. The choice is made here, once, so
+ * the queue's rows and the overview's counts are computed from the same population rather than from two
+ * branches that could disagree (AAP 0.12.1, T-17): `listExceptions` projects its rows from what this
+ * returns and `getOverview` counts, sums, groups and plots it, so a control that empties the session
+ * empties one population rather than emptying a list on one screen while the tiles beside it still count
+ * the records that list no longer shows.
+ *
+ * `empty-queue` is this family's own trigger and empties that population alone, which is what makes it
+ * different from `empty`: `emptiesLists` also empties every other collection the adapter serves, and the
+ * population both reads are computed over is one of them.
  *
  * @param state - The session whose triggers and records are read. Not modified.
  * @returns The exceptions the read is computed over.
  */
 function exceptionsFor(state: MockState): readonly OperationalException[] {
-  return isSimulationOn(state, 'empty-queue') ? [] : state.records.exceptions;
+  return isSimulationOn(state, 'empty-queue') || emptiesLists(state) ? [] : state.records.exceptions;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -676,17 +721,23 @@ function indexById(
  * read the row, because the row carries those members. The plant filter matches the plant the exception
  * lands on **or** one it also affects, which is the reading `src/types/service.ts` fixes for it and the
  * one the scoped aggregate applies. The supplier filter reads the supplier the exception buys its
- * material from, which is a record value rather than a row member.
+ * material from, which is a record value rather than a row member. The day filter reads neither the row
+ * nor the exception alone: the date a reader chose on SCR-01's series is a property of the records'
+ * timeline, so it is asked of the exception and the activity trail together, through
+ * `openedOrResolvedOn` — the predicate the series itself counts by — and no row is kept that the mark
+ * which narrowed the queue did not count (AAP 0.12.4).
  *
  * @param row - The row to test.
  * @param exception - The exception the row was projected from.
  * @param query - The query the call was served with.
+ * @param history - The activity trail, which dates the exceptions the day filter keeps.
  * @returns `true` when the row answers every filter stated.
  */
 function admitsQuery(
   row: ExceptionRow,
   exception: OperationalException,
   query: ExceptionQuery,
+  history: readonly ActivityRecord[],
 ): boolean {
   if (query.type !== undefined && row.type !== query.type) {
     return false;
@@ -705,6 +756,10 @@ function admitsQuery(
   }
 
   if (query.supplierId !== undefined && exception.supplierId !== query.supplierId) {
+    return false;
+  }
+
+  if (query.date !== undefined && !openedOrResolvedOn(exception, history, query.date)) {
     return false;
   }
 
@@ -1142,7 +1197,7 @@ function impactChainOf(
  * `AuditEvent[]`), so this reads the session's chain for the events whose `objectRef` is the exception
  * and copies each one, which keeps a caller from altering the trail through the payload it was handed.
  * The seeded history records are not events and are not dressed up as any: they date the overview's
- * median-hours tile (see the module header's third OPEN ITEM).
+ * median-hours tile and are read by `overview.ts`.
  *
  * @param state - The session whose chain is read. Not modified.
  * @param id - The exception whose activity is wanted.
@@ -1164,8 +1219,9 @@ function activityOf(state: MockState, id: ExceptionId): AuditEvent[] {
  *
  * Every value is `src/domain/aggregation/overview.ts`'s output over the resolved scope and the records
  * this call may see, so the overview and the queue beside it describe one population (contracts §5, AAP
- * 0.2.1). The emptied-queue trigger computes the overview over an empty exception collection, which is
- * what makes the tiles report nothing rather than counting exceptions the queue no longer lists.
+ * 0.2.1). The emptied-queue and `empty` triggers both compute the overview over an empty exception
+ * collection, which is what makes the tiles report nothing rather than counting exceptions the queue no
+ * longer lists.
  *
  * @param ctx - The session and the persona the call acts as.
  * @param selection - The shell's plant and product selection, which the one resolver intersects with
@@ -1188,16 +1244,17 @@ export async function getOverview(
  * as SCR-02 orders it.
  *
  * The rows are `computeExceptionRows`'s projection over the resolved scope and are not re-derived here;
- * the filters the row cannot answer on its own — the plant the exception also affects, and the supplier
- * its material is bought from — are read from the exception the row was projected from, which is why the
- * collection is indexed once. Ordering and paging are applied last, so a page holds the rows a reader
- * asked for rather than a slice of an unordered list (contracts §9).
+ * the filters the row cannot answer on its own — the plant the exception also affects, the supplier its
+ * material is bought from, and the day the overview's series was counted for — are read from the
+ * exception the row was projected from and from the activity trail beside it, which is why the
+ * collection is indexed once and one bundle serves both reads. Ordering and paging are applied last, so
+ * a page holds the rows a reader asked for rather than a slice of an unordered list (contracts §9).
  *
  * @param ctx - The session and the persona the call acts as.
  * @param query - The filters, order and page the queue read asked for.
  * @param selection - The shell's plant and product selection, resolved here once with the role's plant
  *   scope; the queue's own plant filter arrives in the query beside it and is applied to each row by
- *   `admitsQuery`.
+ *   `admitsQuery`, as is the day filter it may carry.
  * @returns The page's rows, in the requested order.
  * @throws Problem - A `'permission'` failure when the role may not read the family or the forbidden
  *   trigger is on, or a `'validation'` failure when a figure's record cannot be resolved.
@@ -1210,13 +1267,14 @@ export async function listExceptions(
   requireRead(ctx);
 
   const exceptions = exceptionsFor(ctx.state);
-  const rows = computeExceptionRows(aggregateBundle(ctx, exceptions), scopeOf(ctx, selection));
+  const bundle = aggregateBundle(ctx, exceptions);
+  const rows = computeExceptionRows(bundle, scopeOf(ctx, selection));
   const byId = indexById(exceptions);
 
   const filtered = rows.filter((row) => {
     const exception = byId.get(row.id);
 
-    return exception !== undefined && admitsQuery(row, exception, query);
+    return exception !== undefined && admitsQuery(row, exception, query, bundle.history);
   });
 
   return pageOf(orderRows(filtered, sortOrderOf(query.sort)), query);
@@ -1277,12 +1335,15 @@ export async function getException(ctx: HandlerContext, id: ExceptionId): Promis
 /**
  * The history actions this family appends.
  *
- * `src/seed/exception-history.ts` fixes the trail's vocabulary; these are the three members a write here
- * records, and the seeded records spell them the same way. The audit event records the contracts §6 action
- * (`assign`, `note`, `dismiss`), which is a different vocabulary from the trail's past-tense one and is
- * spelled where the event is appended.
+ * `src/seed/exception-history.ts` fixes the trail's vocabulary — `opened`, `assigned`, `noted`,
+ * `dismissed`, `approved` and `resolved` — and the seeded records spell them the same way, so the set
+ * below is that vocabulary minus `opened`, which is the detection a seeded record carries and no write
+ * here performs. The first three are what a persona's own writes record; the last two are what
+ * `recordApprovedPlan` records, in that order, when the approved change lands. The audit event records
+ * the contracts §6 action (`assign`, `note`, `dismiss`, and the derived `resolved`), which is a
+ * different vocabulary from the trail's past-tense one and is spelled where the event is appended.
  */
-type ExceptionHistoryAction = 'assigned' | 'noted' | 'dismissed';
+type ExceptionHistoryAction = 'assigned' | 'noted' | 'dismissed' | 'approved' | 'resolved';
 
 /**
  * The sequence number the next history record of one exception carries.
@@ -1535,5 +1596,113 @@ export async function dismissException(
   appendHistory(ctx, exception, 'dismissed', text, event.timestamp);
 
   return getException(ctx, exception.id);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * M. The resolution an approved plan's completed change leaves — AAP 0.2.2, AAP 0.12.2
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Whether every step of an approval's change was written.
+ *
+ * AAP 0.2.1 makes a simulated write-back all-or-nothing, so a change lands only when no step of it is
+ * pending or failed; an approval that states no step has nothing to withhold and has landed. The
+ * approvals family asks the same question of the same record before it measures an outcome (see
+ * `changeLanded` in `./approvals.ts`), and the two read the record rather than an outcome each keeps,
+ * so a plan cannot land for one of them and not the other.
+ *
+ * @param approval - The plan whose steps are read. Not modified.
+ * @returns `true` when every step succeeded.
+ */
+function planChangeLanded(approval: Approval): boolean {
+  return approval.writeBacks.every((step) => step.state === SUCCEEDED_WRITE_BACK);
+}
+
+/**
+ * Records the resolution an approved plan's completed change leaves on its exception.
+ *
+ * AAP 0.2.2 ends the planner's journey at a written-back plan, and the record that journey is about
+ * is the exception: `src/seed/exception-history.ts` states the intent for the flagship case — "the
+ * planner approves it in the browser during the end-to-end journey" — and the seeded exceptions that
+ * carry an approval carry its history beside it. A decision taken live therefore closes the loop here
+ * rather than only inside the approval record and the trail: the exception's status moves to
+ * `resolved`, its activity gains the event that says so, and its history gains the two records the
+ * seeded vocabulary already spells, `approved` at the decision's instant and `resolved` after it, so
+ * the overview's median-hours tile measures a live approval the way it measures a seeded one.
+ *
+ * The event names the EXCEPTION as the record it is about, never the approval. A reader who filters
+ * the trail by the exception follows the resolution from the record they are reading, and the
+ * journey's own filter — the approval's identifier, which holds the request, the decision and each
+ * write-back step — keeps exactly its own rows. Both members the payload adds are the records the
+ * resolution rests on, so an event read on its own states which plan was written and which option it
+ * carried.
+ *
+ * THE THREE CONDITIONS, EACH OF WHICH MAKES THIS A NO-OP RATHER THAN A REFUSAL. The call is a
+ * continuation of a write the approvals family has already authorised, validated and recorded, so
+ * nothing here refuses: it either has something to record or nothing to do. A plan that is not
+ * approved has no change to land. A plan whose change has not landed — a step failed, or a step is
+ * still pending — leaves the exception open, because AAP 0.2.2's all-or-nothing rule means the
+ * disruption is still unanswered. An exception that is no longer `open` has already been resolved (or
+ * dismissed), and recording a second resolution of it would add an event, a pair of history records
+ * and a status change that describe a decision the record already holds — which is why a second
+ * landing call, from a retry after the change already landed, changes nothing at all.
+ *
+ * @param ctx - The call's context, whose chain the event is appended to and whose persona the history
+ *   records name.
+ * @param exception - The exception the plan answers. Its status is changed here.
+ * @param approval - The approved plan whose change landed.
+ * @returns Nothing; the session's records carry the result.
+ */
+export async function recordApprovedPlan(
+  ctx: HandlerContext,
+  exception: OperationalException,
+  approval: Approval,
+): Promise<void> {
+  if (exception.status !== OPEN_STATUS || approval.status !== APPROVED_PLAN_STATUS) {
+    return;
+  }
+
+  if (!planChangeLanded(approval)) {
+    return;
+  }
+
+  /* The resolution is appended once, about the exception, and the status the payload records is the
+     one the record is moved to below — the same order every write of this family keeps, so the event
+     a reader opens already describes the state they find. */
+  const event = await appendAuditEvent(ctx, {
+    action: 'resolved',
+    objectRef: exception.id,
+    result: 'succeeded',
+    before: { status: exception.status },
+    after: {
+      status: RESOLVED_STATUS,
+      approvalId: approval.id,
+      scenarioId: approval.scenarioId,
+    },
+  });
+
+  /* The decision's own instant, which the approvals family read from the event that decision
+     appended. A plan whose record states none is dated by this append instead, so the two history
+     records stay in the order the vocabulary expects rather than resting on a member that happens to
+     be present. */
+  appendHistory(
+    ctx,
+    exception,
+    'approved',
+    `The plan ${approval.id} for ${approval.scenarioId} was approved, and the change it sets in ` +
+      'motion follows.',
+    approval.decidedAt ?? event.timestamp,
+  );
+
+  exception.status = RESOLVED_STATUS;
+
+  appendHistory(
+    ctx,
+    exception,
+    'resolved',
+    `Every step of the approved change under ${approval.id} was written, so the response is ` +
+      `recorded and ${exception.id} stands resolved.`,
+    event.timestamp,
+  );
 }
 

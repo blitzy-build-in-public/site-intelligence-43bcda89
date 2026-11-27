@@ -27,15 +27,17 @@
  * still holds rather than what the reader clicked (rule P-8: nothing here pretends a change took
  * effect).
  *
- * WHY A TOGGLE IS NOT AN `ActionButton`. `ActionButton` is the application's only button and is used
- * here for every action — close, reset, retry. A toggle additionally has to carry `aria-pressed`, which
- * `ActionButton`'s props do not express, so each toggle is a native `button` that composes the exported
- * `CONTROL_STRUCTURE_CLASSES` (the 24x24 px minimum target, the 2 px focus ring and the control radius).
- * It is one button in every state, never wrapped in a hint element that comes and goes: a control
- * replaced while it is disabled loses focus to the body, which would throw a keyboard reader out of the
- * panel on every activation. Its explanation is attached as a description instead, pointing at the one
- * busy sentence the panel paints (rule P-8). The pressed state is never carried by colour alone: the
- * control also carries `aria-pressed` and a `StatusIndicator` whose label reads in words (rule B-3).
+ * WHY A TOGGLE IS NOT AN `ActionButton`. `ActionButton` is the primitive for an action that can be
+ * disabled, and it is used here for every action — close, reset, retry. A toggle additionally has to
+ * carry `aria-pressed`, which `ActionButton`'s props do not express, so each toggle composes `Button`
+ * from `src/components` — the primitive that owns a plain `<button>` (AAP 0.5.2) — and hands it the
+ * exported `CONTROL_STRUCTURE_CLASSES` (the 24x24 px minimum target, the 2 px focus ring and the
+ * control radius) as its class list. It is one button in every state, never wrapped in a hint element
+ * that comes and goes: a control replaced while it is disabled loses focus to the body, which would
+ * throw a keyboard reader out of the panel on every activation. Its explanation is attached as a
+ * description instead, pointing at the one busy sentence the panel paints (rule P-8). The pressed state
+ * is never carried by colour alone: the control also carries `aria-pressed` and a `StatusIndicator`
+ * whose label reads in words (rule B-3).
  *
  * WHAT IS NOT HERE. No role switching (that is `src/app/role-switcher.tsx`), no theme or density control
  * (that is `src/theme/`), no diagnostic or trace panel, and no state beyond the mirror of what this
@@ -60,6 +62,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
+import { Button } from '../components/button';
+import { DialogHeading } from '../components/dialog-heading';
 import { StatusIndicator } from '../components/status-indicator';
 import { ActionButton, CONTROL_STRUCTURE_CLASSES } from '../components/tooltip';
 import { useService } from '../services/service-provider';
@@ -293,13 +297,19 @@ function joinClassNames(...values: readonly (string | undefined)[]): string {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The popover's anchor: a positioned box at the shell's own position, holding the panel below it.
+ * The popover's anchor: a positioned box at the shell's own position, holding the panel.
  *
  * The shell places `SimulationControls` beside the badge that opens it, and this wrapper gives the
- * absolutely positioned panel a containing block without the shell having to position anything: the
- * panel opens downward from the control, aligned to the inline end of the shell's row, which is where
- * a popover anchored to a trigger belongs. It is inline-flex so it occupies no space of its own in
- * that row while the panel is closed.
+ * panel a containing block without the shell having to position anything: from the `lg` breakpoint up
+ * the panel opens downward from the control, aligned to the inline end of the shell's row, which is
+ * where a popover anchored to a trigger belongs. It is inline-flex so it occupies no space of its own
+ * in that row while the panel is closed, and a zero-width box is what makes `end-0` mean the row's
+ * inline end rather than the badge's own.
+ *
+ * Below `lg` the panel leaves this box altogether and anchors to the viewport instead, for the reason
+ * `PANEL_CLASSES` gives: there the top-bar row wraps the badge onto a line that starts at the row's
+ * own gutter, so this anchor's inline end sits a panel-width's short of the viewport's inline start and
+ * the panel would hang off the screen with nothing to scroll it back by.
  */
 const ROOT_CLASSES = 'relative inline-flex';
 
@@ -308,13 +318,27 @@ const ROOT_CLASSES = 'relative inline-flex';
  * shadow anywhere (there is none to select) and every value a role token, so Command and Paper each
  * resolve their own measured pairing (rule B-3, specification §4.3).
  *
- * `max-h-screen` with `overflow-y-auto` keeps the whole popover reachable when a viewport is too short
- * for it, rather than letting its lower controls fall off the page: the panel scrolls, and every
- * control stays operable.
+ * TWO PRESENTATIONS, AND WHY THE VIEWPORT-ANCHORED ONE IS THE BASE. F10 makes this popover the only way
+ * to reach the seven states and the two extra triggers, so rule B-3's "reachable and operable" decides
+ * where it sits, and a panel placed against the row at a narrow width is not reachable: the row wraps
+ * its items, so its inline end can sit only a gutter inside the viewport's inline start, and the panel
+ * hangs off the screen with no overflow to scroll it back by. Below `lg` it is therefore anchored to the
+ * viewport — 8 px in from the inline start, the inline end and the bottom — and its height is clamped to
+ * the viewport, so it fits any screen narrow enough for that wrap. From `lg` up the row is wide enough
+ * to hold the panel at its anchored form, which is what the panel has always done there: it opens
+ * downward from the badge's row at that row's inline end, 384 px wide.
+ *
+ * NO TWO UTILITIES HERE FIGHT. Every property that changes between the two presentations is set once at
+ * the base and once inside `lg:`, which the stylesheet emits after the unprefixed utilities, so the wider
+ * breakpoint retunes the same box instead of two lists contending: `position` (`fixed`/`absolute`), the
+ * inline insets (`start-2 end-2`/`start-auto end-0`), the block insets (`bottom-2 top-auto`/`top-full
+ * bottom-auto`), the width (none/`w-96`) and the height cap. `overflow-y-auto` with `overscroll-contain`
+ * keeps every control reachable on a short viewport in either presentation.
  */
 const PANEL_CLASSES = [
-  'absolute end-0 top-full z-50 mt-2 flex w-96 min-w-0 flex-col gap-3',
-  'max-h-screen overflow-y-auto overscroll-contain',
+  'fixed start-2 end-2 bottom-2 top-auto z-50 flex min-w-0 flex-col gap-3',
+  'max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain',
+  'lg:absolute lg:start-auto lg:end-0 lg:top-full lg:bottom-auto lg:mt-2 lg:w-96 lg:max-h-screen',
   'rounded-panel border border-hairline bg-surface-2 p-3',
 ].join(' ');
 
@@ -701,9 +725,9 @@ function SimulationDialog(props: SimulationDialogProps): ReactElement {
       >
         <div className={HEADER_CLASSES}>
           <div className={TITLE_BLOCK_CLASSES}>
-            <h2 id={titleId} className={TITLE_CLASSES}>
+            <DialogHeading id={titleId} className={TITLE_CLASSES}>
               <StatusIndicator meaning="simulated" label={SIMULATED_CONTROL_LABEL} />
-            </h2>
+            </DialogHeading>
             <p id={descriptionId} className={CAPTION_CLASSES}>
               {SIMULATION_CONTROLS_TEXT.intro}
             </p>
@@ -823,13 +847,15 @@ interface TriggerToggleProps {
 }
 
 /**
- * One trigger as a toggle: a native `button` carrying `aria-pressed` and a composed accessible name,
- * painted in the control structure every other control uses.
+ * One trigger as a toggle: `Button` from `src/components` carrying `aria-pressed` and a composed
+ * accessible name, painted in the control structure every other control uses.
  *
- * A native element is deliberate here and only here: `ActionButton` is the application's only button,
- * and its props cannot express a pressed state, so a toggle built from it would have no way to tell a
- * reader which trigger is in effect. It composes the exported `CONTROL_STRUCTURE_CLASSES` instead, so
- * the target size, the focus ring and the control radius stay the ones every other control has.
+ * The element belongs to the primitive (AAP 0.5.2), and this shell control composes it rather than
+ * rendering a native `<button>` of its own. `ActionButton` is not the owner to compose here: its props
+ * cannot express a pressed state, so a toggle built from it would have no way to tell a reader which
+ * trigger is in effect. This toggle hands the exported `CONTROL_STRUCTURE_CLASSES` to `Button` as its
+ * class list, so the target size, the focus ring and the control radius stay the ones every other
+ * control has.
  *
  * The pressed state is never colour alone: `aria-pressed` carries it programmatically and the
  * `StatusIndicator` beside the label carries it in words and an icon (rule B-3). The visible words are
@@ -865,7 +891,7 @@ function TriggerToggle(props: TriggerToggleProps): ReactElement {
      body, and a keyboard reader would then be outside the panel they are working in after every
      activation. Its reason is attached as a description instead, and painted once by the panel. */
   return (
-    <button
+    <Button
       type="button"
       aria-label={name}
       aria-pressed={props.pressed}
@@ -895,7 +921,7 @@ function TriggerToggle(props: TriggerToggleProps): ReactElement {
           </span>
         )}
       </span>
-    </button>
+    </Button>
   );
 }
 

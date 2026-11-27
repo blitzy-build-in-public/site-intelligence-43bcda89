@@ -24,16 +24,17 @@
  * THE GRANT ACTION IS THE SAME FLOW SCR-07 OFFERS ON `/admin/sovereignty`. AAP 0.12.4 assigns "Grant
  * time-boxed exception" to SCR-07 as a whole, and a time-boxed exception is always requested against
  * one policy, so this screen composes `./grant-exception-dialog` with the policy it is showing rather
- * than carrying a second form of its own. The alternative reading — that the action belongs only to
- * the sovereignty route — would leave a reader standing on a policy unable to request an exception
- * for the policy they are reading. The dialog owns the three terms (reason, expiry, second
- * approver), the call and the refusal rendering; this screen only decides whether the acting persona
- * may raise the request and tells the cache to re-read the policy once one is recorded.
+ * than carrying a second form of its own. The sovereignty route offers the same flow from each policy
+ * row, so the two routes are one flow reached from the record the reader chose. The dialog owns the
+ * three terms (reason, expiry, second approver), the call and the refusal rendering; this screen
+ * decides whether the control can act, offers the roster a second approver is chosen from, and tells
+ * the cache to re-read the policy once a request is recorded.
  *
- * WHERE THE DATA COMES FROM, AND WHERE IT DOES NOT. Both reads go through the hooks of
- * `../../services/service-provider`: `getPolicy` returns the policy's whole detail, and the acting
+ * WHERE THE DATA COMES FROM, AND WHERE IT DOES NOT. Every read goes through the hooks of
+ * `../../services/service-provider`: `getPolicy` returns the policy's whole detail, the acting
  * persona — read from the demonstration capability's `getActiveUser` — decides whether the grant
- * control can act. The route parameter arrives from `useParams()` and the shell's plant and product
+ * control can act, and the same capability's `listPersonas` supplies the second approvers the dialog
+ * offers. The route parameter arrives from `useParams()` and the shell's plant and product
  * selection arrives as `scope`, which this screen carries in the cache key so a selection change
  * re-reads the policy as every other screen's reads do (AAP 0.6.2, 0.12.4). No seed module, mock
  * adapter, API client, domain module, shell module or other feature is imported: the port is the only
@@ -47,9 +48,12 @@
  * sentence written here, a validation refusal is `conflict`, any other rejection is `offline`, a
  * pending read is `loading`, a source that did not answer is `offline`, the approval-gate source
  * reported stale is `stale`, and a source that answered incompletely is `partial`. The page header
- * names the record, so it renders with the record; a policy that could not be read is explained by
- * the boundary instead. An empty decision list is the table's own empty sentence rather than a
- * screen state, because the header and the other panels stay readable when one list is empty.
+ * sits above that boundary, so it renders in every state: one refusal gets one shape, and a policy
+ * that could not be read is explained by the boundary beneath the same heading and the same
+ * description. The grant action is offered only while the record is loaded, because a control is
+ * offered for a policy rather than for a route. An empty decision list is the table's own empty
+ * sentence rather than a screen state, because the header and the other panels stay readable when one
+ * list is empty.
  *
  * WHAT IS LABELLED, AND WHY NOTHING ELSE IS. The declared branch carries `Declared, not verified`;
  * the decisions panel carries `Simulated control`, because the engine that recorded those events runs
@@ -57,27 +61,27 @@
  * B-3). The persistent `Simulated data` badge belongs to the shell and is deliberately not mounted
  * here, so no route can carry two of them (rule P-1).
  *
- * REPORTED GAPS AND DECISIONS.
- * - The second approver a request needs cannot be offered from here. `SiteIntelligenceService`
- *   publishes no read of the seeded personas — the approval records carry eligible *roles*, not
- *   people, and `searchIdentifiers` returns domain records — so `GrantExceptionDialog` is composed
- *   without `secondApprovers`, and it disables its own submit with the sentence naming that missing
- *   capability rather than sending a request that cannot name an approver (rule P-8). The day a read
- *   for the personas exists, its result is passed to that prop and nothing else in this file moves.
- * - The grant control is disabled when the acting persona does not hold `policy.exception.request`,
- *   which is the permission the service itself requires for the write. That check is presentation
- *   only: the adapter evaluates the matrix against its own persona, so bypassing the control changes
- *   nothing (rule P-3). The condition is read from a fresh `getActiveUser` call on mount rather than
- *   from the persona the shell seeded at start-up, so a reader who switched role and then opened a
- *   policy is judged on the role the adapter is enforcing.
- * - No second disabling condition is invented. `PolicyDetail` carries `evaluated` and nothing that
- *   states a policy refuses exceptions, and the service accepts a request against any policy it
- *   holds, so the screen does not disable the action for a condition no record carries (rule P-6).
- * - `EvidenceRef` is not composed here: no figure on this screen carries an evidence reference, since
- *   the record supplies identifiers, statements and recorded events rather than computed values. It
- *   will be composed by the screens that show figures.
- * - `Card` is composed for the three blocks rather than `Panel`, because each block owns a heading of
- *   its own and `Panel` intentionally renders none.
+ * THE GRANT CONTROL'S DISABLING CONDITIONS (rules P-3, P-8). It is disabled when the acting persona does
+ * not hold `policy.exception.request`, the permission the service itself requires, read from a fresh
+ * `getActiveUser` call on mount so a reader who switched role is judged on the role the adapter enforces
+ * — the adapter evaluates the matrix again, so the check is presentation only (rule P-3) — and when the
+ * record's own `evaluated` member says the engine never applied the policy: a declared rule cannot have
+ * an exception requested against it, so the control is disabled with a sentence saying so (rules P-4 and
+ * P-8). No further condition is invented, because `PolicyDetail` states nothing else that makes a policy
+ * refuse exceptions (rule P-6).
+ *
+ * WHAT THE RECORD DOES NOT CARRY, AND WHAT FILLS THE PLACE. The second approver is offered from the
+ * demonstration capability's `listPersonas` rather than from the port: `SiteIntelligenceService`
+ * publishes no read of the seeded personas — approval records carry eligible *roles*, not people, and
+ * `searchIdentifiers` returns domain records — while the capability the shell's role switcher already
+ * reads reports them, and AAP 0.12.1 fixes it there beside the port. The roster is mapped to the two
+ * members the dialog's select renders, with the acting persona filtered out, because a request needs a
+ * second person's approval; `listPersonas` is optional on the capability, so an adapter without it
+ * leaves the list empty and the dialog disables its own submit with the sentence naming the missing
+ * capability rather than sending a request that cannot name an approver (rule P-8). No figure here
+ * carries an evidence reference, the record supplying identifiers, statements and recorded events rather
+ * than computed values, so `EvidenceRef` is composed only by the screens that show figures. `Card`
+ * composes the three blocks, because each owns a heading of its own and `Panel` renders none.
  *
  * Rules this module is built to satisfy:
  * - B-1, B-2: nothing here fetches, names an address, reads an environment value or carries a
@@ -88,7 +92,7 @@
  *   declared that `prefers-reduced-motion` would have to suppress.
  * - P-1: the declared label and the `Simulated control` label are members of `SIM_LABELS`, typed as
  *   `SimLabel`, and no label is retyped in another form.
- * - P-2: both reads go through `useService()` and `useDemonstration()`; no seed, adapter, domain,
+ * - P-2: every read goes through `useService()` and `useDemonstration()`; no seed, adapter, domain,
  *   shell or HTTP module is reachable from here.
  * - P-3: a denial is the `ForbiddenCard` inside `StateBoundary`, and the permission gate on the grant
  *   control decides nothing the adapter does not decide again.
@@ -105,7 +109,7 @@
  *   discriminated `ActionButtonProps` union is what prevents a disabled control without one.
  */
 import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useParams } from 'react-router';
 
@@ -114,31 +118,33 @@ import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
 import { MonoValue } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
+import {
+  deriveScreenState,
+  forbiddenOf,
+  isProblem,
+  staleSourceOf,
+} from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
-import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
 import { useDemonstration, useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import { APPROVAL_GATE_SOURCE, SIM_LABELS } from '../../types';
 import type {
   ActiveUser,
   AuditEvent,
   AuditResult,
-  Freshness,
-  FreshnessState,
   Permission,
   PolicyDetail,
   PolicyException,
   PolicyExceptionStatus,
-  Problem,
   ProblemType,
   Result,
   Scope,
-  ScreenState,
   SimLabel,
 } from '../../types';
 import { GrantExceptionDialog } from './grant-exception-dialog';
+import type { GrantExceptionApprover } from './grant-exception-dialog';
 
 /* ---------------------------------------------------------------------------------------------
  * The fixed labels and the one permission this screen names
@@ -186,6 +192,24 @@ const POLICY_EXCEPTION_REQUEST: Permission = 'policy.exception.request';
 export const POLICY_DETAIL_SCREEN_TEXT = {
   /** The caption before the policy's identifier in the page header's eyebrow. */
   policyCaption: 'Policy',
+
+  /**
+   * The page's title while the record has not arrived — or never will, because the read was refused.
+   *
+   * The header renders in every state, so it needs a title of its own for the states where the record
+   * carries none. It names nothing and claims nothing: it says which page the reader is on, not what
+   * the workspace may do (rules P-4 and P-6).
+   */
+  title: 'Policy detail',
+
+  /**
+   * The page's description while the record has not arrived, in the same terms as a loaded page: what
+   * the screen holds, and nothing about where configuration is held or what has been verified
+   * (rules P-4 and P-6).
+   */
+  description:
+    'One policy as the workspace holds it: whether the policy engine evaluates it, the decisions the ' +
+    'engine recorded against it, and the time-boxed exception requests recorded against it.',
 
   /** The grant action's label, which AAP 0.12.4 fixes for SCR-07. */
   grantAction: 'Grant time-boxed exception',
@@ -291,6 +315,15 @@ export const POLICY_DETAIL_SCREEN_TEXT = {
   grantNotPermitted:
     'A time-boxed exception is requested with policy.exception.request, and the acting persona does ' +
     'not hold it. The service refuses the write for the same reason.',
+
+  /**
+   * The grant control's reason on a policy the engine never evaluates: the record is declared
+   * configuration rather than a rule that was applied, and a rule nothing evaluates cannot be
+   * excepted from (rules P-4 and P-8).
+   */
+  grantNeverEvaluated:
+    'The policy engine does not evaluate this policy: the deployment declares it, so no time-boxed ' +
+    'exception can be requested against it.',
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
@@ -319,47 +352,8 @@ const ACTOR_KIND_CLASSES = 'text-12 text-text-caption';
 const REASON_CLASSES = 'block text-13 break-words text-text-primary';
 
 /* ---------------------------------------------------------------------------------------------
- * Narrowing the service's failure, and the freshness report
+ * The service's own sentence for a refusal of one cause
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * The five causes a `Problem` may name, listed once against the port's own union so a rejection can
- * be narrowed to the service's failure shape without widening anything.
- */
-const PROBLEM_TYPES = [
-  'permission',
-  'policy',
-  'validation',
-  'simulated-write-back',
-  'not-found',
-] as const satisfies readonly ProblemType[];
-
-/**
- * Whether a rejection is the port's typed failure rather than something the platform threw.
- *
- * A `Problem` is thrown rather than returned (AAP 0.12.3), so a screen that catches a read has to
- * tell the two apart before it can name a cause: a refusal of the record is not the same condition
- * as a failure of the call. Every member checked here is one a `Problem` declares, so a `TypeError`
- * from a broken module reaches the offline rendering instead of being read as a refusal it never was.
- */
-function isProblem(error: unknown): error is Problem {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if (!('type' in error) || !('message' in error) || !('traceId' in error)) {
-    return false;
-  }
-
-  const { type, message, traceId } = error;
-
-  return (
-    typeof type === 'string' &&
-    PROBLEM_TYPES.some((known) => known === type) &&
-    typeof message === 'string' &&
-    typeof traceId === 'string'
-  );
-}
 
 /**
  * The service's own message for a refusal of one cause, or `undefined` when the rejection was not
@@ -371,138 +365,6 @@ function isProblem(error: unknown): error is Problem {
  */
 function serviceMessageOf(error: unknown, cause: ProblemType): string | undefined {
   return isProblem(error) && error.type === cause ? error.message : undefined;
-}
-
-/**
- * The denial the forbidden card explains, or `undefined` when the failure was not a permission
- * refusal.
- *
- * The card's evidence is the failure's own: the permission the acting role lacks, the roles that
- * hold it and the trace identifier of the refused call. The card states that enforcement happens in
- * the service, which is the one thing this screen may say about authority (rule P-3).
- */
-function forbiddenOf(error: unknown): StateBoundaryForbidden | undefined {
-  if (!isProblem(error) || error.type !== 'permission') {
-    return undefined;
-  }
-
-  const permission = error.requiredPermission;
-
-  if (permission === undefined) {
-    return undefined;
-  }
-
-  return {
-    permission,
-    roles: error.rolesWithPermission ?? [],
-    traceId: error.traceId,
-  };
-}
-
-/**
- * The stale record the boundary's banner names, or `undefined` unless the approval-gate source
- * itself reports `stale`.
- *
- * The source is `APPROVAL_GATE_SOURCE`, declared once in `src/types/sources.ts` and labelled from
- * `SOURCE_LABELS`, so the banner names the same source the freshness strip prints rather than a
- * second literal that agrees only until the gate moves. Nothing is derived from the instant — no age
- * and no duration (rule P-6).
- */
-function staleRecordOf(freshness: readonly Freshness[]): StateBoundaryStale | undefined {
-  const gate = freshness.find(
-    (entry) => entry.source === APPROVAL_GATE_SOURCE && entry.state === 'stale',
-  );
-
-  if (gate === undefined) {
-    return undefined;
-  }
-
-  return { source: gate.source, label: SOURCE_LABELS[gate.source], asOf: gate.asOf };
-}
-
-/** Whether a source in the read's freshness report answered in the state asked about. */
-function reportsState(freshness: readonly Freshness[], state: FreshnessState): boolean {
-  return freshness.some((entry) => entry.state === state);
-}
-
-/** What {@link deriveScreenState} reads: whether a policy was named, and what the read settled to. */
-interface ScreenStateInput {
-  /** Whether the route named a policy at all. */
-  readonly hasPolicyId: boolean;
-
-  /** Whether the read has not answered yet. */
-  readonly isPending: boolean;
-
-  /** What the read rejected with, or `null` while it has not. */
-  readonly error: unknown;
-
-  /** The read's result, or `undefined` until it settles. */
-  readonly result: Result<PolicyDetail> | undefined;
-}
-
-/**
- * The one place this screen decides which of the seven states its record is in.
- *
- * The route comes first: a route that names no policy has nothing to read. The failure side is then
- * fixed — a permission refusal is `forbidden`, an identifier no record answers is `empty`, a
- * validation refusal is `conflict`, and every other rejection is `offline` — and a pending read is
- * `loading`. The record side reads the freshness report the result itself carries: a source that did
- * not answer makes the read `offline`, the approval-gate source reported stale makes it `stale`, and
- * a source that answered incompletely makes it `partial`. Everything else returns `undefined`, the
- * boundary's documented "no exceptional state holds".
- *
- * An empty decision list is deliberately not a screen state: the header and the other blocks stay
- * readable when one list is empty, so the table's own empty sentence reports it. Its input is the
- * query's settled facts rather than a flag of this screen's, so the state cannot disagree with the
- * read it describes and no effect is needed to keep the two in step.
- */
-function deriveScreenState({
-  hasPolicyId,
-  isPending,
-  error,
-  result,
-}: ScreenStateInput): ScreenState | undefined {
-  if (!hasPolicyId) {
-    return 'empty';
-  }
-
-  if (isProblem(error)) {
-    switch (error.type) {
-      case 'permission':
-        return 'forbidden';
-      case 'not-found':
-        return 'empty';
-      case 'validation':
-        return 'conflict';
-      case 'policy':
-      case 'simulated-write-back':
-        return 'offline';
-    }
-  }
-
-  if (error !== null && error !== undefined) {
-    return 'offline';
-  }
-
-  if (isPending || result === undefined) {
-    return 'loading';
-  }
-
-  const freshness = result.meta.freshness;
-
-  if (reportsState(freshness, 'unavailable')) {
-    return 'offline';
-  }
-
-  if (staleRecordOf(freshness) !== undefined) {
-    return 'stale';
-  }
-
-  if (reportsState(freshness, 'partial')) {
-    return 'partial';
-  }
-
-  return undefined;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -696,6 +558,13 @@ const KEEP_SUPPLIED_ROW_ORDER = (): void => {
  * The grant control's gate
  * ------------------------------------------------------------------------------------------- */
 
+/**
+ * The roster of a read that has not settled yet: a shared frozen empty array, so the memo that maps it
+ * onto the dialog's approver list needs no fabricated persona and a render before the read answers
+ * allocates nothing new.
+ */
+const NO_PERSONAS: readonly ActiveUser[] = [];
+
 /** What the grant control's gate reads. */
 interface GrantGateInput {
   /** Whether the bound adapter carries the demonstration capability that reports a persona. */
@@ -709,22 +578,31 @@ interface GrantGateInput {
 
   /** The permissions the acting persona holds, or `undefined` while they are unknown. */
   readonly permissions: readonly Permission[] | undefined;
+
+  /** Whether the policy engine evaluates the policy this page is showing. */
+  readonly evaluated: boolean;
 }
 
 /**
  * Why the grant control cannot act, or `null` when it can.
  *
  * One sentence per way the control is blocked, in the order a reader can act on: no capability to
- * read a persona from, a read still in flight, a read that failed, and a persona that does not hold
- * the permission the write requires. The gate decides presentation only — the adapter evaluates the
- * matrix itself, so a reader who bypasses the control is refused by the service for the same reason
- * (rule P-3).
+ * read a persona from, a read still in flight, a read that failed, a policy the engine never
+ * evaluates, and a persona that does not hold the permission the write requires. The `evaluated`
+ * check comes before the permission one because it is a property of the record rather than of the
+ * reader: nothing evaluates the policy, so nobody can be excepted from it and the sentence names the
+ * record's own condition instead of sending a reader after a permission that would not help. The
+ * permission half decides presentation only — the adapter evaluates the matrix itself, so a reader who
+ * bypasses the control is refused by the service for the same reason (rule P-3) — and the evaluated
+ * condition is stated here, where the request would be raised, because it is the record's own fact
+ * rather than a check the write repeats.
  */
 function grantBlockerOf({
   hasCapability,
   isPending,
   isError,
   permissions,
+  evaluated,
 }: GrantGateInput): string | null {
   if (!hasCapability) {
     return POLICY_DETAIL_SCREEN_TEXT.grantNoIdentity;
@@ -736,6 +614,10 @@ function grantBlockerOf({
 
   if (isError || permissions === undefined) {
     return POLICY_DETAIL_SCREEN_TEXT.grantIdentityFailed;
+  }
+
+  if (!evaluated) {
+    return POLICY_DETAIL_SCREEN_TEXT.grantNeverEvaluated;
   }
 
   return permissions.includes(POLICY_EXCEPTION_REQUEST)
@@ -780,12 +662,12 @@ export interface PolicyDetailScreenProps {
 /**
  * SCR-07's policy detail, at `/admin/policies/:policyId`.
  *
- * Two reads, both through the service boundary (rule P-2): the policy through `getPolicy` under one
- * cache entry per identifier and selection, and the acting persona through the demonstration
- * capability's `getActiveUser`, which decides whether the grant control can act. The identifier
- * arrives from the route and the selection from the shell, so nothing is typed here — every
- * identifier, statement, persona and instant on screen is a member of a payload the port returned
- * (rule P-6).
+ * Three reads, each through the service boundary (rule P-2): the policy through `getPolicy` under one
+ * cache entry per identifier and selection; the acting persona through the demonstration capability's
+ * `getActiveUser`, which decides whether the grant control can act; and the roster a second approver
+ * is chosen from through the same capability's `listPersonas`. The identifier arrives from the route
+ * and the selection from the shell, so nothing is typed here — every identifier, statement, persona
+ * and instant on screen is a member of a payload the port returned (rule P-6).
  *
  * The component keeps no record of its own. The only state it owns is whether the grant dialog is
  * open, so a re-render can never change a record, and a request the reader records appears because
@@ -793,9 +675,10 @@ export interface PolicyDetailScreenProps {
  * copy of it (AAP 0.12.2 `PolicyDetail.pendingExceptions`).
  *
  * @param props - The shell's plant and product selection.
- * @returns The page header with the grant action, the declared-or-evaluated block, the recorded
- *   decisions, the time-boxed exception requests, and the grant dialog while it is open — all of it
- *   inside the boundary that explains a record which could not be read.
+ * @returns The page header, which renders in every state and carries the grant action once the record
+ *   is loaded, then the declared-or-evaluated block, the recorded decisions and the time-boxed
+ *   exception requests inside the boundary that explains a record which could not be read, and the
+ *   grant dialog while it is open.
  */
 export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactElement {
   const service = useService();
@@ -834,16 +717,44 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
     retry: false,
   });
 
+  /*
+   * The roster the second approver is chosen from, read from the same capability rather than from the
+   * port. `listPersonas` is optional on it — a deployment knows its caller from the session that
+   * reached it — so the read runs only when the bound adapter holds it, and it is bound once here
+   * rather than narrowed again inside the query.
+   *
+   * The value cached is the persona list under the plain `['listPersonas']` key the shell's role
+   * switcher (`src/app/role-switcher.tsx`) reads, not the `Result` envelope: one method, one key, one
+   * shape, so neither reader can hand the other a value of the wrong type.
+   */
+  const readPersonas =
+    demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);
+
+  const personasQuery = useQuery<readonly ActiveUser[], unknown>({
+    queryKey: ['listPersonas'],
+    queryFn: readPersonas === undefined ? skipToken : async () => (await readPersonas()).data,
+    retry: false,
+  });
+
   const result = policyQuery.data;
   const detail = result?.data;
 
+  /*
+   * The read's own facts, plus this screen's facts about itself: a route that names no policy has
+   * nothing to read, the approval-gate source is the one the freshness strip and the banner name, so it
+   * is named first when it is out of date (AAP 0.2.1, T-13), and an empty decision list is deliberately
+   * not a screen state — the header and the other blocks stay readable, so the table's own empty
+   * sentence reports it.
+   */
   const state = deriveScreenState({
-    hasPolicyId: policyIdentifier !== undefined,
+    namedNoRecord: policyIdentifier === undefined,
     isPending: policyQuery.isPending,
     error: policyQuery.error,
-    result,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
   });
-  const staleRecord = result === undefined ? undefined : staleRecordOf(result.meta.freshness);
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord = forbiddenOf(policyQuery.error);
   const emptyMessage =
     policyIdentifier === undefined
@@ -855,7 +766,29 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
     isPending: actingUserQuery.isPending,
     isError: actingUserQuery.isError,
     permissions: actingUserQuery.data?.data.permissions,
+    /*
+     * The policy's own fact, from the record this page shows. A page whose record has not arrived
+     * renders no grant control at all, so this fallback is a value nothing reads.
+     */
+    evaluated: detail !== undefined && detail.evaluated,
   });
+
+  const actingUserId = actingUserQuery.data?.data.id;
+  const personaRecords = personasQuery.data ?? NO_PERSONAS;
+
+  /*
+   * The personas offered as the second approver, in the roster's own order and without the acting
+   * persona: a request needs a second person's approval, so offering the requester would offer a
+   * choice the service refuses. An empty list is honest — the dialog then disables its own submit with
+   * the sentence naming the missing read rather than inventing a persona.
+   */
+  const secondApprovers = useMemo<readonly GrantExceptionApprover[]>(
+    () =>
+      personaRecords
+        .filter((persona) => persona.id !== actingUserId)
+        .map((persona) => ({ id: persona.id, name: persona.name })),
+    [personaRecords, actingUserId],
+  );
 
   const retryRead = (): void => {
     void policyQuery.refetch();
@@ -879,8 +812,53 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
     void queryClient.invalidateQueries({ queryKey: ['getPolicy'] });
   };
 
+  /*
+   * The identifier the header's eyebrow prints: the record's own once the read has resolved, and the
+   * one the route named while it has not. Both are values a caller or the service supplied, so the
+   * screen types no identifier of its own (rule P-6).
+   */
+  const headerIdentifier = detail?.id ?? policyIdentifier;
+
   return (
     <div className={SCREEN_CLASSES}>
+      {/*
+        The page header, above the boundary so that it renders in every state: one refusal gets one
+        shape, as the sovereignty route's header gives it. The eyebrow prints the record's own
+        identifier once it arrives and the identifier the route named until then, so the forbidden card,
+        the empty sentence, the offline notice and the conflict notice all sit under the same heading
+        and the same description instead of a bare card, while the record's own title and statement
+        replace the fixed pair the moment it arrives.
+
+        The grant action is rendered only while the record is loaded, because an action is offered for
+        a policy rather than for a route (rule P-8): a page that could not read its policy offers no
+        control over it. The control is written once per state on purpose — `ActionButtonProps` is a
+        discriminated union, so a disabled control cannot be constructed without the sentence that
+        explains why.
+      */}
+      <PageHeader
+        eyebrow={
+          <>
+            <span>{POLICY_DETAIL_SCREEN_TEXT.policyCaption}</span>
+            {headerIdentifier === undefined ? null : (
+              <MonoValue value={headerIdentifier} kind="id" />
+            )}
+          </>
+        }
+        title={detail?.title ?? POLICY_DETAIL_SCREEN_TEXT.title}
+        description={detail?.statement ?? POLICY_DETAIL_SCREEN_TEXT.description}
+        actions={
+          detail === undefined ? undefined : grantBlocker === null ? (
+            <ActionButton variant="primary" onClick={openGrantDialog}>
+              {POLICY_DETAIL_SCREEN_TEXT.grantAction}
+            </ActionButton>
+          ) : (
+            <ActionButton variant="primary" disabled disabledReason={grantBlocker}>
+              {POLICY_DETAIL_SCREEN_TEXT.grantAction}
+            </ActionButton>
+          )
+        }
+      />
+
       <StateBoundary
         state={state}
         stale={staleRecord}
@@ -892,34 +870,6 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
       >
         {detail === undefined ? null : (
           <div className={PAGE_CLASSES}>
-            {/*
-              The header names the record, so it renders with the record: the identifier and the
-              statement are the payload's own, and the grant action sits beside them. The control is
-              written once per state on purpose — `ActionButtonProps` is a discriminated union, so a
-              disabled control cannot be constructed without the sentence that explains why.
-            */}
-            <PageHeader
-              eyebrow={
-                <>
-                  <span>{POLICY_DETAIL_SCREEN_TEXT.policyCaption}</span>
-                  <MonoValue value={detail.id} kind="id" />
-                </>
-              }
-              title={detail.title}
-              description={detail.statement}
-              actions={
-                grantBlocker === null ? (
-                  <ActionButton variant="primary" onClick={openGrantDialog}>
-                    {POLICY_DETAIL_SCREEN_TEXT.grantAction}
-                  </ActionButton>
-                ) : (
-                  <ActionButton variant="primary" disabled disabledReason={grantBlocker}>
-                    {POLICY_DETAIL_SCREEN_TEXT.grantAction}
-                  </ActionButton>
-                )
-              }
-            />
-
             <Card title={POLICY_DETAIL_SCREEN_TEXT.evaluationTitle}>
               {detail.evaluated ? (
                 <StatusIndicator
@@ -975,7 +925,8 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
 
       {/*
         The grant flow, composed with the record this page is showing. It is rendered only while the
-        record is loaded, because the dialog names the policy it is requested against.
+        record is loaded, because the dialog names the policy it is requested against, and it offers
+        the roster's personas as the second approver rather than a list this screen made up.
       */}
       {isGranting && detail !== undefined ? (
         <GrantExceptionDialog
@@ -983,6 +934,7 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
           policyLabel={detail.title}
           onClose={closeGrantDialog}
           onSubmitted={handleRequestRecorded}
+          secondApprovers={secondApprovers}
         />
       ) : null}
     </div>

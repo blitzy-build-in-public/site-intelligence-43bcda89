@@ -1,6 +1,7 @@
 /**
  * The permission denial, explained: the card a screen shows after the service refused a call because
- * the acting role lacks the permission that call requires.
+ * the acting role lacks the permission that call requires, or because the demonstration's forbidden
+ * trigger withheld a view the role may read.
  *
  * The enforcement is in the service, never here (AAP §0.6.2). The adapter evaluates the contracts
  * §7.1 matrix and the role's plant scope itself and throws a `Problem` of type `'permission'`, so
@@ -10,22 +11,27 @@
  * here states a capability beyond the outcome it reports (rule P-4).
  *
  * The props mirror a permission `Problem` member for member — `requiredPermission`,
- * `rolesWithPermission` and `traceId` of `src/types/service.ts` — so `state-boundary.tsx` hands them
- * straight through and no translation layer can disagree with the service about who may act.
+ * `rolesWithPermission`, `traceId` and, where one arrived, `message` — so `state-boundary.tsx` hands
+ * them straight through and no translation layer can disagree with the service about who may act.
  *
- * Wording. No specification string exists for this card, so the sentence is composed from the props
- * alone: the missing permission in the title, the roles that hold it as a list beneath, and the
- * trace id last. The strings that are fixed elsewhere — the §5.3 simulation labels, the stage
- * tooltips and the SCR-04 empty and disabled sentences — belong to the components that own them and
- * are not repeated here. A role set with no holders is shown as its own caption rather than as an
- * empty list, because a list with nothing in it reads as content that failed to load while the
- * caption states the fact the empty array carries.
+ * Wording. No specification string exists for this card, so what it states is drawn from the failure
+ * it was handed: the permission the refused call required in the title, the refusal's own sentence
+ * where the service supplied one, the roles the matrix grants that permission as a list beneath, and
+ * the trace id last. The sentence is the service's because only the service knows which cause it
+ * refused for: a matrix denial says the acting role does not hold the permission, while the
+ * demonstration's forbidden trigger refuses a call the role may make, and a card that composed one
+ * sentence of its own would turn the second into the first (rules P-3 and P-4). The strings that are
+ * fixed elsewhere — the §5.3 simulation labels, the stage tooltips and the SCR-04 empty and disabled
+ * sentences — belong to the components that own them and are not repeated here. A role set with no
+ * holders is shown as its own caption rather than as an empty list, because a list with nothing in it
+ * reads as content that failed to load while the caption states the fact the empty array carries.
  *
  * Every colour is a role utility of `src/theme/tokens.css`, so both themes paint the roles the
  * specification measured rather than a value chosen here; the card adds no elevation cue
  * (specification §4.3 defines none, and the theme layer exposes no utility for one), no icon carrying
  * a meaning on its own, and no focus stop of its own (rule B-3). It types no figure and no record
- * identifier, because the permission, the roles and the trace id all arrive as props (rule P-6).
+ * identifier, because the permission, the roles, the refusal's sentence and the trace id all arrive
+ * as props (rule P-6).
  */
 import type { ReactNode } from 'react';
 
@@ -39,8 +45,8 @@ import { MonoValue } from './mono-value';
  */
 const TITLE_PREFIX = 'Permission required: ';
 
-/** The caption introducing the roles that hold the permission. */
-const ROLES_LABEL = 'Roles that may act';
+/** The caption introducing the roles that hold the permission, in every cause the card explains. */
+const ROLES_LABEL = 'Roles that hold this permission';
 
 /**
  * What a role set with no holders says instead of an empty list. Lower-case because it completes the
@@ -56,6 +62,13 @@ const BODY_CLASSES = 'flex min-w-0 flex-col gap-2';
 
 /** Captions sit one size below body copy in the secondary text role. */
 const CAPTION_CLASSES = 'text-13 text-text-secondary';
+
+/**
+ * The refusal's own sentence. It leads the supporting text in the same secondary role the captions
+ * beneath it use, and it is allowed to wrap because a service sentence naming a role, a permission and
+ * the roles that hold it can be long.
+ */
+const REASON_CLASSES = 'min-w-0 break-words text-13 text-text-secondary';
 
 /**
  * The roles list. A real `<ul>` so the set is announced as a list of that length (rule B-3), one
@@ -99,6 +112,16 @@ export interface ForbiddenCardProps {
   readonly roles: readonly Role[];
 
   /**
+   * The refusal's own sentence, from `Problem.message`. Optional, because a caller that has no
+   * sentence to quote still has the permission, the roles and the trace id to print.
+   *
+   * Where it is supplied it is rendered character for character rather than composed again here: the
+   * service is the only thing that knows which cause it refused for, so a card that wrote its own
+   * account would state one cause's sentence over another's outcome (rules P-3 and P-4).
+   */
+  readonly reason?: string | undefined;
+
+  /**
    * The correlation identifier of the call that failed, from `Problem.traceId`. Required, and
    * rendered through `MonoValue` in the tabular mono face so a reader can select and quote it: it is
    * the demonstration's only diagnostic (AAP §0.18.1).
@@ -117,8 +140,9 @@ export interface ForbiddenCardProps {
 }
 
 /**
- * Renders the explanation of one permission denial: the permission that was required, the roles that
- * hold it, and the trace id of the refused call.
+ * Renders the explanation of one permission denial: the refusal's own sentence where the service
+ * supplied one, the permission that was required, the roles that hold it, and the trace id of the
+ * refused call.
  *
  * The surface is `Card`'s, so the heading, the boundary and the card radius arrive from that
  * component rather than from this one. The card is static content: it is not a dialog, it traps no
@@ -128,6 +152,7 @@ export interface ForbiddenCardProps {
 export function ForbiddenCard({
   permission,
   roles,
+  reason,
   traceId,
   action,
   className,
@@ -139,6 +164,9 @@ export function ForbiddenCard({
     <div className={className}>
       <Card title={`${TITLE_PREFIX}${permission}`}>
         <div className={BODY_CLASSES}>
+          {reason !== undefined && reason.length > 0 ? (
+            <p className={REASON_CLASSES}>{reason}</p>
+          ) : null}
           <p className={CAPTION_CLASSES}>{ROLES_LABEL}</p>
           {roles.length > 0 ? (
             <ul role="list" className={ROLE_LIST_CLASSES}>

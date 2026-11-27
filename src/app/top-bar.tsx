@@ -55,15 +55,24 @@
  * the items wrap onto further lines instead of overflowing sideways.
  *
  * HOW MANY LINES THE ROW USES IS ITS CONTENTS' DECISION, NOT THIS FILE'S. The specification fixes both
- * the order of the nine positions and the single wrapping row, so no breakpoint is invented and nothing
- * is collapsed behind a disclosure. What decides where a line ends is each child's own intrinsic width:
- * the six freshness pills want roughly a full line to themselves on a desktop viewport, and the role
- * switcher's labelled select and its non-authorisation note are wide on their own. The row therefore
- * takes the lines its content needs — measured at four on a 1440 px window and eight at 390 px, with no
- * horizontal overflow at either — and reads left to right, top to bottom, in exactly the order above.
- * A shorter bar would need a different shape for the bar (a second tier, or the source pills moved out
- * of it), which is a decision about the shell and those components rather than about this file, and it
- * would change the order the specification fixes. Recorded rather than worked around here.
+ * the order of the nine positions and the single wrapping row, so this file invents no breakpoint and
+ * wraps no child in a disclosure of its own. What decides where a line ends is each child's own
+ * intrinsic width: the six freshness pills want roughly a full line to themselves on a desktop
+ * viewport, and the role switcher's labelled select and its non-authorisation note are wide on their
+ * own. The row therefore takes the lines its content needs — measured at four on a 1440 px window and
+ * eight at 390 px, with no horizontal overflow at either — and reads left to right, top to bottom, in
+ * exactly the order above.
+ *
+ * TWO CHILDREN FOLD THEIR OWN WIDEST CONTENT BELOW `md`, AND THAT IS THEIRS TO DO. At a phone viewport
+ * the bar's height is what every route's content pays for, and the six pills took two lines of it while
+ * the labelled select took another: the header measured 584 px above a 328 px navigation in an 812 px
+ * viewport, which left the route's own heading below the fold (QA finding qa-w013-I35). So
+ * `FreshnessStrip` holds its pills behind one disclosure and `RoleSwitcher` holds its label and its
+ * select behind another, both below Tailwind's `md` breakpoint, each trigger owned by the component
+ * whose content it reveals (AAP §0.5.2) and each standing in the position its content occupies, so the
+ * order AAP §0.12.1 fixes is unchanged. This file still has no breakpoint of its own and still renders
+ * no trigger and no wrapped child: from `md` up both children render exactly what they rendered before,
+ * and the row's order, wrapping and tokens are as they were.
  *
  * ROLE TOKENS ONLY (rules B-3, B-1, B-2). Every colour, size and radius below is a role token, so both
  * themes resolve the contrast the specification's tables already measured, and no raw palette value,

@@ -24,15 +24,18 @@
  * selection. Node and lane geometry is a pure function of the props, so two renders of the same props
  * draw the same map.
  *
- * MEANING IS NEVER CARRIED BY COLOUR ALONE (rule B-3). Each of the four node families has its own
- * marker shape — a square for a plant, a circle for a supplier, a triangle for a tier-2 origin and a
- * diamond for a customer — and every node prints its own label, so a reader who cannot separate the
- * hues still reads the network. A node's evidence pins are counted per state and printed as numerals
- * on the same marker, and the node's accessible name spells the counts out, so the badge never asks a
- * reader to tell a hue apart. Every node is a focus stop with a visible focus ring that a hover or a
- * press reveals as well, the controls beside the map are native buttons of at least 24x24 px, and the
- * one transition in the file is a `motion-safe` fade: the map changes only when a prop changes and
- * nothing moves, so a reduced-motion session is shown the same drawing with nothing to undo.
+ * MEANING IS NEVER CARRIED BY COLOUR ALONE (rule B-3). Each of the five node families has its own
+ * marker shape — a square for a plant, a circle for a supplier, a hexagon for a material, a triangle for
+ * a tier-2 origin and a diamond for a customer — and every node but a material prints its own label, so
+ * a reader who cannot separate the hues still reads the network. A material prints no label because it
+ * has no place of its own: it sits at the site its supplier ships from, and its family, its name and its
+ * pins are stated in its accessible name and in the table view instead of crowding the site's own label.
+ * A node's evidence pins are counted per state and printed as numerals on the same marker, and the
+ * node's accessible name spells the counts out, so the badge never asks a reader to tell a hue apart.
+ * Every node is a focus stop with a visible focus ring that a hover or a press reveals as well, the
+ * controls beside the map are native buttons of at least 24x24 px, and the one transition in the file is
+ * a `motion-safe` fade: the map changes only when a prop changes and nothing moves, so a reduced-motion
+ * session is shown the same drawing with nothing to undo.
  *
  * PROVENANCE IS STRUCTURAL (rule P-5). First-party nodes are drawn from the topology and only a
  * competitor element is drawn from the atlas payload. The two are never combined into one mark, one
@@ -79,6 +82,7 @@ import type {
 } from '../types';
 
 import { EvidenceDrawer } from './evidence-drawer';
+import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from './graph-vocabulary';
 import { CHART_TONE_CLASSES, CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 import { Legend } from './legend';
 import type { LegendEntry } from './legend';
@@ -279,29 +283,14 @@ function countryPathsFor(projection: GeoProjection): string {
  * Nodes — labels, markers and the pin badges
  * ------------------------------------------------------------------------------------------- */
 
-/** The family name a node's accessible name carries, so a reader hears which kind of place it is. */
-const NODE_KIND_LABELS = {
-  plant: 'Plant',
-  supplier: 'Supplier',
-  origin: 'Tier-2 origin',
-  customer: 'Customer',
-} as const satisfies Record<TopologyNodeKind, string>;
-
-/**
- * The order a node's pin states are listed and badged in: the states that ask something of a reader
- * first, the states that ask nothing last.
- *
- * The order is fixed here rather than taken from the payload's key order, so two nodes, two renders
- * and the two lenses all list the same states in the same sequence.
- */
-const PIN_STATE_ORDER: readonly PinState[] = ['fail', 'stale', 'pending', 'review', 'pass', 'empty'];
-
 /**
  * The words a pin state's count is announced with.
  *
- * These are this component's own wording for the six states rather than a specification string: the
- * shared mapping in `./status-indicator.tsx` owns what a state looks like, and this map owns only what
- * a reader hears beside a numeral.
+ * The order the six states are listed in, and the word a node's family is named by, are shared with
+ * every other graph surface and live in `./graph-vocabulary.ts`. What stays here is this component's
+ * own wording for the six states rather than a specification string: the shared mapping in
+ * `./status-indicator.tsx` owns what a state looks like, and this map owns only what a reader hears
+ * beside a numeral.
  */
 const PIN_STATE_WORDS = {
   fail: 'failed',
@@ -552,12 +541,49 @@ interface PlacedNode {
 }
 
 /**
- * Places every node of the four families, in the order the families are painted.
+ * How far a material's mark sits from the site it is bought from, in view-box units.
+ *
+ * A material carries its primary supplier's site coordinates (`src/types/topology.ts`), so every
+ * material bought from one supplier projects onto exactly the same point. Each such material is
+ * therefore drawn on a small ring around that point — the first straight up, the rest spaced evenly
+ * around the ring by their index among the materials at that pair — so two marks never coincide and the
+ * map still shows one mark per record. The radius is fixed geometry in view-box units and is never a
+ * measurement of the rendered box, so the same topology draws the same marks on every render and in
+ * every environment.
+ */
+const MATERIAL_ORBIT_RADIUS = 22;
+
+/**
+ * Where a material's mark sits relative to its site: one point of the ring above, rounded to three
+ * decimals so the same pair always produces the same coordinate string.
+ *
+ * The first point is straight up because an SVG view box's y grows downwards, so the offset that reads
+ * as "above the site" is the negative quarter turn. A single material at a site therefore sits above it
+ * rather than on top of it, and a reader still sees the supplier's own mark beneath.
+ *
+ * @param index The material's place among the materials sharing its site.
+ * @param total How many materials share that site.
+ * @returns The x and y offset from the site's projected point.
+ */
+function materialOrbitOffset(index: number, total: number): readonly [number, number] {
+  const angle = -Math.PI / 2 + (index * 2 * Math.PI) / total;
+  const round = (value: number): number => Math.round(value * 1000) / 1000;
+
+  return [
+    round(MATERIAL_ORBIT_RADIUS * Math.cos(angle)),
+    round(MATERIAL_ORBIT_RADIUS * Math.sin(angle)),
+  ];
+}
+
+/**
+ * Places every node of the five families, in the order the families are painted.
  *
  * Customers are placed first and plants last so a plant's mark is never buried under the marks that
- * feed it, and the order within a family is the payload's own, so the same topology draws the same
- * map twice. A node the projection drops is left out rather than drawn at the origin, which would put
- * a supplier in the wrong ocean.
+ * feed it, and materials are painted before the origins and suppliers whose sites they share, so a
+ * place's own mark always stays on top of the material bought from it. The order within a family is the
+ * payload's own, so the same topology draws the same map twice. A node the projection drops is left out
+ * rather than drawn at the origin, which would put a supplier in the wrong ocean; a material is dropped
+ * with its supplier, because its site is the supplier's.
  *
  * @param topology The topology payload.
  * @param projection The projection in use.
@@ -567,18 +593,39 @@ function placedNodesOf(topology: Topology, projection: GeoProjection): readonly 
   const placed: PlacedNode[] = [];
   const families: readonly (readonly TopologyNode[])[] = [
     topology.customers,
+    topology.materials,
     topology.origins,
     topology.suppliers,
     topology.plants,
   ];
+  const materialsBySite = new Map<string, readonly TopologyNode[]>();
+
+  for (const material of topology.materials) {
+    const site = `${material.latitude}|${material.longitude}`;
+    const sharing = materialsBySite.get(site);
+    materialsBySite.set(site, sharing === undefined ? [material] : [...sharing, material]);
+  }
 
   for (const family of families) {
     for (const node of family) {
       const point = projectPoint(projection, node.longitude, node.latitude);
 
-      if (point !== undefined) {
-        placed.push({ node, x: point[0], y: point[1] });
+      if (point === undefined) {
+        continue;
       }
+
+      if (node.kind !== 'material') {
+        placed.push({ node, x: point[0], y: point[1] });
+        continue;
+      }
+
+      const sharing = materialsBySite.get(`${node.latitude}|${node.longitude}`) ?? [];
+      const [offsetX, offsetY] = materialOrbitOffset(
+        sharing.findIndex((candidate) => candidate.id === node.id),
+        Math.max(1, sharing.length),
+      );
+
+      placed.push({ node, x: point[0] + offsetX, y: point[1] + offsetY });
     }
   }
 
@@ -625,11 +672,17 @@ function pinSummaryOf(counts: PinCounts | undefined): string {
  * @returns The accessible name of the node's control.
  */
 function nodeAriaLabel(node: TopologyNode, counts: PinCounts | undefined): string {
-  return `${node.label}, ${NODE_KIND_LABELS[node.kind]}. ${pinSummaryOf(counts)}.`;
+  return `${node.label}, ${NODE_FAMILY_WORDS[node.kind]}. ${pinSummaryOf(counts)}.`;
 }
 
 /**
  * The marker for one family: a shape of its own, so the family is read without relying on colour.
+ *
+ * The five shapes are drawn at the same size — a plant's square is 10 units on a side, and each of the
+ * others spans 6 units from its centre — so no family is emphasised by being bigger. The material's
+ * hexagon is a sixth-sided mark rather than a smaller or larger variant of the four places, because a
+ * material is not a place: it is drawn at the site it ships from, and its shape is what tells a reader
+ * it belongs to the supplier underneath it.
  *
  * @param kind The node's family.
  * @param x The mark's centre x.
@@ -642,6 +695,15 @@ function markerFor(kind: TopologyNodeKind, x: number, y: number): ReactElement {
       return <rect x={x - 5} y={y - 5} width={10} height={10} rx={1} className={NODE_MARK_CLASSES} />;
     case 'supplier':
       return <circle cx={x} cy={y} r={5} className={NODE_MARK_CLASSES} />;
+    case 'material':
+      return (
+        <polygon
+          points={`${x},${y - 6} ${x + 5.2},${y - 3} ${x + 5.2},${y + 3} ${x},${y + 6} ${
+            x - 5.2
+          },${y + 3} ${x - 5.2},${y - 3}`}
+          className={NODE_MARK_CLASSES}
+        />
+      );
     case 'origin':
       return (
         <polygon
@@ -839,15 +901,20 @@ function nodeElement(
         className={NODE_POINTER_RING_CLASSES}
       />
       {markerFor(node.kind, x, y)}
-      <text
-        x={x + 9}
-        y={y + 4}
-        strokeWidth={3}
-        paintOrder="stroke"
-        className={NODE_LABEL_CLASSES}
-      >
-        {node.label}
-      </text>
+      {/* A material prints no label: it stands at its supplier's site, where a second printed name
+          would sit on the place's own. Its name, its family and its pins are in its accessible name
+          and in the table view. */}
+      {node.kind === 'material' ? null : (
+        <text
+          x={x + 9}
+          y={y + 4}
+          strokeWidth={3}
+          paintOrder="stroke"
+          className={NODE_LABEL_CLASSES}
+        >
+          {node.label}
+        </text>
+      )}
       {pinBadgesFor(counts, x, y, node.id)}
     </g>
   );
@@ -1098,7 +1165,7 @@ const LANE_STROKE = 1;
 /** Props of {@link MapCanvas}. */
 export interface MapCanvasProps {
   /**
-   * The topology the lens draws: the four node families, the lanes joining them and the pin counts of
+   * The topology the lens draws: the five node families, the lanes joining them and the pin counts of
    * each node.
    *
    * It arrives from the screen, which reads it through the typed service interface; this component
@@ -1143,12 +1210,13 @@ export interface MapCanvasProps {
    * obligation belongs to the caller, because only the caller knows which record it drew.
    *
    * WHAT A RETURNED REFERENCE MUST BE. One the service's `getEvidence` read resolves, which selects a
-   * family by identifier prefix and looks the record up by its exact identifier: `PPAP-`, `EXC-`,
-   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-`, `PO-`, `PLT-`, `SUP-`, `ORG-` and `CUS-`. A node's
-   * evidence is the record it stands for — `EvidencePin.nodeRef` names the node a pin's evidence hangs
-   * on, and a topology node is itself a record, because the topology payload copies the plant,
-   * supplier, origin or customer into its node — so the node's own identifier resolves. A reference
-   * that matches no family opens a drawer reporting the not-found refusal instead of a record.
+   * family by its own shape and looks the record up by its exact identifier: the composed aggregates
+   * (`overview:`, `canvas:`), an atlas series (`atlas:`), the nine record families `PPAP-`, `EXC-`,
+   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`, the policy family `POL-`, the seven node
+   * families a canvas node can name — `PLT-`, `SUP-`, `ORG-`, `CUS-`, `MAT-`, `LN-` and `PRD-` — and a
+   * declared outbound endpoint by the endpoint string its ledger row states. A topology node's identifier
+   * is the identifier of the record behind it, so the node the caller drew resolves to that record; a
+   * `PIN-` reference attached to the node resolves to the pin whose `EvidencePin.nodeRef` names it.
    *
    * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind this node. Activating
    * the node still reports the selection to the screen, and it opens no dialog — never a drawer shown
@@ -1254,7 +1322,6 @@ export function MapCanvas({
             <ActionButton
               disabled
               disabledReason={MAP_CANVAS_TEXT.zoomAtWidestReason}
-              onClick={() => undefined}
             >
               {MAP_CANVAS_TEXT.zoomOutLabel}
             </ActionButton>
@@ -1274,7 +1341,6 @@ export function MapCanvas({
             <ActionButton
               disabled
               disabledReason={MAP_CANVAS_TEXT.zoomAtClosestReason}
-              onClick={() => undefined}
             >
               {MAP_CANVAS_TEXT.zoomInLabel}
             </ActionButton>

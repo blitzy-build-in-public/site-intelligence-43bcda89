@@ -28,8 +28,11 @@
  * Whether the badge is a control is the caller's decision. With `onActivate` it is a native `<button>`
  * — keyboard operable, with a visible focus ring, a 24x24 px minimum target and an accessible name that
  * contains its visible label (rule B-3) — and activating it opens the simulation popover the shell
- * owns. Without `onActivate` it is a non-interactive `<span>` carrying the same content, because a
- * button that does nothing is precisely what rule P-8 forbids.
+ * owns. The button declares that popup with `aria-haspopup="dialog"`, and declares whether it is open
+ * whenever the shell supplies the popover's real state as `expanded`, so a reader is told the state of
+ * the dialog as well as the action that opens it. Without `onActivate` it is a non-interactive `<span>`
+ * carrying the same content and no popup state of any kind, because a button that does nothing is
+ * precisely what rule P-8 forbids.
  *
  * The popover itself — the seven states, the deliberately broken audit event, the empty queue and the
  * reset — is not here and must not be: it lives in `src/app/simulation-controls.tsx`, which is why the
@@ -67,6 +70,17 @@ export interface SimulatedDataBadgeProps {
    */
   readonly onActivate?: (() => void) | undefined;
   /**
+   * Whether the simulation popover this control opens is open at this moment.
+   *
+   * Supplied by the shell, which owns the popover and is the only element that can know it. It reaches
+   * the accessibility tree as `aria-expanded` on the button, so a reader is told whether the dialog the
+   * button announces is showing, and not only that activating it opens one.
+   *
+   * A caller that cannot know the state omits the prop rather than guessing: the attribute is then
+   * absent, whereas `false` would announce a collapsed popover this module has no evidence of.
+   */
+  readonly expanded?: boolean | undefined;
+  /**
    * Layout-only additions from the shell, such as an order in the top bar's flex row. Never a colour,
    * a surface, an opacity or a font size, each of which would move the badge off the contrast and type
    * values the theme roles already fix (rule B-3).
@@ -85,7 +99,7 @@ export interface SimulatedDataBadgeProps {
  * reachable from here.
  */
 const BADGE_CLASSES = [
-  'inline-flex min-h-6 min-w-6 items-center gap-1.5',
+  'inline-flex min-h-6 min-w-6 items-center gap-2',
   'rounded-control border border-control-boundary bg-surface-2 px-2',
   'font-mono text-12 text-text-primary',
 ].join(' ');
@@ -139,21 +153,25 @@ function joinClassNames(...values: readonly (string | undefined)[]): string {
  * The accessible name of the interactive state is its visible text — `<label> at <clock>` — so the name
  * contains the visible label (WCAG 2.2 SC 2.5.3) and a reader is told both what the badge says and what
  * activating it did. `aria-haspopup="dialog"` announces that the activation opens the popover the
- * shell attaches to the callback.
+ * shell attaches to the callback, and `aria-expanded` reports that popover's open state whenever the
+ * shell supplies it: a disclosure that names a popup without ever saying whether it is open leaves a
+ * screen reader unable to tell its two states apart.
  *
- * @param props The fixed label the shell chose, the optional activation callback, and layout classes.
+ * @param props The fixed label the shell chose, the optional activation callback with the popover's
+ *   open state, and layout classes.
  * @returns A native `button` when `onActivate` is supplied, and a non-interactive `span` otherwise.
  */
 export function SimulatedDataBadge({
   label,
   onActivate,
+  expanded,
   className,
 }: SimulatedDataBadgeProps): ReactElement {
   const content = (
     <>
       <StatusIndicator meaning="simulated" label={label} />
       {/* The spaces are the badge's word separators, not its spacing: a flex container does not
-          render a whitespace-only text run, so the visual gap stays the `gap-1.5` above while the
+          render a whitespace-only text run, so the visual gap stays the `gap-2` above while the
           accessible name reads `<label> at <clock>` instead of running the three values together. */}
       {' '}
       <span className={SEPARATOR_CLASSES}>at</span>
@@ -173,6 +191,7 @@ export function SimulatedDataBadge({
       type="button"
       className={joinClassNames(BADGE_CLASSES, INTERACTIVE_CLASSES, className)}
       aria-haspopup="dialog"
+      aria-expanded={expanded}
       onClick={() => {
         onActivate();
       }}

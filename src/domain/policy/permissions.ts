@@ -18,60 +18,35 @@
  *
  * Pure, total and deterministic (AAP 0.2.1, AAP 0.18.2). A table lookup is the whole computation: no
  * clock, no random source, no I/O, no mutable module state and no throw. Identical arguments always
- * yield the identical answer, and a permission the table does not grant is denied.
+ * yield the identical answer, and a permission the table does not grant is denied. "Total" reaches the
+ * argument the type system cannot exclude at runtime: a role key the tables do not own —
+ * `'__proto__'` or any string outside the contracts' set — holds no permission and reaches no plant,
+ * because both lookups are guarded rather than resolved up the prototype chain.
  *
  * This module imports types and nothing else (rule P-2): no seed record, no adapter, no React and no
  * sibling `src/domain` folder. `src/domain/policy/evaluate.ts` may import this module; the reverse
  * would be a cycle.
  *
- * OPEN ITEM: contracts §7.1 is the authority for the exact cells and is not readable in this run, so
- * every cell below is settled from the AAP fact that names it and stays open to correction. The table
- * covers 8 roles x 14 permissions = 112 cells, of which 42 are granted and 70 are denied; those 42
- * grants are a documented derivation rather than a transcription, and `platform-contracts.md` §7.1
- * supersedes every line of it, the holder sets recorded below included, the moment §7.1 is supplied.
- * Per cell:
- * - `approval.decide` to `plant-manager` and `head-of-supply-chain`. The persona table (AAP 0.2.3),
- *   the plant manager's home route `/approvals` (AAP 0.12.4) and the journey in which a planner
- *   requests a plan and the plant manager decides it (AAP 0.2.2, T-07, T-08) fix the first holder.
- *   The second is the approver the seeded plans need: the head of supply chain spans all four plants,
- *   so it is the approver that can reach a plan recorded at a plant whose own plant manager is scoped
- *   elsewhere, and the seeded trail already records it deciding `APR-2026-103`. Both roles are on
- *   `Approval.eligibleApproverRoles`, which is a list for exactly this reason.
- * - `approval.request` to the roles that send a plan for approval and not to `plant-manager`, so a
- *   request always has a distinct persona able to decide it.
- * - `audit.read` to `auditor` and `platform-administrator`, the two roles that hold `sovereignty.read`.
- *   The auditor's home route is `/audit` (AAP 0.12.4), and SCR-07's "Export evidence pack" composes the
- *   chain's own verification into the document it downloads, so the persona whose screen offers that
- *   export reads the chain it declares — which is also what keeps the two adapters from disagreeing
- *   about who may export (AAP 0.12.3). A supplied §7.1 that withholds the cell from the administrator
- *   also narrows that export to the auditor.
- * - `sovereignty.read` and `policy.read` to `platform-administrator` and `auditor`; `admin.read` and
- *   `policy.exception.request` to `platform-administrator` alone, from its home route
- *   `/admin/sovereignty` and the time-boxed exception it grants (AAP 0.12.4, SCR-07).
- * - `document.confidential.read` to `material-planner`, `plant-manager` and `head-of-supply-chain`,
- *   and to neither the platform administrator nor the external supplier engineer: USR-04 cannot open
- *   the body of a customer-confidential document, which the mock adapter redacts inside the service
- *   (AAP 0.2.1), and the planning role `production-planner` holds none.
- * - `competitive.read` to `plant-manager`, `head-of-supply-chain` and `platform-administrator`, and to
- *   none of the other five roles: `GET /market-intelligence/atlas` is forbidden for the external
- *   supplier engineer (AAP 0.12.3) and SCR-13 is forbidden for that persona (AAP 0.12.4), while no
- *   input fixes the cell for the four roles left, so the holder set is part of the derivation above.
- * - `evidence.read` to all eight roles: every figure a screen shows opens its evidence (principle
- *   PR-6), so a role that may see a figure must be able to open the evidence behind it.
- * - `evidence.review` to `supplier-quality-engineer` alone, the role that reviews extraction
- *   (AAP 0.12.1).
- * - `exception.work` to `material-planner`, `plant-manager`, `production-planner` and
- *   `supplier-quality-engineer`, and `scenario.create` to `material-planner`, `plant-manager`,
- *   `head-of-supply-chain` and `production-planner`: the roles that assign, note, dismiss or compare
- *   options (AAP 0.12.4, SCR-02 row actions and SCR-04).
- * OPEN ITEM: specification §3 fixes each persona's own plant assignment and is absent from this run,
- * so the sets below are the demonstration's declared default; a supplied §3 transcribes over them
- * without a consumer change. The mock adapter builds each persona's `plantIds` from `plantScopeFor`,
- * and that output equals the record's own `plantScope` because the two tables state one fact.
- * OPEN ITEM: own-vendor message redaction is deliberately not a cell of this matrix. USR-08 sees only
- * its own vendor's pins and USR-04 never receives a customer-confidential document body, and the mock
- * adapter applies both before a record crosses the service boundary (AAP 0.2.1). Filtering here
- * would create a second enforcement point for a rule the adapter already owns.
+ * The cells are stated from the specification and the AAP fact that names each one; contracts §7.1 is
+ * their authority and supersedes every cell below, with the holder sets derived here. All 8 roles x 14
+ * permissions = 112 cells appear, 46 granted and 66 denied, each grant following a fact about the
+ * persona: the roles whose home route needs a read hold it, only a role able to decide a plant's plans
+ * holds `approval.decide`, `approval.request` is withheld from `plant-manager` so a request always has
+ * a distinct decider, and `evidence.read` reaches all eight because every figure opens its evidence.
+ * `audit.read` reaches the two governance roles and the four personas the shell lands on the FileMap
+ * canvas, because SCR-12's bottom dock carries the five latest audit events beside the selected
+ * exception's projected stock with no caveat about the role reading them (AAP 0.12.4), and a supplied
+ * §7.1 that withholds the cell from any of the six narrows that dock's events half to the roles left.
+ *
+ * Each persona's plant assignment. Specification §3 is the authority for it, and the sets below are
+ * the demonstration's declared default, which §3 transcribes over without a consumer change. The mock
+ * adapter builds each persona's `plantIds` from `plantScopeFor`, and that output equals the record's
+ * own `plantScope` because the two tables state one fact.
+ *
+ * Own-vendor message redaction is deliberately not a cell of this matrix. USR-08 sees only its own
+ * vendor's pins and USR-04 never receives a customer-confidential document body, and the mock adapter
+ * applies both before a record crosses the service boundary (AAP 0.2.1); filtering here would create a
+ * second enforcement point for a rule the adapter already owns.
  */
 
 import type { ActiveUser, Permission, PlantId, Role } from '../../types';
@@ -160,6 +135,7 @@ const ROLE_PERMISSIONS = {
     'scenario.create',
     'approval.request',
     'document.confidential.read',
+    'audit.read',
     'evidence.read',
   ],
   'plant-manager': [
@@ -177,6 +153,7 @@ const ROLE_PERMISSIONS = {
     'approval.request',
     'approval.decide',
     'document.confidential.read',
+    'audit.read',
     'evidence.read',
     'competitive.read',
   ],
@@ -194,10 +171,17 @@ const ROLE_PERMISSIONS = {
     'exception.work',
     'scenario.create',
     'approval.request',
+    'audit.read',
     'evidence.read',
   ],
   auditor: ['exception.read', 'audit.read', 'sovereignty.read', 'policy.read', 'evidence.read'],
-  'supplier-quality-engineer': ['exception.read', 'exception.work', 'evidence.read', 'evidence.review'],
+  'supplier-quality-engineer': [
+    'exception.read',
+    'exception.work',
+    'audit.read',
+    'evidence.read',
+    'evidence.review',
+  ],
   'external-supplier-engineer': ['evidence.read'],
 } as const satisfies Readonly<Record<Role, readonly Permission[]>>;
 
@@ -223,6 +207,41 @@ type UngrantedPermission = Exclude<Permission, GrantedPermission>;
 type EveryPermissionGranted = AssertNever<UngrantedPermission>;
 
 /* ---------------------------------------------------------------------------------------------
+ * The two guards that keep a table lookup total — a role key the tables do not own
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The permissions the matrix grants a role, or `undefined` for a key the matrix does not own.
+ *
+ * The guard is the whole reason this helper exists: `ROLE_PERMISSIONS[role]` on its own is an
+ * unguarded read of a plain object, so a key the table does not declare — `'__proto__'`,
+ * `'constructor'`, `'toString'` or any string outside the contracts' set — resolves up the prototype
+ * chain to something that is not a permission list, and a caller that trusted it would throw out of a
+ * module that promises no throw. Answering `undefined` for a key the table does not own is what lets
+ * every caller deny it instead.
+ *
+ * @param role The role to read the matrix row of.
+ * @returns The role's permissions, or `undefined` when the matrix does not own the key.
+ */
+function heldPermissionsOf(role: Role): readonly Permission[] | undefined {
+  return Object.hasOwn(ROLE_PERMISSIONS, role) ? ROLE_PERMISSIONS[role] : undefined;
+}
+
+/**
+ * The plants a role's scope covers, or `undefined` for a key `PLANT_SCOPE` does not own.
+ *
+ * The same guard as `heldPermissionsOf`, for the same reason: an unowned key would otherwise resolve
+ * to `Object.prototype`, which is not iterable, and a caller that spread it would throw instead of
+ * answering.
+ *
+ * @param role The role to read the plant scope of.
+ * @returns The declared plants, or `undefined` when the table does not own the key.
+ */
+function plantScopeOf(role: Role): readonly PlantId[] | undefined {
+  return Object.hasOwn(PLANT_SCOPE, role) ? PLANT_SCOPE[role] : undefined;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The three queries the adapters, the scope resolver and the forbidden card call
  * ------------------------------------------------------------------------------------------- */
 
@@ -236,9 +255,15 @@ type EveryPermissionGranted = AssertNever<UngrantedPermission>;
  * 2. The role's plant scope, when `subject` is non-null. A role limited to one plant may not act on
  *    a record belonging to another, and a role that spans plants may act on any of them. A `null`
  *    subject means the call is not plant-scoped, as with `admin.read` or `audit.read`.
- * 3. The acting user's own plant scope, where it is narrower than the role's. The effective scope is
- *    the intersection of the two, so a persona seeded with one plant cannot reach past it even while
- *    its role spans the group.
+ * 3. The acting persona's own plant scope. The effective scope is the intersection of the role's
+ *    plants and the persona's own, so a persona seeded with one plant cannot reach past it even while
+ *    its role spans the group, and a persona whose record names no plant reaches no plant: an empty
+ *    scope is denied rather than read as "no narrowing", which is what makes it fail closed. Every
+ *    seeded persona's `plantIds` comes from `plantScopeFor` (see above), so this clause changes no
+ *    seeded persona's answer; what it closes is a persona record that names no plant. The shell's
+ *    plant filter is a different thing entirely: there an empty selection means "All plants", because
+ *    it is the user's choice of what to look at rather than a scope a role was granted, and
+ *    `src/domain/aggregation/scope.ts` reads it that way.
  *
  * `role` is evaluated exactly as given, which is what lets a suite probe any role against any user;
  * `actor` supplies the concrete persona for the clause scoped by user. `actor.permissions` is not
@@ -249,7 +274,7 @@ type EveryPermissionGranted = AssertNever<UngrantedPermission>;
  * @param role The role to evaluate.
  * @param permission The permission the call requires.
  * @param subject The record the call is about, or `null` when the call is not plant-scoped.
- * @param actor The acting persona, whose plant scope narrows the role's where it is narrower.
+ * @param actor The acting persona, whose own plant scope the effective scope is intersected with.
  * @returns `true` only when the role holds the permission and the subject is inside the effective
  *   plant scope; `false` in every other case, including a role outside the contracts' set.
  */
@@ -259,7 +284,7 @@ export function hasPermission(
   subject: ScopedSubject | null,
   actor: ActiveUser,
 ): boolean {
-  const heldPermissions: readonly Permission[] | undefined = ROLE_PERMISSIONS[role];
+  const heldPermissions: readonly Permission[] | undefined = heldPermissionsOf(role);
   if (heldPermissions === undefined || !heldPermissions.includes(permission)) {
     return false;
   }
@@ -268,25 +293,30 @@ export function hasPermission(
     return true;
   }
 
-  if (!plantScopeFor(role).includes(subject.plantId)) {
+  const rolePlantScope: readonly PlantId[] | undefined = plantScopeOf(role);
+  if (rolePlantScope === undefined || !rolePlantScope.includes(subject.plantId)) {
     return false;
   }
 
-  return actor.plantIds.length === 0 || actor.plantIds.includes(subject.plantId);
+  return actor.plantIds.includes(subject.plantId);
 }
 
 /**
  * The plants a role's scope covers — contracts §7.1, restating the seeded persona records.
  *
- * The returned array is freshly allocated, so a caller may sort, filter or mutate it without
- * reaching the table behind it. It is never empty: a role that may act nowhere could not be named by
- * a disabled control's explanation (rule P-8).
+ * The returned array is freshly allocated, so a caller may sort, filter or mutate it without reaching
+ * the table behind it. For a role the table owns it is never empty: a role that may act nowhere could
+ * not be named by a disabled control's explanation (rule P-8). A role key the table does not own —
+ * `'__proto__'` or any string outside the contracts' set — is scoped to nothing and answered with an
+ * empty array rather than an exception, so every caller narrows to no plant instead of throwing.
  *
  * @param role The role to read the plant scope of.
- * @returns The role's plants, in the order the `Scope` row of AAP 0.12.2 lists them.
+ * @returns The role's plants, in the order the `Scope` row of AAP 0.12.2 lists them; empty when the
+ *   table does not own the key.
  */
 export function plantScopeFor(role: Role): PlantId[] {
-  return [...PLANT_SCOPE[role]];
+  const declared: readonly PlantId[] | undefined = plantScopeOf(role);
+  return declared === undefined ? [] : [...declared];
 }
 
 /**

@@ -65,7 +65,12 @@ export interface DataTableProps<Row> {
   readonly sort: TableSort | null;
   /** Called with a column id when the user activates that column's sort control. */
   readonly onSort: (columnId: string) => void;
-  /** Called when the user opens the row: `Enter` on the row cursor, or a double click. */
+  /**
+   * Called when the user opens the row: `Enter` on the row cursor, or a pointer click on the row —
+   * anywhere outside a control the row holds, whose own click stays with that control. One gesture
+   * opens the row once: the later clicks of a multi-click sequence are ignored, because the first
+   * of them has already opened it.
+   */
   readonly onRowActivate?: (row: Row) => void;
   /**
    * The sentence shown in a single full-width cell when the table shows no data rows — because the
@@ -131,6 +136,10 @@ const ROW_CLASS =
  * ground, which swap over 150ms and are switched off entirely under `prefers-reduced-motion` (B-3).
  * The pressed fill steps back to the first surface, so a press reads as one step below the hover it
  * started from rather than as nothing happening.
+ *
+ * The affordance is one the row honours: a pointer click on the row — outside any control the row
+ * holds, whose own click stays with that control — opens it, exactly as `Enter` on the row cursor
+ * does. Nothing here advertises a gesture the row ignores (rule P-8).
  */
 const ACTIVATABLE_ROW_CLASS =
   'cursor-pointer transition-colors duration-150 hover:bg-surface-2 active:bg-surface-1 motion-reduce:transition-none';
@@ -159,7 +168,8 @@ function directionFor(
 }
 
 /**
- * Whether the event happened inside a control that owns its own keys.
+ * Whether the event happened inside a control that owns its own keys — and its own activation, so a
+ * click on it opens what the control offers rather than the row around it.
  */
 function happenedInsideControl(target: EventTarget | null): boolean {
   return (
@@ -275,7 +285,14 @@ export function DataTable<Row>({
   };
 
   return (
-    <div className="w-full overflow-x-auto">
+    /*
+      The scroll container is positioned so the absolutely positioned, visually hidden text a cell
+      carries — the caption, an evidence trigger's suffix, a tooltip's closed description — is laid
+      out against this box and clipped by its `overflow-x-auto`. Left static, those 1 by 1 px boxes
+      escape every ancestor with `overflow-x: auto` and widen the document instead, which scrolls the
+      whole page sideways however narrow the table's own container is.
+    */
+    <div className="relative w-full overflow-x-auto">
       {/*
         `aria-rowcount` counts the header row as row 1, so a reader given a data row's position also
         knows how many rows the table holds in total: the row count includes it.
@@ -379,10 +396,30 @@ export function DataTable<Row>({
                   onFocus={() => {
                     setCursorIndex(index);
                   }}
-                  onDoubleClick={
+                  onClick={
                     onRowActivate === undefined
                       ? undefined
-                      : () => {
+                      : (event) => {
+                          /*
+                            The first click of a double click has already opened the row, so the
+                            second is not a second activation: the row opens something, and opening
+                            it twice would push a duplicate history entry, which leaves one Back
+                            press with the URL where it already was and makes the row look broken.
+                            `detail` counts the clicks of the sequence, so anything after the first
+                            one is dropped here rather than opening the row again.
+                          */
+                          if (event.detail > 1) {
+                            return;
+                          }
+                          /*
+                            One click opens the row, the way `Enter` on the row cursor does. A click
+                            that started inside a control the row holds — a button, a link, a field,
+                            an evidence trigger — belongs to that control, so the row stays closed
+                            behind it rather than opening as well.
+                          */
+                          if (happenedInsideControl(event.target)) {
+                            return;
+                          }
                           activateRow(row);
                         }
                   }

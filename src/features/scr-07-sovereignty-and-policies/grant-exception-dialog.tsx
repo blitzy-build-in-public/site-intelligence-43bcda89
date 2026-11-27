@@ -16,11 +16,12 @@
  * called with the cache client it obtained through `useQueryClient()`. Naming a port member is the
  * whole of the convention AAP 0.6.2 fixes — every read is keyed `[method, ...args]`, so one member
  * name matches every entry of that read under every argument list — and it is the same invalidation
- * the approval detail screen performs for the reads its decision moved. The helper only marks cache
- * entries stale: it reads no record, edits none and holds no data boundary of its own. It is called
- * before the caller is told the request was recorded, so a policy, sovereignty or audit surface that
- * stays mounted reads the post-write payload instead of the one it cached. A refused call invalidates
- * nothing.
+ * the approval detail screen performs for the reads its decision moved. A feature module may not
+ * import `src/app` (AAP 0.18.1 "Boundary discipline"), so that call is written here rather than
+ * delegated to a helper of the shell's. The helper only marks cache entries stale: it reads no record,
+ * edits none and holds no data boundary of its own. It is called before the caller is told the request
+ * was recorded, so a policy, sovereignty or audit surface that stays mounted reads the post-write
+ * payload instead of the one it cached. A refused call invalidates nothing.
  *
  * WHAT IT CLAIMS, AND WHAT IT DOES NOT. The dialog says that a request is recorded as pending and
  * that nothing here decides it. A denial in a browser page demonstrates the declared policy set
@@ -42,11 +43,12 @@
  *   lifts its boundary to the accent role under the pointer, so a pointer reader sees a state the
  *   keyboard reader has an equivalent of; and every transition is `motion-safe:`, so a reduced-motion
  *   session animates nothing here.
- * - P-2: data access is `useService()` alone. The invalidation {@link invalidateReads} performs goes
+ * - P-2: data access is `useService()` alone, and the invalidation {@link invalidateReads} performs goes
  *   through the cache client `useQueryClient()` returns: it reads no record, edits none and holds no
- *   data boundary. No seed module, adapter, API client, shell module or other feature is imported —
- *   the port arrives only as a type, for the helper's member names — so this dialog cannot become a
- *   second data boundary.
+ *   data boundary. No seed module, adapter, API client, shell module or other feature is imported — a
+ *   feature module may not import `src/app` (AAP 0.18.1 "Boundary discipline") and the port arrives
+ *   only as a type, for the helper's member names — so this dialog cannot become a second data
+ *   boundary.
  * - P-6: no figure, date, identifier, user, role or count is typed here. The policy identifier and its
  *   label arrive as props, the candidate approvers arrive as props, and the boundary the expiry is
  *   measured against is the imported `DEMO_CLOCK` constant rather than a literal or the system clock.
@@ -58,28 +60,35 @@
  *   not been chosen, no approver is offered at all, or a request is already in flight. The same
  *   sentence is the field's described-by message, so it is read as well as painted.
  *
- * OPEN ITEM — the candidate second approvers. `SiteIntelligenceService` declares no read for the
- * personas a request may name: `getPolicy` returns the policy's decisions rather than its audience,
- * `searchIdentifiers` returns domain records, and `DemonstrationControls` carries the role switch and
- * no active-user read. Rule P-2 leaves this component no route to `src/seed/users.ts`, so the
- * candidates arrive as an optional prop instead of being invented here. With the prop absent or empty
- * the select offers nothing and the submit is disabled with a sentence naming the missing capability
- * rather than becoming a dead control (rule P-8); the day the port carries such a read, the caller
- * passes its result and nothing else in this file changes.
- * OPEN ITEM — the requester's own identifier. The service refuses a request whose second approver is
- * the acting persona, and the acting persona is not readable from this component either, so that one
- * check cannot be made here. It is therefore reported instead of pre-empted: the refusal arrives as a
- * `'validation'` `Problem` naming the persona, and the dialog renders that message inline.
- * OPEN ITEM — the expiry is an instant and the field is a date. `requestPolicyException` takes
- * `expiresAt` as an ISO 8601 instant, while SCR-07's term is the date the exception stops applying.
+ * THE CANDIDATE SECOND APPROVERS ARRIVE AS A PROP. `SiteIntelligenceService` declares no read for the
+ * personas a request may name — `getPolicy` returns the policy's decisions rather than its audience, and
+ * `searchIdentifiers` returns domain records — and rule P-2 leaves this component no route to
+ * `src/seed/users.ts`, so the candidates arrive as an optional prop rather than an invented list. Absent
+ * or empty, the select offers nothing and the submit is disabled with a sentence naming the missing
+ * capability rather than becoming a dead control (rule P-8).
+ *
+ * THE SECOND APPROVER'S IDENTITY IS THE SERVICE'S CHECK. The service refuses a request whose second
+ * approver is the acting persona, and the acting persona is not readable from this component, so that
+ * check cannot be made here: the refusal arrives as a `'validation'` `Problem` naming the persona, and
+ * the dialog renders that message inline.
+ *
+ * THE EXPIRY IS A DATE AND THE PORT TAKES AN INSTANT. `requestPolicyException` takes `expiresAt` as an
+ * ISO 8601 instant, while SCR-07's term is the date the exception stops applying, and
  * {@link expiryInstantOf} is the whole of that conversion: the chosen date at the start of the day, in
  * the offset the demonstration clock itself carries, so the boundary the service re-checks and the one
- * this dialog checks cannot disagree. No zone is computed, no clock is read and no date is written
- * into the module.
+ * this dialog checks cannot disagree.
  *
  * There is deliberately no `form` element. The submit is an {@link ActionButton} of `type="button"`,
  * so nothing in this markup can submit implicitly and `Enter` inside the reason field inserts a line
  * break instead of sending a policy exception.
+ *
+ * WHERE THE FOUR NATIVE ELEMENTS COME FROM. The heading and the three fields are composed, never
+ * written here: {@link DialogHeading} owns the `<h2>`, {@link TextAreaField} the reason's `<textarea>`,
+ * {@link TextField} the expiry's `<input type="date">` and {@link SelectField} the approver's
+ * `<select>` with the caller's own options. This dialog therefore renders no native interactive
+ * element itself, and the only path to one runs through the component that owns it (AAP §0.5.2,
+ * §0.5.5). Each primitive reports an edit as the field's new value string, which is what the three
+ * setters below take, and every `id`, `aria-*` attribute and class list stays this dialog's own.
  */
 import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
@@ -87,6 +96,10 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
 import { Card } from '../../components/card';
+import { DialogHeading } from '../../components/dialog-heading';
+import { SelectField } from '../../components/select-field';
+import { TextAreaField } from '../../components/text-area-field';
+import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
 import type {
   PolicyException,
@@ -267,10 +280,13 @@ const DIALOG_CLASSES = 'w-full max-w-xl';
 /** The header row: the heading group and the simulation tag, wrapping rather than overlapping. */
 const HEADER_CLASSES = 'flex min-w-0 flex-wrap items-start justify-between gap-2';
 
-/** The heading group: the `<h2>` and the policy it is requested against. */
+/** The heading group: the {@link DialogHeading} and the policy it is requested against. */
 const HEADING_GROUP_CLASSES = 'flex min-w-0 flex-col gap-1';
 
-/** The dialog's heading. The `id` on it is what `aria-labelledby` names the dialog by. */
+/**
+ * The dialog's heading, worn by {@link DialogHeading} as its replacement class list. The `id` on it is
+ * what `aria-labelledby` names the dialog by.
+ */
 const HEADING_CLASSES = 'text-16 font-semibold text-text-primary';
 
 /** The policy caption: a recorded identifier and its label, in the mono face at caption size. */
@@ -404,8 +420,8 @@ export interface GrantExceptionDialogProps {
    * The personas the caller offers as the second approver.
    *
    * Absent or empty, the select offers no choice and the submit is disabled with a sentence naming the
-   * missing read (see this module's OPEN ITEM on the candidates). The dialog never invents a persona
-   * and never imports the record set it would find them in (rule P-2).
+   * missing read (see the module header on the candidates). The dialog never invents a persona and never
+   * imports the record set it would find them in (rule P-2).
    */
   readonly secondApprovers?: readonly GrantExceptionApprover[] | undefined;
 }
@@ -463,7 +479,7 @@ function isProblem(thrown: unknown): thrown is Problem {
  *
  * The port takes an ISO 8601 instant and SCR-07's term is a calendar date, so the two have to meet
  * somewhere; this is the whole of that meeting. It reads no clock, computes no zone change and types
- * no date — the offset comes from `DEMO_CLOCK` itself (this module's OPEN ITEM on the expiry).
+ * no date — the offset comes from `DEMO_CLOCK` itself (see the module header on the expiry).
  */
 function expiryInstantOf(date: string): Timestamp {
   return `${date}T00:00:00${DEMO_CLOCK_OFFSET}`;
@@ -555,6 +571,10 @@ type CachedRead = keyof SiteIntelligenceService;
  * records are shared, so that granularity is what the write needs: a request recorded against one
  * policy moves the ledger the sovereignty read reports and the trail the audit read lists as well,
  * which is why the three reads are named rather than the one the request was made against.
+ *
+ * The members are the port's own, which is what lets this dialog hold the list at all — the port is
+ * the only shared vocabulary between a screen and the adapters (rule P-2) — and nothing here reaches
+ * into `src/app`, which a feature module may not import (AAP 0.18.1 "Boundary discipline").
  *
  * @param queryClient The client this dialog obtained with `useQueryClient()`.
  * @param reads The port members the write touched. An empty list invalidates nothing.
@@ -768,9 +788,9 @@ export function GrantExceptionDialog({
         <Card as="div">
           <div className={HEADER_CLASSES}>
             <div className={HEADING_GROUP_CLASSES}>
-              <h2 id={headingId} className={HEADING_CLASSES}>
+              <DialogHeading id={headingId} className={HEADING_CLASSES}>
                 {GRANT_EXCEPTION_DIALOG_TEXT.heading}
-              </h2>
+              </DialogHeading>
               <p className={POLICY_CAPTION_CLASSES}>
                 {GRANT_EXCEPTION_DIALOG_TEXT.policyCaption} {policyLabel}
               </p>
@@ -786,16 +806,14 @@ export function GrantExceptionDialog({
             <label htmlFor={reasonId} className={LABEL_CLASSES}>
               {GRANT_EXCEPTION_DIALOG_TEXT.reasonLabel}
             </label>
-            <textarea
+            <TextAreaField
               id={reasonId}
               ref={reasonRef}
               className={REASON_CONTROL_CLASSES}
               value={reason}
               aria-required="true"
               aria-describedby={reasonMessageId}
-              onChange={(event) => {
-                setReason(event.target.value);
-              }}
+              onChange={setReason}
             />
             <p id={reasonMessageId} className={MESSAGE_CLASSES}>
               {reasonMessage}
@@ -806,7 +824,7 @@ export function GrantExceptionDialog({
             <label htmlFor={expiryId} className={LABEL_CLASSES}>
               {GRANT_EXCEPTION_DIALOG_TEXT.expiryLabel}
             </label>
-            <input
+            <TextField
               id={expiryId}
               type="date"
               className={FIELD_CONTROL_CLASSES}
@@ -815,9 +833,7 @@ export function GrantExceptionDialog({
               aria-required="true"
               aria-describedby={expiryMessageId}
               aria-invalid={expiryValueInvalid ? true : undefined}
-              onChange={(event) => {
-                setExpiry(event.target.value);
-              }}
+              onChange={setExpiry}
             />
             <p
               id={expiryMessageId}
@@ -831,23 +847,21 @@ export function GrantExceptionDialog({
             <label htmlFor={approverId} className={LABEL_CLASSES}>
               {GRANT_EXCEPTION_DIALOG_TEXT.approverLabel}
             </label>
-            <select
+            <SelectField
               id={approverId}
               className={FIELD_CONTROL_CLASSES}
               value={secondApproverId}
+              options={[
+                { value: '', label: GRANT_EXCEPTION_DIALOG_TEXT.approverPlaceholder },
+                ...candidates.map((candidate) => ({
+                  value: candidate.id,
+                  label: `${candidate.name} (${candidate.id})`,
+                })),
+              ]}
               aria-required="true"
               aria-describedby={approverMessageId}
-              onChange={(event) => {
-                setSecondApproverId(event.target.value);
-              }}
-            >
-              <option value="">{GRANT_EXCEPTION_DIALOG_TEXT.approverPlaceholder}</option>
-              {candidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {`${candidate.name} (${candidate.id})`}
-                </option>
-              ))}
-            </select>
+              onChange={setSecondApproverId}
+            />
             <p id={approverMessageId} className={MESSAGE_CLASSES}>
               {approverMessage}
             </p>

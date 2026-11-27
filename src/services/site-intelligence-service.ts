@@ -534,7 +534,10 @@ export interface SiteIntelligenceService {
    * ones returns the fixed notice as its text with no citations. Where POL-007 blocks the requested
    * model for the context the question carries, the call throws a `Problem` of type `'policy'`
    * carrying the policy, the reason, the alternative it permits and the event it appended, which is
-   * what the block card shows with its one-click switch to the in-boundary model (AAP 0.12.4).
+   * what the block card shows with its one-click switch to the in-boundary model (AAP 0.12.4). A
+   * question citing a customer-confidential document the acting role may not read is refused with a
+   * `Problem` of type `'permission'` naming that permission and the roles that hold it, so no answer
+   * carries a body the document read withholds (AAP 0.2.1, AAP 0.12.3).
    */
   askAssistant(query: {
     /** The question as the user asked it. */
@@ -733,7 +736,7 @@ export interface SiteIntelligenceService {
    * ------------------------------------------------------------------------------------------- */
 
   /**
-   * Reads the topology the FileMap canvas renders through both lenses: the four node families, the
+   * Reads the topology the FileMap canvas renders through both lenses: the five node families, the
    * lanes joining them, and the evidence-pin counts of each node.
    *
    * contracts §9: `GET /topology`. The selection narrows the nodes and lanes the two lenses draw and

@@ -106,7 +106,36 @@ const AS_OF_PREFIX = 'As of ';
 const GRANT_ACTION = 'Grant time-boxed exception';
 const EXPORT_ACTION = 'Export evidence pack';
 const SUMMARY_HEADING = 'Deployment summary';
-const LEDGER_HEADING = 'Outbound ledger, with the counts the audit trail supports over the window';
+
+/**
+ * The outbound ledger's region name, which states the window its two counts cover.
+ *
+ * The window belongs to the region's own name rather than to the page around it: a reader who reaches
+ * the ledger by its heading, or by the table's accessible name, learns there what the two figures
+ * beside each endpoint mean (AAP 0.12.4's "30-day allowed and blocked counts").
+ */
+const LEDGER_HEADING =
+  'Outbound ledger, with the counts the audit trail supports over the trailing 30 days';
+
+/**
+ * The two count columns' headers, each naming the window the figure beneath it covers.
+ *
+ * The length is the one AAP 0.12.4 states for the ledger's counts and contracts §5 fixes for the
+ * aggregate; it is written here as the expected wording a browser test asserts, not as a figure any
+ * screen is asked to use.
+ */
+const ALLOWED_HEADING = 'Allowed, 30 days';
+const BLOCKED_HEADING = 'Blocked, 30 days';
+
+/**
+ * The suffix every evidence trigger adds to its figure's visible text.
+ *
+ * `src/components/evidence-drawer.tsx` appends this as a visually hidden completion of the control's
+ * accessible name, so a figure that opens its evidence reads as the figure and then says what
+ * activating it does (WCAG 2.2 SC 2.5.3). It is stripped when a reading is compared with another
+ * reading of the same figure.
+ */
+const EVIDENCE_SUFFIX = '— open evidence';
 
 /** The captions `DataTable` renders as its accessible names on the screens this file reads. */
 const DECLARED_ROWS_CAPTION = 'Configuration the deployment declares, row by row';
@@ -115,6 +144,8 @@ const DECISIONS_CAPTION = 'Decisions the policy engine recorded against this pol
 const REQUESTS_CAPTION = 'Time-boxed exception requests recorded against this policy';
 const QUEUE_CAPTION = 'Exception queue';
 const AUDIT_CAPTION = 'Audit events, in chain order';
+/** The approvals inbox's own caption, which scopes a row to the inbox and not to another screen's table. */
+const APPROVALS_CAPTION = 'Approvals in scope, with the plan each one puts forward';
 
 /** The evaluation statuses the policy screens print, in the record's own vocabulary. */
 const EVALUATED_STATUS = 'Evaluated by the policy engine';
@@ -267,20 +298,6 @@ async function paintedHintOf(page: Page, control: Locator): Promise<string> {
 }
 
 /**
- * The region a screen reports as loading while a read is in flight.
- *
- * `StateBoundary`'s loading rendering is a named busy region, so waiting for it to appear and then to
- * go is how this file knows a re-read the reader caused has settled — instead of sleeping for the
- * adapter's injected latency.
- *
- * @param page - The page to read.
- * @returns The loading region's locator, whether or not it is on screen at the moment of the call.
- */
-function loadingRegion(page: Page): Locator {
-  return page.getByRole('status', { name: 'Loading', exact: true });
-}
-
-/**
  * The calendar date one day after a date the document supplied.
  *
  * The time-boxed exception's expiry has to fall after the demonstration clock, and the date field
@@ -320,7 +337,7 @@ async function follow(page: Page, name: string): Promise<void> {
  * Activates a table row the way the application's own row cursor does.
  *
  * `src/components/data-table.tsx` moves a roving cursor with `J`/`K` and activates the row it sits on
- * with `Enter`; a row also opens on a double click. This file takes the keyboard route, because that
+ * with `Enter`; a row also opens on a click. This file takes the keyboard route, because that
  * is the one rule B-3 makes non-negotiable, and it focuses the row first rather than relying on
  * whichever row the cursor happens to hold.
  *
@@ -378,18 +395,37 @@ async function staleBannerOf(page: Page): Promise<{ banner: Locator; asOf: strin
  */
 async function countEventsFor(page: Page, objectRef: string): Promise<number> {
   await follow(page, 'Audit trail');
-  await expect(page.getByRole('heading', { level: 1, name: 'Audit trail' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Audit trail', exact: true }),
+  ).toBeVisible();
 
   const filters = page.getByRole('region', { name: 'Filters' });
   const record = filters.getByLabel('Record', { exact: true });
   await record.fill(objectRef);
 
-  await expect(loadingRegion(page)).toBeVisible();
-  await expect(loadingRegion(page)).toHaveCount(0);
-
+  /*
+   * The settled condition is the trail the filter leaves, not the busy region: a read the session has
+   * already made for this filter answers from the cache on a second visit, so no loading rendering
+   * appears and waiting for one would assert the adapter's latency rather than the filter. T-17 owns
+   * the loading state; this counts the rows the trail shows once every one of them names the record.
+   */
   const trail = page.getByRole('table', { name: AUDIT_CAPTION });
+  await expect(trail).toBeVisible();
 
-  return trail.locator('tbody tr').count();
+  const rows = trail.locator('tbody tr');
+
+  await expect
+    .poll(
+      async () => {
+        const shown = await rows.allInnerTexts();
+
+        return shown.every((text) => text.includes(objectRef));
+      },
+      { message: `the trail must settle on the events of ${objectRef}` },
+    )
+    .toBe(true);
+
+  return rows.count();
 }
 
 /**
@@ -490,8 +526,8 @@ test('T-12 the sovereignty screen shows declared configuration under "Declared, 
     'Purpose',
     'State',
     'Last attempt',
-    'Allowed',
-    'Blocked',
+    ALLOWED_HEADING,
+    BLOCKED_HEADING,
   ]);
 
   const ledgerRows = ledgerTable.locator('tbody tr');
@@ -508,16 +544,27 @@ test('T-12 the sovereignty screen shows declared configuration under "Declared, 
     await expect(cells.nth(0), 'every endpoint is the record’s own').not.toBeEmpty();
     await expect(cells.nth(1), 'every endpoint declares a purpose').not.toBeEmpty();
     await expect(cells.nth(2), 'every declared endpoint reads blocked').toHaveText(BLOCKED_STATE);
-    await expect(
-      cells.nth(4),
-      'the allowed count is a computed figure and reads as a whole number',
-    ).toHaveText(/^\d+$/);
-    await expect(
-      cells.nth(5),
-      'the blocked count is a computed figure and reads as a whole number',
-    ).toHaveText(/^\d+$/);
 
-    allowedReadings.push(await textOf(cells.nth(4)));
+    /*
+     * Each count is a computed figure and opens the evidence of the aggregate that counted it
+     * (principle PR-6), so the cell holds the trigger that drawer hangs on and the trigger's name is
+     * the figure followed by the suffix every trigger of the application carries.
+     */
+    const allowedFigure = cells.nth(4).getByRole('button', { name: /open evidence$/u });
+    const blockedFigure = cells.nth(5).getByRole('button', { name: /open evidence$/u });
+
+    await expect(
+      allowedFigure,
+      'the allowed count is a computed figure that opens its evidence',
+    ).toHaveAccessibleName(/^\d+\s*— open evidence$/u);
+    await expect(
+      blockedFigure,
+      'the blocked count is a computed figure that opens its evidence',
+    ).toHaveAccessibleName(/^\d+\s*— open evidence$/u);
+
+    allowedReadings.push(
+      (await textOf(allowedFigure)).replace(EVIDENCE_SUFFIX, '').trim(),
+    );
   }
 
   /*
@@ -590,10 +637,18 @@ test('T-13 a stale source is named in the banner and in each disabled approval a
    */
   const eventsBefore = await countEventsFor(page, approvalId);
 
-  /* Open the record, and read the exception the plan answers from the plan summary it renders. */
+  /* Open the record, and read the exception the plan answers from the plan summary it renders. The row
+     is taken from the approvals inbox by the inbox's own caption: a client-side navigation leaves the
+     screen being left mounted for a frame, and the trail this session may now read holds a row under
+     the same reference, so a row matched anywhere in the document can be the departing screen's. */
   await follow(page, 'Approvals');
-  await activateRow(page, page.getByRole('row').filter({ hasText: approvalId }));
-  await expect(page.getByRole('heading', { level: 1, name: 'Approval' })).toBeVisible();
+
+  const inbox = page.getByRole('table', { name: APPROVALS_CAPTION });
+  await expect(inbox).toBeVisible();
+  await activateRow(page, inbox.getByRole('row').filter({ hasText: approvalId }));
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Approval', exact: true }),
+  ).toBeVisible();
 
   const planSummary = page.getByRole('region', { name: 'Plan summary' });
   await expect(planSummary).toBeVisible();
@@ -677,15 +732,14 @@ test('T-13 a stale source is named in the banner and in each disabled approval a
   );
 
   /*
-   * The request half of the same rule. The option screen offers the request, so its own banner must
-   * name the same instant, and the service must refuse the request with a problem naming the source
-   * and that instant rather than creating a plan — which is the half a bypassed control cannot escape.
+   * The request half of the same rule. The option screen offers the request, and it prints the banner
+   * naming the same instant because both screens read one freshness report; its request control cannot
+   * act either, and carries the gate's sentence — the source and the as-of instant the banner printed —
+   * as the description assistive technology receives (AAP 0.2.1, T-13, rule P-8).
    *
-   * GAP: AAP 0.2.1 asks every screen offering an approval action to disable it with the same reason,
-   * and this screen leaves "Request approval for selected plan" able to act while the order book is
-   * stale. The refusal below is therefore the service's own rather than a disabled control's
-   * explanation, and the screen's half of the rule is asserted where it is implemented — the approval
-   * detail's three decision controls, above. Reported rather than asserted into a red suite.
+   * The service's half of the rule, which a bypassed control cannot escape, is asserted in
+   * `src/services/mock/mock-backend.test.ts`: the adapter refuses the request and the decision while
+   * the order book is stale and records neither, so the rule stays proven from both sides.
    */
   await follow(page, 'Exceptions');
   await expect(page.getByRole('heading', { level: 1, name: 'Exception queue' })).toBeVisible();
@@ -707,17 +761,28 @@ test('T-13 a stale source is named in the banner and in each disabled approval a
     'both screens print the instant of the one stale record the service reported',
   ).toBe(asOf);
 
-  await page.getByRole('button', { name: 'Request approval for selected plan', exact: true }).click();
+  const request = page.getByRole('button', {
+    name: 'Request approval for selected plan',
+    exact: true,
+  });
 
-  const refusal = page.getByRole('alert').filter({ hasText: SUPPLY_SOURCE_LABEL });
+  await expect(request).toHaveCount(1);
   await expect(
-    refusal,
-    'the service refuses the request with a problem naming the stale source',
-  ).toHaveCount(1);
-  await expect(refusal).toContainText(asOf);
-  await expect(page, 'a refused request opens no approval, so the route does not move').toHaveURL(
-    /\/scenarios$/,
-  );
+    request,
+    `the request control must be disabled while ${SUPPLY_SOURCE_LABEL} is not current (rule P-8)`,
+  ).toHaveAttribute('aria-disabled', 'true');
+
+  const requestReason = await descriptionOf(page, request);
+
+  expect(
+    requestReason,
+    `the request control must name ${SUPPLY_SOURCE_LABEL} and the instant the banner printed`,
+  ).toContain(`${SUPPLY_SOURCE_LABEL} as of ${asOf}`);
+
+  expect(
+    new URL(page.url()).pathname,
+    'a request the screen cannot raise opens no approval, so the route does not move',
+  ).toBe(`/exceptions/${exceptionId}/scenarios`);
 
   /* Nothing was appended for the record on either attempt. */
   const eventsAfter = await countEventsFor(page, approvalId);
@@ -784,7 +849,20 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   for (let index = 0; index < POLICY_IDENTIFIERS.length; index += 1) {
     const cells = policyRows.nth(index).getByRole('cell');
 
-    await expect(cells.nth(0)).toHaveText(POLICY_IDENTIFIERS[index] ?? '');
+    /*
+     * The identifier is the trigger of the evidence behind the policy record (principle PR-6), so the
+     * cell is read through that control: the record's own identifier is its visible text, and the
+     * control's name is that identifier followed by the suffix every evidence trigger carries.
+     */
+    const identifier = cells.nth(0).getByRole('button', { name: /open evidence$/u });
+
+    await expect(
+      identifier,
+      'every policy identifier opens the evidence behind its record',
+    ).toContainText(POLICY_IDENTIFIERS[index] ?? '');
+    await expect(identifier).toHaveAccessibleName(
+      new RegExp(`^${POLICY_IDENTIFIERS[index] ?? ''}\\s*— open evidence$`, 'u'),
+    );
     await expect(cells.nth(1), 'every policy renders the title it carries').not.toBeEmpty();
   }
 
@@ -795,6 +873,13 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
    */
   await activateRow(page, await rowMentioning(policies, DECLARED_POLICY_ID));
   await expect(page).toHaveURL(new RegExp(`/admin/policies/${DECLARED_POLICY_ID}$`));
+  /*
+   * The router swaps the outlet on a client-side transition, so the policy list is still mounted for a
+   * frame after the address changes. Waiting for it to leave keeps the assertions below from reading a
+   * status the *list* prints beside the one the detail prints (the run's own settle signal, measured
+   * rather than slept for).
+   */
+  await expect(policies, 'the policy list leaves the screen once a policy detail opens').toHaveCount(0);
   await expect(page.getByText(DECLARED_NOT_VERIFIED, { exact: true }).first()).toBeVisible();
   await expect(
     page.getByText(EVALUATED_STATUS, { exact: true }),
@@ -808,6 +893,26 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   ).toHaveCount(0);
 
   /*
+   * And it offers no time-boxed exception either. No exception can be requested against a rule nothing
+   * evaluates, so the control is disabled and carries the reason in its own description, read the way
+   * assistive technology receives it — the half of rule P-8 a force-click would defeat (qa-w013-I31).
+   */
+  const declaredGrant = page.getByRole('button', { name: GRANT_ACTION, exact: true });
+
+  await expect(
+    declaredGrant,
+    'a policy the engine never evaluates offers no time-boxed exception (qa-w013-I31)',
+  ).toHaveAttribute('aria-disabled', 'true');
+
+  const declaredRefusal = await descriptionOf(page, declaredGrant);
+
+  expect(
+    declaredRefusal,
+    'the control that cannot act states why, in its own accessible description (rule P-8)',
+  ).not.toBe('');
+  await expect(declaredGrant).toHaveAccessibleDescription(declaredRefusal);
+
+  /*
    * An evaluated policy: the statement behind the rule, the evaluation status the record carries, and
    * the decisions the engine recorded. The denial among them names the rule that refused it, in the
    * policy column the trail supplies and in the actor the event was filed under.
@@ -815,7 +920,15 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   await follow(page, 'Sovereignty and policies');
   await activateRow(page, await rowMentioning(policies, EVALUATED_POLICY_ID));
   await expect(page).toHaveURL(new RegExp(`/admin/policies/${EVALUATED_POLICY_ID}$`));
+  await expect(policies, 'the policy list leaves the screen once a policy detail opens').toHaveCount(0);
   await expect(page.getByText(EVALUATED_STATUS, { exact: true })).toBeVisible();
+
+  /* The same route on a policy the engine does evaluate offers the flow, which is the contrast the
+     declared policy above is asserted against (qa-w013-I31). */
+  await expect(
+    page.getByRole('button', { name: GRANT_ACTION, exact: true }),
+    'an evaluated policy offers the time-boxed exception flow',
+  ).not.toHaveAttribute('aria-disabled', 'true');
 
   const heading = page.getByRole('heading', { level: 1 });
   const policyTitle = await textOf(heading);
@@ -874,16 +987,19 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   }
 
   /*
-   * The time-boxed exception. The control acts, the dialog it opens collects the three terms AAP
-   * 0.12.4 fixes, and each missing term is named by the submit's own explanation until it is supplied
-   * — which is rule P-8 applied to a form whose reader can fix every cause it has.
+   * The time-boxed exception. The action belongs to the policy it would be raised against, so it is
+   * offered in each policy row's own last column: the row a reader presses is the policy the dialog
+   * names (qa-w013-I31). The control acts, the dialog it opens collects the three terms AAP 0.12.4
+   * fixes, and each missing term is named by the submit's own explanation until it is supplied — which
+   * is rule P-8 applied to a form whose reader can fix every cause it has.
    */
   await follow(page, 'Sovereignty and policies');
 
-  const grant = page.getByRole('button', { name: GRANT_ACTION, exact: true });
+  const grantRow = await rowMentioning(policies, EVALUATED_POLICY_ID);
+  const grant = grantRow.getByRole('button', { name: GRANT_ACTION });
   await expect(
     grant,
-    'the platform administrator holds policy.exception.request, so the control acts (contracts §7.1)',
+    'the platform administrator holds policy.exception.request, so the row’s control acts (contracts §7.1)',
   ).not.toHaveAttribute('aria-disabled', 'true');
   await grant.click();
 
@@ -909,6 +1025,12 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
 
   const requestedAgainst = (policyCaption ?? '').slice('Policy '.length).trim();
   expect(requestedAgainst.length).toBeGreaterThan(0);
+
+  /* The dialog names the policy whose own row was pressed, not the first policy of the set. */
+  await expect(
+    grantRow,
+    'the dialog names the policy whose own row the reader pressed (qa-w013-I31)',
+  ).toContainText(requestedAgainst);
 
   /* Nothing supplied: the submit refuses, and the sentence it gives is the reason field's own. */
   await expect(submit).toHaveAttribute('aria-disabled', 'true');

@@ -20,6 +20,10 @@
  *   alternative that refusal offers.
  * - AAP 0.12.3, `POST /assistant/queries`: "POL-007 is evaluated before any answer; a block returns
  *   `policyId`, `permittedAlternative` and `auditEventId` and appends a policy-actor event".
+ * - AAP 0.2.1: message-level redaction inside the mock backend — USR-04 cannot open the body of a
+ *   customer-confidential document — which reaches this path too, because a seeded question's
+ *   template quotes a document's own terms. The verdict is the evidence family's
+ *   (`mayReadDocumentBody`), not a second statement of the rule.
  * - `platform-contracts.md` §10 (the assistant's answer: text, citations, queries run, model,
  *   `partial`, `missing`), §7.2 (the policies that govern a question), §7.1 (who may read the
  *   assistant) and §6 (the audited actions).
@@ -30,13 +34,36 @@
  * question and the model entry, derives the material the question carries, asks
  * `src/domain/policy/evaluate.ts` for a decision, and only an allowed question reaches a builder. A
  * denial appends one policy-actor event and throws the `Problem` the block card renders; an allowed
- * question appends one `assistant question` event and returns the builder's answer.
+ * question then has the documents it cites checked against the body redaction of the evidence family,
+ * and only a question whose cited bodies the acting persona may read appends one `assistant question`
+ * event and returns the builder's answer.
+ *
+ * THE ANSWER PATH APPLIES THE SAME MESSAGE-LEVEL REDACTION THE DOCUMENT READ DOES — AAP 0.2.1,
+ * AAP 0.12.3. `getDocument` withholds a customer-confidential body from a persona without
+ * `document.confidential.read`, and one seeded question's template quotes a cited document's terms, so
+ * an answer is the second path that could carry a body over the boundary. It is gated on the same rule
+ * through `mayReadDocumentBody`, imported from the evidence family rather than restated: every
+ * document the matched question cites is resolved in the session's records, and where the predicate
+ * refuses one, the question is refused with a `'permission'` failure naming the document, its
+ * classification, the acting role and the permission that would release it. The refusal quotes no body
+ * text, the withheld body is never read into an answer, and no answer is composed for a question
+ * refused this way. A question outside the six cites no document, so the notice still answers it.
+ *
+ * WHY THAT GATE SITS AFTER THE POLICY DECISION, AND WHY THE BUILDER CONSULTS NO PERMISSION. A question
+ * the model-boundary rule blocks must still return the block card — the rule, the plain reason, the
+ * permitted alternative and the event the refusal appended — because that card is the demonstration's
+ * own account of POL-007 and the one-click switch to the in-boundary model hangs on it; a redaction
+ * refusal reaching the screen first would replace that explanation with a different one. So the policy
+ * decides first, and only a question the policy allowed reaches the redaction gate. The builders stay
+ * permission-free by design (AAP 0.12.1's assistant-builder row: they fill a template and evaluate
+ * nothing), which is why the check lives here, once, beside the other refusal this family makes.
  *
  * WHY THE APPEND COMES BEFORE THE THROW. The `Problem` carries the identifier of the event the refusal
  * itself recorded, and the block card opens that record (AAP 0.8, AAP 0.12.4). Throwing first would
  * hand the screen an identifier for an event that does not exist yet, so the event is appended and
- * then reported. Exactly one event is appended per refusal: the refusal is recorded by the mechanism
- * that made it, and a second copy beside it would say the same thing twice.
+ * then reported. Exactly one event is appended per policy refusal: the refusal is recorded by the
+ * mechanism that made it, and a second copy beside it would say the same thing twice. A permission
+ * refusal appends nothing here, as every other permission refusal of this adapter appends nothing.
  *
  * WHAT A QUESTION'S CONTEXT IS, AND WHERE IT COMES FROM. The engine reads one classification and one
  * residency for a question, so the documents the question runs over are gathered from three record
@@ -46,20 +73,25 @@
  * Everything here is a record value: this module names no classification, no residency, no model and no
  * endpoint of its own.
  *
- * OPEN ITEM — "the highest classification among the documents the question carries", which
- * `AssistantQueryContext` documents as its meaning, is not computable here. `Classification` and
- * `Residency` are open `string` aliases in `src/types/entities.ts` with no ranking, and no record fixes
- * one, so the pair the engine reads is the first document in the order above rather than an ordering
- * this module invents. Every seeded question that names a document names exactly one, so the
- * demonstration's own questions are unambiguous; a record set that ranked its classifications would
- * replace the context helper alone and nothing else.
+ * THE CONTEXT PAIR IS THE FIRST DOCUMENT'S. "The highest classification among the documents the
+ * question carries", which `AssistantQueryContext` documents as the member's meaning, is not computable
+ * here: `Classification` and `Residency` are open `string` aliases in `src/types/entities.ts` with no
+ * ranking, and no record fixes one, so the pair the engine reads is the first document in the order
+ * above rather than an ordering this module invents. Every seeded question that names a document names
+ * exactly one, so the demonstration's own questions are unambiguous.
  *
- * OPEN ITEM — the object reference of a policy block. The seeded `assistant question` events record
- * the model identifier as their object, so both events below name the model entry the question was put
- * to. The seeded POL-007 block records the outbound endpoint instead, because an attempt at a
- * destination reaches one; a question the policy stops before it is sent reaches no destination at all,
- * and writing that endpoint here would put a record identifier into a handler, which rule P-6 forbids
- * and which would also count the refusal against a destination the demonstration never contacted.
+ * WHY A BLOCK'S OBJECT REFERENCE IS THE ENTRY'S DECLARED ENDPOINT. The outbound ledger counts a
+ * policy's blocked events over the endpoints the sovereignty record declares, grouping them by
+ * `objectRef` (AAP 0.6.3, AAP 0.8), and the seeded POL-007 block is recorded that way: its object is
+ * the endpoint an attempt would have reached, with the model identifier in its payload. So a refusal
+ * here records the refused entry's declared `endpoint` as its object reference and is therefore
+ * counted on that endpoint's ledger row, while `blockEventPayload` keeps the model identifier and the
+ * boundary in the event's payload, which is what the block card's event needs to name the model. The
+ * value is the record's, read from the catalogue entry and never typed here (rule P-6); an entry that
+ * declares no endpoint cannot be counted anywhere, so `policyBlockRefusal` throws instead of falling
+ * back to the model identifier, which no ledger row matches. The `assistant question` events keep the
+ * model identifier as their object, because a question that was answered was put to a model and
+ * reaches no destination.
  *
  * THE ONE MEMBER THIS MODULE SETS ON THE BUILDER'S ANSWER — `modelId`. The builders stamp the
  * catalogue's default entry on every answer they compose, while the question was put to the entry the
@@ -80,9 +112,9 @@
  *
  * DETERMINISTIC BY CONSTRUCTION. The answer is a function of the session's records and the question
  * asked: no clock, no random source, no module-level mutable value and no platform global is read, and
- * the one identifier minted per call is `traceIdFor`, which reads the adapter's request counter as it
- * stands (AAP 0.18.2). A repeated question therefore yields the same answer words for words, and only
- * the appended events advance the chain.
+ * the one identifier a call carries is minted once by the adapter, from the ticket it took at the
+ * call's entry (AAP 0.18.2). A repeated question therefore yields the same answer words for words, and
+ * only the appended events advance the chain.
  *
  * Rules this module is built to satisfy:
  * - P-6: no figure, currency amount, scenario measure, record identifier, model identifier or sentence
@@ -133,8 +165,9 @@ import type {
 import { answerQuestion, unscriptedAnswer } from '../assistant-script';
 import type { AssistantQuestion, SeedRecordSet } from '../seed-loader';
 import type { HandlerContext } from '../mock-state';
-import { isSimulationOn } from '../simulation';
-import { appendAuditEvent, traceIdFor } from './audit';
+import { demonstrationForbiddenReason, isSimulationOn } from '../simulation';
+import { appendAuditEvent } from './audit';
+import { DOCUMENT_CONFIDENTIAL_READ, mayReadDocumentBody } from './evidence';
 
 /* ---------------------------------------------------------------------------------------------
  * The permission and the two audited actions — contracts §7.1 and §6
@@ -226,7 +259,7 @@ export interface AssistantQueryInput {
  * acting role lacks and the roles that hold it, taken from `rolesWith` so the explanation cannot drift
  * from the matrix that decided the refusal (rule P-8).
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param message - The reason, in the plain words the cause warrants.
  * @returns The `Problem` to throw.
  */
@@ -234,7 +267,7 @@ function evidenceReadProblem(ctx: HandlerContext, message: string): Problem {
   return {
     type: 'permission',
     message,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     requiredPermission: EVIDENCE_READ,
     rolesWithPermission: rolesWith(EVIDENCE_READ),
   };
@@ -259,8 +292,7 @@ function requireEvidenceRead(ctx: HandlerContext): void {
   if (isSimulationOn(ctx.state, 'forbidden')) {
     throw evidenceReadProblem(
       ctx,
-      `The evidence assistant is not readable in this state; reading it requires the ` +
-        `${EVIDENCE_READ} permission.`,
+      demonstrationForbiddenReason(ctx.actor.role, EVIDENCE_READ),
     );
   }
 
@@ -270,6 +302,72 @@ function requireEvidenceRead(ctx: HandlerContext): void {
       `The acting role (${ctx.actor.role}) does not hold the ${EVIDENCE_READ} permission, so the ` +
         'evidence assistant is not readable here.',
     );
+  }
+}
+
+/**
+ * The refusal a question carrying a body the acting persona may not read is answered with.
+ *
+ * Composed as `evidenceReadProblem` beside it is, so a forbidden card renders either cause the same
+ * way, and it carries the members that card and a disabled control need: the permission the role lacks
+ * and the roles that hold it, read from `rolesWith` rather than from a list written here (rule P-8).
+ * The message names the document by the identifier the record states, the classification the record
+ * states and the acting role, and it says plainly that the body was withheld before an answer was
+ * composed. It quotes no part of the body, so the refusal cannot become the leak it reports.
+ *
+ * @param ctx - The call's context, whose trace the refusal carries.
+ * @param document - The document the question cites whose body must be withheld.
+ * @returns The `Problem` to throw.
+ */
+function withheldDocumentProblem(ctx: HandlerContext, document: DocumentBody): Problem {
+  return {
+    type: 'permission',
+    message:
+      `The question cites document ${document.id}, whose body is classified ` +
+      `${document.classification}, and the acting role (${ctx.actor.role}) does not hold the ` +
+      `${DOCUMENT_CONFIDENTIAL_READ} permission that releases it: the body was withheld before an ` +
+      'answer was composed.',
+    traceId: ctx.traceId,
+    requiredPermission: DOCUMENT_CONFIDENTIAL_READ,
+    rolesWithPermission: rolesWith(DOCUMENT_CONFIDENTIAL_READ),
+  };
+}
+
+/**
+ * Refuses a question whose cited documents the acting persona may not read — the answer path's half of
+ * the redaction AAP 0.2.1 and AAP 0.12.3 require.
+ *
+ * Only the documents the matched question cites are judged: they are the records an answer is built
+ * from, so they are the only ones that can carry a body into a template. A cited identifier the record
+ * set does not hold is left to the builder, which withholds an answer it cannot cite rather than
+ * composing one from a record that is not there.
+ *
+ * The verdict is `mayReadDocumentBody`'s, the evidence family's own rule, so this path and
+ * `getDocument` cannot disagree about who may open a body.
+ *
+ * @param ctx - The call's context: the persona the answer would be composed for.
+ * @param question - The suggested question the request matched, when it matched one.
+ * @throws Problem - A `'permission'` failure naming the withheld document and the roles that hold the
+ *   permission releasing it.
+ */
+function requireCitedDocumentBodies(
+  ctx: HandlerContext,
+  question: AssistantQuestion | undefined,
+): void {
+  if (question === undefined) {
+    return;
+  }
+
+  for (const cited of question.records) {
+    if (cited.kind !== 'document') {
+      continue;
+    }
+
+    const document = ctx.state.records.documents.find((candidate) => candidate.id === cited.id);
+
+    if (document !== undefined && !mayReadDocumentBody(ctx, document)) {
+      throw withheldDocumentProblem(ctx, document);
+    }
   }
 }
 
@@ -318,7 +416,7 @@ function assertCatalogueResolves(catalogue: ModelCatalogue): void {
   if (defaultEntry === undefined) {
     throw new Error(
       `The model catalogue selects ${catalogue.defaultModelId} as its default entry and holds no ` +
-        `such entry. src/types/models.ts requires the default to name one member of models.`,
+        'such entry. The default must name one member of the model list the catalogue carries.',
     );
   }
 }
@@ -418,8 +516,9 @@ function contextDocumentsFor(
  * A `null` member states that the question carries nothing of that kind, which the engine's own
  * contract distinguishes from an absent member: it is a fact the caller reports rather than one the
  * engine infers. Where the context carries more than one document, the pair comes from the first in
- * the order `contextDocumentsFor` gathers them — the module header's open item records why no ranking
- * is applied, and why the demonstration's own questions are unambiguous without one.
+ * the order `contextDocumentsFor` gathers them: no ranking over `Classification` or `Residency` exists
+ * to apply, and every seeded question that names a document names one, so the demonstration's own
+ * questions are unambiguous without it.
  *
  * @param documents - The documents the question carries.
  * @returns The classification and residency the engine evaluates.
@@ -456,7 +555,7 @@ function modelEntryFor(catalogue: ModelCatalogue, modelId: string): ModelEntry |
  * missing record (contracts §7.2). The message names the identifier asked for and the entries the
  * catalogue does hold, both interpolated, so a reader can correct the next attempt.
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param catalogue - The catalogue that was searched.
  * @param modelId - The identifier the request carried.
  * @returns The `Problem` to throw.
@@ -471,7 +570,7 @@ function modelNotFoundProblem(
   return {
     type: 'not-found',
     message: `The model catalogue holds no entry ${modelId}. The entries it offers are ${offered}.`,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
   };
 }
 
@@ -483,7 +582,7 @@ function modelNotFoundProblem(
  * The refusal is a validation failure, because it is the request and not the records that cannot be
  * honoured.
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @returns The `Problem` to throw.
  */
 function questionRequiredProblem(ctx: HandlerContext): Problem {
@@ -492,7 +591,7 @@ function questionRequiredProblem(ctx: HandlerContext): Problem {
     message:
       'A question to the evidence assistant carries the identifier of a suggested question or the ' +
       'text that was asked; this request carried neither.',
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
   };
 }
 
@@ -530,6 +629,11 @@ function questionEventPayload(
  * The seeded `policy block` events record the classification that kept a question from an external
  * model, so the refusal here records the same facts — which is what lets a reader open the block card's
  * event and see why the rule fired rather than only that it did.
+ *
+ * The model is named here rather than in the event's object reference, which names the endpoint the
+ * blocked entry declares so the outbound ledger counts the block (AAP 0.6.3, AAP 0.8): `modelId` and
+ * `boundary` travel unchanged from `questionEventPayload`, beside the classification and residency
+ * that made the rule fire.
  *
  * @param entry - The catalogue entry the question was put to.
  * @param documents - The documents the question carried.
@@ -586,6 +690,11 @@ async function appendQuestionEvent(
  * unchanged, so the card cannot disagree with the verdict that was taken and no reason is composed
  * here.
  *
+ * The event's object reference is the endpoint the refused entry declares, not the entry's identifier,
+ * because that is what the outbound ledger counts a block by (AAP 0.6.3, AAP 0.8): a block recorded
+ * against a model identifier lands on no ledger row. The payload keeps the model identifier and the
+ * boundary, so the event still says which model was refused for which destination.
+ *
  * @param ctx - The call's context, whose chain is extended in place.
  * @param decision - The engine's denial.
  * @param entry - The catalogue entry the question was put to.
@@ -593,6 +702,8 @@ async function appendQuestionEvent(
  * @returns The `'policy'` failure to throw.
  * @throws Error - The denial named no rule, which the engine never does; the refusal could not be
  *   reported without inventing the rule that caused it.
+ * @throws Error - The entry declares no outbound endpoint, so the refusal has no ledger endpoint to be
+ *   counted against; the model identifier is never used in its place.
  */
 async function policyBlockRefusal(
   ctx: HandlerContext,
@@ -609,9 +720,20 @@ async function policyBlockRefusal(
     );
   }
 
+  const endpoint: string | undefined = entry.endpoint;
+
+  if (endpoint === undefined) {
+    throw new Error(
+      `The model catalogue entry ${entry.id} declares no outbound endpoint, so the policy block ` +
+        'that refused the question put to it cannot be recorded against one, and the outbound ledger ' +
+        'counts a block by the endpoint it names (AAP 0.6.3, AAP 0.8). The external entry in ' +
+        'src/seed/models.ts declares the endpoint an inference through it would reach.',
+    );
+  }
+
   const event = await appendAuditEvent(ctx, {
     action: POLICY_BLOCK_ACTION,
-    objectRef: entry.id,
+    objectRef: endpoint,
     result: 'blocked',
     policyId: rule,
     actorType: 'policy',
@@ -623,7 +745,7 @@ async function policyBlockRefusal(
   return {
     type: 'policy',
     message: decision.reason ?? `${rule} blocked this question without stating a further reason.`,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     policyId: rule,
     ...(decision.permittedAlternative === undefined
       ? {}
@@ -703,17 +825,22 @@ export async function listModels(ctx: HandlerContext): Promise<ModelCatalogue> {
  * 4. The policy decision of `src/domain/policy/evaluate.ts`. Only a denial is a refusal: the engine's
  *    `notApplicable` means no evaluated rule governs the action, and POL-009 is declared configuration
  *    that is never evaluated (rule P-4), so it must not be read as a block.
- * 5. The answer, from the scripted builder that matches the question or from the fixed notice for
+ * 5. The documents the matched question cites, whose bodies the acting persona must be able to read: a
+ *    customer-confidential body is refused here, before an answer is composed, on the evidence
+ *    family's own verdict (AAP 0.2.1, AAP 0.12.3). It runs after the decision above, so a blocked
+ *    question still returns the block card and the alternative it permits.
+ * 6. The answer, from the scripted builder that matches the question or from the fixed notice for
  *    anything else, followed by the one event the question records.
  *
- * A denial never reaches step 5: the refusal is appended and thrown, and no answer, no citation and no
- * figure is composed for it.
+ * A denial never reaches step 5 or 6: the refusal is appended and thrown, and no answer, no citation
+ * and no figure is composed for it.
  *
  * @param ctx - The session's state and the persona the call acts as.
  * @param input - The question, the model it is put to and the records it runs over.
  * @returns The builder's answer, with the model the question was put to named on it.
- * @throws Problem - A `'permission'` refusal, a `'validation'` failure when no question was carried, a
- *   `'not-found'` failure naming an unknown model, or the `'policy'` block the engine decided.
+ * @throws Problem - A `'permission'` refusal — the evidence read, or a cited body the acting role may
+ *   not open — a `'validation'` failure when no question was carried, a `'not-found'` failure naming an
+ *   unknown model, or the `'policy'` block the engine decided.
  */
 export async function askAssistant(
   ctx: HandlerContext,
@@ -747,6 +874,11 @@ export async function askAssistant(
   if (decision.outcome === 'deny') {
     throw await policyBlockRefusal(ctx, decision, entry, documents);
   }
+
+  // The decision is read first, so a question POL-007 blocks still meets the block card and the
+  // in-boundary alternative it offers; only a question the policy allowed meets the body redaction the
+  // document read applies, before any answer is composed from the records it cites.
+  requireCitedDocumentBodies(ctx, question);
 
   const answer = question === undefined ? unscriptedAnswer(ctx) : answerQuestion(ctx, question.id);
 

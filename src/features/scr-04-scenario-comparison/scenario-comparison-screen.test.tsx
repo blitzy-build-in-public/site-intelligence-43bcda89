@@ -7,8 +7,11 @@
  * specific regression rather than as a description of the markup:
  *
  * 1. EVERY MEASURE ROW PER OPTION. The matrix draws the eight measures AAP §0.12.4 fixes, in that
- *    order, and each option's own value sits in that option's cell — asserted row by row and cell by
- *    cell, so a transposed row or column fails rather than passing on a page-wide search.
+ *    order, and then the run-out reading AAP §0.8 requires after the idle days it explains; each
+ *    option's own value sits in that option's cell — asserted row by row and cell by cell, and the
+ *    run-out row against the reading each option's own pair composes, so a transposed row or column
+ *    fails rather than passing on a page-wide search — and the header's eyebrow names the exception
+ *    whose options these are rather than the product name every route already carries.
  * 2. THE RECOMMENDATION. The recommended option's column is marked structurally, and its block shows
  *    the fixed badge, the rule the recommendation applied and the trade-off it makes, verbatim from the
  *    record, each under its own `Simulated recommendation` label (rule P-1).
@@ -17,7 +20,9 @@
  *    were measured in this session (rule P-1, AAP §0.10).
  * 4. A COMPUTATION THAT COULD NOT COMPLETE. A failed constraint check renders `Cannot compute` in the
  *    affected cells with the record's own messages, renders no figure for them, and leaves the primary
- *    action disabled with that record's reason as its accessible description (AAP §0.8, rule P-8).
+ *    action disabled with that record's reason as its accessible description (AAP §0.8, rule P-8). The
+ *    same action is disabled with the gating source's label and as-of instant while that source is
+ *    `stale` or `unavailable`, and left able to act for any other state it reports (AAP §0.2.1, T-13).
  * 5. THE FIXED EMPTY AND DISABLED SENTENCES. An exception with no option states the plan's sentence
  *    character for character, and the constraints control keeps the plan's own tooltip (AAP §0.12.4).
  * 6. THE EXPORT. Activating the export calls the port once with the route's exception and offers the
@@ -75,10 +80,14 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatMoney } from '../../components/mono-value';
+import { runOutReading } from '../../components/run-out-reading';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
 import { SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type {
+  Approval,
+  ApprovalId,
+  ApprovalStatus,
   Confidence,
   ConstraintCheck,
   ExceptionId,
@@ -93,6 +102,7 @@ import type {
   Problem,
   Result,
   Role,
+  RunOut,
   Scenario,
   ScenarioId,
   ScenarioOrigin,
@@ -125,15 +135,16 @@ import {
  * The service double every case drives, created before the module graph is evaluated.
  *
  * `vi.mock` is hoisted above the imports, so the factory may only close over bindings that already
- * exist — hence `vi.hoisted`. The double carries the four members this screen and the sandbox it
+ * exist — hence `vi.hoisted`. The double carries the five members this screen and the sandbox it
  * composes reach for, each named exactly as `SiteIntelligenceService` names it: the set read, the
- * approval request, the comparison export and the sandbox's own measurement. Nothing else is declared,
- * so a member the screen started to read would fail at the call site instead of quietly returning an
- * empty value.
+ * approval list that says whether the selected option has been decided, the approval request, the
+ * comparison export and the sandbox's own measurement. Nothing else is declared, so a member the screen
+ * started to read would fail at the call site instead of quietly returning an empty value.
  */
 const stub = vi.hoisted(() => ({
   service: {
     getScenarioSet: vi.fn<(exceptionId: ExceptionId) => Promise<Result<ScenarioSet>>>(),
+    listApprovals: vi.fn<() => Promise<Result<Approval[]>>>(),
     exportScenarioComparison:
       vi.fn<(exceptionId: ExceptionId) => Promise<Result<ExportPayload>>>(),
     requestApproval: vi.fn(),
@@ -308,9 +319,10 @@ const RECOMMENDATION_LABEL: SimLabel = SIM_LABELS[2];
 const WRITE_BACK_LABEL: SimLabel = SIM_LABELS[3];
 
 /**
- * The eight measure rows in the order AAP §0.12.4 fixes for SCR-04, named through the constant that
- * owns the wording: units late, maximum days late, orders on time, added cost, line idle days,
- * confidence, constraint check, side effects.
+ * The nine measure rows, in the order AAP §0.12.4 fixes for SCR-04 — units late, maximum days late,
+ * orders on time, added cost, line idle days, confidence, constraint check, side effects — with the
+ * run-out reading AAP §0.8 requires carried after the idle days it explains, named through the constant
+ * that owns each label.
  */
 const MEASURE_LABELS: readonly string[] = [
   COMPARISON_MATRIX_TEXT.rows.unitsLate,
@@ -318,6 +330,7 @@ const MEASURE_LABELS: readonly string[] = [
   COMPARISON_MATRIX_TEXT.rows.ordersOnTime,
   COMPARISON_MATRIX_TEXT.rows.addedCost,
   COMPARISON_MATRIX_TEXT.rows.lineIdleDays,
+  COMPARISON_MATRIX_TEXT.rows.runOut,
   COMPARISON_MATRIX_TEXT.rows.confidence,
   COMPARISON_MATRIX_TEXT.rows.constraintCheck,
   COMPARISON_MATRIX_TEXT.rows.sideEffects,
@@ -508,6 +521,100 @@ function comparableSet(): ScenarioSet {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The plan the approval list answers, which is what decides the control and the preview
+ * ------------------------------------------------------------------------------------------- */
+
+/** The plan's own identifier: an opaque placeholder, not a record-identifier shape. */
+const PLAN_ID = 'apr-alpha';
+
+/**
+ * A second plan naming the same option, lodged after the decided one and still pending.
+ *
+ * Identifiers ascend in creation order, so this is the record a screen that read only the highest
+ * identifier would report — while the decision sits on `PLAN_ID` and the adapter refuses a second
+ * request for the option on that record's account.
+ */
+const LATER_PLAN_ID: ApprovalId = 'apr-bravo';
+
+/** The roles whose members may decide the plan, which this screen never renders. */
+const PLAN_APPROVER_ROLES: readonly Role[] = ['plant-manager'];
+
+/** The persona who requested the plan, which this screen never renders either. */
+const PLAN_REQUESTER_ID = 'persona-alpha';
+
+/**
+ * The steps a recorded plan states, each in a state the option's own fixture never reaches.
+ *
+ * The option's steps are one pending and one succeeded; these two are both recorded as succeeded, so a
+ * case can tell the plan's record from the option's by the steps themselves and not only by the states
+ * they carry.
+ */
+const PLAN_WRITE_BACKS: readonly WriteBack[] = [
+  {
+    sequence: 1,
+    system: 'erp',
+    recordRef: 'ref-plan-one',
+    description: 'Record the approved release against the plan the reader decided.',
+    state: 'succeeded',
+  },
+  {
+    sequence: 2,
+    system: 'mes',
+    recordRef: 'ref-plan-two',
+    description: 'Record the approved production order against the same plan.',
+    state: 'succeeded',
+  },
+];
+
+/**
+ * The steps a request lodged beside a decided plan would write, each still pending.
+ *
+ * A record the adapter creates clones the option's steps and sets every one of them pending, which is
+ * the state this fixture keeps. The steps are distinct from both other sets, so a case can tell which
+ * record the preview drew them from.
+ */
+const LATER_WRITE_BACKS: readonly WriteBack[] = [
+  {
+    sequence: 1,
+    system: 'plm-qms',
+    recordRef: 'ref-later-one',
+    description: 'Release the drawing the later request would write.',
+    state: 'pending',
+  },
+];
+
+/**
+ * The plan naming the recommended option of this route's exception.
+ *
+ * A fresh object per call, because `Approval.writeBacks` is a mutable array the adapter replaces in
+ * place: handing one instance to two renders would let a case read a record another one left behind.
+ *
+ * @param status - Where the plan stands.
+ * @param writeBacks - The steps the plan states, in its own order.
+ * @param id - The identifier the record carries, which orders it against another plan naming the same
+ *   option: a case holding two of them states which one was lodged later.
+ * @returns The approval record those three describe.
+ */
+function planOf(
+  status: ApprovalStatus,
+  writeBacks: readonly WriteBack[],
+  id: ApprovalId = PLAN_ID,
+): Approval {
+  return {
+    id,
+    exceptionId: EXCEPTION_ID,
+    scenarioId: RECOMMENDED_ID,
+    requestedBy: PLAN_REQUESTER_ID,
+    eligibleApproverRoles: [...PLAN_APPROVER_ROLES],
+    status,
+    addedCostEur: SOLVER_ADDED_COST,
+    protectedRevenueEur: SOLVER_ADDED_COST,
+    writeBacks: writeBacks.map((step) => ({ ...step })),
+    outcomeReviewed: false,
+  };
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The failures the port can throw, and the payload the export returns
  * ------------------------------------------------------------------------------------------- */
 
@@ -601,7 +708,7 @@ function matrixTable(): HTMLElement {
   return screen.getByRole('table', { name: COMPARISON_MATRIX_TEXT.caption });
 }
 
-/** The eight measure rows' header cells, in drawn order. */
+/** The nine measure rows' header cells, in drawn order. */
 function measureHeaders(): HTMLElement[] {
   return within(matrixTable()).getAllByRole('rowheader');
 }
@@ -751,14 +858,24 @@ describe('ScenarioComparisonScreen', () => {
 
     stub.service.getScenarioSet.mockResolvedValue(ok(comparableSet()));
     stub.service.exportScenarioComparison.mockResolvedValue(ok(EXPORT_PAYLOAD));
+
+    /* No plan by default: the cases that are not about a decided option read the comparison alone, so
+       every other assertion here states the behaviour the screen has without an approval list. */
+    stub.service.listApprovals.mockResolvedValue(ok([]));
   });
 
-  it('draws the eight specified measures in order, with each option value in its own cell', async () => {
+  it('draws the nine specified measures in order, with each option value in its own cell', async () => {
     renderScreen();
     await awaitMatrix();
 
-    /* The row headers are the eight measures of AAP §0.12.4, in that section's own order: a transposed
-       pair or a missing row fails here, whatever the cells below happen to hold. */
+    /* The eyebrow names the record the screen belongs to — the exception the route was opened for — the
+       way SCR-03's header states its own record's identifier, so a reader knows whose options these are.
+       Nothing else on the page carries that identifier, so this cannot pass on a page-wide match. */
+    expect(screen.getByText(EXCEPTION_ID)).toBeVisible();
+
+    /* The row headers are the eight measures of AAP §0.12.4 in that section's own order, with the
+       run-out reading AAP §0.8 requires after the idle days it explains: a transposed pair or a missing
+       row fails here, whatever the cells below happen to hold. */
     expect(measureHeaders().map((header) => (header.textContent ?? '').trim())).toEqual([
       ...MEASURE_LABELS,
     ]);
@@ -796,6 +913,13 @@ describe('ScenarioComparisonScreen', () => {
         secondOption: String(SEEDED_LINE_IDLE_DAYS),
       },
       {
+        /* The run-out pair rendered as AAP §0.8 requires: the reading each option's own pair composes
+           through the module that owns the wording, never a "day N" phrase typed here (rule P-6). */
+        label: COMPARISON_MATRIX_TEXT.rows.runOut,
+        firstOption: runOutReading(SOLVER_SCENARIO.runOut),
+        secondOption: runOutReading(SEEDED_SCENARIO.runOut),
+      },
+      {
         label: COMPARISON_MATRIX_TEXT.rows.confidence,
         firstOption: SOLVER_CONFIDENCE.reason,
         secondOption: SEEDED_CONFIDENCE.reason,
@@ -819,6 +943,48 @@ describe('ScenarioComparisonScreen', () => {
       expect(cells[0]?.textContent ?? '').toContain(expectation.firstOption);
       expect(cells[1]?.textContent ?? '').toContain(expectation.secondOption);
     }
+  });
+
+  it('states each option’s own run-out as the day plus its half-day reading, and none for a failed option', async () => {
+    const first: RunOut = { day: RUN_OUT_DAY, fractionOfDay: RUN_OUT_FRACTION };
+    const second: RunOut = { day: RUN_OUT_DAY + 2, fractionOfDay: 0 };
+
+    stub.service.getScenarioSet.mockResolvedValue(
+      ok(
+        setOf(
+          [
+            { ...SOLVER_SCENARIO, runOut: first },
+            { ...SEEDED_SCENARIO, runOut: second },
+            FAILED_SCENARIO,
+          ],
+          RECOMMENDED_ID,
+        ),
+      ),
+    );
+
+    renderScreen();
+    await awaitMatrix();
+
+    /* The row exists, and it sits directly beneath the idle days it explains (AAP §0.8, §0.12.4). */
+    const row = measureRow(COMPARISON_MATRIX_TEXT.rows.runOut);
+    const headers = measureHeaders().map((header) => (header.textContent ?? '').trim());
+
+    expect(headers.indexOf(COMPARISON_MATRIX_TEXT.rows.runOut)).toBe(
+      headers.indexOf(COMPARISON_MATRIX_TEXT.rows.lineIdleDays) + 1,
+    );
+
+    const cells = cellsOf(row);
+    expect(cells).toHaveLength(3);
+
+    /* Each option states the reading its own pair composes — the two pairs differ, so a row reading one
+       option's record for every column fails here — and the expectation comes from the fixture through
+       the module that owns the wording rather than from a phrase typed into this case (rule P-6). */
+    expect(cells[0]?.textContent ?? '').toContain(runOutReading(first));
+    expect(cells[1]?.textContent ?? '').toContain(runOutReading(second));
+
+    /* The option whose constraint check failed states nothing measured in this row either, exactly as
+       its sibling measure rows do (AAP §0.8). */
+    expect(cells[2]?.textContent).toBe(CANNOT_COMPUTE_LABEL);
   });
 
   it('marks the recommended option and states its rule and trade-off verbatim, under its own label', async () => {
@@ -867,6 +1033,7 @@ describe('ScenarioComparisonScreen', () => {
       COMPARISON_MATRIX_TEXT.rows.ordersOnTime,
       COMPARISON_MATRIX_TEXT.rows.addedCost,
       COMPARISON_MATRIX_TEXT.rows.lineIdleDays,
+      COMPARISON_MATRIX_TEXT.rows.runOut,
       COMPARISON_MATRIX_TEXT.rows.confidence,
       COMPARISON_MATRIX_TEXT.rows.sideEffects,
     ];
@@ -876,6 +1043,12 @@ describe('ScenarioComparisonScreen', () => {
 
       expect(cells).toHaveLength(1);
       expect(cells[0]?.textContent).toBe(CANNOT_COMPUTE_LABEL);
+
+      /* The cell states the record's own reason as its description rather than only the bare sentence:
+         the messages the fixture's option carries are what the cell is described by, so the reason AAP
+         §0.8 requires reaches every measure a reader lands on, without the text being repeated in the
+         cell (rule B-3). */
+      expect(cells[0]).toHaveAccessibleDescription(CONSTRAINT_MESSAGES.join(' '));
     }
 
     const constraintCell = cellsOf(measureRow(COMPARISON_MATRIX_TEXT.rows.constraintCheck))[0];
@@ -899,6 +1072,114 @@ describe('ScenarioComparisonScreen', () => {
 
     expect(await focusedHint()).toHaveTextContent(reason);
   });
+
+  /*
+   * THE PLAN THE APPROVAL LIST ANSWERS. The option set states no approval, so whether the option in
+   * front of the reader has been decided arrives from the list read: a pending plan leaves the action
+   * exactly as the option describes it, and an approved one closes it with the record's own identifier
+   * and status in the explanation (AAP §0.2.2, rule P-8). Either way the preview shows the steps the
+   * plan states, which is how a reader who returns from SCR-05 reads the states the record reached
+   * instead of the always-pending steps the option shipped in.
+   */
+  it.each<{ readonly status: ApprovalStatus; readonly closed: boolean }>([
+    { status: 'pending', closed: false },
+    { status: 'approved', closed: true },
+  ])(
+    'reports a $status plan on the request control and previews that plan’s own steps',
+    async ({ status, closed }) => {
+      stub.service.getScenarioSet.mockResolvedValue(ok(setOf([SOLVER_SCENARIO], RECOMMENDED_ID)));
+      stub.service.listApprovals.mockResolvedValue(ok([planOf(status, PLAN_WRITE_BACKS)]));
+
+      renderScreen();
+      await awaitMatrix();
+
+      const primary = control(REQUEST_APPROVAL_LABEL);
+
+      if (closed) {
+        expect(primary).toHaveAttribute('aria-disabled', 'true');
+        /* The reason names the record that holds the option and the status it stands in, so a reader
+           learns which plan already answers this option rather than only that the control is shut. */
+        expect(primary).toHaveAccessibleDescription(new RegExp(`${PLAN_ID}.*${status}`));
+      } else {
+        expect(primary).not.toHaveAttribute('aria-disabled');
+      }
+
+      const preview = cardOwning(
+        screen.getByRole('heading', { level: 2, name: WRITE_BACK_PREVIEW_LABEL }),
+      );
+
+      for (const step of PLAN_WRITE_BACKS) {
+        expect(within(preview).getByText(step.description)).toBeVisible();
+      }
+
+      /* The option's own steps are not the ones shown: the record's are. */
+      for (const step of SOLVER_WRITE_BACKS) {
+        expect(within(preview).queryByText(step.description)).not.toBeInTheDocument();
+      }
+    },
+  );
+
+  /*
+   * THE DECISION IS THE APPROVED RECORD, NOT THE HIGHEST IDENTIFIER. One option can carry two plans at
+   * once: a plan a decision was taken on, and a request lodged against the same option afterwards. The
+   * adapter refuses a second request for that option while any approved record names it, so a control
+   * that read only the latest record would offer a request the service then refuses — the state rule
+   * P-8 forbids. The approved record carries the LOWER identifier here, and the list is answered in
+   * both orders, because the screen must read the records rather than the order the read returned them
+   * in.
+   */
+  it.each<{ readonly lodged: string; readonly approvals: readonly Approval[] }>([
+    {
+      lodged: 'the decided plan first in the list',
+      approvals: [
+        planOf('approved', PLAN_WRITE_BACKS),
+        planOf('pending', LATER_WRITE_BACKS, LATER_PLAN_ID),
+      ],
+    },
+    {
+      lodged: 'the later request first in the list',
+      approvals: [
+        planOf('pending', LATER_WRITE_BACKS, LATER_PLAN_ID),
+        planOf('approved', PLAN_WRITE_BACKS),
+      ],
+    },
+  ])(
+    'shuts the request control on an approved plan a later request outranks, with $lodged',
+    async ({ approvals }) => {
+      stub.service.getScenarioSet.mockResolvedValue(ok(setOf([SOLVER_SCENARIO], RECOMMENDED_ID)));
+      stub.service.listApprovals.mockResolvedValue(ok([...approvals]));
+
+      renderScreen();
+      await awaitMatrix();
+
+      const primary = control(REQUEST_APPROVAL_LABEL);
+
+      expect(primary).toHaveAttribute('aria-disabled', 'true');
+      /* The approved record is the one named, with the status it stands in, even though the pending
+         request holds the higher identifier. */
+      expect(primary).toHaveAccessibleDescription(new RegExp(`${PLAN_ID}.*approved`));
+      /* The later request is not the decision, so it is not what the explanation names. */
+      expect(primary).not.toHaveAccessibleDescription(new RegExp(LATER_PLAN_ID));
+
+      const preview = cardOwning(
+        screen.getByRole('heading', { level: 2, name: WRITE_BACK_PREVIEW_LABEL }),
+      );
+
+      /* The preview draws the decided plan's own steps: the states the decision reached, and neither
+         the pending steps the later request would write nor the option's own always-pending ones. */
+      for (const step of PLAN_WRITE_BACKS) {
+        expect(within(preview).getByText(step.description)).toBeVisible();
+      }
+
+      for (const step of LATER_WRITE_BACKS) {
+        expect(within(preview).queryByText(step.description)).not.toBeInTheDocument();
+      }
+
+      for (const step of SOLVER_WRITE_BACKS) {
+        expect(within(preview).queryByText(step.description)).not.toBeInTheDocument();
+      }
+    },
+  );
 
   it('states the fixed empty sentence and explains both controls it leaves disabled', async () => {
     const user = userEvent.setup();
@@ -1121,6 +1402,39 @@ describe('ScenarioComparisonScreen', () => {
     /* The two states that warn about the data keep it on screen, which is the half a reader needs in
        order to judge the figures the warning is about. */
     expect(await awaitMatrix()).toBeVisible();
+  });
+
+  it('disables the request while the gating source is not current, giving its label and as-of time as the reason', async () => {
+    /* The two states the service refuses a request on. The sentence the control must carry is
+       assembled from the module's own wording and the record's own label and instant, so the case
+       types neither (rule P-6). */
+    for (const state of ['stale', 'unavailable'] as const) {
+      const gate = freshnessOf(state);
+
+      stub.service.getScenarioSet.mockResolvedValue(ok(comparableSet(), [gate]));
+      renderScreen();
+      await awaitSettled();
+
+      const request = control(REQUEST_APPROVAL_LABEL);
+
+      expect(request).toHaveAttribute('aria-disabled', 'true');
+      expect(request).toHaveAccessibleDescription(
+        `${SCENARIO_COMPARISON_TEXT.staleSourcePrefix} ${SOURCE_LABELS[gate.source]} ` +
+          `${SCENARIO_COMPARISON_TEXT.staleSourceSuffix} ${SOURCE_LABELS[gate.source]} ` +
+          `as of ${gate.asOf}.`,
+      );
+
+      /* Unmount before the next state, so one state's render cannot satisfy the next one's queries. */
+      cleanup();
+    }
+
+    /* A source the service accepts leaves the control able to act, which is the other half of the
+       same rule: the reason is the record's, not a blanket refusal. */
+    stub.service.getScenarioSet.mockResolvedValue(ok(comparableSet(), [freshnessOf('fresh')]));
+    renderScreen();
+    await awaitMatrix();
+
+    expect(control(REQUEST_APPROVAL_LABEL)).not.toHaveAttribute('aria-disabled');
   });
 
   it('renders the partial notice above the comparison it still draws', async () => {

@@ -63,6 +63,9 @@ const SIMULATED_WRITE_BACK_LABEL = 'Simulated write-back';
 /** AAP §0.8's wording for an option whose constraint check failed, in place of any figure. */
 const CANNOT_COMPUTE_LABEL = 'Cannot compute';
 
+/** The words a forbidden card's title opens with, completed with the permission it names. */
+const FORBIDDEN_CARD_PREFIX = 'Permission required';
+
 /** The recommended option's badge word, fixed by AAP §0.12.4's SCR-04 row. */
 const RECOMMENDED_LABEL = 'Recommended';
 
@@ -261,12 +264,11 @@ async function enterApplication(page: Page): Promise<void> {
 /**
  * The reachable name of one queue row's open action.
  *
- * The visible word and the row's identifier are two children of the button, so the accessible name
- * joins them with a space and the identifier's own colon follows it; the pattern states that join
- * without asserting which side of the colon the space fell on.
+ * The button's accessible name joins the visible word and the row's identifier with exactly one
+ * space after the colon and none before it — "Open: <id>" — so the pattern states that join.
  */
 function rowActionNameFor(exceptionId: string): RegExp {
-  return new RegExp(`^${ROW_OPEN_LABEL}\\s*:\\s*${exceptionId}$`);
+  return new RegExp(`^${ROW_OPEN_LABEL}: ${exceptionId}$`);
 }
 
 /** Reaches one exception's investigation through the navigation and the queue's own row action. */
@@ -797,10 +799,16 @@ test('the write-back preview, the constraints control, the empty comparison and 
   expect(download.suggestedFilename()).toMatch(/\.csv$/);
 
   /* THE EXCEPTION WITH NO OPTION. Its sentence is fixed by AAP §0.12.4, and the primary action that
-     cannot put a plan forward carries the same sentence as its reason (rule P-8). */
+     cannot put a plan forward carries the same sentence as its reason (rule P-8). The sentence is the
+     empty state the screen renders — a visible status inside the page's main region — and not a refusal:
+     the acting persona holds `exception.read` and reaches the record through a plant it affects, so a
+     forbidden card here would be the false denial that leaves the sentence behind a disabled control. */
   await openComparison(page, UNMODELLED_EXCEPTION);
 
-  await expect(page.getByText(EMPTY_OPTIONS_SENTENCE, { exact: true }).first()).toBeVisible();
+  const main = page.getByRole('main');
+
+  await expect(main.getByRole('status').filter({ hasText: EMPTY_OPTIONS_SENTENCE })).toBeVisible();
+  await expect(main).not.toContainText(FORBIDDEN_CARD_PREFIX);
   await expectDisabledWithReason(page, REQUEST_APPROVAL_LABEL, EMPTY_OPTIONS_SENTENCE);
 });
 

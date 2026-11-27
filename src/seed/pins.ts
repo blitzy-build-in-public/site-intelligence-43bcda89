@@ -7,9 +7,10 @@
  *   need both before the pin screens exist in S4".
  * - `src/types/topology.ts` types those counts as `PinCounts` — `Record<PinState, number>`, every one
  *   of the six states a key — and carries them on `Topology.pinsByNode`, keyed by the same node id
- *   the nodes of the four families carry. That module also fixes the reading of an absent key: a node
- *   missing from the map has no pins and renders no badge, which is why a node that carries no
- *   evidence appears in neither export.
+ *   the nodes of the plant, supplier, origin and customer families carry. That module also fixes the
+ *   reading of an absent key: a node missing from the map has no pins and renders no badge, which is
+ *   why a node that carries no evidence appears in neither export — a material node is the one family
+ *   no pin is attached to, because a material is bought rather than reviewed.
  * - `src/types/entities.ts` fixes the record itself: `id`, `nodeRef`, `state` and an optional
  *   `vendorId`, with `PinState`'s six values `empty`, `pending`, `pass`, `fail`, `stale` and `review`.
  *   The record deliberately has no label, text or message member, so a pin cannot describe itself.
@@ -21,7 +22,8 @@
  *   name. That attribution is what keeps a vendor's pins findable by the vendor and invisible to
  *   every other one.
  *
- * The six states are all present across the four node families, because the canvas badge and the
+ * The six states are all present across the four node families that carry pins — plants, suppliers,
+ * origins and customers — because the canvas badge and the
  * mapping in `src/components/status-indicator.tsx` (pass to pass, fail to fail, stale to warning,
  * pending to warning with the clock, review to review, empty to empty) exist for exactly that spread.
  *

@@ -33,17 +33,16 @@
  * If the seed document is supplied later, its table transcribes over these records and supersedes
  * them with no change to any consumer, because every consumer reads a policy through the service.
  *
- * OPEN ITEM: `SeededPolicy` is declared here because `src/types` owns no rule-set shape.
- * `PolicyDetail` in `src/types/screen-dto.ts` is the screen's view of one policy — the display
- * statement beside the decisions the engine recorded — and it is not the record this module
- * holds, so the record shape sits with the records (AAP 0.12.2).
- * OPEN ITEM: no input available in this run states what POL-005 governs. AAP 0.8, 0.12.1 and
- * 0.16 fix that it exists and that the engine evaluates it, and no other input fixes its subject.
- * The rule recorded below is therefore the one approval gate the inputs do state — a response
- * option whose constraint check reports a breach cannot be sent for approval (AAP 0.12.2
- * validation rules; AAP 0.12.4 SCR-04) — carried as POL-005, the evaluated rule with no stated
- * subject that this set does not otherwise cover. The wording is the record's own; the engine
- * cites the identifier.
+ * `SeededPolicy` is declared here because `src/types` owns no rule-set shape: `PolicyDetail` in
+ * `src/types/screen-dto.ts` is the screen's view of one policy — its display statement beside the
+ * decisions the engine recorded — and not the record this module holds (AAP 0.12.2).
+ *
+ * No input fixes POL-005's subject: AAP 0.8, 0.12.1 and 0.16 fix that it exists and that the engine
+ * evaluates it, and none states what it governs. The rule recorded below is the one approval gate
+ * the inputs do state — a response option whose constraint check reports a breach cannot be sent
+ * for approval (AAP 0.12.2 validation rules; AAP 0.12.4 SCR-04) — carried as POL-005, the evaluated
+ * rule with no stated subject that this set does not otherwise cover. The wording is the record's
+ * own and the engine cites the identifier.
  */
 
 import type { PolicyId } from '../types';

@@ -16,7 +16,11 @@
  * 3. NO LOCAL ARITHMETIC AND NO LOCAL FORMATTING. Nothing is measured until the call settles — the
  *    base option's own measures are not repeated as a guess — and once it settles the figures on
  *    screen are exactly the ones the service returned, from a payload whose measures differ from the
- *    base option's, so the component could only have obtained them from the port (rule P-6).
+ *    base option's, so the component could only have obtained them from the port (rule P-6). Each of
+ *    those figures is an evidence trigger too, and activating it opens the drawer on the duplicated
+ *    option's reference — the record whose case the measurement was taken from, and the reference the
+ *    comparison matrix's cells carry — rather than on the identifier the adapter minted for the
+ *    duplicate, which names no record the service holds (AAP §0.12.4, F12).
  * 4. THE FAILED CONSTRAINT PATH. A lever outside its bound comes back as a `Scenario` whose
  *    `constraintCheck` is `'fail'` with one message per breach, not as a `Problem` (AAP §0.12.3). The
  *    panel states `CANNOT_COMPUTE_LABEL` with the record's own messages, renders no figure for the
@@ -41,10 +45,12 @@
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary the
  * component may read through (rule P-2), so no seed module, adapter, domain module or shell is
  * involved and the suite observes exactly the call the sandbox makes. Everything else — `Panel`,
- * `StatusIndicator`, `MonoValue` and `ActionButton` with its hint — is the real component, because
- * what a reader receives is the thing under test. Each render sits in a `QueryClientProvider` holding
- * a fresh client, as the component's sibling suites do; the sandbox itself reads no query, and no
- * router is used, because the panel has nothing to navigate.
+ * `StatusIndicator`, `MonoValue`, `EvidenceRef` with the drawer it mounts, and `ActionButton` with
+ * its hint — is the real component, because what a reader receives is the thing under test. The
+ * drawer reads its record through that same mocked `getEvidence`, so a case observes both the
+ * reference a figure carries and the payload the drawer renders from it. Each render sits in a
+ * `QueryClientProvider` holding a fresh client, as the component's sibling suites do; the sandbox
+ * itself reads no query, and no router is used, because the panel has nothing to navigate.
  *
  * THE FIXTURE IS INPUT, NOT AN EXPECTED RESULT (rule P-6). Every value below is data handed to the
  * mocked call, so a case can only pass by finding what the component actually rendered. The folder is
@@ -59,14 +65,12 @@
  * and `sandboxDisabledReason` is imported so the expected explanation is the component's own sentence
  * rather than a copy of it.
  *
- * TWO GAPS THIS SUITE REPORTS RATHER THAN WORKS AROUND.
- * 1. `scenario-sandbox.tsx` keeps its input class list module-private, so the focus-ring utility the
- *    keyboard case asserts is named once in {@link FOCUS_RING_UTILITY} with the reason it is stated
- *    there. A change of that utility reaches exactly one line here.
- * 2. The lever bounds live on `SolverCase`, and no member of the port's scenario reads carries one
- *    (the component's own OPEN ITEM), so the fields are deliberately unbounded. The breach case
- *    therefore states the bound on the fixture and drives the breach through the response, which is
- *    the only path a bound can reach the panel by.
+ * TWO CONSTRAINTS THE SUITE WORKS WITHIN. `scenario-sandbox.tsx` keeps its input class list
+ * module-private, so the focus-ring utility the keyboard case asserts is named once in
+ * {@link FOCUS_RING_UTILITY} with the reason it is stated there; and the lever bounds live on
+ * `SolverCase`, which no member of the port's scenario reads carries, so the fields are unbounded and the
+ * breach case states the bound on the fixture and drives the breach through the response — the only path
+ * a bound can reach the panel by.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or waits on a real timer.
@@ -79,11 +83,13 @@ import userEvent from '@testing-library/user-event';
 import type { UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { formatMoney } from '../../components/mono-value';
 import { SIM_LABELS } from '../../types';
 import type {
   Confidence,
   ConstraintCheck,
+  Evidence,
   ExceptionId,
   Levers,
   LeverConstraint,
@@ -123,8 +129,18 @@ const solveScenario = vi.hoisted(() =>
   vi.fn<(exceptionId: ExceptionId, levers: Levers) => Promise<Result<Scenario>>>(),
 );
 
+/**
+ * The port member the evidence drawer reads through, replaced at the same seam.
+ *
+ * The sandbox itself reads no evidence: the drawer each measure's trigger mounts does, and it asks
+ * this member for the reference the trigger carries. Mocking it here is what lets a case observe the
+ * reference a figure opens rather than asserting the drawer's markup, and it keeps the real provider
+ * — and with it the in-browser adapter and its seeded records — out of a component test (rule P-2).
+ */
+const getEvidence = vi.hoisted(() => vi.fn<(ref: string) => Promise<Result<Evidence>>>());
+
 vi.mock('../../services/service-provider', () => ({
-  useService: () => ({ solveScenario }),
+  useService: () => ({ solveScenario, getEvidence }),
 }));
 
 /* ---------------------------------------------------------------------------------------------
@@ -149,9 +165,9 @@ const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
 /**
  * The focus-ring utility the lever field applies.
  *
- * `scenario-sandbox.tsx` keeps its input class list private (gap 1 above), so the keyboard case names
- * this one utility instead: it is the role the theme exposes for the visible indicator rule B-3
- * requires, and a field that stopped carrying it fails the case.
+ * `scenario-sandbox.tsx` keeps its input class list private (see the module note above), so the keyboard
+ * case names this one utility instead: it is the role the theme exposes for the visible indicator rule
+ * B-3 requires, and a field that stopped carrying it fails the case.
  */
 const FOCUS_RING_UTILITY = 'focus-visible:outline-focus-ring';
 
@@ -361,9 +377,42 @@ const PERMISSION_PROBLEM: Problem = {
   rolesWithPermission: ROLES_WITH_PERMISSION,
 };
 
+/** One lever position the evidence record states as an input, in place of a reference. */
+const EVIDENCE_INPUT = 'a lever position the measurement read';
+
+/** One record the evidence payload names as upstream: the case the measurement was taken from. */
+const EVIDENCE_UPSTREAM = 'the case the measurement was taken from';
+
+/**
+ * The record the evidence read answers a measure's trigger with.
+ *
+ * The drawer asks the port for the reference the trigger carries as it opens and renders the payload
+ * it receives, so the fixture fills the sections a case reads: the value and the rule behind it, the
+ * records that fed it, and the judgement it carries. Every string is this suite's own record text and
+ * states no figure (rule P-6), and the label is the fixed §5.3 one the computed-figure tuple owns,
+ * because a record the drawer shows a figure for carries its own label (rule P-1, AAP §0.10).
+ */
+const MEASURED_EVIDENCE: Evidence = {
+  value: 'the option under test, as the record states it',
+  provenance: 'computed',
+  label: CALCULATION_LABEL,
+  formula: 'the rule the service names for the measures behind it',
+  inputs: [EVIDENCE_INPUT],
+  upstream: [EVIDENCE_UPSTREAM],
+  downstream: [],
+  confidence: { level: 'high', reason: 'the records behind it were read in full' },
+  missingInputs: [],
+  documents: [],
+};
+
 /** Wraps one record in the envelope every method of the port resolves to. */
 function resultOf(scenario: Scenario): Result<Scenario> {
   return { data: scenario, meta: META };
+}
+
+/** Wraps one evidence record in that same envelope, for the read the drawer makes. */
+function evidenceResultOf(evidence: Evidence): Result<Evidence> {
+  return { data: evidence, meta: META };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -502,12 +551,14 @@ function leverField(field: keyof Levers): HTMLInputElement {
 }
 
 /**
- * One measure row's text: the value the service returned, with the label the row carries beside it.
+ * One measure row's row element: the row the measure's own name sits in.
  *
- * The row is read whole because the count is a bare text node in a `<dd>`, which no role query can
- * name, and because the simulation label beside it is part of what the row has to state (rule P-1).
+ * Found from the name rather than from the value, because the name is the one string in a row that
+ * carries no figure of its own (rule P-6), and returned as the element so a case can look inside it
+ * for whatever the row is relied on for — its value, its §5.3 label or the trigger that opens its
+ * evidence.
  */
-function measureRowText(label: string): string {
+function measureRow(label: string): HTMLElement {
   const term = screen.getByText(label);
   const row = term.parentElement;
 
@@ -515,7 +566,18 @@ function measureRowText(label: string): string {
     throw new Error(`the measure ${label} rendered with no row around it`);
   }
 
-  return row.textContent ?? '';
+  return row;
+}
+
+/**
+ * One measure row's text: the value the service returned, with the label the row carries beside it.
+ *
+ * The row is read whole because a bare count is a text node inside the evidence trigger, which no
+ * role query names by itself, and because the simulation label beside that trigger is part of what
+ * the row has to state (rule P-1).
+ */
+function measureRowText(label: string): string {
+  return measureRow(label).textContent ?? '';
 }
 
 /** The arguments of the last request the sandbox made, as the port's own signature types them. */
@@ -593,6 +655,7 @@ function expectedBlocker(input: {
 beforeEach(() => {
   vi.useFakeTimers();
   solveScenario.mockReset();
+  getEvidence.mockReset();
 });
 
 afterEach(() => {
@@ -735,6 +798,72 @@ describe('where every measure comes from', () => {
     expect(screen.getByText(recomputed.id)).toBeVisible();
     expect(onRecomputed).toHaveBeenCalledTimes(1);
     expect(onRecomputed).toHaveBeenCalledWith(recomputed);
+  });
+
+  it('opens the duplicated option’s evidence from every measure it reports', async () => {
+    const base = makeBaseScenario();
+    const recomputed = makeRecomputedScenario();
+    solveScenario.mockResolvedValue(resultOf(recomputed));
+    getEvidence.mockResolvedValue(evidenceResultOf(MEASURED_EVIDENCE));
+
+    const user = userSession();
+    renderSandbox({ scenario: base });
+
+    await editLevers(user, EDITED_LEVERS);
+    await settleRecomputeDelay();
+
+    /* What each row states, read from the payload rather than typed here: a row showing another
+       option's figure fails on its value as well as on its trigger (rule P-6). */
+    const statedValues: readonly (readonly [string, string])[] = [
+      [COMPARISON_MATRIX_TEXT.rows.unitsLate, String(recomputed.unitsLate)],
+      [COMPARISON_MATRIX_TEXT.rows.maxDaysLate, String(recomputed.maxDaysLate)],
+      [COMPARISON_MATRIX_TEXT.rows.ordersOnTime, String(recomputed.ordersOnTime)],
+      [COMPARISON_MATRIX_TEXT.rows.addedCost, formatMoney(recomputed.addedCostEur)],
+      [COMPARISON_MATRIX_TEXT.rows.lineIdleDays, String(recomputed.lineIdleDays)],
+      [COMPARISON_MATRIX_TEXT.rows.confidence, recomputed.confidence.reason],
+      [
+        COMPARISON_MATRIX_TEXT.rows.constraintCheck,
+        COMPARISON_MATRIX_TEXT.constraint[recomputed.constraintCheck],
+      ],
+    ];
+
+    for (const [measure, stated] of statedValues) {
+      const row = measureRow(measure);
+      const trigger = within(row).getByRole('button', {
+        name: new RegExp(`${EVIDENCE_DRAWER_TEXT.openSuffix}$`, 'u'),
+      });
+
+      /* The row is unchanged around the trigger: it still states the record's own value, and the
+         §5.3 label of a computed figure still sits beside the figure rather than on the panel
+         (rules P-6, P-1). */
+      expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(trigger.textContent ?? '').toContain(stated);
+      expect(row.textContent ?? '').toContain(CALCULATION_LABEL);
+
+      await activate(user, trigger);
+
+      /* The trigger carries the duplicated option's reference and the read is made for it: that is
+         the record whose case the measurement was taken from, never the identifier the adapter minted
+         for the duplicate, which names nothing the service holds (AAP §0.12.4, F12). */
+      expect(getEvidence).toHaveBeenCalledWith(base.id);
+      expect(getEvidence.mock.calls.every(([requested]) => requested === base.id)).toBe(true);
+
+      /* The drawer opens on that reference and renders the payload it was given: its record line
+         names the duplicated option, the value, the rule and the upstream record are the read's own
+         strings, and the minted identifier appears nowhere inside it. */
+      const dialog = screen.getByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+      expect(within(dialog).getAllByText(base.id).length).toBeGreaterThan(0);
+      expect(within(dialog).getByText(MEASURED_EVIDENCE.value)).toBeVisible();
+      expect(within(dialog).getByText(MEASURED_EVIDENCE.formula)).toBeVisible();
+      expect(within(dialog).getByText(EVIDENCE_UPSTREAM)).toBeVisible();
+      expect(within(dialog).queryByText(recomputed.id)).toBeNull();
+
+      await activate(
+        user,
+        within(dialog).getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }),
+      );
+      expect(screen.queryByRole('dialog')).toBeNull();
+    }
   });
 });
 

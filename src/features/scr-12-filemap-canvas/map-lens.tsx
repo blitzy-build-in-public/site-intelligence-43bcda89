@@ -3,7 +3,7 @@
  * world boundaries, framed so a reader can take the same nodes as a table.
  *
  * WHAT THIS MODULE IS AND IS NOT. `src/components/map-canvas.tsx` is the drawing — the projection,
- * the country shapes, the four node families, their evidence-pin badges, the S3 competitor overlay and
+ * the country shapes, the five node families, their evidence-pin badges, the S3 competitor overlay and
  * the chokepoint halos — and that drawing deliberately carries neither a table view nor a frame. This
  * lens is the composition the screen mounts: it puts `MapCanvas` inside `src/components/chart-frame.tsx`
  * and supplies the rows the frame's table view prints, which is what makes the "View as table" control
@@ -39,21 +39,22 @@
  * label is imported by position from `SIM_LABELS` (rule P-1) rather than written, because the pin totals
  * in the badges are computed from the records and a page-level badge does not label an individual figure.
  *
- * RECORDED GAP — a node's evidence reference. `MapCanvasProps.evidenceRefForNode` is required by the
- * drawing, because a mark a reader cannot inspect would leave AAP 0.2.1 F12's "any figure, chart mark,
- * node, arc or pin" half-served, and only the caller knows which record it drew. The screen, not this
- * lens, holds those records (rule P-2: no data access here), so the mapper arrives as an optional prop
- * and is forwarded when the screen supplies one. Without it the lens forwards a resolver that answers
- * `undefined` for every node, which the drawing documents as an honest answer — no record stands behind
- * this node — and which opens no dialog rather than a drawer for a record it was never given. What the
- * canvas screen supplies is the node's own identifier, because a topology node is its record and the
- * service's evidence read resolves all four node families (AAP 0.2.1 F12).
+ * A NODE'S EVIDENCE REFERENCE IS FORWARDED, NEVER INVENTED. `MapCanvasProps.evidenceRefForNode` is
+ * required by the drawing, because a mark a reader cannot inspect would leave AAP 0.2.1 F12's "any
+ * figure, chart mark, node, arc or pin" half-served, and only the caller knows which record it drew.
+ * The screen, not this lens, holds those records (rule P-2: no data access here), so the mapper
+ * arrives as an optional prop and is forwarded when the screen supplies one. Without it the lens
+ * forwards a resolver that answers `undefined` for every node, which the drawing documents as an
+ * honest answer — no record stands behind this node — and which opens no dialog rather than a drawer
+ * for a record it was never given. A node is named by its own identifier, so a mapper the screen
+ * supplies composes no reference of its own (rule P-6).
  *
- * RECORDED GAP — a node's plant. `TopologyNode` of `src/types/topology.ts` carries an identifier, a
- * family, a label, a latitude, a longitude and its product reach, and no plant or lane member, so the
- * table's lane column cannot read a node's plant. It reads what the payload does state: the labels of the
- * nodes the payload's own lanes join this one to, in the order the lanes are stated. A node no lane
- * touches prints that it stands alone rather than a blank cell (rule B-3: every cell says something).
+ * A node's plant is not in the payload. `TopologyNode` of `src/types/topology.ts` carries an
+ * identifier, a family, a label, a latitude, a longitude and its product reach, and no plant or lane
+ * member, so the table's lane column cannot read a node's plant. It reads what the payload does
+ * state: the labels of the nodes the payload's own lanes join this one to, in the order the lanes are
+ * stated. A node no lane touches prints that it stands alone rather than a blank cell (rule B-3:
+ * every cell says something).
  *
  * Rules this module is built to satisfy:
  * - B-1: it names no address and asks no origin for anything. The map's only geographic source is the
@@ -80,7 +81,6 @@ import { SIM_LABELS } from '../../types';
 import type {
   Atlas,
   PinCounts,
-  PinState,
   SimLabel,
   Topology,
   TopologyNode,
@@ -89,6 +89,7 @@ import type {
 
 import { ChartFrame } from '../../components/chart-frame';
 import type { TableColumn } from '../../components/data-table';
+import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from '../../components/graph-vocabulary';
 import { MAP_CANVAS_TEXT, MapCanvas } from '../../components/map-canvas';
 import type { MapViewPreset, MapZoomLevel } from '../../components/map-canvas';
 
@@ -115,7 +116,7 @@ export const MAP_LENS_TEXT = {
   tableCaption: 'FileMap canvas nodes, with family, connected nodes and evidence pins',
   /** The column printing the node's own label, as the payload states it. */
   nodeColumn: 'Node',
-  /** The column printing which of the four families the node belongs to. */
+  /** The column printing which of the five families the node belongs to. */
   familyColumn: 'Family',
   /** The column printing the labels of the nodes the payload's lanes join this one to. */
   connectionsColumn: 'Connected to',
@@ -153,37 +154,6 @@ const DEFAULT_VIEW_PRESET: MapViewPreset = 'world';
  * --------------------------------------------------------------------------------------------- */
 
 /**
- * The four node families' names, as the table's family column reads them.
- *
- * The drawing keeps the same four names for its accessible node names, in a private table of its own that
- * this module may not import; they are restated here for the table view so a reader who compares the map
- * with its table meets one word per family.
- */
-const NODE_FAMILY_LABELS = {
-  plant: 'Plant',
-  supplier: 'Supplier',
-  origin: 'Tier-2 origin',
-  customer: 'Customer',
-} as const satisfies Record<TopologyNodeKind, string>;
-
-/**
- * The six pin states in the order a summary prints them: the states that ask something of a reader
- * first, the states that ask nothing last.
- *
- * The order is presentation only. `PinCounts` is keyed by the six `PinState` members the contracts fix,
- * so this list decides which of them a reader sees first and never which of them exist, and it is
- * exhaustive by type: a seventh state would fail to compile here rather than vanish from a summary.
- */
-const PIN_STATE_ORDER = [
-  'fail',
-  'stale',
-  'pending',
-  'review',
-  'pass',
-  'empty',
-] as const satisfies readonly PinState[];
-
-/**
  * One node's row in the table view: the payload's values for that node, and nothing derived beyond the
  * text of its two summary cells.
  *
@@ -198,7 +168,7 @@ interface MapLensRow {
   /** The node's label, as the payload states it. */
   readonly label: string;
 
-  /** Which of the four families the node belongs to. */
+  /** Which of the five families the node belongs to. */
   readonly kind: TopologyNodeKind;
 
   /** The labels of the nodes the payload's lanes join this one to, or the standalone sentence. */
@@ -209,17 +179,27 @@ interface MapLensRow {
 }
 
 /**
- * The four families in the order the table lists them: the plants the network serves, then the suppliers
- * that feed them, the tier-2 origins behind those suppliers, and the customers the plants ship to.
+ * The five families in the order the table lists them: the plants the network serves, then the suppliers
+ * that feed them, the materials those suppliers sell, the tier-2 origins behind those suppliers, and the
+ * customers the plants ship to.
  *
- * The order is fixed here rather than taken from the record set, so two topologies and two renders list
- * the same families in the same sequence and a reader can compare two tables row band by row band.
+ * Materials sit beside the suppliers they are bought from, so the rows read the network from the plants
+ * it serves back towards the places behind them and a material is met where it is bought rather than
+ * after the origins that supply it. The order is fixed here rather than taken from the record set, so
+ * two topologies and two renders list the same families in the same sequence and a reader can compare
+ * two tables row band by row band.
  *
  * @param topology The payload to read.
  * @returns The nodes of every family, in family order.
  */
 function nodesInFamilyOrder(topology: Topology): readonly TopologyNode[] {
-  return [...topology.plants, ...topology.suppliers, ...topology.origins, ...topology.customers];
+  return [
+    ...topology.plants,
+    ...topology.suppliers,
+    ...topology.materials,
+    ...topology.origins,
+    ...topology.customers,
+  ];
 }
 
 /**
@@ -344,7 +324,7 @@ const MAP_LENS_COLUMNS = [
   {
     id: 'family',
     header: MAP_LENS_TEXT.familyColumn,
-    render: (row: MapLensRow) => NODE_FAMILY_LABELS[row.kind],
+    render: (row: MapLensRow) => NODE_FAMILY_WORDS[row.kind],
   },
   {
     id: 'connections',
@@ -412,8 +392,8 @@ export interface MapLensProps {
    * Resolves the evidence reference a node's figures open, or `undefined` for a node no record stands
    * behind.
    *
-   * Optional here and forwarded when supplied. See the module header's recorded gap: the drawing requires
-   * a mapper and the records it resolves live with the screen, so a screen that can name each node's
+   * Optional here and forwarded when supplied. The drawing requires a mapper and the records it
+   * resolves live with the screen, so a screen that can name each node's
    * record passes one and the drawer opens from the map; a screen that cannot leaves the default in place
    * and the drawing opens nothing rather than a drawer for a record it was never given. A node of the
    * FileMap canvas is named by its own identifier, which the service's evidence read resolves for the

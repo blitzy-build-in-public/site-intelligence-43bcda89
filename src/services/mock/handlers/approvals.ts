@@ -27,6 +27,13 @@
  *   `'simulated-write-back'` failure whose message is the failure's own. A retry re-attempts that
  *   one step and then lets the remaining steps run once; a step that already succeeded is never
  *   written a second time.
+ * - AN APPROVED PLAN THAT LANDS RESOLVES ITS EXCEPTION (AAP 0.2.2). Once every step of the approved
+ *   change has succeeded, the decision continues into `./exceptions.ts`'s `recordApprovedPlan`, which
+ *   moves the exception to `resolved`, appends the resolution about the exception and records the
+ *   `approved` and `resolved` activity the seeded trail spells. A decision whose write-back failed
+ *   calls it nowhere, because the change landed nowhere, so the exception stays open until a retry
+ *   lands it. The exception's record is the exceptions family's to write; this module only asks it to
+ *   close the loop the decision opened.
  *
  * WHERE THE FIXED WORDING LIVES. This module types no simulation label, exactly as `./audit.ts`
  * does: the tracker renders the fixed `Simulated write-back` tag beside each step from
@@ -37,20 +44,22 @@
  *
  * WHAT THIS MODULE COMPUTES, AND WHAT IT DOES NOT. `Approval.addedCostEur` is the plan's own cost
  * exactly as the solver (or the shipped scenario record) states it, and both figures the outcome card
- * shows are two `solveSupplyDelay` calls returned untouched (rule P-6). The one difference it takes is
- * `Approval.protectedRevenueEur`, which AAP 0.8 states as the delayed revenue the plan avoids: the
- * delayed revenue the exception's do-nothing position leaves, less the delayed revenue the option
- * itself still leaves, floored at none of it — see `plannedFiguresFor`. AAP 0.12.2 gives the `Approval`
- * that member and AAP 0.12.4 shows it on SCR-05 against the added cost, so the pair reads as what the plan
- * spends against the delay it buys. Carrying the option's own residual in its place would report a
- * better option as protecting less than a worse one and the do-nothing option as protecting the whole
- * disruption, which contradicts the figure AAP 0.8 fixes. Where the records state no option at both
- * levers unpulled the unmitigated position is the set's greatest delayed revenue — the path the
- * disruption takes when nothing is done — so the figure is still measured from the records rather than
- * from the option's own residual. The module
- * self-dates nothing: the instant a decision or a review is recorded at is read from the audit event
- * that append produced, because contracts §1 forbids reading the system clock for business logic and
- * this module holds no second clock of its own.
+ * shows are two `solveSupplyDelay` calls returned untouched (rule P-6). The one derived figure the
+ * record carries is `Approval.protectedRevenueEur`, which AAP 0.8 states as the delayed revenue the plan
+ * avoids, and this module does not compute it: `./scenarios.ts`'s `protectedRevenueOf` owns that
+ * arithmetic — the delayed revenue the exception's do-nothing position leaves, less the delayed revenue
+ * the option itself still leaves — and `plannedFiguresFor` reads the answer, so the trade-off sentence's
+ * last figure and an approval's protected revenue are one call on one set of measurements. AAP 0.12.2
+ * gives the `Approval` that member and AAP 0.12.4 shows it on SCR-05 against the added cost, so the pair
+ * reads as what the plan spends against the delay it buys. Carrying the option's own residual in its
+ * place would report a better option as protecting less than a worse one and the do-nothing option as
+ * protecting the whole disruption, which contradicts the figure AAP 0.8 fixes. Where the records state no
+ * option at both levers unpulled, the unmitigated position that function measures is the set's greatest
+ * delayed revenue — the path the disruption takes when nothing is done — so the figure is still read from
+ * the records rather than from the option's own residual. The module self-dates nothing: the instant a
+ * decision or a review is recorded at is read from the audit event that append produced, because
+ * contracts §1 forbids reading the system clock for business logic and this module holds no second clock
+ * of its own.
  *
  * DECISIONS THIS MODULE TAKES WHERE NO INPUT FIXES THE ANSWER, each recorded here because a reader
  * otherwise takes it for a mistake.
@@ -144,7 +153,6 @@ import type {
   Freshness,
   Levers,
   ListQuery,
-  Money,
   OperationalException,
   Permission,
   PlantId,
@@ -162,9 +170,10 @@ import type {
 } from '../../../types';
 import type { HandlerContext, MockState } from '../mock-state';
 import type { SeedRecordSet } from '../seed-loader';
-import { freshnessFor, isSimulationOn } from '../simulation';
-import { appendAuditEvent, traceIdFor } from './audit';
-import { getScenarioSet } from './scenarios';
+import { demonstrationForbiddenReason, freshnessFor, isSimulationOn } from '../simulation';
+import { appendAuditEvent } from './audit';
+import { recordApprovedPlan } from './exceptions';
+import { getScenarioSet, protectedRevenueOf } from './scenarios';
 
 /* ---------------------------------------------------------------------------------------------
  * A. Structural constants — contracts §1, §7.1, §7.2
@@ -289,7 +298,7 @@ const PARTIAL_FAILURE_FLAG: SimulationFlag = 'partial';
  * and what a disabled control's explanation names (rule P-8). The permission list is the matrix's
  * current answer rather than a list this module keeps, so the two cannot drift.
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param permission - The permission the call required.
  * @param message - The reason in plain words, naming what the call would have done.
  * @returns The `Problem` to throw.
@@ -298,7 +307,7 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
   return {
     type: 'permission',
     message,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     requiredPermission: permission,
     rolesWithPermission: rolesWith(permission),
   };
@@ -313,12 +322,12 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
  * its exception, a retry of a step that already succeeded, and a page cursor that names no position
  * of the ordered page.
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param message - The reason in plain words.
  * @returns The `Problem` to throw.
  */
 function validationProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'validation', message, traceId: traceIdFor(ctx.state) };
+  return { type: 'validation', message, traceId: ctx.traceId };
 }
 
 /**
@@ -328,12 +337,12 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  * scope are reported this way by a read: the second is a record the read does not cover rather than
  * a permission the role lacks, and `./exceptions.ts` reports the same pair the same way.
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param message - The reason in plain words, naming the identifier.
  * @returns The `Problem` to throw.
  */
 function notFoundProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'not-found', message, traceId: traceIdFor(ctx.state) };
+  return { type: 'not-found', message, traceId: ctx.traceId };
 }
 
 /**
@@ -345,12 +354,12 @@ function notFoundProblem(ctx: HandlerContext, message: string): Problem {
  * The step's state and the trail's event have already been written when this is thrown, which is what
  * makes the failure recoverable: the change stays all-or-nothing and a retry addresses this step.
  *
- * @param ctx - The call's context, whose state supplies the correlation identifier.
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param message - The failure's own message, composed from the step that failed.
  * @returns The `Problem` to throw.
  */
 function writeBackProblem(ctx: HandlerContext, message: string): Problem {
-  return { type: 'simulated-write-back', message, traceId: traceIdFor(ctx.state) };
+  return { type: 'simulated-write-back', message, traceId: ctx.traceId };
 }
 
 
@@ -430,8 +439,7 @@ function requireRead(ctx: HandlerContext): void {
     throw permissionProblem(
       ctx,
       EXCEPTION_READ,
-      `The approval records are not readable in this state; reading them requires the ` +
-        `${EXCEPTION_READ} permission.`,
+      demonstrationForbiddenReason(ctx.actor.role, EXCEPTION_READ),
     );
   }
 
@@ -453,14 +461,15 @@ function requireRead(ctx: HandlerContext): void {
  *
  * A session in the forbidden state is one a screen shows as forbidden, so a write reaching the
  * adapter through it is refused rather than applied: the trigger changes what every call of this
- * family returns, not only the reads.
+ * family returns, not only the reads. The sentence is the demonstration's own, from
+ * `demonstrationForbiddenReason`, because the write is refused by the control rather than by a
+ * permission the acting role lacks.
  *
  * @param ctx - The call's context, whose triggers are read.
  * @param permission - The permission the refused write would have required.
- * @param reason - What the write would have done, in plain words.
  * @throws Problem - A `'permission'` failure naming that permission and the roles that hold it.
  */
-function requireNotForbidden(ctx: HandlerContext, permission: Permission, reason: string): void {
+function requireNotForbidden(ctx: HandlerContext, permission: Permission): void {
   if (!isSimulationOn(ctx.state, 'forbidden')) {
     return;
   }
@@ -468,8 +477,7 @@ function requireNotForbidden(ctx: HandlerContext, permission: Permission, reason
   throw permissionProblem(
     ctx,
     permission,
-    `${reason} The approval records are not writable in this state; writing to them requires the ` +
-      `${permission} permission. The roles that hold it are ${rolesWith(permission).join(', ')}.`,
+    demonstrationForbiddenReason(ctx.actor.role, permission),
   );
 }
 
@@ -711,7 +719,7 @@ async function policyDenialProblem(
   return {
     type: 'policy',
     message: decision.reason ?? `${rule} refused this action without stating a further reason.`,
-    traceId: traceIdFor(ctx.state),
+    traceId: ctx.traceId,
     policyId: rule,
     ...(decision.permittedAlternative === undefined
       ? {}
@@ -810,7 +818,11 @@ async function requireRequestableByPolicy(
  * trigger, which stands for a record another persona changed between the read and the write, and a
  * record the write's own precondition already rules out.
  *
- * @param ctx - The call's context, whose triggers are read and whose state supplies the trace.
+ * The trigger refuses this family's reads beside this write, so the write half answers a decision
+ * attempted from records the caller read before the trigger came on rather than from reads taken under
+ * it (the adapter's `dispatch`).
+ *
+ * @param ctx - The call's context, whose triggers are read and whose trace the failure carries.
  * @param message - The reason in plain words, naming the record and what has happened to it.
  * @throws Problem - A `'validation'` failure with that message.
  */
@@ -824,6 +836,49 @@ function requireNoConflict(ctx: HandlerContext, message: string): void {
 }
 
 /**
+ * Refuses a request for an option that already carries an approved plan.
+ *
+ * An option carries one plan at a time: the inbox, the decision and the write-back all read the
+ * approval a reader reaches from the option, so a second identical approval for the same option leaves
+ * two records of one decision and a reader unable to tell which one the exception answered. The
+ * refusal names the record that already holds the option and the status it stands in, which is what a
+ * reader needs in order to read that plan instead of lodging another (rule P-8).
+ *
+ * Only an approved plan closes the option. A pending record does not: the seeded `APR-2026-104` is
+ * the request AAP 0.2.2's journey approves, and the journey requests that same option in this session
+ * before deciding it, so refusing a pending record would refuse the journey the plan describes. A
+ * rejected plan and one sent back for changes are refused nothing either, because a reader may put the
+ * option forward again once it has been reworked — which is what those two statuses invite.
+ *
+ * @param ctx - The call's context, whose records are searched and whose state supplies the trace.
+ * @param exceptionId - The exception the option belongs to.
+ * @param scenarioId - The option the request names.
+ * @throws Problem - A `'validation'` failure naming the approved record and its status.
+ */
+function requireNoDecidedPlan(
+  ctx: HandlerContext,
+  exceptionId: ExceptionId,
+  scenarioId: ScenarioId,
+): void {
+  const decided = approvalsFor(ctx.state).find(
+    (record) =>
+      record.exceptionId === exceptionId &&
+      record.scenarioId === scenarioId &&
+      record.status === APPROVED_STATUS,
+  );
+
+  if (decided === undefined) {
+    return;
+  }
+
+  throw validationProblem(
+    ctx,
+    `${scenarioId} of ${exceptionId} already carries the approval ${decided.id}, which stands ` +
+      `${decided.status}: a decided plan is not put forward for approval a second time.`,
+  );
+}
+
+/**
  * Refuses a decision whose comment is blank.
  *
  * SCR-05 takes a comment with each of its three decisions, and AAP 0.12.2 records the comment as a
@@ -834,7 +889,7 @@ function requireNoConflict(ctx: HandlerContext, message: string): void {
  * The call's `comment` argument is authoritative — it is the text the reader typed — and the record
  * the approval keeps carries it, so the two cannot disagree.
  *
- * @param ctx - The call's context, whose state supplies the trace.
+ * @param ctx - The call's context, whose trace the failure carries.
  * @param comment - The submitted comment, already trimmed by the caller.
  * @throws Problem - A `'validation'` failure naming the decision that needs a comment.
  */
@@ -853,7 +908,7 @@ function requireComment(ctx: HandlerContext, comment: string): void {
 /**
  * The status a decision leaves the approval in.
  *
- * @param ctx - The call's context, whose state supplies the trace.
+ * @param ctx - The call's context, whose trace the failure carries.
  * @param decision - The decision being taken.
  * @returns The status the record is set to.
  * @throws Problem - A `'validation'` failure naming an action the records do not recognise, which a
@@ -1059,7 +1114,7 @@ function compareApprovals(left: Approval, right: Approval, order: ApprovalSortOr
  *
  * @param ordered - The visible approvals, already in the requested order.
  * @param cursor - The identifier the previous page ended at, or `undefined` for the first page.
- * @param ctx - The call's context, whose state supplies the trace a refusal carries.
+ * @param ctx - The call's context, whose trace a refusal carries.
  * @returns The index the page starts at.
  * @throws Problem - A `'validation'` failure when the cursor names no record of the ordered page.
  */
@@ -1222,63 +1277,35 @@ async function scenarioOrThrow(
 }
 
 /**
- * The delayed revenue the set's unmitigated position leaves — the delay a plan is weighed against.
- *
- * The unmitigated position is the disruption with nothing done about it, and every set states it as the
- * option no lever position improves on: an option's delayed revenue is the late units priced, and pulling
- * a lever can only reduce them, so the set's greatest `revenueDelayedEur` is the path the disruption
- * takes when no option is carried out. For a set measured from an exception's case it is the baseline AAP
- * 0.8 fixes by name, which `candidateOptions` in `./scenarios.ts` always lists first at both levers
- * unpulled; for a seeded set it is the option whose measures the records themselves describe as repeating
- * the unmitigated path (the seeded sets carry it as their rejected, over-bound option). Every set the
- * service serves states at least the option a caller asks for, so the reading is always available and no
- * figure is invented in its place.
- *
- * @param scenarios - The options of the set the approval's option came from.
- * @returns The delayed revenue the unmitigated position leaves.
- */
-function unmitigatedDelayedRevenueOf(scenarios: readonly Scenario[]): Money {
-  let greatest: Money = 0;
-
-  for (const option of scenarios) {
-    if (option.revenueDelayedEur > greatest) {
-      greatest = option.revenueDelayedEur;
-    }
-  }
-
-  return greatest;
-}
-
-/**
  * The two euro figures an approval carries: what the plan spends, and the delay it protects.
  *
  * `Approval` requires an added cost and a protected revenue (AAP 0.12.2), and SCR-05 shows the pair as
  * cost against protected revenue (AAP 0.12.4). The cost is the option's own `addedCostEur`, untouched.
  * The protected figure is the delayed revenue the plan avoids, which is the figure AAP 0.8 states the
- * spend buys: the delayed revenue the do-nothing position leaves, less the delayed revenue the option
- * itself still leaves. Carrying the option's own residual instead reads a better option as protecting
- * less than a worse one, and the do-nothing option as protecting the whole disruption.
- *
- * The unmitigated figure is the set's greatest delayed revenue (see `unmitigatedDelayedRevenueOf`), so it
- * is never below the option's own residual and the difference needs no floor. The option that repeats the
- * unmitigated path itself protects nothing, which is what a plan that changes nothing buys.
+ * spend buys, and it is stated once, in the module that composes the option: `./scenarios.ts`'s
+ * `protectedRevenueOf` computes the set's unmitigated delayed revenue less this option's own residual,
+ * and this function reads that answer instead of computing a second one, so the trade-off sentence's
+ * last figure and an approval's protected revenue cannot disagree (rule P-6). Carrying the option's own
+ * residual in the pair's place instead would read a better option as protecting less than a worse one,
+ * and the do-nothing option as protecting the whole disruption.
  *
  * Both measures are the solver's own: `SolverCase` carries the price each order was agreed at and the
  * rate each lever costs, so `solveSupplyDelay` reports a real added cost and a real delayed revenue for
- * an option it measures, and this pair is computed from them rather than from a typed figure. A seeded
- * plan keeps the figures its own record states, because a shipped option is not re-solved.
+ * an option it measures, and this pair is read from them rather than from a typed figure. A seeded plan
+ * keeps the figures its own record states, because a shipped option is not re-solved.
  *
  * @param scenario - The option the approval puts forward.
- * @param unmitigatedDelayedEur - The delayed revenue the set's unmitigated position leaves.
+ * @param scenarios - The options of the set that option came from, which the protected figure is read
+ *   from.
  * @returns The pair the approval record carries.
  */
 function plannedFiguresFor(
   scenario: Scenario,
-  unmitigatedDelayedEur: Money,
+  scenarios: readonly Scenario[],
 ): Pick<Approval, 'addedCostEur' | 'protectedRevenueEur'> {
   return {
     addedCostEur: scenario.addedCostEur,
-    protectedRevenueEur: unmitigatedDelayedEur - scenario.revenueDelayedEur,
+    protectedRevenueEur: protectedRevenueOf(scenario, scenarios),
   };
 }
 
@@ -1325,11 +1352,17 @@ function nextApprovalIdentifier(approvals: readonly Approval[]): ApprovalId {
  * `'succeeded'` or `'failed'` result contracts §6 and AAP 0.2.2 give a write; a step is never
  * recorded as allowed or blocked, because those are the policy outcomes.
  *
+ * A transition to `'failed'` carries the failure's own message as well — the text `stepFailureMessage`
+ * composes and the call throws — so an event read on its own states why the write did not complete
+ * rather than only that it did not, which is what AAP 0.2.2 requires a recorded failure to say. A
+ * transition to `'succeeded'` carries no message, because nothing failed to explain.
+ *
  * @param ctx - The call's context, whose chain the event is appended to.
  * @param approval - The approval the step belongs to.
  * @param step - The step being moved. Its state is changed here.
  * @param from - The state the step stood in.
  * @param to - The state it moves to.
+ * @param failureMessage - The failure's own message, or `null` when the transition records no failure.
  */
 async function recordStep(
   ctx: HandlerContext,
@@ -1337,20 +1370,27 @@ async function recordStep(
   step: WriteBack,
   from: WriteBackState,
   to: WriteBackState,
+  failureMessage: string | null,
 ): Promise<void> {
   step.state = to;
+
+  const after: AuditPayload = {
+    sequence: step.sequence,
+    system: step.system,
+    recordRef: step.recordRef,
+    state: to,
+  };
+
+  if (to === FAILED_STEP && failureMessage !== null) {
+    after.message = failureMessage;
+  }
 
   await appendAuditEvent(ctx, {
     action: WRITE_BACK_ACTION,
     objectRef: approval.id,
     result: to === SUCCEEDED_STEP ? SUCCEEDED_RESULT : FAILED_RESULT,
     before: { state: from, recordRef: step.recordRef },
-    after: {
-      sequence: step.sequence,
-      system: step.system,
-      recordRef: step.recordRef,
-      state: to,
-    },
+    after,
   });
 }
 
@@ -1383,6 +1423,8 @@ function stepFailureMessage(approval: Approval, step: WriteBack): string {
  * step that has not succeeded ends in `'failed'` and the run stops there: the change is
  * all-or-nothing, so nothing after it runs, the steps it did not reach stay `'pending'`, and the call
  * throws the failure that step produced. Otherwise every step the run reaches ends in `'succeeded'`.
+ * The failed step's event carries that same failure message, so the record says what the thrown
+ * failure says rather than only that a write failed (see `recordStep`).
  *
  * @param ctx - The call's context, whose chain each transition is recorded in.
  * @param approval - The approval whose steps are run. Its write-backs are changed in place.
@@ -1402,12 +1444,12 @@ async function advanceWriteBacks(
     if (failOnFirstStep) {
       const message = stepFailureMessage(approval, step);
 
-      await recordStep(ctx, approval, step, step.state, FAILED_STEP);
+      await recordStep(ctx, approval, step, step.state, FAILED_STEP, message);
 
       throw writeBackProblem(ctx, message);
     }
 
-    await recordStep(ctx, approval, step, step.state, SUCCEEDED_STEP);
+    await recordStep(ctx, approval, step, step.state, SUCCEEDED_STEP, null);
   }
 }
 
@@ -1434,7 +1476,7 @@ function changeLanded(approval: Approval): boolean {
  * key a retry names (decision 6 in the module header). The failure lists the references the approval
  * holds, which is what a reader needs to address a step correctly instead of guessing.
  *
- * @param ctx - The call's context, whose state supplies the trace.
+ * @param ctx - The call's context, whose trace the failure carries.
  * @param approval - The approval whose steps are searched.
  * @param writeBackId - The reference the call names.
  * @returns The step.
@@ -1585,10 +1627,9 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * POL-003 reads as the requester's role being absent from the list, and every role named can reach the
  * record, so a disabled control never offers a decider the decision path would then refuse (rule P-8).
  * The two euro members are the plan's cost and the delay it protects — the option's own `addedCostEur`,
- * and the delayed revenue the unmitigated position leaves less the option's own residual, which is the
- * figure AAP 0.8 states the spend buys
- * (see `plannedFiguresFor`). The write-backs are the option's, reset to pending, in the option's
- * order — an approval starts a run without any step of it written.
+ * and the delayed revenue the option avoids, which `./scenarios.ts`'s `protectedRevenueOf` computes from
+ * that same set and `plannedFiguresFor` reads. The write-backs are the option's, reset to pending, in the
+ * option's order — an approval starts a run without any step of it written.
  *
  * One event is appended, through the single append path of `./audit.ts`, naming the approval as the
  * record it is about and carrying the same payload shape the seeded trail's own requests carry.
@@ -1599,20 +1640,17 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * @returns The created approval, as a copy.
  * @throws Problem - A `'permission'` failure when the role may not request or while the forbidden
  *   trigger is on, a `'not-found'` failure for an exception or an option the records do not answer, a
- *   `'validation'` failure when the order book is stale or unavailable or when no role left in the
- *   audience could decide the plan at the exception's plant, or a `'policy'` failure when POL-005
- *   refuses the option's constraint check, carrying the rule, its reason and the event it appended.
+ *   `'validation'` failure when the order book is stale or unavailable, when the option already
+ *   carries an approved plan or when no role left in the audience could decide the plan at the
+ *   exception's plant, or a `'policy'` failure when POL-005 refuses the option's constraint check,
+ *   carrying the rule, its reason and the event it appended.
  */
 export async function requestApproval(
   ctx: HandlerContext,
   exceptionId: ExceptionId,
   scenarioId: ScenarioId,
 ): Promise<Approval> {
-  requireNotForbidden(
-    ctx,
-    APPROVAL_REQUEST,
-    `An option of ${exceptionId} cannot be put forward for approval in this state.`,
-  );
+  requireNotForbidden(ctx, APPROVAL_REQUEST);
 
   const exception = findException(ctx.state, exceptionId);
 
@@ -1627,6 +1665,7 @@ export async function requestApproval(
     `${exceptionId} cannot be put forward for approval here.`,
   );
   requireFreshOrderBook(ctx);
+  requireNoDecidedPlan(ctx, exceptionId, scenarioId);
 
   // The set is read here rather than through `scenarioOrThrow`, because the protected figure is
   // weighed against the do-nothing position the same set states: one read, so the option and its
@@ -1637,7 +1676,7 @@ export async function requestApproval(
   await requireRequestableByPolicy(ctx, exceptionId, scenario);
 
   const approvals = approvalsFor(ctx.state);
-  const figures = plannedFiguresFor(scenario, unmitigatedDelayedRevenueOf(set.scenarios));
+  const figures = plannedFiguresFor(scenario, set.scenarios);
   // The audience is the roles the matrix lets decide *this* plan, less the requester's own role: a role
   // whose plant scope does not reach the exception could not decide it, so naming it would offer a
   // decider the decision path refuses (rule P-8), and the requester's own role is left out because
@@ -1701,11 +1740,17 @@ export async function requestApproval(
  *
  * What an approval does beyond recording the decision: it sets the tracker's steps in motion through
  * `advanceWriteBacks`, recording each transition and stopping at the first step that fails (AAP
- * 0.2.2). A rejection or a request for changes records the decision and leaves every step as it
- * stands, because no write follows a plan that was not approved.
+ * 0.2.2). When the change lands, the decision continues into the exception the plan answers, through
+ * `recordApprovedPlan`, so the record a reader returns to reports the response as resolved rather
+ * than as the open disruption they left. A rejection or a request for changes records the decision and
+ * leaves every step as it stands, because no write follows a plan that was not approved, and a
+ * decision whose write-back failed throws before the exception is touched, so the exception stays open
+ * until a retry lands the change.
  *
  * The instant the decision was taken is read from the event the decision appended, so the record and
- * the trail carry one instant and no clock is consulted (contracts §1).
+ * the trail carry one instant and no clock is consulted (contracts §1). The event's payload carries the
+ * status, the action and the comment, so a reader of the trail alone has the decision and the reason
+ * the screen promised would be recorded with it.
  *
  * @param ctx - The call's context: the persona deciding, the records read and the session written.
  * @param id - The approval being decided.
@@ -1724,7 +1769,7 @@ export async function decideApproval(
   decision: Decision,
   comment: string,
 ): Promise<Approval> {
-  requireNotForbidden(ctx, APPROVAL_DECIDE, `Approval ${id} cannot be decided in this state.`);
+  requireNotForbidden(ctx, APPROVAL_DECIDE);
 
   const approval = approvalOrThrow(ctx, id);
   const exception = exceptionOf(ctx.state, approval);
@@ -1761,18 +1806,22 @@ export async function decideApproval(
   approval.decision = { action: decision.action, comment: submitted };
   approval.decidedBy = ctx.actor.id;
 
+  /* The event carries what the reader said beside what they did: the comment the screen tells them is
+     recorded with the decision is the comment the record keeps, trimmed once above, so the screen's
+     sentence and the trail cannot disagree (contracts §6). */
   const event = await appendAuditEvent(ctx, {
     action: DECISION_ACTION,
     objectRef: approval.id,
     result: SUCCEEDED_RESULT,
     before: { status: PENDING_STATUS },
-    after: { status: approval.status, action: decision.action },
+    after: { status: approval.status, action: decision.action, comment: submitted },
   });
 
   approval.decidedAt = event.timestamp;
 
   if (status === APPROVED_STATUS) {
     await advanceWriteBacks(ctx, approval, isSimulationOn(ctx.state, PARTIAL_FAILURE_FLAG));
+    await recordApprovedPlan(ctx, exception, approval);
   }
 
   return copyApproval(approval);
@@ -1791,6 +1840,11 @@ export async function decideApproval(
  * for a condition of the step, and a retry that failed again could never complete the change. The
  * order-book gate is consulted, because a retry writes to the sources the first attempt wrote to.
  *
+ * A retry that leaves every step written resolves the exception, through the same `recordApprovedPlan`
+ * a decision uses: the change the disruption was waiting for has now been applied, so the record says
+ * so. A retry that lands nothing changes no exception, which is the all-or-nothing rule read from the
+ * other end.
+ *
  * @param ctx - The call's context: the persona retrying, the records read and the session written.
  * @param id - The approval whose step is retried.
  * @param writeBackId - The reference of the step to re-attempt, as the tracker reports it.
@@ -1805,11 +1859,7 @@ export async function retryWriteBack(
   id: ApprovalId,
   writeBackId: string,
 ): Promise<WriteBack> {
-  requireNotForbidden(
-    ctx,
-    APPROVAL_DECIDE,
-    `A write-back of ${id} cannot be retried in this state.`,
-  );
+  requireNotForbidden(ctx, APPROVAL_DECIDE);
 
   const approval = approvalOrThrow(ctx, id);
   const exception = exceptionOf(ctx.state, approval);
@@ -1845,8 +1895,9 @@ export async function retryWriteBack(
     );
   }
 
-  await recordStep(ctx, approval, step, step.state, SUCCEEDED_STEP);
+  await recordStep(ctx, approval, step, step.state, SUCCEEDED_STEP, null);
   await advanceWriteBacks(ctx, approval, false);
+  await recordApprovedPlan(ctx, exception, approval);
 
   return { ...step };
 }
@@ -1863,9 +1914,14 @@ export async function retryWriteBack(
  * The read is not plant-scoped twice: the approval was resolved inside the acting role's scope, and
  * the option set is read for the same persona.
  *
+ * The reference it returns is the approval's own identifier, which is the record the comparison is
+ * about and the one `getEvidence` resolves to the approval that carries the plan, the decision and
+ * the write-backs the card was measured from; the option's identifier is not used, because an option
+ * this session computes is in no stored set the evidence read searches.
+ *
  * @param ctx - The call's context: the persona reading and the records measured.
  * @param id - The approval whose outcome is measured.
- * @returns The planned and resulting measurements.
+ * @returns The planned and resulting measurements, and the reference the figures carry.
  * @throws Problem - A `'permission'` failure when the plans are not readable; a `'not-found'` failure
  *   when the approval or its option answers no record; and a `'validation'` failure when the
  *   exception carries no solver case.
@@ -1894,6 +1950,7 @@ export async function getApprovalOutcome(
   return {
     planned: solveSupplyDelay(caseRecord, scenario.levers),
     resulting: solveSupplyDelay(caseRecord, levers),
+    evidenceRef: approval.id,
   };
 }
 
@@ -1916,11 +1973,7 @@ export async function reviewApprovalOutcome(
   ctx: HandlerContext,
   id: ApprovalId,
 ): Promise<Approval> {
-  requireNotForbidden(
-    ctx,
-    APPROVAL_DECIDE,
-    `The outcome of ${id} cannot be reviewed in this state.`,
-  );
+  requireNotForbidden(ctx, APPROVAL_DECIDE);
 
   const approval = approvalOrThrow(ctx, id);
   const exception = exceptionOf(ctx.state, approval);

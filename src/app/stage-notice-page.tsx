@@ -22,6 +22,12 @@ import type { ReactElement } from 'react';
 import { Card } from '../components/card';
 import { PageHeader } from '../components/page-header';
 import { CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from '../components/tooltip';
+/*
+ * The path back to the queue has one declaration, in `src/types/routes.ts`, shared with the navigation
+ * table, the not-found page and the four screens that navigate to it: a copy kept here would be the one
+ * a later rename misses.
+ */
+import { EXCEPTION_QUEUE_PATH } from '../types/routes';
 import { FURTHER_ROUTES, NAV_ITEMS } from './nav-items';
 
 /**
@@ -44,19 +50,6 @@ export interface StageNoticePageProps {
  * the component renders it and a test names it through this constant instead of retyping it.
  */
 export const STAGE_NOTICE_LINK_LABEL = 'Back to the exception queue';
-
-/**
- * The route the link returns to.
- *
- * The exception queue is the entry point of the decision loop that is built, so it is reachable for
- * every persona and is the one destination that needs no argument; the AAP names this exact path as
- * the way back from every stage-notice route. It is stated once here so the component and the tests
- * that check the link agree on it, and it is deliberately not read from the navigation table: that
- * table supplies the notice's workspace labels, while this is the fixed destination a person is sent
- * to, and deriving one from the other would tie the only always-working link to a lookup that could
- * answer nothing.
- */
-export const EXCEPTION_QUEUE_PATH = '/exceptions';
 
 /** The noun the sentence is built around, and the word that decides whether it repeats. */
 const WORKSPACE_NOUN = 'workspace';
