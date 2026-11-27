@@ -64,7 +64,7 @@ const EXCEPTIONS_LINK_LABEL = 'Go to the exception queue';
  *
  * The 1 px `control-boundary` border and the raised `surface-2` fill are what identify it as a
  * control without relying on colour (WCAG 1.4.1), which is why it carries no underline: the shape,
- * not a text decoration, is the affordance. {@link CONTROL_STRUCTURE_CLASSES} supplies the 24x24 px
+ * not a text decoration, is the cue. {@link CONTROL_STRUCTURE_CLASSES} supplies the 24x24 px
  * minimum target of rule B-3 and the 2 px `--color-focus-ring` ring drawn on `focus-visible`, and
  * {@link SECONDARY_CONTROL_CLASSES} the fill, boundary, hover and pressed states; `self-start` is
  * the one addition, keeping the link at its own width inside the column.

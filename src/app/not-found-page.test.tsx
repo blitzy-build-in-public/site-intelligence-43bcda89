@@ -96,7 +96,7 @@ describe('NotFoundPage', () => {
     /* The anti-drift guard: this page's only control takes its shape, colours and hover and pressed
        states from the two lists `src/components/tooltip.tsx` exports, which the secondary
        `ActionButton` and the stage-notice page's link compose too, so one token change reaches all
-       three and the page cannot be left without the hover affordance beside it. */
+       three and the page cannot be left without the hover state beside it. */
     expect(shared.length).toBeGreaterThan(0);
     for (const utility of shared) {
       expect(link).toHaveClass(utility);

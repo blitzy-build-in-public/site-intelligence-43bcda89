@@ -260,7 +260,7 @@ describe('DataTable', () => {
     expect(bodyRows()).toHaveLength(ROWS.length);
   });
 
-  it('T-16 draws the focus-ring token on the row it moves focus to', async () => {
+  it('T-16 moves the focus ring onto the row it focuses', async () => {
     const user = userEvent.setup();
     renderTable();
     rowAt(0).focus();
@@ -337,7 +337,7 @@ describe('DataTable', () => {
     renderTable();
 
     // B-3: a row that opens something fades its hover ground in over 150ms, and a reader who asks
-    // for reduced motion gets the same affordance with no transition at all.
+    // for reduced motion gets the same hover state with no transition at all.
     const first = rowAt(0);
     expect(first).toHaveClass('transition-colors');
     expect(first).toHaveClass('motion-reduce:transition-none');
@@ -475,7 +475,7 @@ describe('DataTable', () => {
     );
 
     const first = rowAt(0);
-    // A row that opens nothing is not a control: no pointer affordance, no role, no button inside.
+    // A row that opens nothing is not a control: no pointer cue, no role, no button inside.
     expect(first).not.toHaveClass('cursor-pointer');
     expect(first).not.toHaveAttribute('role');
     expect(within(first).queryByRole('button')).toBeNull();
