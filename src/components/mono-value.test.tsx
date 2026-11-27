@@ -6,10 +6,15 @@
  * an amount, at most two decimals, a whole amount printed without decimals, an identifier, an ISO
  * 8601 timestamp and a sixty-four character digest each rendered character for character and never
  * truncated, and the raw input kept on screen when an amount has no formatted form (rule P-6 —
- * never a formatted number that is not the number, and never a substituted zero). Two further cases
- * cover the shape the component promises its callers: one inline `<span>` carrying the mono face and
- * tabular numerals, with a digest's full length wrapping instead of overflowing, and no focus stop,
- * no `aria-label` and no `title` standing between the reader and the value.
+ * never a formatted number that is not the number, and never a substituted zero). A grouped amount is
+ * also read back as a number and compared with the prop it came from, so a formatter that re-scaled or
+ * dropped digits in the text it printed would fail even where the digits it printed still looked
+ * plausible. Further cases cover the shape the component promises its callers: one inline `<span>`
+ * carrying the mono face and tabular numerals, with a digest's full length wrapping instead of
+ * overflowing, and no focus stop, no `aria-label` and no `title` standing between the reader and the
+ * value. Both themes are rendered as well (AAP §0.18.1): the component sets no colour of its own, so
+ * one class list has to serve Command and Paper, and the text colour has to be the role of the surface
+ * the value is written on, whichever theme resolves it.
  *
  * The expected amounts are assembled from the currency code held below rather than written out, so
  * the assertion still compares the complete rendered string while no currency-shaped literal sits in
@@ -19,7 +24,7 @@
  * clock or reaches the service layer.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 
 import { DEMO_CLOCK } from '../types';
@@ -83,6 +88,47 @@ function readText(element: HTMLElement): string {
   return (element.textContent ?? '').replace(/\s/g, ' ');
 }
 
+/**
+ * The amount a rendered money value carries, read back as a number.
+ *
+ * The currency code comes off, the grouping separator goes and the decimal comma becomes a point
+ * before the digits are parsed, which is the only way to tell a formatted amount from one the
+ * formatter moved: text re-scaled by a factor of a hundred, or with a digit dropped where a
+ * separator was taken for one, parses to a different number than the prop carried.
+ */
+function parseRenderedAmount(text: string): number {
+  const normalised = text
+    .replace(CURRENCY_CODE, '')
+    .replace(/\./g, '')
+    .replace(',', '.')
+    .trim();
+
+  return Number(normalised);
+}
+
+/** The class list a rendered value carries, for comparing what the two themes are handed. */
+function paintOf(value: number | string, kind: MonoValueKind): readonly string[] {
+  return Array.from(renderMonoValue(value, kind).classList);
+}
+
+/**
+ * A utility that would fix a colour, a size, an opacity or a shadow outside the theme's tokens.
+ *
+ * The component's own class list carries the mono face and the tabular numerals and nothing else, so
+ * any of these prefixes appearing would be a value chosen in the wrong place: a colour the theme has
+ * not measured (rule B-3), a size outside the six-step scale, or a shadow the specification defines
+ * none of.
+ */
+const OFF_TOKEN_UTILITY = /^(?:text|bg|border|fill|stroke|opacity|shadow|font-(?:sans|serif))-/;
+
+/*
+ * The both-themes cases set `data-theme` on `<html>` and leave it there for the length of one case,
+ * so it is cleared afterwards rather than leaking into the next one.
+ */
+afterEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+});
+
 describe('MonoValue', () => {
   describe('money', () => {
     /* Amounts that differ only in their digits are one parameterised case (house rule CQ3). */
@@ -109,6 +155,32 @@ describe('MonoValue', () => {
 
       expect(text).not.toContain(',');
       expect(text).toBe(`2.257.000 ${CURRENCY_CODE}`);
+    });
+
+    /*
+     * Every amount the contract carries holds at most two decimals, so each one below is an amount
+     * the formatter has to return unchanged: reading the printed text back has to land on the same
+     * number the prop held, whatever the magnitude and whichever sign (rule P-6 — formatting groups
+     * and labels a value and never re-scales it).
+     *
+     * The amounts and the expected strings are written out rather than computed with the formatter
+     * under test. Rule P-6's bar is a number typed into a component, a template or a test hook, and
+     * this file is none of those; an expectation produced by the same `Intl` options would agree with
+     * whatever the component did and prove nothing, which is the one change that would leave this
+     * suite green and worthless.
+     */
+    it.each([
+      { value: 21300, reading: 'a five-figure amount' },
+      { value: 2257000, reading: 'an amount in the millions' },
+      { value: 108000, reading: 'a six-figure amount' },
+      { value: 0.5, reading: 'a sub-unit amount' },
+      { value: -5.5, reading: 'a negative amount' },
+      { value: 0, reading: 'a zero amount' },
+    ])('reads back to the value it was given for $reading', ({ value }) => {
+      const rendered = readText(renderMonoValue(value, 'money'));
+
+      /* The digits, the sign and the scale survive the grouping separator and the currency code. */
+      expect(parseRenderedAmount(rendered)).toBe(value);
     });
 
     it.each([
@@ -220,6 +292,47 @@ describe('MonoValue', () => {
        * an exact comparison catches one whatever it is called.
        */
       expect(Array.from(span.classList)).toStrictEqual(MONO_VALUE_CLASSES.base.split(' '));
+    });
+  });
+
+  /*
+   * AAP §0.18.1 asks that both themes be checked by rendering under each `data-theme` value. The
+   * component sets no colour of its own, so what that promise amounts to here is: every kind of
+   * value, under each theme, is given the mono face and the tabular numerals from the type tokens,
+   * and nothing that could pin a colour or a size outside the theme — no palette literal, no `rgb()`
+   * value, no inline style, no colour or size utility — reaches the markup. The last case proves the
+   * two themes are handed one identical class list, which is what lets the role token resolve per
+   * theme rather than the component choosing a value (rule B-3).
+   */
+  describe('both themes', () => {
+    const KINDS = ['money', 'id', 'timestamp', 'hash'] as const satisfies readonly MonoValueKind[];
+
+    for (const theme of ['command', 'paper'] as const) {
+      it(`takes the mono face and the tabular numerals from the tokens under the ${theme} theme`, () => {
+        document.documentElement.setAttribute('data-theme', theme);
+
+        for (const kind of KINDS) {
+          const span = renderMonoValue(kind === 'money' ? 21300 : IDENTIFIER, kind);
+          const classes = Array.from(span.classList);
+
+          for (const utility of MONO_VALUE_CLASSES.base.split(' ')) {
+            expect(classes).toContain(utility);
+          }
+          expect(classes.join(' ')).not.toMatch(/#[0-9a-f]{3,8}|\brgba?\(/i);
+          expect(span.hasAttribute('style')).toBe(false);
+          expect(classes.filter((utility) => OFF_TOKEN_UTILITY.test(utility))).toStrictEqual([]);
+        }
+      });
+    }
+
+    it('hands both themes one identical class list, so the colour is the theme role', () => {
+      document.documentElement.setAttribute('data-theme', 'command');
+      const inCommand = paintOf(21300, 'money');
+
+      document.documentElement.setAttribute('data-theme', 'paper');
+      const inPaper = paintOf(21300, 'money');
+
+      expect(inCommand).toStrictEqual(inPaper);
     });
   });
 });

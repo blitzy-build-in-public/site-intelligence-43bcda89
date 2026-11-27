@@ -1,0 +1,303 @@
+/**
+ * The series legend of a chart, a map or the competitive atlas: one row per series, each row a colour
+ * swatch beside the words that say what the colour stands for.
+ *
+ * Provenance is structural here rather than conventional (rule P-5). `LegendEntry` is a discriminated
+ * union, and its `competitor` branch declares `simLabel` as the market-intelligence member of
+ * `SimLabel` with no optional form, so a competitor series cannot be described to this component
+ * without the exact specification §5.3 label its figures require: such an entry does not type-check,
+ * and no runtime branch has to remember to add the label. The `client-series` branch carries no
+ * `simLabel` at all, because the client's series is first-party and its companion tag is
+ * `CLIENT_SELF_ASSESSMENT_LABEL` — a longer, series-specific string that sits alongside the seven
+ * labels rather than inside them (AAP §0.10). Widening `SimLabel` to hold it, or stacking one of the
+ * seven labels onto that entry as well, would blur the boundary the two branches draw.
+ *
+ * Two companion strings are imported and never spelled in this module (rule P-1): the competitor name
+ * tag from `COMPETITOR_NAME_TAG` and the client series tag from `CLIENT_SELF_ASSESSMENT_LABEL`, both
+ * declared in `src/types/primitives.ts`. That module owns their wording — including the competitor
+ * tag, whose exact words rule P-5 fixes — so a reworded tag moves there and this component follows.
+ * The pack banner `ATLAS_PACK_BANNER` is deliberately not rendered here: the competitive atlas screen
+ * owns it, and a legend that repeated it would put the same sentence on screen twice.
+ *
+ * Colours are role tokens only, and each entry kind resolves through its own single map:
+ * `--color-status-*` for a status series, `--color-competitor-1/2/3` for the three competitors in the
+ * order specification §4.2 assigns them, and the accent role for the client's own series, which §4.1
+ * gives to first-party flows. That is what keeps a category the same colour in every chart that draws
+ * it — a radar series, an atlas mark and a legend row resolve the same token — so a chart may not pick
+ * a hue of its own, and this component may not either.
+ *
+ * The list carries no focus stop and no interactive element: a legend describes what a chart is
+ * already showing and operates nothing. Each swatch is `aria-hidden`, so the meaning reaches a screen
+ * reader through the label text beside it and never through colour alone (rule B-3), and the text
+ * takes the primary or caption role, so its contrast is the ratio specification §4 measured for that
+ * role. Nothing here counts, totals, formats or summarises anything (rule P-6): a legend that
+ * aggregated a first-party series with a market-intelligence one would blend provenance into one
+ * number, which rule P-5 forbids.
+ */
+import type { ReactNode } from 'react';
+
+import { CLIENT_SELF_ASSESSMENT_LABEL, COMPETITOR_NAME_TAG } from '../types';
+import type { SimLabel } from '../types';
+
+import type { StatusMeaning } from './status-indicator';
+
+/* ---------------------------------------------------------------------------------------------
+ * The entry vocabulary
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * A status or pin-state series: the colour a status role gives it, and the wording the caller prints
+ * for it.
+ *
+ * `meaning` is the shared vocabulary of `src/components/status-indicator.tsx` rather than a union of
+ * its own, so a legend row, a table cell and a canvas badge cannot disagree about what a state looks
+ * like. The label is the caller's — the series' name, or the exact §5.3 simulation string where the
+ * series is a simulated one (rule P-1).
+ */
+export interface StatusLegendEntry {
+  /** Discriminator. */
+  readonly kind: 'status';
+  /** The entry's identifier, unique within one legend, so React can key the row. */
+  readonly id: string;
+  /** The series' name, printed as visible text beside the swatch. */
+  readonly label: string;
+  /** The status meaning whose role colour the swatch takes. */
+  readonly meaning: StatusMeaning;
+}
+
+/**
+ * A competitor's series: market intelligence, and therefore inseparable from the label that says so.
+ *
+ * `simLabel` is not optional and is not a plain `string`. Its type is the market-intelligence member
+ * of `SimLabel`, extracted from the seven fixed §5.3 strings, so the only way to satisfy it is to pass
+ * that exact label; an entry constructed without it fails to compile, which is rule P-5 enforced by the
+ * type rather than by a reviewer. The label the component prints for the competitor name is the
+ * caller's, and `COMPETITOR_NAME_TAG` is added to it here so every competitor name shown through this
+ * component carries the tag.
+ */
+export interface CompetitorLegendEntry {
+  /** Discriminator. */
+  readonly kind: 'competitor';
+  /** The entry's identifier, unique within one legend, so React can key the row. */
+  readonly id: string;
+  /** The competitor's name as the market-intelligence record states it. */
+  readonly label: string;
+  /** Which competitor series this is, selecting `--color-competitor-1/2/3` in §4.2's order. */
+  readonly index: 1 | 2 | 3;
+  /** The market-intelligence label, fixed character for character by specification §5.3. */
+  readonly simLabel: Extract<SimLabel, 'Simulated market intelligence'>;
+}
+
+/**
+ * The client's own series on the atlas radar: a first-party self-assessment, not a competitor estimate.
+ *
+ * It carries no `simLabel` because the seven §5.3 labels have no member for it; its companion tag is
+ * `CLIENT_SELF_ASSESSMENT_LABEL`, which this component prints from the constant in `src/types`. The
+ * swatch takes the accent role, which specification §4.1 assigns to first-party flows.
+ */
+export interface ClientSeriesLegendEntry {
+  /** Discriminator. */
+  readonly kind: 'client-series';
+  /** The entry's identifier, unique within one legend, so React can key the row. */
+  readonly id: string;
+  /** The series' name, printed as visible text beside the swatch. */
+  readonly label: string;
+}
+
+/**
+ * One row of a legend: a status series, a competitor's series, or the client's own series.
+ *
+ * The three branches are told apart by `kind`, and the component handles each exhaustively, so a
+ * fourth kind added to this union fails to compile until the legend has been taught what its swatch
+ * and its mandatory labels are.
+ */
+export type LegendEntry = StatusLegendEntry | CompetitorLegendEntry | ClientSeriesLegendEntry;
+
+/** Which way the rows run. Row is the default: a legend sits beside or beneath the chart it serves. */
+export type LegendOrientation = 'row' | 'column';
+
+/* ---------------------------------------------------------------------------------------------
+ * Colours, per entry kind — the only place each one is chosen
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The status swatch per meaning: the `bg-` utility of a `--color-status-*` role token, so the swatch
+ * paints in the colour each theme measured for that role and no raw palette value is reachable.
+ *
+ * Exhaustive by type, so a meaning added to the shared vocabulary without a colour fails to compile
+ * rather than rendering an unpainted swatch.
+ */
+const STATUS_SWATCH_CLASSES = {
+  pass: 'bg-status-pass',
+  fail: 'bg-status-fail',
+  warning: 'bg-status-warning',
+  review: 'bg-status-review',
+  empty: 'bg-status-empty',
+  simulated: 'bg-status-simulated',
+} as const satisfies Record<StatusMeaning, string>;
+
+/**
+ * The competitor swatch per series index, in the order specification §4.2 assigns the three
+ * competitor hues, so a legend row, a radar series and an atlas mark agree on which colour belongs to
+ * which company.
+ *
+ * Exhaustive by type for the same reason as the status map: a fourth competitor would have to bring
+ * its colour token with it.
+ */
+const COMPETITOR_SWATCH_CLASSES = {
+  1: 'bg-competitor-1',
+  2: 'bg-competitor-2',
+  3: 'bg-competitor-3',
+} as const satisfies Record<1 | 2 | 3, string>;
+
+/**
+ * The client's series swatch: the accent role, which specification §4.1 reserves for first-party
+ * flows. It is a role token like the others, so the same series cannot be painted in a competitor's
+ * hue on one theme and something else on the other.
+ */
+const CLIENT_SERIES_SWATCH_CLASSES = 'bg-accent';
+
+/* ---------------------------------------------------------------------------------------------
+ * Layout
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * How the rows are arranged: `row` wraps them beside a chart, `column` stacks them in a drawer.
+ *
+ * `flex-wrap` is part of the row arrangement rather than the caller's problem, so a long set of series
+ * wraps instead of overflowing its container at a narrow width.
+ */
+const LIST_CLASSES = {
+  row: 'flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1',
+  column: 'flex min-w-0 flex-col items-start gap-2',
+} as const satisfies Record<LegendOrientation, string>;
+
+/** One row: the swatch, then the label and any companion tag, wrapping as one item. */
+const ITEM_CLASSES = 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1';
+
+/**
+ * The swatch itself: a 12 px mark on the 4 px grid with the 2 px control radius, sized in `rem`
+ * through Tailwind's spacing scale so it keeps its proportion to the text it sits beside.
+ *
+ * It is decorative: `aria-hidden` is set on it at the call site, because the row's label text is what
+ * carries the meaning and a swatch announced on its own would repeat nothing useful.
+ */
+const SWATCH_CLASSES = 'inline-block size-3 shrink-0 rounded-control';
+
+/** The series name: the primary text role, so its contrast is the ratio §4 measured for that role. */
+const LABEL_CLASSES = 'min-w-0 break-words text-13 text-text-primary';
+
+/** A companion tag — the competitor name tag or the client series tag — in the caption role. */
+const COMPANION_TAG_CLASSES = 'min-w-0 break-words text-12 text-text-caption';
+
+/* ---------------------------------------------------------------------------------------------
+ * The component
+ * ------------------------------------------------------------------------------------------- */
+
+/** Props of {@link Legend}. */
+export interface LegendProps {
+  /**
+   * The series to describe, in the order they should be read. Required: an empty legend says nothing,
+   * and this component renders nothing for one.
+   */
+  readonly entries: readonly LegendEntry[];
+  /** Which way the rows run. Defaults to `'row'`. */
+  readonly orientation?: LegendOrientation | undefined;
+  /** Layout-only additions from the calling screen. Never a colour and never a surface. */
+  readonly className?: string | undefined;
+}
+
+/**
+ * Renders one legend as a list of swatch-and-label rows.
+ *
+ * The list is a `<ul>` because the entries are an unordered set of peers, and it is given
+ * `role="list"` explicitly: Tailwind's preflight removes list markers, and the engines that drop list
+ * semantics from a marker-less list would otherwise announce the rows as plain runs of text instead of
+ * as a set of items (rule B-3).
+ *
+ * An empty `entries` array renders nothing at all rather than an empty list, so a chart with no series
+ * contributes no stray landmark and no empty list to the accessibility tree. Each entry's `id` keys its
+ * row, so a caller must keep those identifiers unique within one legend.
+ */
+export function Legend({ entries, orientation = 'row', className }: LegendProps) {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <ul role="list" className={joinClassNames(LIST_CLASSES[orientation], className)}>
+      {entries.map((entry) => (
+        <li key={entry.id} className={ITEM_CLASSES}>
+          <span
+            aria-hidden="true"
+            className={joinClassNames(SWATCH_CLASSES, swatchClassFor(entry))}
+          />
+          {entryText(entry)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The colour a row's swatch takes, chosen by entry kind and by nothing else.
+ *
+ * The `switch` is exhaustive over `LegendEntry` and has no `default` arm, so a new kind fails to
+ * compile here until its colour has been decided in one of the maps above.
+ */
+function swatchClassFor(entry: LegendEntry): string {
+  switch (entry.kind) {
+    case 'status':
+      return STATUS_SWATCH_CLASSES[entry.meaning];
+    case 'competitor':
+      return COMPETITOR_SWATCH_CLASSES[entry.index];
+    case 'client-series':
+      return CLIENT_SERIES_SWATCH_CLASSES;
+  }
+}
+
+/**
+ * The words a row carries: the series name, followed by the companion tags its kind requires.
+ *
+ * The competitor row prints `COMPETITOR_NAME_TAG` and then its `simLabel`, and the client row prints
+ * `CLIENT_SELF_ASSESSMENT_LABEL`; both tags come from the constants in `src/types`, so this module
+ * holds no copy of either string (rule P-1). A status row prints its label alone, because a status
+ * series' provenance is the record's own and its label is the caller's wording.
+ *
+ * The `{' '}` between the spans is load-bearing. Adjacent elements contribute their text to the
+ * accessibility tree with nothing between them, so without it a reader hears the name and both tags
+ * fused into one run of letters; the space is a whitespace-only flex child, which flex layout does not
+ * render, so the visible spacing stays the `gap-x-2` on the row and no double gap appears.
+ *
+ * Exhaustive over `LegendEntry` with no `default` arm, for the same reason as {@link swatchClassFor}:
+ * a new kind must decide what it says before it compiles.
+ */
+function entryText(entry: LegendEntry): ReactNode {
+  switch (entry.kind) {
+    case 'status':
+      return <span className={LABEL_CLASSES}>{entry.label}</span>;
+    case 'competitor':
+      return (
+        <>
+          <span className={LABEL_CLASSES}>{entry.label}</span>{' '}
+          <span className={COMPANION_TAG_CLASSES}>{COMPETITOR_NAME_TAG}</span>{' '}
+          <span className={COMPANION_TAG_CLASSES}>{entry.simLabel}</span>
+        </>
+      );
+    case 'client-series':
+      return (
+        <>
+          <span className={LABEL_CLASSES}>{entry.label}</span>{' '}
+          <span className={COMPANION_TAG_CLASSES}>{CLIENT_SELF_ASSESSMENT_LABEL}</span>
+        </>
+      );
+  }
+}
+
+/**
+ * Concatenates the class names that are present, so an omitted `className` leaves no trailing space
+ * and no empty entry behind.
+ */
+function joinClassNames(...values: readonly (string | undefined)[]): string {
+  return values.filter((value) => value !== undefined && value !== '').join(' ');
+}

@@ -2,13 +2,15 @@
  * Component suite for `status-indicator.tsx`, the single status vocabulary of the interface.
  *
  * Each case asserts a contract rule B-3 and AAP §0.5.2 give the component rather than its markup: a
- * meaning always shows an icon, a label and its status role colour together; the icon is hidden from
- * assistive technology so the label is the only accessible name; the six meanings are visually
- * distinguishable from one another; `meaningOf` maps all six `PinState` members of contracts §4.2
- * with the clock on `pending` and without it on `stale`; a caller's override replaces the meaning's
- * own icon without becoming a second announcement; the component is not a control and therefore adds
- * no focus stop; and the one class list serves both themes through role tokens alone, so no palette
- * literal, `rgb()` value or shadow reaches a status in either theme.
+ * meaning always shows an icon, a label and its status role colour together, with the label reachable
+ * as the status's own text; the icon is hidden from assistive technology so the label is the only
+ * accessible name; the six meanings are visually distinguishable from one another; `meaningOf` maps
+ * all six `PinState` members of contracts §4.2 with the clock on `pending` and without it on `stale`,
+ * and a pending pin driven from that descriptor renders the clock in the warning colour; a caller's
+ * override replaces the meaning's own icon without becoming a second announcement; the component is
+ * not a control and therefore adds no focus stop; and the one class list serves both themes through
+ * role tokens alone, so the only colours a status emits are its meaning's `text-status-*` token and
+ * the primary text role, with no inline style, palette literal or shadow in either theme.
  *
  * The labels here are this suite's own caller-level text. The component authors none: a status label
  * is record content or an exact simulation label supplied by its caller (rules P-1 and P-6), so there
@@ -17,9 +19,9 @@
  */
 
 import { Clock } from '@phosphor-icons/react';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { PinState } from '../types';
 import {
@@ -99,6 +101,46 @@ function iconOf(root: HTMLElement, meaning: string): SVGElement {
   return icon;
 }
 
+/** The utility prefixes that could paint a colour, so a class list can be read for its colours alone. */
+const COLOUR_UTILITY_PREFIXES = [
+  'text-',
+  'bg-',
+  'border-',
+  'fill-',
+  'stroke-',
+  'ring-',
+  'outline-',
+  'shadow-',
+  'decoration-',
+  'accent-',
+  'caret-',
+  'divide-',
+  'from-',
+  'via-',
+  'to-',
+] as const;
+
+/**
+ * Every class across the rendered elements that could carry a colour, with a variant prefix
+ * (`hover:`, `focus-visible:`) removed so the utility itself is what is compared.
+ */
+function colourUtilitiesOf(elements: readonly Element[]): string[] {
+  return elements.flatMap((element) =>
+    (element.getAttribute('class') ?? '')
+      .split(/\s+/)
+      .filter((value) => value !== '')
+      .map((value) => value.slice(value.lastIndexOf(':') + 1))
+      .filter((utility) =>
+        COLOUR_UTILITY_PREFIXES.some((prefix) => utility.startsWith(prefix)),
+      ),
+  );
+}
+
+/** The colour-bearing classes a rendered status is allowed to carry for one meaning. */
+function expectedColourUtilities(meaning: StatusMeaning): string[] {
+  return [MEANING_COLOUR_CLASSES[meaning], 'text-text-primary'].sort();
+}
+
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
 });
@@ -119,6 +161,17 @@ describe('StatusIndicator', () => {
       expect(label).toHaveClass('text-text-primary');
     });
   }
+
+  /* The label has to be reachable the way a screen's own test and a reader reach it — as the status's
+     text — and it has to be the whole of that text, so the icon contributes no characters the reader
+     would meet twice. */
+  it('shows the label as the text a reader can find by its wording', () => {
+    const { root } = renderStatus('warning');
+
+    expect(screen.getByText(LABEL)).toBeVisible();
+    expect(root).toHaveTextContent(LABEL);
+    expect(root.textContent).toBe(LABEL);
+  });
 
   it('paints a different icon for every meaning', () => {
     const glyphs = MEANINGS.map((meaning) => {
@@ -168,23 +221,76 @@ describe('StatusIndicator', () => {
     expect(iconWrapper).toHaveClass(MEANING_COLOUR_CLASSES.warning);
   });
 
-  /* AAP §0.18.1 asks that both themes be checked by rendering under each `data-theme` value. The
-     colours are role utilities the theme layer resolves, so one class list has to serve both: no
-     utility a status carries may be a palette literal or an `rgb()` value, and no shadow may appear
-     (specification §4.3 defines none). */
-  for (const theme of ['command', 'paper'] as const) {
-    it(`renders the same role-token statuses under the ${theme} theme`, () => {
+  /* The pending pin end to end, the way a consumer drives it: `meaningOf` names the meaning and the
+     override, and both reach the component together. A pending review shares the warning colour with a
+     degraded source, so the clock is what makes it read differently — and it has to replace the
+     triangle rather than sit beside it. */
+  it('renders a pending pin from its descriptor with the clock in the warning colour', () => {
+    const descriptor = meaningOf('pending');
+    const warningGlyph = iconOf(renderStatus('warning').root, 'warning').innerHTML;
+
+    const { root, iconWrapper, label } = renderStatus(descriptor.meaning, {
+      icon: PENDING_CLOCK_ICON,
+    });
+
+    expect(descriptor).toEqual({ meaning: 'warning', iconOverride: 'clock' });
+    expect(iconOf(root, 'pending')).toHaveAttribute('aria-hidden', 'true');
+    expect(iconOf(root, 'pending').innerHTML).not.toBe(warningGlyph);
+    expect(iconWrapper).toHaveClass(MEANING_COLOUR_CLASSES.warning);
+    expect(label).toHaveTextContent(LABEL);
+  });
+
+  /* Both themes, over specification §4.2's six status roles (AAP §0.18.1 asks that both be checked by
+     rendering under each `data-theme` value).
+
+     The colour a status paints is its meaning's role token, so the two themes differ in that token's
+     value and not in the markup: the same `text-status-*` class list is emitted under Command and
+     Paper, and the per-theme colour arrives from `src/theme/tokens.css`, which maps each role to the
+     palette variable its theme file declares. The comparison is drawn on this side of the boundary
+     because a jsdom suite cannot observe that value at all — Vitest stubs a stylesheet's text to an
+     empty string, so neither theme file is readable from here, and jsdom resolves no `var()` and no
+     Tailwind utility. What the suite can prove, and does, is the property the value comparison exists
+     to establish: no colour reaches a status except through a role token, in either theme. A
+     hard-coded colour would have to surface as an arbitrary value or a palette utility in a class
+     list, or as an inline `style`, and each of those is asserted absent below; the class list is
+     asserted identical across the two themes, so nothing theme-specific is baked into the markup. */
+  const THEMES = ['command', 'paper'] as const;
+
+  for (const theme of THEMES) {
+    it(`paints every meaning through its status role token under the ${theme} theme`, () => {
       document.documentElement.setAttribute('data-theme', theme);
+      expect(document.documentElement.getAttribute('data-theme')).toBe(theme);
 
       for (const meaning of MEANINGS) {
-        const { root, iconWrapper } = renderStatus(meaning);
+        const { root } = renderStatus(meaning);
+        const elements = [root, ...Array.from(root.querySelectorAll('*'))];
 
-        expect(iconWrapper.getAttribute('class') ?? '').not.toMatch(/#[0-9a-f]{3,8}|\brgba?\(/i);
-        expect(iconWrapper).toHaveClass(MEANING_COLOUR_CLASSES[meaning]);
-        expect((root.getAttribute('class') ?? '').includes('shadow')).toBe(false);
+        for (const element of elements) {
+          expect(element.getAttribute('style')).toBeNull();
+          expect(element.getAttribute('class') ?? '').not.toMatch(
+            /#[0-9a-f]{3,8}|\brgba?\(|\bhsla?\(/i,
+          );
+          expect((element.getAttribute('class') ?? '').includes('shadow')).toBe(false);
+        }
+
+        expect(colourUtilitiesOf(elements).sort()).toEqual(expectedColourUtilities(meaning));
       }
     });
   }
+
+  it('emits the same role-token class list under both themes', () => {
+    const classListsUnder = (theme: (typeof THEMES)[number]): string[][] => {
+      document.documentElement.setAttribute('data-theme', theme);
+      return MEANINGS.map((meaning) => {
+        const { root } = renderStatus(meaning);
+        return [root, ...Array.from(root.querySelectorAll('*'))].map(
+          (element) => element.getAttribute('class') ?? '',
+        );
+      });
+    };
+
+    expect(classListsUnder('paper')).toEqual(classListsUnder('command'));
+  });
 });
 
 describe('meaningOf', () => {
@@ -205,6 +311,14 @@ describe('meaningOf', () => {
       expect(meaningOf(state)).toEqual(EXPECTED[state]);
     });
   }
+
+  /* The loop is only half the guard, because it walks the list this suite holds. The completeness of
+     that list is asserted where it can fail: `EXPECTED` is declared `satisfies Record<PinState,
+     StatusDescriptor>`, and this case states the other direction, so a pin state added to the
+     vocabulary fails the type check here until it is given a meaning instead of being skipped. */
+  it('declares an expectation for every pin state the vocabulary holds, and no other', () => {
+    expectTypeOf<keyof typeof EXPECTED>().toEqualTypeOf<PinState>();
+  });
 
   it('leaves the clock off the stale state that shares the warning meaning', () => {
     expect(meaningOf('stale').iconOverride).toBeUndefined();
