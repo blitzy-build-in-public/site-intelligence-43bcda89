@@ -90,6 +90,7 @@ import type {
   Problem,
   Timestamp,
 } from '../../../types';
+import { runExclusive } from '../mock-state';
 import type { HandlerContext, MockState } from '../mock-state';
 import { SEEDED_EVENT_COUNT } from '../seed-loader';
 import { isSimulationOn } from '../simulation';
@@ -349,6 +350,16 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  * function hands it, which is why none of them is computed, validated or cached here: one append path
  * means one arithmetic, and a second copy of it would be a second answer to what a hash is.
  *
+ * The append runs inside the session's write queue. Deriving the instant, reading the chain's length
+ * and its predecessor, awaiting the two digests and pushing the event would otherwise be a
+ * read-modify-write two audited writes could interleave: issued together, they read one chain state,
+ * derive one sequence from one predecessor, and push two events that claim the same position — a
+ * forked chain, which AAP 0.12.2's strictly increasing sequence and predecessor link forbid. The whole
+ * derivation therefore runs as one section through `runExclusive` in `../mock-state.ts`, so appends
+ * stay in the order they were submitted and their instants stay strictly increasing with their
+ * sequences. A draft this function refuses is refused before the queue is taken, so a refusal neither
+ * waits behind a write nor holds one up.
+ *
  * No permission is evaluated here. A caller has already authorised the action it is recording, and a
  * refusal a policy made still has to reach the record — that is the event the policy block card points
  * at. The demonstration's forbidden trigger therefore does not stop an append; it stops the reads.
@@ -373,26 +384,28 @@ export async function appendAuditEvent(
     );
   }
 
-  const chainDraft: AuditEventDraft = {
-    timestamp: instantAfterSeconds(appendAdvanceSeconds(ctx.state)),
-    actorType: draft.actorType ?? DEFAULT_ACTOR_TYPE,
-    actorId: draft.actorId ?? ctx.actor.id,
-    action: draft.action,
-    objectRef: draft.objectRef,
-    result: draft.result,
-    // Written conditionally because `exactOptionalPropertyTypes` distinguishes an absent `policyId`
-    // from one holding `undefined`, and the event hash writes an absent policy as an empty string.
-    ...(draft.policyId === undefined ? {} : { policyId: draft.policyId }),
-    before: draft.before ?? null,
-    after: draft.after ?? null,
-    traceId: traceIdFor(ctx.state),
-  };
+  return runExclusive(ctx.state, async () => {
+    const chainDraft: AuditEventDraft = {
+      timestamp: instantAfterSeconds(appendAdvanceSeconds(ctx.state)),
+      actorType: draft.actorType ?? DEFAULT_ACTOR_TYPE,
+      actorId: draft.actorId ?? ctx.actor.id,
+      action: draft.action,
+      objectRef: draft.objectRef,
+      result: draft.result,
+      // Written conditionally because `exactOptionalPropertyTypes` distinguishes an absent `policyId`
+      // from one holding `undefined`, and the event hash writes an absent policy as an empty string.
+      ...(draft.policyId === undefined ? {} : { policyId: draft.policyId }),
+      before: draft.before ?? null,
+      after: draft.after ?? null,
+      traceId: traceIdFor(ctx.state),
+    };
 
-  const event = await appendEvent(ctx.state.auditEvents, chainDraft);
+    const event = await appendEvent(ctx.state.auditEvents, chainDraft);
 
-  ctx.state.auditEvents.push(event);
+    ctx.state.auditEvents.push(event);
 
-  return event;
+    return event;
+  });
 }
 
 /* ---------------------------------------------------------------------------------------------

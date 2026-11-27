@@ -1,7 +1,8 @@
 /**
  * The demonstration's mutable state: the seeded record set the mock adapter edits, the hashed audit
  * chain it appends to, the persona it acts as, the simulation triggers in effect, the time-boxed
- * policy exceptions the session has requested, and the deterministic counter behind `Meta.traceId`.
+ * policy exceptions the session has requested, the queue that serialises its audited writes, and the
+ * deterministic counter behind `Meta.traceId`.
  *
  * Implements the "Mock state" row of AAP 0.12.1 — "Seeded mutable state, the async bootstrap that
  * hashes the 200 seeded events, the simulation flags, and the reset that restores the seed" — at the
@@ -26,6 +27,14 @@
  * seed records them: `src/seed/audit-events.ts` fixes that order by instant and checks the position of
  * the event the simulation's tamper control edits, so the order walked here is the order the trail
  * declares.
+ *
+ * WHY THE SESSION'S AUDITED WRITES QUEUE BEHIND ONE ANOTHER. The fold above serialises the bootstrap,
+ * and a live write needs the same treatment for the same reason. An append reads the chain's length
+ * and its predecessor, then awaits two digests before pushing the event it derived, so two audited
+ * writes issued together — which the adapter's own latency band makes overlap — would derive the same
+ * sequence from the same predecessor and fork the chain, which contracts §6's strictly increasing
+ * sequence and predecessor link forbid (AAP 0.12.2). `runExclusive` below is that queue: one section
+ * at a time per state, in the order the writes arrived.
  *
  * WHAT THIS MODULE DOES NOT DO. It computes no hash — `appendEvent` in `src/domain/audit/chain.ts`
  * owns the two digests, the sequence number and the identifier, and this module only decides the order
@@ -102,13 +111,14 @@ import type { SeedRecordSet } from './seed-loader';
 
 /**
  * Everything the demonstration remembers between calls: the records, the audit chain, the acting
- * persona, the simulation triggers and the request counter.
+ * persona, the simulation triggers, the pending policy exceptions, the write queue and the request
+ * counter.
  *
  * One of these is created by `createMockState()` and held by the mock adapter for the session's
  * lifetime. Every member is mutable because the session is meant to change: a handler edits the
  * records, appends an event, switches the persona, flips a trigger, records a pending policy
- * exception, and increments the counter, and `restoreSeed` puts all six back to what a fresh state
- * holds.
+ * exception, and increments the counter, and `restoreSeed` puts back what a fresh state holds — every
+ * member that carries a record or a counter, and never the write queue, which holds neither.
  */
 export interface MockState {
   /**
@@ -129,6 +139,19 @@ export interface MockState {
    * that is appended by a handler, never by this module.
    */
   auditEvents: AuditEvent[];
+
+  /**
+   * The tail of the session's critical sections: the audited writes that must not overlap.
+   *
+   * A promise chain rather than a record, and it lives here rather than in module scope so that two
+   * sessions never wait on each other (AAP 0.18.2). An append passes its work through `runExclusive`
+   * below, which chains it behind the section already in flight; the sequence it derives, the
+   * predecessor it links to and the two digests it awaits are then all read from one chain state.
+   *
+   * `restoreSeed` deliberately leaves it alone: it holds no seeded value, and a section already in
+   * flight has to be able to release the queue it took, so a reset never strands a waiting write.
+   */
+  writeQueue: Promise<void>;
 
   /**
    * The persona the session acts as, as an identifier from `records.users`.
@@ -317,8 +340,8 @@ async function buildSeededSession(): Promise<SeededSession> {
  * is what comparing a reset session against a fresh one needs and what keeps two sessions from sharing
  * a record array.
  *
- * @returns A freshly seeded state, its chain hashed, its triggers clear and its counter at its
- *   starting value.
+ * @returns A freshly seeded state, its chain hashed, its triggers clear, its write queue empty and its
+ *   counter at its starting value.
  */
 export async function createMockState(): Promise<MockState> {
   const session = await buildSeededSession();
@@ -326,6 +349,8 @@ export async function createMockState(): Promise<MockState> {
   return {
     records: session.records,
     auditEvents: session.auditEvents,
+    // An already-resolved promise, so the first section through the queue waits for nothing.
+    writeQueue: Promise.resolve(),
     activeUserId: session.activeUserId,
     flags: new Set<SimulationFlag>(),
     policyExceptions: [],
@@ -348,6 +373,11 @@ export async function createMockState(): Promise<MockState> {
  * records, the same hashed chain, the same acting persona, no trigger, no pending policy exception
  * and the same counter value.
  *
+ * The write queue is the one member left as it stands. It holds no seeded value to put back, and a
+ * section already in flight on the chain being replaced still has to be able to release it, so
+ * swapping the queue here would leave that section — and every append waiting behind it — waiting on
+ * a release that never comes.
+ *
  * @param state The session to restore. It is modified in place.
  */
 export async function restoreSeed(state: MockState): Promise<void> {
@@ -359,5 +389,64 @@ export async function restoreSeed(state: MockState): Promise<void> {
   state.flags.clear();
   state.policyExceptions.length = 0;
   state.requestCount = INITIAL_REQUEST_COUNT;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The session's write queue — AAP 0.12.2, AAP 0.18.2
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Runs one critical section of the session's work: after every section already waiting, and before
+ * any section that arrives while it runs.
+ *
+ * contracts §6 fixes a strictly increasing sequence and a predecessor link for the chain, and an
+ * append derives both from the chain as it stands. Two appends that interleaved would therefore
+ * derive the same sequence from the same predecessor and fork the chain, which AAP 0.12.2's invariant
+ * forbids — and the adapter's latency band makes audited writes overlap by design, so the overlap is
+ * the session's normal behaviour rather than an edge case. The append path queues its work here
+ * instead: `state.writeQueue` is the tail of the session's sections, this function chains the caller's
+ * section behind it, and the section runs when everything in front of it has settled.
+ *
+ * Three properties a queue on the state has to hold, and how they are met:
+ * - First in, first out. The new tail is installed synchronously, before this section waits on the old
+ *   one, so a caller arriving a moment later chains behind it rather than beside it and the sections
+ *   run in the order they were submitted. That order is what keeps the appends' instants increasing
+ *   with their sequences.
+ * - It never rejects on its own account. The promise installed here only ever resolves, so no section
+ *   fails because another one failed, and the release below runs whether the section's work resolved
+ *   or threw — a section that threw still hands the queue on.
+ * - A section never takes another section. This is a plain promise chain rather than a re-entrant
+ *   lock: a section that awaited a function which itself called `runExclusive` would wait on a release
+ *   only it could give, and the session would hang. `appendAuditEvent` is the application's one
+ *   section, and it awaits nothing that takes one.
+ *
+ * The queue is a member of the state it is handed and this function reads no clock, no random source
+ * and no module-level value, so two sessions never wait on each other (AAP 0.18.2).
+ *
+ * @param state The session whose sections are serialised. Its queue is advanced to this section.
+ * @param work The section itself, run once every earlier section has settled.
+ * @returns Whatever the section returned.
+ * @throws Whatever the section threw, once the queue behind it has been released.
+ */
+export async function runExclusive<T>(
+  state: MockState,
+  work: () => Promise<T> | T,
+): Promise<T> {
+  const previous = state.writeQueue;
+  // Replaced synchronously by the promise executor below, which is why the placeholder is never the
+  // release a section actually calls.
+  let release: () => void = () => {};
+
+  state.writeQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  try {
+    await previous;
+
+    return await work();
+  } finally {
+    release();
+  }
 }
 

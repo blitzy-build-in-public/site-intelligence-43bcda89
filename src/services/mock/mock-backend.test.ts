@@ -14,7 +14,8 @@
  * 4. permission enforcement, in the adapter rather than in a view;
  * 5. policy enforcement, with the rule, its reason, the alternative it permits and the event it wrote;
  * 6. message redaction, applied before a record crosses the boundary;
- * 7. the audit append a write makes and the append a read does not;
+ * 7. the audit append a write makes, the append a read does not, and the queue that keeps two
+ *    audited writes issued together from claiming one position;
  * 8. the reset that puts the session back to the seeded state;
  * 9. the tamper control, whose edit a verification reports and repairs nothing of;
  * 10. the assistant's cited answer and its fixed notice;
@@ -171,6 +172,14 @@ const LATENCY_FLOOR_MS = 150;
 const LATENCY_CEILING_MS = 400;
 const FLOOR_TOLERANCE_MS = 25;
 const CEILING_TOLERANCE_MS = 600;
+
+/**
+ * How many approval requests one case issues in the same turn.
+ *
+ * The case's own input rather than a figure of the demonstration: it is chosen only so that the
+ * adapter receives several audited writes together, which is the overlap a queued append has to hold.
+ */
+const CONCURRENT_REQUESTS = 8;
 
 /** The form every event hash takes: lowercase hex SHA-256, character for character. */
 const EVENT_HASH_PATTERN = /^[0-9a-f]{64}$/;
@@ -816,6 +825,72 @@ describe('the audit append', () => {
 
     expect(switched.action).toBe(ROLE_SWITCH_ACTION);
     expect(switched.objectRef).toBe(AUDITOR);
+  }, CASE_TIMEOUT_MS);
+
+  it('keeps every sequence distinct and contiguous when two audited writes are issued together', async () => {
+    const backend = await readyBackend();
+    const queue = await queueOf(backend);
+    const first = firstOf(queue, 'exception row');
+    const second = firstOf(
+      queue.filter((row) => row.id !== first.id),
+      'second exception row to write to',
+    );
+
+    // Issued together and through the port. The adapter's latency ladder gives two calls started
+    // together the same delay, so both handlers reach their append at the same moment: an append that
+    // read the chain's length and its predecessor without a queue would claim one position twice.
+    await Promise.all([
+      backend.noteException(first.id, NOTE_TEXT),
+      backend.noteException(second.id, NOTE_TEXT),
+    ]);
+
+    await actAs(backend, AUDITOR);
+
+    const trail = (await backend.listAuditEvents({ sort: 'sequence:asc' })).data;
+    const sequences = trail.map((event) => event.sequence);
+
+    // The seeded trail, the two notes and the role switch: two writes issued together still append
+    // exactly one event each, and the queue puts them after each other rather than beside each other,
+    // so no sequence is claimed twice and none is missing.
+    expect(trail).toHaveLength(SEEDED_EVENT_COUNT + 3);
+    expect(new Set(sequences).size).toBe(sequences.length);
+    expect(sequences).toEqual(sequences.map((_, index) => index + 1));
+
+    const report = (await backend.verifyAuditChain()).data;
+
+    expect(report.breaks).toEqual([]);
+    expect(report.eventsChecked).toBe(trail.length);
+  }, CASE_TIMEOUT_MS);
+
+  it('keeps every approval record when several requests are issued together, and the chain whole', async () => {
+    const backend = await readyBackend();
+    const lodged = (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data;
+    const target = firstOf(lodged, 'pending approval');
+    const before = (await backend.listApprovals({}, NO_SCOPE)).data;
+
+    // Several requests for one plan in the same turn, as a planner retrying a slow one does. Each call
+    // reads the records, installs a record of its own and appends the event about it, which is where
+    // an unserialised append would make two events claim one position.
+    const requests = Array.from({ length: CONCURRENT_REQUESTS }, () =>
+      backend.requestApproval({ exceptionId: target.exceptionId, scenarioId: target.scenarioId }),
+    );
+
+    const outcomes = await Promise.all(requests);
+    const requested = outcomes.map((outcome) => outcome.data.id);
+    const after = (await backend.listApprovals({}, NO_SCOPE)).data;
+    const ids = after.map((approval) => approval.id);
+
+    // Every request resolved with a record of its own, and one record was installed per request.
+    expect(requested).toHaveLength(CONCURRENT_REQUESTS);
+    expect(new Set(requested).size).toBe(requested.length);
+    expect(after).toHaveLength(before.length + CONCURRENT_REQUESTS);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    await actAs(backend, AUDITOR);
+
+    const report = (await backend.verifyAuditChain()).data;
+
+    expect(report.breaks).toEqual([]);
   }, CASE_TIMEOUT_MS);
 });
 

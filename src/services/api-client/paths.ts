@@ -10,30 +10,46 @@
  * than by a value a caller supplies (rule B-1). Nothing here is configuration either — the base is a
  * code constant, and no entry reads an environment value (rule B-2).
  *
- * THE LIST IS CONTRACTS §9, numbered 1 to 35 below in the order the matching members appear in
- * `src/services/site-intelligence-service.ts`. Thirty-six server-backed members divide over
- * thirty-five distinct paths, so reading the numbered entries audits the list without executing it.
+ * THE LIST AND THE PORT IT SERVES. Thirty-five distinct path entries follow, numbered 1 to 35 below
+ * in the order of the members that serve them, and each is built from `API_BASE_PATH` alone, so
+ * the `/api/v1` prefix AAP 0.6.3 and 0.12.3 require holds entry for entry. They serve the port's
+ * thirty-six server-backed members: the port in `src/services/site-intelligence-service.ts`
+ * declares forty-one, and five carry no path and take none here. `setSimulation(flag, on)` and
+ * `resetDemo()` are demonstration controls with no server-side counterpart (AAP 0.6.2), and
+ * `exportEvidencePack()`, `exportScenarioComparison(exceptionId)` and `exportChokepointBrief()`
+ * assemble their payload in the browser and offer it as a download instead of sending a request
+ * (contracts §11, AAP 0.12.1 "exports"). `approvalsPath` is the only entry two members share —
+ * `listApprovals` reads that collection with `GET`, `requestApproval` posts to it — so thirty-six
+ * members occupy thirty-five entries. No entry is invented to reach a round count, and no member
+ * is left without one.
  *
- * RECONCILIATION WITH THE PLAN'S COUNT. AAP 0.12.1 and 0.12.3 describe §9 as thirty-four paths. The
- * port in this checkout declares forty-one members, and this file follows the port, which is the
- * on-disk contract the adapter has to satisfy. Five members carry no path and take none here:
- * `setSimulation(flag, on)` and `resetDemo()` are demonstration controls with no server-side
- * counterpart (AAP 0.6.2), and `exportEvidencePack()`, `exportScenarioComparison(exceptionId)` and
- * `exportChokepointBrief()` assemble their payload in the browser and offer it as a download instead
- * of sending a request (contracts §11, AAP 0.12.1 "exports"). That leaves thirty-six server-backed
- * members, two more than the plan's figure, over thirty-five distinct paths, because `listApprovals`
- * and `requestApproval` are the two methods of one collection and share `approvalsPath`. No entry is
- * invented to reach a round count, and no member is left without one.
+ * AAP'S THIRTY-FOUR AND THIS FILE'S THIRTY-FIVE. AAP 0.6.3 ("Backend HTTP API"), 0.12.1 ("API
+ * client" row) and 0.12.3 each state that contracts §9 fixes thirty-four paths — "against the 34
+ * paths of contracts §9", "paths.ts holds the 34 path constants", "ApiClient implements all 34
+ * paths" — and this file holds thirty-five. AAP 0.13.1's tree comment and 0.15.1 repeat the
+ * figure, and 0.17 records contracts §9 itself as "the 34 API paths", so the plan states
+ * thirty-four consistently. The gap is not closed by trimming. AAP 0.12.3 also names S4/S5
+ * conformance endpoints this port omits on purpose — among them the binder manifest,
+ * the supplier profile and the material profile, which the port's own OPEN ITEM records and
+ * explains — so the plan's set and this set differ structurally; and contracts §9 and §2 are
+ * absent from this checkout and from the whole run, so no entry's presence or absence can be
+ * checked against the document that fixes it. Both figures stand as their source states them, and
+ * every claim in this header is one this file and its suite can be checked against.
  *
- * HOW EACH PATH WAS FIXED. The nine paths AAP 0.12.3 quotes exactly are transcribed character for
- * character: the approvals collection, the approval decision, the assistant queries, the evidence
- * read, the document read, the audit verification, the market-intelligence atlas, the exception
- * solve and the topology. Every remaining path is derived from its member's family and name in the
- * style those nine follow — kebab-case plural collection segments, an `{id}` segment for one record
- * and a sub-resource segment for an action — and the TSDoc of each such entry says that it is
- * derived. §9 is a plan attachment rather than a file in this checkout, so each derived path has to
- * be reconciled with that document before the adapter is called verbatim; the port's header carries
- * the matching open item.
+ * HOW EACH PATH WAS FIXED. Nine entries are transcribed character for character from the paths AAP
+ * 0.12.3 tabulates: `/approvals`, for both of its methods, `/approvals/{id}/decision`,
+ * `/assistant/queries`, `/evidence`, `/documents/{id}`, `/audit-events/verify`,
+ * `/market-intelligence/atlas`, `/exceptions/{id}/scenarios/solve` and `/topology`. The other
+ * twenty-six are derived from their member's family and name in the style those nine follow —
+ * kebab-case plural collection segments, an `{id}` segment for one record and a sub-resource
+ * segment for an action — and derivation is the only provenance each has, stated in its own TSDoc
+ * on every one of the twenty-six.
+ *
+ * WHAT REVERSES THIS. A supplied contracts §9 — or §2, which types the members these entries
+ * serve — settles both the count and each derived entry: that document decides whether
+ * thirty-five is the right number, which derived path is spelled differently, and which entry has
+ * no member behind it. Until one is supplied no entry here may be called verbatim, and the count
+ * in this header is this file's own rather than the plan's.
  *
  * QUERY PARAMETERS ARE NOT PART OF A PATH. `limit`, `cursor`, `sort=field:dir` and every filter are
  * added by the request module from its typed inputs (AAP 0.12.3), and the evidence read's `ref` is a
@@ -83,7 +99,7 @@ function encodeSegment(value: string): string {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * §9 path 1 — `GET` `/overview`, relative to `API_BASE_PATH`. Family: overview. Serves
+ * §9 path 1 — `GET` `/overview`, derived from the family's aggregate read. Family: overview. Serves
  * `getOverview(scope)`.
  *
  * The figures the read returns are computed by the adapter over the exceptions the acting persona's
@@ -97,8 +113,8 @@ export const overviewPath = `${API_BASE_PATH}/overview`;
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * §9 path 2 — `GET` `/exceptions`, relative to `API_BASE_PATH`. Family: exceptions. Serves
- * `listExceptions(query, scope)`.
+ * §9 path 2 — `GET` `/exceptions`, derived from the family's collection segment. Family: exceptions.
+ * Serves `listExceptions(query, scope)`.
  *
  * `limit`, `cursor`, `sort` and the queue's filters travel as query parameters built by the request
  * module, never as part of this path. The list is narrowed to the acting persona's plant scope and
@@ -107,8 +123,8 @@ export const overviewPath = `${API_BASE_PATH}/overview`;
 export const exceptionsPath = `${API_BASE_PATH}/exceptions`;
 
 /**
- * §9 path 3 — `GET` `/exceptions/{id}`, relative to `API_BASE_PATH`. Family: exceptions. Serves
- * `getExceptionDetail(exceptionId)`. Gated by `exception.read`.
+ * §9 path 3 — `GET` `/exceptions/{id}`, derived: one record of the collection above. Family:
+ * exceptions. Serves `getExceptionDetail(exceptionId)`. Gated by `exception.read`.
  */
 export function exceptionPath(exceptionId: ExceptionId): string {
   return `${API_BASE_PATH}/exceptions/${encodeSegment(exceptionId)}`;
@@ -141,7 +157,7 @@ export function exceptionNotesPath(exceptionId: ExceptionId): string {
 
 /**
  * §9 path 7 — `POST` `/exceptions/{id}/dismissal`, derived in the shape of the approval decision of
- * path 13: an action on one record whose body carries why. Serves
+ * path 12: an action on one record whose body carries why. Serves
  * `dismissException(exceptionId, reason)`. Gated by `exception.work`.
  */
 export function exceptionDismissalPath(exceptionId: ExceptionId): string {

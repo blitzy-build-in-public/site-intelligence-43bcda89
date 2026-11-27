@@ -35,7 +35,7 @@ import { describe, expect, it } from 'vitest';
 import type { AuditEvent, AuditEventDraft } from '../../types';
 import { DEMO_CLOCK, GENESIS_PREVIOUS_HASH } from '../../types';
 import { appendEvent } from './chain';
-import { canonicalJson, payloadHash } from './hash';
+import { canonicalJson, eventHash, payloadHash } from './hash';
 import { verifyChain } from './verify';
 
 /* ---------------------------------------------------------------------------------------------
@@ -64,6 +64,11 @@ const EDITED_SEQUENCE = 142;
 /** The `TRC-nnnnnn` correlation identifier of the draft at a position, following the seed's form. */
 function traceIdFor(sequence: number): string {
   return `TRC-${String(sequence).padStart(6, '0')}`;
+}
+
+/** The `AUD-nnnnnn` identifier contracts §1 gives an event at a sequence number, derived from it. */
+function identifierFor(sequence: number): string {
+  return `AUD-${String(sequence).padStart(6, '0')}`;
 }
 
 /**
@@ -243,7 +248,8 @@ describe('appendEvent', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * Verification — the empty chain, a clean chain, an edited record and a changed link
+ * Verification — the empty chain, a clean chain, an edited record, a changed link, a renumbered
+ * event and a chain cut in the middle
  * ------------------------------------------------------------------------------------------- */
 
 describe('verifyChain', () => {
@@ -301,6 +307,48 @@ describe('verifyChain', () => {
     expect(report.eventsChecked).toBe(CHAIN_LENGTH);
     expect(report.breaks.map((entry) => entry.sequence)).toEqual([2]);
     expect(report.breaks.map((entry) => entry.id)).toEqual(['AUD-000002']);
+  });
+
+  it('reports a renumbered event whose hashes and predecessor link all still hold', async () => {
+    const events = await chainOf(CHAIN_LENGTH);
+    const last = eventAt(events, CHAIN_LENGTH);
+    const renumberedSequence = last.sequence + 1;
+    const renumberedId = identifierFor(renumberedSequence);
+
+    // The last event renumbered one past the position it occupies, carrying the identifier that
+    // follows its new number and an `eventHash` recomputed over that new identity. Both halves of
+    // what a hash-and-link walk reads still hold on the result: its stored `eventHash` is the digest
+    // its own content produces, and its `previousHash` is still its predecessor's `eventHash`. Only
+    // the numbering disagrees with the chain.
+    const renumbered: AuditEvent = { ...last, sequence: renumberedSequence, id: renumberedId };
+    const rehashed: AuditEvent = { ...renumbered, eventHash: await eventHash(renumbered) };
+    const presented = events.map((event) =>
+      event.sequence === CHAIN_LENGTH ? rehashed : event,
+    );
+
+    expect(rehashed.previousHash).toBe(eventAt(events, CHAIN_LENGTH - 1).eventHash);
+
+    const report = await verifyChain(presented);
+
+    expect(report.eventsChecked).toBe(CHAIN_LENGTH);
+    expect(report.breaks).toHaveLength(1);
+    expect(report.breaks.map((entry) => entry.sequence)).toEqual([renumberedSequence]);
+    expect(report.breaks.map((entry) => entry.id)).toEqual([renumberedId]);
+  });
+
+  it('reports a chain cut in the middle once, at the event that survives the cut', async () => {
+    // One event more than the plain chain, so the cut leaves an event behind it: the run breaks
+    // once, at the event that took the removed event's place, and the events after it are read
+    // against the numbers they carry instead of being reported again.
+    const events = await chainOf(CHAIN_LENGTH + 1);
+    const cutSequence = 2;
+    const survivor = eventAt(events, cutSequence + 1);
+    const shortened = events.filter((event) => event.sequence !== cutSequence);
+
+    const report = await verifyChain(shortened);
+
+    expect(report.eventsChecked).toBe(CHAIN_LENGTH);
+    expect(report.breaks).toEqual([{ sequence: survivor.sequence, id: survivor.id }]);
   });
 });
 
