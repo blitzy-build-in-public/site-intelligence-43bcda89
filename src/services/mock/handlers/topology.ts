@@ -102,14 +102,12 @@
  * - B-1, B-2: it contacts no host, addresses none, holds no credential-shaped literal and reads no
  *   configuration.
  *
- * OPEN ITEM — the customer node set and the lane coverage, reported rather than completed. The family is
- * built for every seeded customer record, because the evidence-pin tally carries entries for customers
- * whose orders are not in the loaded order book; the read then narrows that family to the customers a
- * retained plant-to-customer lane reaches and keeps every customer no lane reaches at all, which is how a
- * customer with no lane keeps its node and its seeded counts (see `getTopology`). The loaded book is the
- * fifteen named customer orders, so a customer whose orders only the deterministic filler generates
- * appears as a node with no lane, which is what the records state. No lane is invented to connect such a
- * node, and a plant-to-customer lane is emitted only for an order the book holds.
+ * CUSTOMER NODES AND LANE COVERAGE. Every seeded customer record becomes a node, and every
+ * plant-to-customer pair the loaded order book states becomes a lane. The book is the named customer
+ * orders plus the records the deterministic filler derives (`src/seed/index.ts`, AAP 0.2.3), so a
+ * customer whose orders the filler generates is connected like any other. No lane is invented for a
+ * pair no order states, and no node is dropped, because the evidence-pin tally carries entries for
+ * every customer record and dropping one would strand its counts.
  *
  * OPEN ITEM — the do-nothing levers. The two lever values below are the baseline of AAP 0.8,
  * `solveSupplyDelay(CASE-1184, { airSets: 0, transferSets: 0 })`, which is the measurement an exception's
@@ -442,10 +440,9 @@ function originNodes(records: SeedRecordSet): TopologyNode[] {
  * the order book here, because that would state the customer's demand as a property of the customer and
  * give a second reading of the same orders a second home.
  *
- * One node per customer record, including one whose orders only the deterministic filler generates (see
- * the module header's first OPEN ITEM): the evidence-pin tally carries counts for such a customer, so the
- * family is built whole here and `getTopology` keeps a customer no lane reaches rather than dropping its
- * node and stranding those counts.
+ * Every seeded customer record becomes a node, whether or not the order book holds an order for it:
+ * the evidence-pin tally carries counts for every customer record, and a node dropped here would
+ * strand them.
  *
  * @param records The loaded record set, read and not modified.
  * @returns One node per customer record, in record order.
@@ -535,9 +532,10 @@ function supplierToPlantLanes(records: SeedRecordSet): TopologyLane[] {
  * The lanes from each plant to each customer the order book ships to.
  *
  * One lane per plant-and-customer pair the customer orders state, de-duplicated across the several orders
- * one pair may hold, and ordered by the book's own record order so two calls return the same array. A
- * customer whose orders only the deterministic filler generates has no lane here, which is what the
- * loaded book states rather than a gap this module papers over.
+ * one pair may hold, and ordered by the book's own record order so two calls return the same array. The
+ * loaded book is the named customer orders plus the records the deterministic filler derives
+ * (`src/seed/index.ts`, AAP 0.2.3), so a pair only a generated order states is a lane here like any
+ * other, and a pair no order states is not.
  *
  * @param records The loaded record set, read and not modified.
  * @returns One lane per distinct plant-to-customer pair, in order-book order.
@@ -908,6 +906,7 @@ function aggregateBundle(
     freshness: readFreshness(state),
     asOf: DEMO_CLOCK,
     plants: records.plants,
+    materials: records.materials,
     history: records.exceptionHistory,
     approvals: records.approvals,
   };

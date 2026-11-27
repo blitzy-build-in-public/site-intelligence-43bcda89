@@ -22,40 +22,42 @@
  * line idle days once, half up to two decimals, per contracts §4 rule 5), and states no currency amount,
  * no lever volume and no record identifier as a typed value.
  *
- * THE GAP THIS MODULE REPORTS RATHER THAN FILLS — read this before changing anything below. AAP 0.8 and
- * acceptance test T-04 speak of four named options for `CASE-1184`, and `platform-seed-data.md` §4 holds
- * their names, lever values and expected measures. That document is not part of this repository, and the
- * seeded records this run holds state an option set for the three *other* exceptions only:
- * `src/seed/exception-scenarios.ts` omits `EXC-2026-1184` deliberately, because that case's options are
- * measured at call time. What the records here do state is narrower:
- * - the case `CASE-1184` and the bounds its two levers are held to (`src/seed/solver-cases.ts`);
- * - one lever set for this exception, in the seeded audit trail's `custom solve` event, whose payload
- *   carries `airSets` and `transferSets` (`src/seed/audit-events.ts`);
- * - the identifier of the option the seeded plan under this exception names (`src/seed/approvals.ts`),
- *   which AAP 0.8 corroborates as the recommended option of this case.
- * No record states an option's name, and no record states the other options at all. This module
- * therefore serves the options the records state — the do-nothing baseline AAP 0.8 fixes by name, plus
- * each lever set the seeded trail records — and reports the remainder as a gap rather than filling it:
- * it types no scenario name, no lever volume and no option identifier, and it invents no unnamed option
- * (rule P-6). A supplied seed document supersedes the derivation below without changing this module's
- * public surface, because a caller asks one exception for its options either way.
+ * WHAT THE OPTION SET HOLDS, AND WHERE IT COMES FROM. AAP 0.7's T-04 row fixes four rows for this
+ * case and AAP 0.8 fixes what they are, and the positions those rows stand at are record content:
+ * `src/seed/exception-scenarios.ts` publishes `SOLVER_OPTION_SETS`, one row per position carrying the
+ * identifier its column takes, the words it is labelled with, the levers it is measured at and the
+ * revenue the plan protects. This module reads them through the session's state, measures each at its
+ * own levers with one `solveSupplyDelay` call and serves the set in the seed's order — the baseline
+ * first, because the seed states it, then the positions that follow it, the recommended plan and the
+ * one the constraint check rejects. An exception whose positions no record states keeps the
+ * derivation this module has always made: the do-nothing baseline AAP 0.8 fixes by name, then each
+ * lever set the seeded trail's `custom solve` events record (`src/seed/audit-events.ts`), in the
+ * trail's order. No row carries a measure, so every figure a column shows is the solver's output for
+ * that column's own levers at call time (rule P-6).
  *
- * WHY AN OPTION'S IDENTIFIER COMES FROM THE SEEDED PLAN. §1 fixes the form `SCN-nnnn-x` — the
- * exception's number and the option's letter within that set — and the letter is the one thing no
- * derivation can recover, because the options the records do not state occupy letters of their own.
- * Spelling a letter here would mint the identifier of a record that does not exist, so the letter is
- * taken from the one identifier the records state, the seeded plan's: that option keeps its own letter,
- * the baseline takes the lowest letter the plan leaves unused, and the sandbox takes the letter after
- * the highest one the set uses. The set then names exactly what the records name, and it grows correctly
- * when the seed document adds the missing options.
+ * WHY AN UNSEEDED OPTION'S IDENTIFIER COMES FROM THE SEEDED PLAN. Where the records state a set's
+ * positions, each option keeps the identifier its row states and nothing is derived. Where they do
+ * not, §1 fixes the form `SCN-nnnn-x` — the exception's number and the option's letter within that set
+ * — and the letter is the one thing no derivation can recover, because the options the records do not
+ * state occupy letters of their own. Spelling a letter here would mint the identifier of a record that
+ * does not exist, so the letter is taken from the one identifier the records state, the seeded plan's:
+ * that option keeps its own letter, the baseline takes the lowest letter the plan leaves unused, and
+ * the sandbox takes the letter after the highest one the set uses. The set then names exactly what the
+ * records name, and it grows correctly when a seed document adds the missing options.
  *
- * THE EURO MEASURES ARE ZERO, AND THIS MODULE DOES NOT PATCH THEM. `SolverCase` carries no price for
- * either lever or for the orders it measures, so `solveSupplyDelay` reports `addedCostEur` and
- * `revenueDelayedEur` as zero and records the gap in its own header. The consequence reaches the
- * recommendation rule here: its second key cannot separate two options that tie on units late, and no
- * tie-break is invented to hide that — the first passing option then stands, which is what the rule as
- * the inputs allow it to be applied yields. For the set the records state the first key already
- * decides (the baseline leaves units late and the recorded option leaves none), so no tie arises.
+ * THE MONEY MEASURES AND THE TRADE-OFF SENTENCE COME FROM THE MEASUREMENT. Every euro figure is the
+ * solver's: `addedCostEur` from the levers at the case's own per-set rates, `revenueDelayedEur` from
+ * the units each order is left late at that order's price. The recommendation rule's second key
+ * therefore separates two options that tie on units late, and where the keys still leave them equal
+ * the first passing option stands — no third key is invented. The trade-off is narrative text carrying
+ * numbers, and AAP 0.8 fixes how it is written: the seeded row of the recommended position carries the
+ * sentence as a template with a brace per figure, and this module fills each brace from the
+ * measurement it just took and from the record's own protected revenue. Every amount renders through
+ * the one prose formatter the assistant's answers already use — `renderAmount` from
+ * `../assistant-script.ts` — so one convention serves both narrative surfaces and no second formatter
+ * exists. A position that carries no template, and a measurement that carries no side effect for a
+ * brace the template names, leave the sentence empty rather than printing a zero: `tradeOffFor` states
+ * why.
  *
  * THE SEEDED SETS ARE RETURNED AS THEY STAND. For `EXC-2026-1185`, `EXC-2026-1187` and `EXC-2026-1195`
  * the option columns are seed records rather than solver output, so they are served unchanged, in a copy
@@ -110,6 +112,7 @@ import type {
   Confidence,
   ExceptionId,
   Levers,
+  Money,
   OperationalException,
   Permission,
   Problem,
@@ -121,8 +124,9 @@ import type {
   SolverCase,
   SolverResult,
 } from '../../../types';
+import { renderAmount } from '../assistant-script';
 import type { HandlerContext, MockState } from '../mock-state';
-import type { ExceptionScenarioSeed } from '../seed-loader';
+import type { ExceptionScenarioSeed, SeededSolverOption } from '../seed-loader';
 import { isSimulationOn } from '../simulation';
 import { appendAuditEvent, traceIdFor } from './audit';
 
@@ -200,15 +204,25 @@ const SOLVER_ORIGIN: ScenarioOrigin = 'solver';
 const SANDBOX_ORIGIN: ScenarioOrigin = 'sandbox';
 
 /**
- * The trade-off sentence a set carries when no record states one.
+ * The trade-off sentence a set carries when the recommended option states none.
  *
- * `ScenarioSet.tradeOff` is required, and this module may not author a sentence: the seed holds a
- * trade-off sentence for each of its own option sets, in the records that ship those options, and holds
- * none for an option measured at call time. A computed set therefore states no sentence rather than one
- * this module wrote, and the comparison screen renders the recommendation rule — which the seed does
- * state — with no claim behind it that no record carries.
+ * `ScenarioSet.tradeOff` is required, and this module may not author a sentence: the seed holds one for
+ * each of its own option sets, in the records that ship those options, and holds a template for the one
+ * measured position AAP 0.8 quotes a trade-off for. A computed set whose recommended option carries no
+ * template — or whose template names a figure the measurement does not carry — therefore states no
+ * sentence rather than one this module wrote, and the comparison screen renders the recommendation rule,
+ * which the seed does state, with no claim behind it that no record carries.
  */
 const NO_TRADE_OFF = '';
+
+/**
+ * The braces a sentence template writes a placeholder in.
+ *
+ * Structural rather than content: they are the form the seed's templates are written in, which is why
+ * the fill is a plain text substitution and no template syntax of this module's own exists.
+ */
+const PLACEHOLDER_OPEN = '{';
+const PLACEHOLDER_CLOSE = '}';
 
 /* ---------------------------------------------------------------------------------------------
  * Failures — platform-contracts.md §2, AAP 0.12.3
@@ -602,31 +616,78 @@ function optionIdentifierAnchor(ctx: HandlerContext, exceptionId: ExceptionId): 
  * Composing options — AAP 0.12.1's identity fields, contracts §3's `Scenario`
  * ------------------------------------------------------------------------------------------- */
 
-/** One candidate option: the identifier it takes and the lever position it is measured at. */
+/** One candidate option: the identity its column takes, the position it is measured at and its record content. */
 interface CandidateOption {
   /** The identifier the option takes within its set. */
   readonly id: ScenarioId;
 
   /** The lever position the option is measured at. */
   readonly levers: Levers;
+
+  /** The words the column is labelled with, as a seeded row states them, or `undefined` when it states none. */
+  readonly name: string | undefined;
+
+  /** The trade-off template the seeded row carries, or `undefined` when it carries none. */
+  readonly tradeOffTemplate: string | undefined;
+
+  /** The revenue the plan at this position protects, or `undefined` when the seed states no position. */
+  readonly protectedRevenueEur: Money | undefined;
+}
+
+/**
+ * The option positions the seed states for an exception, in the order the comparison matrix shows them.
+ *
+ * `src/seed/exception-scenarios.ts` publishes one row per position for each exception measured from its
+ * solver case, and the rows reach this module through the session's state like every other record
+ * (rule P-2). An exception no record states a position for answers `undefined`, which is what sends the
+ * read to the derivation below.
+ *
+ * @param state - The session whose loaded records are read. The state is not modified.
+ * @param exceptionId - The exception whose positions are wanted.
+ * @returns The seeded positions in the seed's order, or `undefined` when the seed states none for it.
+ */
+function seededOptionsFor(
+  state: MockState,
+  exceptionId: ExceptionId,
+): readonly SeededSolverOption[] | undefined {
+  const positions = state.records.solverOptions.filter((option) => option.exceptionId === exceptionId);
+
+  return positions.length === 0 ? undefined : positions;
 }
 
 /**
  * The options the records state for an exception, in the order the comparison matrix shows them.
  *
- * Two sources, both records: the do-nothing baseline AAP 0.8 fixes by name, which stands first so a
- * reader sees what the recommendation is measured against, and then each lever position the seeded trail
- * records, in the trail's order. The option the seeded plan names keeps the identifier the plan states,
- * which is why the recorded options are allocated their letters before the baseline takes the lowest one
- * the plan leaves free.
+ * Where the seed states the positions, its rows are served verbatim and in the seed's own order: each
+ * keeps the identifier and the name its record states, and the rows already hold the baseline AAP 0.8
+ * fixes by name, so no baseline is derived here — adding one would put a second do-nothing column in
+ * the matrix.
+ *
+ * Where the seed states no position, the derivation stands: the same baseline, which stands first so a
+ * reader sees what the recommendation is measured against, and then each lever position the seeded
+ * trail records, in the trail's order. Those options carry no seeded name and no trade-off template,
+ * and the option the seeded plan names keeps the identifier the plan states, which is why the recorded
+ * options are allocated their letters before the baseline takes the lowest one the plan leaves free.
  *
  * @param ctx - The call's context, whose records are read.
  * @param exceptionId - The exception whose options are wanted.
- * @returns The candidate options, baseline first.
+ * @returns The candidate options, in the order the matrix shows them.
  * @throws Problem - A `'validation'` failure from the identifier anchor, or when the set has no letter
  *   left for an option.
  */
 function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): CandidateOption[] {
+  const seeded = seededOptionsFor(ctx.state, exceptionId);
+
+  if (seeded !== undefined) {
+    return seeded.map((option) => ({
+      id: option.id,
+      levers: { ...option.levers },
+      name: option.name,
+      tradeOffTemplate: option.tradeOffTemplate,
+      protectedRevenueEur: option.protectedRevenueEur,
+    }));
+  }
+
   const anchor = optionIdentifierAnchor(ctx, exceptionId);
   const recorded = recordedLeverSets(ctx.state, exceptionId);
   // The plan's letter is taken from the start, so no other option can occupy the identifier the seeded
@@ -646,7 +707,13 @@ function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): Candid
     }
 
     used.add(letter);
-    recordedOptions.push({ id: identifierFor(anchor.stem, letter), levers });
+    recordedOptions.push({
+      id: identifierFor(anchor.stem, letter),
+      levers,
+      name: undefined,
+      tradeOffTemplate: undefined,
+      protectedRevenueEur: undefined,
+    });
   }
 
   const baselineLetter = takeLowestFreeLetter(used);
@@ -659,16 +726,26 @@ function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): Candid
     );
   }
 
-  return [{ id: identifierFor(anchor.stem, baselineLetter), levers: BASELINE_LEVERS }, ...recordedOptions];
+  return [
+    {
+      id: identifierFor(anchor.stem, baselineLetter),
+      levers: BASELINE_LEVERS,
+      name: undefined,
+      tradeOffTemplate: undefined,
+      protectedRevenueEur: undefined,
+    },
+    ...recordedOptions,
+  ];
 }
 
 /**
- * The name a comparison column shows for an option.
+ * The name a comparison column shows for an option whose record states none.
  *
  * Derived from the option's own lever position, in the two labels the solver prints for the levers, so a
- * column names exactly what was measured and no record has to name it: the seeded records this run holds
- * state no option name, and a name written here would be this module's own words about a record it does
- * not hold (rule P-6). A supplied seed document's option names supersede it.
+ * column names exactly what was measured and no record has to name it. A seeded row does state a name,
+ * and a column of a seeded position takes the record's own words instead: this is the fallback for a
+ * position no record names, because a name written into a record this module does not hold would be
+ * this module's own words about it (rule P-6).
  *
  * @param levers - The lever position the option was measured at.
  * @returns The column name.
@@ -822,6 +899,76 @@ function rejectedOf(scenarios: readonly Scenario[]): Rejected[] {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The trade-off sentence — AAP 0.8, rule P-6
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Writes a value into every brace a sentence template carries for it.
+ *
+ * The template is record content, written as AAP 0.8 writes the sentence, with one brace per figure, so
+ * the fill is a plain substitution of text the caller has already rendered. A brace the caller supplies
+ * no value for stays in the sentence, which is what tells the caller the sentence cannot be stated.
+ *
+ * @param template - The sentence, with one brace per figure.
+ * @param values - One rendered value per brace, keyed by the name the brace carries.
+ * @returns The filled sentence, or `undefined` when a brace is left without a value.
+ */
+function fillTemplate(template: string, values: Readonly<Record<string, string>>): string | undefined {
+  let filled = template;
+
+  for (const [member, value] of Object.entries(values)) {
+    filled = filled.split(`${PLACEHOLDER_OPEN}${member}${PLACEHOLDER_CLOSE}`).join(value);
+  }
+
+  return filled.includes(PLACEHOLDER_OPEN) ? undefined : filled;
+}
+
+/**
+ * The trade-off the recommended option makes, with its own measured figures written into the sentence
+ * the record states for it.
+ *
+ * AAP 0.8 fixes both the sentence and where its numbers come from: the sentence is the one the records
+ * supply, and the figures in it are computed, so this function fills a template it was handed and authors
+ * nothing. The spent figure and the deferral are the recommended option's own measurement —
+ * `addedCostEur`, and the first side effect's `kitsDelayed`, `valueDeferredEur` and `daysDeferred` — while
+ * the protected revenue is the figure the seeded row states for the plan. Every amount renders through
+ * the one prose formatter the assistant's answers use, so a figure reads the same in both sentences.
+ *
+ * An option that carries no template states no trade-off, and a measurement that carries no side effect
+ * leaves the deferral's braces without a value: the sentence is then returned empty rather than filled
+ * with a zero, because "defers 0 kits" would state a fact the measurement never produced. The same holds
+ * for any brace the template names and this function has no value for.
+ *
+ * @param option - The candidate option the recommendation picked, or `undefined` when it picked none.
+ * @param scenario - That option's measurement, or `undefined` when the recommendation picked none.
+ * @returns The filled trade-off sentence, or the empty trade-off when no sentence can be stated.
+ */
+function tradeOffFor(option: CandidateOption | undefined, scenario: Scenario | undefined): string {
+  const template = option === undefined ? undefined : option.tradeOffTemplate;
+  const protectedRevenueEur = option === undefined ? undefined : option.protectedRevenueEur;
+
+  if (template === undefined || protectedRevenueEur === undefined || scenario === undefined) {
+    return NO_TRADE_OFF;
+  }
+
+  const [effect] = scenario.sideEffects;
+
+  if (effect === undefined) {
+    return NO_TRADE_OFF;
+  }
+
+  return (
+    fillTemplate(template, {
+      addedCostEur: renderAmount(scenario.addedCostEur),
+      kitsDeferred: renderAmount(effect.kitsDelayed),
+      valueDeferredEur: renderAmount(effect.valueDeferredEur),
+      daysDeferred: renderAmount(effect.daysDeferred),
+      protectedRevenueEur: renderAmount(protectedRevenueEur),
+    }) ?? NO_TRADE_OFF
+  );
+}
+
+/* ---------------------------------------------------------------------------------------------
  * Copies — the caller must not be able to edit the session through a read
  * ------------------------------------------------------------------------------------------- */
 
@@ -913,26 +1060,30 @@ function emptyScenarioSet(ctx: HandlerContext, exceptionId: ExceptionId): Scenar
 /**
  * The option set of an exception measured from its own solver case.
  *
- * One `solveSupplyDelay` call per candidate option, each wrapped with its identity, and the set assembled
- * around them: the recommendation the contracts rule picks, the rule's wording as the seed states it, and
- * the options the rule had to leave out. No figure is derived here — every measure in the returned set is
- * the solver's own output for the lever position the option stands at.
+ * One `solveSupplyDelay` call per candidate option, each wrapped with its identity and labelled with the
+ * name its record states where there is one, and the set assembled around them: the recommendation the
+ * contracts rule picks, the rule's wording as the seed states it, the trade-off that recommendation
+ * states with its braces filled from the option's own measurement, and the options the rule had to leave
+ * out. No figure is derived here — every measure in the returned set is the solver's own output for the
+ * lever position the option stands at.
  *
- * @param ctx - The call's context, whose records supply the case and the confidence.
+ * @param ctx - The call's context, whose records supply the case, the positions and the confidence.
  * @param exception - The exception whose options are measured.
  * @returns The measured option set.
+ * @throws Problem - A `'not-found'` failure when the exception's case does not resolve.
  */
 function computedScenarioSet(ctx: HandlerContext, exception: OperationalException): ScenarioSet {
   const caseRecord = solverCaseFor(ctx, exception);
   const confidence = exception.confidence;
+  const options = candidateOptions(ctx, exception.id);
 
-  const scenarios = candidateOptions(ctx, exception.id).map((option) =>
+  const scenarios = options.map((option) =>
     composeScenario(
       solveSupplyDelay(caseRecord, option.levers),
       {
         id: option.id,
         exceptionId: exception.id,
-        name: optionName(option.levers),
+        name: option.name ?? optionName(option.levers),
         origin: SOLVER_ORIGIN,
       },
       confidence,
@@ -941,12 +1092,25 @@ function computedScenarioSet(ctx: HandlerContext, exception: OperationalExceptio
 
   const recommendedId = rankRecommendation(scenarios);
 
+  if (recommendedId === undefined) {
+    return {
+      exceptionId: exception.id,
+      scenarios,
+      recommendationRule: recommendationRuleOf(ctx),
+      tradeOff: NO_TRADE_OFF,
+      rejected: rejectedOf(scenarios),
+    };
+  }
+
   return {
     exceptionId: exception.id,
     scenarios,
-    ...(recommendedId === undefined ? {} : { recommendedId }),
+    recommendedId,
     recommendationRule: recommendationRuleOf(ctx),
-    tradeOff: NO_TRADE_OFF,
+    tradeOff: tradeOffFor(
+      options.find((option) => option.id === recommendedId),
+      scenarios.find((scenario) => scenario.id === recommendedId),
+    ),
     rejected: rejectedOf(scenarios),
   };
 }

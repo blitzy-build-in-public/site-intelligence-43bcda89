@@ -8,11 +8,11 @@
  * book — 40 customer orders of which 15 are named.
  *
  * The count, stated once. The 15 records below are the named orders; `src/seed/filler.ts` derives
- * the remaining 25 deterministically, so the two together are the 40 the scale table fixes. This
- * module is also the only place those named orders exist, so a consumer that needs one reads it from
- * the service and never from here (rule P-2: only `src/services/mock/seed-loader.ts` imports
- * `src/seed`, and it deep-clones what it reads, so a demonstration reset can never write back into
- * this array).
+ * the remaining 25 deterministically and `src/seed/index.ts` composes the two into the book the mock
+ * adapter loads, so what the service reads is the 40 the scale table fixes. This module is also the
+ * only place those named orders exist, so a consumer that needs one reads it from the service and
+ * never from here (rule P-2: only `src/services/mock/seed-loader.ts` imports `src/seed`, and it
+ * deep-clones what it reads, so a demonstration reset can never write back into this array).
  *
  * DERIVATION — `platform-seed-data.md` §3 is not part of this checkout, so the record content below
  * is derived from the anchors the Agent Action Plan states, from the identifier, money and calendar

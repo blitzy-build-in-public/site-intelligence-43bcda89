@@ -6,26 +6,34 @@
  * What it proves. The five modules beside this file compute the aggregates of `platform-contracts.md`
  * §5 (AAP 0.8, AAP 0.12.1): the affected lines an exception places at risk, the revenue those lines
  * represent, the exception queue's rows, the overview's four tiles with its by-plant table, its
- * fourteen-day series, its changed-since list and its median hours to an approved plan, the outbound
- * ledger's two counts, the FileMap canvas ribbon's six tiles, the urgent ordering the queue and the
- * canvas stack share, a package's readiness as a whole percent, and the one scope resolver every list
- * call and every aggregate read the same selection through. Each case pins one of those rules against
- * the value the rule produces from records built here, and each is named for the aggregate and the
- * member it measures, so a failure names both.
+ * fourteen-day series, its changed-since list, its median hours to an approved plan and its
+ * alternate-source readiness share, the outbound ledger's two counts, the FileMap canvas ribbon's six
+ * tiles, the urgent ordering the queue and the canvas stack share, a package's readiness as a whole
+ * percent, and the one scope resolver every list
+ * call and every aggregate read the same selection through. The probe cases pin each rule against the
+ * value the rule produces from records built here, and the seed comparison at the end of the file pins
+ * the seeded records' own aggregates against the fixture; every case is named for the aggregate and
+ * the member it measures, so a failure names both.
  *
- * OPEN ITEM — the §13 expected-aggregates comparison. AAP 0.8 holds the seed document's expected
- * aggregates as `tests/fixtures/aggregates-expected.ts`, and this module is where they are compared.
- * That fixture is not in this tree, and `platform-seed-data.md` is not available to this run, so no
- * fixture figure is compared here. An expectation invented in this file would breach rule P-6, which
- * gives the seed document sole ownership of an expected business figure; an expectation copied from
- * these modules' current output would turn the acceptance evidence into a snapshot of whatever they
- * happen to return. The comparison belongs in this module, beside the cases below, the moment the
- * fixture lands, and the entries it will read — one per aggregate — are: the overview's four tiles
- * (`openExceptions`, `revenueAtRiskEur`, `customerOrdersAtRisk`, `medianHoursToApprovedPlan`), the
- * per-plant rows of `Overview.byPlant`, the fourteen points of `Overview.openResolvedSeries`, the
- * revenue at risk of each exception row, the allowed and blocked counts of each `LedgerRow`, the six
- * tile values of the ribbon, and a package's `readinessPercent`. Every case below is written so that
- * adding that comparison needs no change to the rule it already asserts.
+ * THE §13 EXPECTED-AGGREGATES COMPARISON IS IN THIS FILE, AND WHAT IT PROVES. AAP 0.8 holds the seed
+ * document's expected aggregates as `tests/fixtures/aggregates-expected.ts` and makes this module the
+ * place they are compared, and the last section below is that comparison. It composes the record
+ * bundle the adapter composes — the seeded exceptions, products, order book, baseline solves, plants,
+ * materials, activity trail and approvals, at the constant clock contracts §1 fixes and at the
+ * all-plants, all-products scope the demonstration loads with — and compares the fixture against what
+ * the modules return, failing on the first surface, key and value that differ:
+ * - the overview's five tiles, its four by-plant rows and its fourteen-day opened-and-resolved series;
+ * - each exception's revenue at risk and each exception's affected lines;
+ * - the ledger's allowed and blocked counts for every endpoint the sovereignty record declares;
+ * - each part-approval package's passing elements, element count and whole-percent readiness;
+ * - the queue's default ordering, which is the urgency rule applied to the labels it reads.
+ *
+ * Two surfaces are not in that comparison, and neither is given a placeholder. The overview's
+ * changed-since list is left out because its members are record text and record instants rather than a
+ * computed figure, so a fixture for it would restate seeded sentences; and the canvas ribbon is left
+ * out because it adds no figure of its own — its five copied members are the tiles compared above, its
+ * critical count is a count of the rows the ordering case already reads, and its plants-in-scope value
+ * is the length of the by-plant table compared above.
  *
  * The probe records. Every record here is built by this suite from `PROBE` identifiers, small whole
  * numbers and probe prices that no seed record carries, so a probe value cannot be mistaken for a
@@ -43,15 +51,18 @@
  *
  * Rules this module is built to satisfy:
  * - P-6: no business figure is typed here. Every expectation is derived from the probe inputs by the
- *   rule under test, and the only rounding used is the folder's own `halfUp2` and `wholePercent`.
+ *   rule under test or read from `tests/fixtures/aggregates-expected.ts`, which rule P-6 makes the one
+ *   home of an expected figure, and the only rounding used is the folder's own `halfUp2` and
+ *   `wholePercent`.
  * - P-5: the provenance-separation case proves no aggregate can blend a competitor figure into a
  *   first-party one. No atlas type and no market-intelligence record is imported here: the named
  *   imports this module takes from the shared barrel are the entity, DTO and primitive types the
  *   aggregates themselves declare, so nothing a competitor figure reaches the suite through exists in
  *   its vocabulary.
- * - P-2: it imports the five sibling modules, the scope resolver, two permission and rounding helpers,
- *   `vitest` and the shared types — no seed record, no service module and no React — so the aggregates
- *   are exercised exactly as the adapter exercises them.
+ * - P-2: it imports the five sibling modules, the scope resolver, two permission and rounding
+ *   helpers, the seeded record set, the audit chain that links it and `vitest` — no service module and
+ *   no React — so the aggregates are exercised exactly as the adapter exercises them. The seed imports
+ *   are the documented exception the note above them states.
  * - P-4: no case title or comment claims these aggregates establish sovereignty, prevent copying or
  *   resist tampering; they report counts and amounts and claim nothing beyond them.
  * - P-7: the identifiers are test-local and carry `PROBE`; no company, person, vendor or product of
@@ -96,6 +107,7 @@ import { DEMO_CLOCK, GENESIS_PREVIOUS_HASH } from '../../types';
 import { plantScopeFor } from '../policy/permissions';
 import { halfUp2, wholePercent } from '../solver/rounding';
 import {
+  baselineViewFor,
   computeExceptionRows,
   resolveAffectedLines,
   revenueAtRisk,
@@ -105,9 +117,57 @@ import {
   type PricedProduct,
 } from './exceptions';
 import { computeLedger } from './ledger';
-import { computeOverview, type ActivityRecord, type NamedPlant, type OverviewInput } from './overview';
+import {
+  computeOverview,
+  type ActivityRecord,
+  type NamedPlant,
+  type OverviewInput,
+  type SourcedMaterial,
+} from './overview';
 import { resolveScope, type ScopeFilterInput } from './scope';
 import { computeRibbonTiles, sortUrgent } from './urgency';
+
+/*
+ * The seeded record set is reached here for one reason: AAP 0.8 holds the seed document's expected
+ * aggregates as a fixture and makes this suite the place they are compared, and a comparison cannot
+ * exist without the records the aggregates are computed over. The bundle below is the one the mock
+ * adapter's own bundle builder composes, member for member, from the same records — including the
+ * baseline solves the adapter takes with `solveSupplyDelay` at the do-nothing levers, because the
+ * affected-lines rule reads a measurement rather than a stored figure.
+ *
+ * Rule P-2 bars components and screens from reaching records and makes the mock adapter the one road to
+ * the data at runtime; this is a suite, and the boundary it draws is asserted by
+ * `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat an import of a seed
+ * record by a test file as this documented exception rather than as a screen's shortcut — the same
+ * exception `src/services/service-conformance.test.ts` records for the seed names it reads. The audit
+ * chain is imported for the ledger comparison alone: `computeLedger` counts linked events, so the
+ * drafts are linked here the way the adapter's bootstrap links them, with real hashes rather than
+ * placeholders.
+ */
+import { appendEvent } from '../audit/chain';
+import { solveSupplyDelay } from '../solver/solve-supply-delay';
+import { APPROVALS } from '../../seed/approvals';
+import { SEEDED_AUDIT_EVENTS } from '../../seed/audit-events';
+import { CUSTOMER_ORDERS } from '../../seed/customer-orders';
+import { EXCEPTION_HISTORY } from '../../seed/exception-history';
+import { EXCEPTIONS } from '../../seed/exceptions';
+import { MATERIALS as SEEDED_MATERIALS } from '../../seed/materials';
+import { PPAP_PACKAGES } from '../../seed/packages';
+import { PLANTS as SEEDED_PLANTS } from '../../seed/plants';
+import { PRODUCTS } from '../../seed/products';
+import { SOLVER_CASES } from '../../seed/solver-cases';
+import { SOURCES } from '../../seed/sources';
+import { SOVEREIGNTY } from '../../seed/sovereignty';
+import {
+  EXPECTED_AFFECTED_LINES_BY_EXCEPTION,
+  EXPECTED_BY_PLANT,
+  EXPECTED_LEDGER_COUNTS_BY_ENDPOINT,
+  EXPECTED_OPEN_RESOLVED_SERIES,
+  EXPECTED_OVERVIEW_TILES,
+  EXPECTED_PACKAGE_READINESS,
+  EXPECTED_REVENUE_AT_RISK_BY_EXCEPTION,
+  EXPECTED_URGENT_ORDER,
+} from '../../../tests/fixtures/aggregates-expected';
 
 /* ---------------------------------------------------------------------------------------------
  * A. The demonstration clock and the probe instants
@@ -543,6 +603,33 @@ const PLANTS: readonly NamedPlant[] = [
   { id: 'PLT-RAK', name: 'Probe components' },
 ];
 
+/**
+ * The material master the alternate-source readiness cases read.
+ *
+ * Eight materials go into the first probe product, three of them carried by a second supplier as well,
+ * and two go into the second product alone, one of which has an alternate. The eight over three is the
+ * half-percent tie `wholePercent` rounds up, and the two the first product does not reach are the ones
+ * a share that ignored the product selection would count, so one figure proves the admission, the part,
+ * the whole and the rounding from these records alone (rule P-6). No percentage is written here: the
+ * cases derive it from the records the same way the aggregate does.
+ */
+const MATERIALS: readonly SourcedMaterial[] = [
+  { id: 'MAT-SOURCE-PROBE-1', productIds: [PRODUCT_A.id], alternateSupplierId: 'SUP-SOURCE-PROBE-1' },
+  { id: 'MAT-SOURCE-PROBE-2', productIds: [PRODUCT_A.id], alternateSupplierId: 'SUP-SOURCE-PROBE-2' },
+  {
+    id: 'MAT-SOURCE-PROBE-3',
+    productIds: [PRODUCT_A.id, PRODUCT_B.id],
+    alternateSupplierId: 'SUP-SOURCE-PROBE-3',
+  },
+  { id: 'MAT-SOURCE-PROBE-4', productIds: [PRODUCT_A.id] },
+  { id: 'MAT-SOURCE-PROBE-5', productIds: [PRODUCT_A.id] },
+  { id: 'MAT-SOURCE-PROBE-6', productIds: [PRODUCT_A.id] },
+  { id: 'MAT-SOURCE-PROBE-7', productIds: [PRODUCT_A.id] },
+  { id: 'MAT-SOURCE-PROBE-8', productIds: [PRODUCT_A.id] },
+  { id: 'MAT-SOURCE-PROBE-9', productIds: [PRODUCT_B.id], alternateSupplierId: 'SUP-SOURCE-PROBE-4' },
+  { id: 'MAT-SOURCE-PROBE-10', productIds: [PRODUCT_B.id] },
+];
+
 /** The note the trail states when it mirrors the probe approval, which the overview lists once. */
 const MIRRORED_APPROVAL_NOTE = 'Probe: the trail mirrors the approval this record states.';
 
@@ -630,10 +717,14 @@ const APPROVAL_DECIDED: Approval = {
   outcomeReviewed: false,
 };
 
-/** The bundle the overview is computed from: the queue's records plus the plants, trail, approvals. */
+/**
+ * The bundle the overview is computed from: the queue's records plus the plants, the material master,
+ * the trail and the approvals.
+ */
 const OVERVIEW_BUNDLE: OverviewInput = {
   ...RECORD_BUNDLE,
   plants: PLANTS,
+  materials: MATERIALS,
   history: HISTORY,
   approvals: [APPROVAL_DECIDED],
 };
@@ -773,7 +864,7 @@ describe('resolveScope', () => {
 
 describe('revenueAtRisk', () => {
   it('values a stored line at its units times the product price, closed once', () => {
-    const revenue = revenueAtRisk(RECORD_BUNDLE, EXCEPTION_FIRST, null);
+    const revenue = revenueAtRisk(EXCEPTION_FIRST, baselineViewFor(RECORD_BUNDLE, EXCEPTION_FIRST));
 
     expect(revenue).toBe(halfUp2(UNITS_FIRST * PRODUCT_A.priceEur));
   });
@@ -790,7 +881,7 @@ describe('revenueAtRisk', () => {
     });
     const bundle: ExceptionAggregateInput = { ...RECORD_BUNDLE, exceptions: [mixed] };
 
-    expect(revenueAtRisk(bundle, mixed, null)).toBe(
+    expect(revenueAtRisk(mixed, baselineViewFor(bundle, mixed))).toBe(
       halfUp2(UNITS_FIRST * PRODUCT_A.priceEur + UNITS_THIRD * PRODUCT_B.priceEur),
     );
   });
@@ -801,19 +892,23 @@ describe('revenueAtRisk', () => {
       exceptions: [EXCEPTION_UNUSABLE_UNITS],
     };
 
-    expect(revenueAtRisk(bundle, EXCEPTION_UNUSABLE_UNITS, null)).toBe(halfUp2(0));
+    expect(
+      revenueAtRisk(EXCEPTION_UNUSABLE_UNITS, baselineViewFor(bundle, EXCEPTION_UNUSABLE_UNITS)),
+    ).toBe(halfUp2(0));
   });
 
   it('refuses rather than inventing a price for a product the records do not carry', () => {
     const bundleWithoutProductA: ExceptionAggregateInput = { ...RECORD_BUNDLE, products: [PRODUCT_B] };
 
-    expect(() => revenueAtRisk(bundleWithoutProductA, EXCEPTION_FIRST, null)).toThrow(PRODUCT_A.id);
+    expect(() =>
+      revenueAtRisk(EXCEPTION_FIRST, baselineViewFor(bundleWithoutProductA, EXCEPTION_FIRST)),
+    ).toThrow(PRODUCT_A.id);
   });
 });
 
 describe('resolveAffectedLines', () => {
   it('copies the lines the record stores when the exception carries no solver case', () => {
-    const lines = resolveAffectedLines(RECORD_BUNDLE, EXCEPTION_FIRST, null);
+    const lines = resolveAffectedLines(EXCEPTION_FIRST, baselineViewFor(RECORD_BUNDLE, EXCEPTION_FIRST));
 
     expect(lines).toHaveLength(EXCEPTION_FIRST.affectedLines.length);
     expect(soleLine(lines).unitsAtRisk).toBe(UNITS_FIRST);
@@ -822,9 +917,8 @@ describe('resolveAffectedLines', () => {
 
   it('takes the units from the baseline solve for an order the solve measures', () => {
     const lines = resolveAffectedLines(
-      BASELINE_BUNDLE,
       EXCEPTION_WITH_CASE,
-      BASELINE_MEASURED.result,
+      baselineViewFor(BASELINE_BUNDLE, EXCEPTION_WITH_CASE),
     );
 
     expect(lines.map((line) => line.orderId)).toEqual([ORDER_ONE.id, ORDER_THREE.id]);
@@ -836,9 +930,8 @@ describe('resolveAffectedLines', () => {
 
   it('derives no line for an order the solve leaves nothing late, and one for an order the record omits', () => {
     const lines = resolveAffectedLines(
-      BASELINE_BUNDLE,
       EXCEPTION_WITH_CASE,
-      BASELINE_MEASURED.result,
+      baselineViewFor(BASELINE_BUNDLE, EXCEPTION_WITH_CASE),
     );
     const orderIds = lines.map((line) => line.orderId);
 
@@ -849,9 +942,8 @@ describe('resolveAffectedLines', () => {
 
   it('keeps the stored count when the solve does not measure that order', () => {
     const lines = resolveAffectedLines(
-      BASELINE_BUNDLE,
       EXCEPTION_UNMEASURED_LINE,
-      BASELINE_UNMEASURED.result,
+      baselineViewFor(BASELINE_BUNDLE, EXCEPTION_UNMEASURED_LINE),
     );
 
     expect(soleLine(lines).unitsAtRisk).toBe(STORED_UNITS_UNMEASURED);
@@ -859,14 +951,17 @@ describe('resolveAffectedLines', () => {
   });
 
   it('reads a unit count no line can mean as placing nothing at risk', () => {
-    const lines = resolveAffectedLines(RECORD_BUNDLE, EXCEPTION_UNUSABLE_UNITS, null);
+    const lines = resolveAffectedLines(
+      EXCEPTION_UNUSABLE_UNITS,
+      baselineViewFor(RECORD_BUNDLE, EXCEPTION_UNUSABLE_UNITS),
+    );
 
     expect(soleLine(lines).unitsAtRisk).toBe(0);
     expect(soleLine(lines).orderId).toBe(ORDER_THREE.id);
   });
 
   it('returns fresh lines, so a caller may format one without reaching the record behind it', () => {
-    const lines = resolveAffectedLines(RECORD_BUNDLE, EXCEPTION_FIRST, null);
+    const lines = resolveAffectedLines(EXCEPTION_FIRST, baselineViewFor(RECORD_BUNDLE, EXCEPTION_FIRST));
     const stored = EXCEPTION_FIRST.affectedLines[0];
 
     expect(stored).toBeDefined();
@@ -1079,6 +1174,34 @@ describe('computeOverview', () => {
 
     expect(overview.medianHoursToApprovedPlan).toBe((shortest + longest) / 2);
     expect(Number.isInteger(overview.medianHoursToApprovedPlan)).toBe(false);
+  });
+
+  it('reports the alternate-source readiness of the materials the product selection reaches', () => {
+    const everyProduct: Scope = { plants: plantScopeFor(CROSS_PLANT_ROLE), products: [] };
+    const firstProduct: Scope = { ...everyProduct, products: [PRODUCT_A.id] };
+    const narrowed = computeOverview(OVERVIEW_BUNDLE, firstProduct).alternateSourceReadinessPercent;
+    const whole = computeOverview(OVERVIEW_BUNDLE, everyProduct).alternateSourceReadinessPercent;
+    const reached = MATERIALS.filter((material) => material.productIds.includes(PRODUCT_A.id));
+    const covered = reached.filter((material) => material.alternateSupplierId !== undefined).length;
+    const coveredEverywhere = MATERIALS.filter(
+      (material) => material.alternateSupplierId !== undefined,
+    ).length;
+    const exactPercentage = (covered / reached.length) * 100;
+
+    expect(reached.length).toBeLessThan(MATERIALS.length);
+    expect(narrowed).toBe(wholePercent(covered / reached.length));
+    expect(narrowed).not.toBe(whole);
+    expect(whole).toBe(wholePercent(coveredEverywhere / MATERIALS.length));
+    expect(exactPercentage % 1).toBe(0.5);
+    expect(narrowed).toBe(Math.floor(exactPercentage) + 1);
+  });
+
+  it('reports zero readiness when the product selection reaches no material at all', () => {
+    const noProduct: Scope = { plants: plantScopeFor(CROSS_PLANT_ROLE), products: ['PRD-PROBE-NONE'] };
+
+    expect(computeOverview(OVERVIEW_BUNDLE, noProduct).alternateSourceReadinessPercent).toBe(
+      wholePercent(0),
+    );
   });
 
   it('splits the open exceptions across the plants in scope so the rows add up to the tiles', () => {
@@ -1835,6 +1958,292 @@ describe('provenance separation', () => {
       .reduce((total, row) => total + row.revenueAtRiskEur, 0);
 
     expect(overview.revenueAtRiskEur).toBe(halfUp2(firstPartyRevenue));
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * P. The seed's expected aggregates — AAP 0.8; contracts §5; the §13 comparison
+ *
+ * The comparison AAP 0.8 requires and the fixture gives a home: the seeded record set, composed into
+ * the bundle the adapter composes, measured by the modules that own each aggregate and compared row by
+ * row with `tests/fixtures/aggregates-expected.ts`. The fixture holds the figures and states the
+ * arithmetic each one comes from; this section holds no expected figure of its own (rule P-6) and
+ * fails on the first surface, key and value that differ, so a regression names the aggregate it broke.
+ *
+ * What it proves that the probe cases cannot: those cases assert each rule from inputs chosen to make
+ * the arithmetic followable, while this comparison asserts the seeded records' own outcome — the nine
+ * open exceptions worth 4,192,800 across seven customer orders, the 26⅔-hour median, the 42 per cent
+ * alternate-source share, `EXC-2026-1184`'s 1,512,800, the ledger's blocked counts per declared
+ * endpoint, the three packages' readiness and the queue's default ordering.
+ * ------------------------------------------------------------------------------------------- */
+
+/** The all-plants, all-products selection the demonstration loads with, resolved for its own role. */
+const SEEDED_SCOPE: Scope = resolveScope({}, 'head-of-supply-chain');
+
+/** The do-nothing option, which is the baseline every affected line is measured by. */
+const DO_NOTHING: { readonly airSets: number; readonly transferSets: number } = {
+  airSets: 0,
+  transferSets: 0,
+};
+
+/**
+ * The read state of the source the order book comes from, taken from the seed's own catalogue.
+ *
+ * The adapter attaches the read's freshness to every queue row, and `ExceptionAggregateInput`
+ * requires it; no aggregate this section compares reads it, so it is passed through as the record
+ * states it rather than synthesised.
+ *
+ * @returns The `erp` source's declared state and instant.
+ * @throws Error when the catalogue carries no `erp` record, because a read state cannot be invented.
+ */
+function seededFreshness(): Freshness {
+  const entry = SOURCES.health.find((candidate) => candidate.source === 'erp');
+
+  if (entry === undefined) {
+    throw new Error('The seeded source catalogue carries no erp record, so the read state cannot be stated.');
+  }
+
+  return { source: entry.source, asOf: entry.asOf, state: entry.state };
+}
+
+/**
+ * Takes the baseline solve of every seeded exception that names a solver case, as the adapter does.
+ *
+ * The do-nothing measurement is the solver's own output rather than a stored figure (AAP 0.12.2), so
+ * the aggregation suite measures it the way the adapter's bundle builder measures it instead of
+ * carrying a hand-written result. Those two figures are pinned in their own right by
+ * `tests/fixtures/solver-expected-results.ts` and the solver suite.
+ *
+ * @returns One baseline per exception carrying a case, in the record set's order.
+ * @throws Error when an exception names a case the seed does not carry, which would leave its lines
+ *   unmeasured.
+ */
+function seededBaselines(): BaselineSolve[] {
+  const solves: BaselineSolve[] = [];
+
+  for (const exception of EXCEPTIONS) {
+    if (exception.solverCaseId === undefined) {
+      continue;
+    }
+
+    const solverCase = SOLVER_CASES.find((entry) => entry.id === exception.solverCaseId);
+
+    if (solverCase === undefined) {
+      throw new Error(
+        `The seeded case ${exception.solverCaseId}, which ${exception.id} names, is not in src/seed/solver-cases.ts.`,
+      );
+    }
+
+    solves.push({ exceptionId: exception.id, result: solveSupplyDelay(solverCase, DO_NOTHING) });
+  }
+
+  return solves;
+}
+
+/**
+ * Composes the record bundle the adapter composes, from the same records and the same clock.
+ *
+ * `OverviewInput` extends `ExceptionAggregateInput`, so one bundle serves the queue and the overview
+ * exactly as it does in `src/services/mock/handlers/exceptions.ts`: the exceptions, the product
+ * prices, the order book, the baseline solves, the read's freshness and the demonstration clock, plus
+ * the plants, the material master, the activity trail and the approvals the overview alone reads.
+ *
+ * @returns A fresh bundle over the seeded records, at the scope the demonstration loads with.
+ */
+function seededBundle(): OverviewInput {
+  return {
+    exceptions: EXCEPTIONS,
+    products: PRODUCTS,
+    customerOrders: CUSTOMER_ORDERS,
+    baselines: seededBaselines(),
+    freshness: seededFreshness(),
+    asOf: DEMO_CLOCK,
+    plants: SEEDED_PLANTS,
+    materials: SEEDED_MATERIALS,
+    history: EXCEPTION_HISTORY,
+    approvals: APPROVALS,
+  };
+}
+
+/**
+ * Links the seeded audit drafts into the chain the ledger is counted over.
+ *
+ * `computeLedger` counts events, and the adapter's bootstrap gives each seeded draft its sequence,
+ * identifier and three hashes through `appendEvent` before any read sees it. This composes the same
+ * chain from the same drafts, so no hash, identifier or position is written here (rule P-6).
+ *
+ * @returns The seeded trail as a linked chain, in sequence order.
+ */
+async function seededChain(): Promise<AuditEvent[]> {
+  const events: AuditEvent[] = [];
+
+  for (const draft of SEEDED_AUDIT_EVENTS) {
+    events.push(await appendEvent(events, draft));
+  }
+
+  return events;
+}
+
+/**
+ * Finds one seeded exception by identifier.
+ *
+ * @param id The exception to find.
+ * @returns That exception's record.
+ * @throws Error when the record set carries no exception with that identifier.
+ */
+function seededExceptionOf(id: ExceptionId): OperationalException {
+  const exception = EXCEPTIONS.find((candidate) => candidate.id === id);
+
+  if (exception === undefined) {
+    throw new Error(`The seeded record set carries no exception ${id}.`);
+  }
+
+  return exception;
+}
+
+describe("the seed's expected aggregates", () => {
+  it('reproduces the overview tiles', () => {
+    const overview = computeOverview(seededBundle(), SEEDED_SCOPE);
+
+    expect(overview.openExceptions, 'the overview openExceptions tile').toBe(
+      EXPECTED_OVERVIEW_TILES.openExceptions,
+    );
+    expect(overview.revenueAtRiskEur, 'the overview revenueAtRiskEur tile').toBe(
+      EXPECTED_OVERVIEW_TILES.revenueAtRiskEur,
+    );
+    expect(overview.customerOrdersAtRisk, 'the overview customerOrdersAtRisk tile').toBe(
+      EXPECTED_OVERVIEW_TILES.customerOrdersAtRisk,
+    );
+    expect(overview.medianHoursToApprovedPlan, 'the overview medianHoursToApprovedPlan tile').toBe(
+      EXPECTED_OVERVIEW_TILES.medianHoursToApprovedPlan,
+    );
+    expect(overview.alternateSourceReadinessPercent, 'the overview alternateSourceReadinessPercent tile').toBe(
+      EXPECTED_OVERVIEW_TILES.alternateSourceReadinessPercent,
+    );
+  });
+
+  it('reproduces the by-plant rows', () => {
+    const overview = computeOverview(seededBundle(), SEEDED_SCOPE);
+
+    expect(overview.byPlant, 'the by-plant row count').toHaveLength(EXPECTED_BY_PLANT.length);
+
+    EXPECTED_BY_PLANT.forEach((expected, index) => {
+      const row = overview.byPlant[index];
+
+      if (row === undefined) {
+        throw new Error(`The overview returned no by-plant row at position ${index}.`);
+      }
+
+      expect(row.plantId, `by-plant row ${index}'s plant`).toBe(expected.plantId);
+      expect(row.openExceptions, `${expected.plantId}'s openExceptions`).toBe(expected.openExceptions);
+      expect(row.revenueAtRiskEur, `${expected.plantId}'s revenueAtRiskEur`).toBe(
+        expected.revenueAtRiskEur,
+      );
+    });
+  });
+
+  it('reproduces the fourteen-day opened-and-resolved series', () => {
+    const overview = computeOverview(seededBundle(), SEEDED_SCOPE);
+
+    expect(overview.openResolvedSeries, 'the series point count').toHaveLength(
+      EXPECTED_OPEN_RESOLVED_SERIES.length,
+    );
+
+    EXPECTED_OPEN_RESOLVED_SERIES.forEach((expected, index) => {
+      const point = overview.openResolvedSeries[index];
+
+      if (point === undefined) {
+        throw new Error(`The overview returned no series point at position ${index}.`);
+      }
+
+      expect(point.date, `series point ${index}'s date`).toBe(expected.date);
+      expect(point.open, `${expected.date}'s opened count`).toBe(expected.open);
+      expect(point.resolved, `${expected.date}'s resolved count`).toBe(expected.resolved);
+    });
+  });
+
+  it("reproduces each exception's revenue at risk", () => {
+    const rows = computeExceptionRows(seededBundle(), SEEDED_SCOPE);
+
+    expect(rows, 'the queue row count').toHaveLength(EXPECTED_REVENUE_AT_RISK_BY_EXCEPTION.length);
+
+    for (const expected of EXPECTED_REVENUE_AT_RISK_BY_EXCEPTION) {
+      expect(rowOf(rows, expected.exceptionId).revenueAtRiskEur, `${expected.exceptionId}'s revenue at risk`).toBe(
+        expected.revenueAtRiskEur,
+      );
+    }
+  });
+
+  it("reproduces each exception's affected lines", () => {
+    const bundle = seededBundle();
+
+    for (const expected of EXPECTED_AFFECTED_LINES_BY_EXCEPTION) {
+      const exception = seededExceptionOf(expected.exceptionId);
+      const lines = resolveAffectedLines(exception, baselineViewFor(bundle, exception));
+
+      expect(lines, `${expected.exceptionId}'s affected line count`).toHaveLength(expected.lines.length);
+
+      expected.lines.forEach((expectedLine, index) => {
+        const line = lines[index];
+
+        if (line === undefined) {
+          throw new Error(`The aggregate returned no affected line at position ${index} for ${expected.exceptionId}.`);
+        }
+
+        expect(line.orderId, `${expected.exceptionId}'s line ${index} order`).toBe(expectedLine.orderId);
+        expect(line.unitsAtRisk, `${expected.exceptionId}'s units at risk on ${expectedLine.orderId}`).toBe(
+          expectedLine.unitsAtRisk,
+        );
+      });
+    }
+  });
+
+  it('reproduces the ledger counts of every declared endpoint', async () => {
+    const rows = computeLedger(await seededChain(), SOVEREIGNTY, DEMO_CLOCK);
+
+    expect(rows, 'the declared ledger row count').toHaveLength(EXPECTED_LEDGER_COUNTS_BY_ENDPOINT.length);
+
+    for (const expected of EXPECTED_LEDGER_COUNTS_BY_ENDPOINT) {
+      const row = ledgerRowOf(rows, expected.endpoint);
+
+      expect(row.allowed, `${expected.endpoint}'s allowed count`).toBe(expected.allowed);
+      expect(row.blocked, `${expected.endpoint}'s blocked count`).toBe(expected.blocked);
+    }
+  });
+
+  it("reproduces each package's readiness", () => {
+    expect(PPAP_PACKAGES, 'the seeded package count').toHaveLength(EXPECTED_PACKAGE_READINESS.length);
+
+    for (const expected of EXPECTED_PACKAGE_READINESS) {
+      const packageRecord = PPAP_PACKAGES.find((candidate) => candidate.id === expected.packageId);
+
+      if (packageRecord === undefined) {
+        throw new Error(`The seeded record set carries no part approval package ${expected.packageId}.`);
+      }
+
+      const passing = packageRecord.elements.filter((element) => element.state === 'pass').length;
+
+      expect(packageRecord.elements.length, `${expected.packageId}'s element count`).toBe(expected.total);
+      expect(passing, `${expected.packageId}'s passing elements`).toBe(expected.passed);
+      expect(readinessOf(packageRecord.elements), `${expected.packageId}'s computed readiness`).toBe(
+        expected.percent,
+      );
+      expect(packageRecord.readinessPercent, `${expected.packageId}'s recorded readiness`).toBe(
+        expected.percent,
+      );
+    }
+  });
+
+  it("reproduces the queue's default ordering", () => {
+    const ordered = sortUrgent(computeExceptionRows(seededBundle(), SEEDED_SCOPE)).map((row) => row.id);
+
+    expect(ordered, 'the ordered row count').toHaveLength(EXPECTED_URGENT_ORDER.length);
+
+    EXPECTED_URGENT_ORDER.forEach((expectedId, position) => {
+      expect(ordered[position], `the exception at position ${position} of the default ordering`).toBe(
+        expectedId,
+      );
+    });
   });
 });
 

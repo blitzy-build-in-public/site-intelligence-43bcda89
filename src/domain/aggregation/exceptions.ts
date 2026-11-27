@@ -26,6 +26,15 @@
  * lines at the product prices the records carry. `computeExceptionRows` projects every in-scope
  * exception onto the queue row, carrying that revenue and the age of the exception.
  *
+ * The interface this module exposes, in the form AAP 0.12.1 states it. `computeExceptionRows(records,
+ * scope)` is computed over the record bundle and the resolved scope. `resolveAffectedLines(exception,
+ * baseline)` and `revenueAtRisk(exception, baseline)` are the two-argument functions the AAP names: the
+ * exception, then that exception's baseline. The record access a line needs — the unit price of each
+ * product it is valued at, and the order book that identifies an order the baseline solve measures —
+ * travels on the second argument as a `BaselineView`, which `baselineViewFor(records, exception)` builds
+ * from the bundle every caller already holds. The prices therefore stay record values this module
+ * neither imports for itself nor types (rule P-2, rule P-6), and a call site stays one expression.
+ *
  * Where the figures come from. Every price is read from a product record and every unit count from an
  * exception record or from the baseline solve the caller supplied; nothing here types a price, a
  * quantity, an amount, a threshold or a domain identifier (rule P-6). The expected results of
@@ -74,12 +83,6 @@
  * `confidence`, no `missingInputs`, no `whatChanged` and no evidence reference, so a consumer reads
  * those from the exception record through the service rather than from the row. Adding them here
  * would put record content on a projection of twelve fixed members (AAP 0.12.2).
- *
- * OPEN ITEM — the argument list. AAP 0.12.1 names `resolveAffectedLines(exception, baseline)` and
- * `revenueAtRisk(exception, baseline)`; both take the record bundle as their first argument, because
- * the product price and the order identity a line needs are record values this module may not import
- * itself (rule P-2). The AAP's own two arguments keep their stated names and order after the bundle,
- * so a caller reads the same information the AAP describes.
  *
  * OPEN ITEM — an unpriceable line. A line whose product has no record in the bundle cannot be valued,
  * and the aggregate refuses rather than reporting a figure it could not compute: `revenueAtRisk`
@@ -176,6 +179,30 @@ export interface OrderBookEntry {
 
   /** The date the customer was promised. */
   readonly dueDate: IsoDate;
+}
+
+/**
+ * What the two exception aggregates read: one exception's baseline and the records its lines need.
+ *
+ * AAP 0.12.1 fixes the aggregates as `resolveAffectedLines(exception, baseline)` and
+ * `revenueAtRisk(exception, baseline)` — two arguments, the exception then its baseline — and this
+ * interface is the second one. The record access a line needs travels with the solve because it cannot
+ * be reached from here: the product prices a line is valued at and the order book that identifies an
+ * order the solve measures are record values, and rule P-6 keeps every price out of this module while
+ * rule P-2 keeps it a projection over the types and its own siblings rather than a second entry point
+ * into the records. `baselineViewFor` builds the view from the bundle the caller already holds.
+ *
+ * A view is read and never modified, and it holds no computed figure.
+ */
+export interface BaselineView {
+  /** The baseline solve of the exception's case, or `null` when it has no case or none was supplied. */
+  readonly solve: SolverResult | null;
+
+  /** The unit price of each product a line may name. */
+  readonly products: readonly PricedProduct[];
+
+  /** The order identity each customer order a line or a baseline's order may name is read from. */
+  readonly customerOrders: readonly OrderBookEntry[];
 }
 
 /**
@@ -301,15 +328,15 @@ function orderResultOf(baseline: SolverResult, orderId: CustomerOrderId): OrderR
 /**
  * Finds one customer order's identity in the order book.
  *
- * @param records The record bundle the aggregate was called with.
+ * @param customerOrders The order book the baseline view carries.
  * @param orderId The order to find.
- * @returns That order's identity, or `null` when the bundle carries no order with that identifier.
+ * @returns That order's identity, or `null` when the order book carries no order with that identifier.
  */
 function orderEntryOf(
-  records: ExceptionAggregateInput,
+  customerOrders: readonly OrderBookEntry[],
   orderId: CustomerOrderId,
 ): OrderBookEntry | null {
-  for (const entry of records.customerOrders) {
+  for (const entry of customerOrders) {
     if (entry.id === orderId) {
       return entry;
     }
@@ -348,6 +375,32 @@ function baselineOf(
 }
 
 /**
+ * Builds the second argument of both exception aggregates: one exception's baseline and the records its
+ * lines are read from.
+ *
+ * AAP 0.12.1 fixes `resolveAffectedLines(exception, baseline)` and `revenueAtRisk(exception, baseline)`,
+ * and this is the `baseline` those two arguments name: the solve the caller took for the exception
+ * (through the same lookup the queue rows use, so a queue row and a single valuation cannot disagree
+ * about which solve a case has), the prices its lines are valued at and the order book that identifies
+ * an order the solve measures. Building it here keeps every call site a single expression and keeps the
+ * whole bundle out of the two aggregates' arguments.
+ *
+ * @param records The record bundle the caller holds: the prices, the order book and the baseline solves.
+ * @param exception The exception whose lines are valued or derived.
+ * @returns A fresh view over that exception's baseline and the records the lines need.
+ */
+export function baselineViewFor(
+  records: ExceptionAggregateInput,
+  exception: OperationalException,
+): BaselineView {
+  return {
+    solve: baselineOf(records, exception),
+    products: records.products,
+    customerOrders: records.customerOrders,
+  };
+}
+
+/**
  * Derives the customer order lines an exception places at risk — contracts §5; AAP 0.12.1 exception
  * aggregates; AAP 0.12.2's `OperationalException` row.
  *
@@ -369,22 +422,21 @@ function baselineOf(
  * same records return the same sequence. Nothing in the input is modified, and every line returned is
  * a fresh object.
  *
- * @param records The record bundle: the order book that identifies a line, and the product prices the
- *   revenue rule later reads. This parameter is the first of the two the AAP's signature names; see
- *   the module header's OPEN ITEM on the argument list.
  * @param exception The exception whose affected lines are derived. Its record is read and never
- *   modified.
- * @param baseline The baseline solve of that exception's case, or `null` when it has no case or no
- *   solve was supplied.
+ *   modified. This is the first of the two arguments AAP 0.12.1 names.
+ * @param baseline That exception's baseline: the solve, or `null` when it has no case or no solve was
+ *   supplied, and the order book a solve's order is identified from. This is the second argument the
+ *   AAP names; build it with `baselineViewFor`.
  * @returns A fresh array of affected lines, each with a usable unit count, in record order then solve
  *   order.
  */
 export function resolveAffectedLines(
-  records: ExceptionAggregateInput,
   exception: OperationalException,
-  baseline: SolverResult | null,
+  baseline: BaselineView,
 ): AffectedLine[] {
-  if (baseline === null) {
+  const solve = baseline.solve;
+
+  if (solve === null) {
     return exception.affectedLines.map(copyLine);
   }
 
@@ -394,7 +446,7 @@ export function resolveAffectedLines(
   for (const storedLine of exception.affectedLines) {
     namedOrderIds.push(storedLine.orderId);
 
-    const orderResult = orderResultOf(baseline, storedLine.orderId);
+    const orderResult = orderResultOf(solve, storedLine.orderId);
     const unitsAtRisk =
       orderResult === null ? usableUnits(storedLine.unitsAtRisk) : usableUnits(orderResult.unitsLate);
 
@@ -409,7 +461,7 @@ export function resolveAffectedLines(
     }
   }
 
-  for (const orderResult of baseline.orders) {
+  for (const orderResult of solve.orders) {
     if (namedOrderIds.includes(orderResult.orderId)) {
       continue;
     }
@@ -420,7 +472,7 @@ export function resolveAffectedLines(
       continue;
     }
 
-    const entry = orderEntryOf(records, orderResult.orderId);
+    const entry = orderEntryOf(baseline.customerOrders, orderResult.orderId);
 
     if (entry === null) {
       continue;
@@ -445,23 +497,23 @@ export function resolveAffectedLines(
 /**
  * Reads the unit price of one product from the records the aggregate was handed.
  *
- * A product the bundle does not carry is a caller error rather than a missing record: AAP 0.8 values
- * a line at the product's price, and an aggregate that substituted a price of its own would report a
- * figure rule P-6 forbids it to compute. The error names the exception and the product so the caller
- * can see which record it did not pass.
+ * A product the view does not carry is a caller error rather than a missing record: AAP 0.8 values a
+ * line at the product's price, and an aggregate that substituted a price of its own would report a
+ * figure rule P-6 forbids it to compute. The error names the exception and the product so the caller can
+ * see which record it did not pass.
  *
- * @param records The record bundle the aggregate was called with.
+ * @param products The unit prices the baseline view carries.
  * @param exceptionId The exception whose line names the product, for the error's message.
  * @param productId The product to price.
  * @returns That product's unit price in euro.
- * @throws Error when the bundle carries no product with that identifier.
+ * @throws Error when the prices carry no product with that identifier.
  */
 function priceOf(
-  records: ExceptionAggregateInput,
+  products: readonly PricedProduct[],
   exceptionId: ExceptionId,
   productId: ProductId,
 ): Money {
-  for (const product of records.products) {
+  for (const product of products) {
     if (product.id === productId) {
       return product.priceEur;
     }
@@ -479,21 +531,21 @@ function priceOf(
  * the sum is taken in full precision and only the total is rounded half up to two decimals, through
  * the one rounding helper the codebase has.
  *
- * @param records The record bundle, read for the product prices.
+ * @param products The unit prices the baseline view carries, read for the product each line names.
  * @param exceptionId The exception the lines belong to, for the error a missing price raises.
  * @param lines The affected lines to value.
  * @returns The revenue at risk in euro, at most two decimals.
- * @throws Error when a line names a product the bundle does not carry.
+ * @throws Error when a line names a product the prices do not carry.
  */
 function sumRevenue(
-  records: ExceptionAggregateInput,
+  products: readonly PricedProduct[],
   exceptionId: ExceptionId,
   lines: readonly AffectedLine[],
 ): Money {
   let total = 0;
 
   for (const line of lines) {
-    total += line.unitsAtRisk * priceOf(records, exceptionId, line.productId);
+    total += line.unitsAtRisk * priceOf(products, exceptionId, line.productId);
   }
 
   return halfUp2(total);
@@ -513,20 +565,19 @@ function sumRevenue(
  * what an empty queue row's figure is. The total is rounded through `halfUp2` alone, and no other
  * rounding rule or text formatting appears anywhere in this module.
  *
- * @param records The record bundle: the product prices, and the order book a baseline's order is
- *   identified from.
- * @param exception The exception to value. Its record is read and never modified.
- * @param baseline The baseline solve of that exception's case, or `null` when it has no case or no
- *   solve was supplied.
+ * @param exception The exception to value. Its record is read and never modified. This is the first of
+ *   the two arguments AAP 0.12.1 names.
+ * @param baseline That exception's baseline: the solve, or `null` when it has no case or no solve was
+ *   supplied, and the records the lines are read from. This is the second argument the AAP names; build
+ *   it with `baselineViewFor`.
  * @returns The revenue at risk in euro, at most two decimals.
- * @throws Error when an affected line names a product the bundle does not carry.
+ * @throws Error when an affected line names a product the prices do not carry.
  */
 export function revenueAtRisk(
-  records: ExceptionAggregateInput,
   exception: OperationalException,
-  baseline: SolverResult | null,
+  baseline: BaselineView,
 ): Money {
-  return sumRevenue(records, exception.id, resolveAffectedLines(records, exception, baseline));
+  return sumRevenue(baseline.products, exception.id, resolveAffectedLines(exception, baseline));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -711,8 +762,8 @@ export function computeExceptionRows(
       continue;
     }
 
-    const baseline = baselineOf(records, exception);
-    const lines = resolveAffectedLines(records, exception, baseline);
+    const baseline = baselineViewFor(records, exception);
+    const lines = resolveAffectedLines(exception, baseline);
     const productIds = productIdsOf(lines);
 
     if (!admitsProducts(productIds, scope)) {
@@ -726,7 +777,7 @@ export function computeExceptionRows(
       productIds,
       plantId: exception.plantId,
       severity: exception.severity,
-      revenueAtRiskEur: sumRevenue(records, exception.id, lines),
+      revenueAtRiskEur: sumRevenue(baseline.products, exception.id, lines),
       daysToImpact: exception.daysToImpact,
       status: exception.status,
       ownerId: exception.ownerId,

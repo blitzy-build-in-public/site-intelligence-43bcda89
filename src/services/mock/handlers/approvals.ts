@@ -1232,10 +1232,10 @@ function unmitigatedDelayedRevenueOf(scenarios: readonly Scenario[]): Money {
  * is never below the option's own residual and the difference needs no floor. The option that repeats the
  * unmitigated path itself protects nothing, which is what a plan that changes nothing buys.
  *
- * LIMIT, recorded rather than patched: `SolverCase` carries no price for either lever or for the orders
- * it measures, so `solveSupplyDelay` reports both euro measures as zero for an option it measures and
- * this pair is zero with it. A supplied case carrying prices fills both without a change here, and the
- * seeded plans keep the figures their own records state.
+ * Both measures are the solver's own: `SolverCase` carries the price each order was agreed at and the
+ * rate each lever costs, so `solveSupplyDelay` reports a real added cost and a real delayed revenue for
+ * an option it measures, and this pair is computed from them rather than from a typed figure. A seeded
+ * plan keeps the figures its own record states, because a shipped option is not re-solved.
  *
  * @param scenario - The option the approval puts forward.
  * @param unmitigatedDelayedEur - The delayed revenue the set's unmitigated position leaves.

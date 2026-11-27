@@ -7,9 +7,9 @@
  * 1. The position the projection opens from is the case's opening stock together with the finished
  *    goods already built.
  * 2. The sets the two levers recover — `airSets` and `transferSets` together — join that position
- *    on the window's first working day. The case carries no lead time for either lever, so the
- *    recovered sets are on hand from the start of the projection rather than arriving part-way
- *    through it.
+ *    on the window's first working day. The deferral a transfer causes is the other site's, measured
+ *    by the case's own `transferLeadTimeDays`, so the recovered sets are on hand from the start of
+ *    this projection rather than arriving part-way through it.
  * 3. Each working day the line builds the smaller of `ratePerDay` and the stock on hand, so stock is
  *    only ever consumed to the extent it exists: the closing-stock series therefore reaches zero and
  *    stays there, and never falls below it. The delayed purchase order adds nothing, because the
@@ -29,31 +29,35 @@
  *    last day while it is still outstanding.
  * 8. Units late, orders on time, orders total and the maximum days late are read directly off those
  *    per-order results, so each measure has one formula and no aggregate restates a per-order figure.
- * 9. The added cost of the levers, and 10. the revenue delayed, are the neutral zero: see the
- *    OPEN ITEM below.
+ * 9. The added cost of an option is what each lever's recovered sets cost at the rate the case carries
+ *    for that lever, summed and closed to two decimals with `halfUp2` (contracts §4 rule 9).
+ * 10. The revenue an option delays is the units it leaves late, each order's units valued at the price
+ *    that order's own record states, summed and closed to two decimals with `halfUp2` (rule 10).
  * 11. A side effect follows from the transfer lever alone, because a transfer draws sets from another
- *    site's supply while the air lever does not. Write-backs are the case's own, and it declares none.
+ *    site's supply while the air lever does not: the kits it moves, what they are worth and how long
+ *    the site they came from waits for them, each read from the case. The write-backs are the case's
+ *    own plan, and an option whose levers recover sets is the one that sets that plan in motion.
  *
- * OPEN ITEM — the two euro measures. `SolverCase` carries no money: neither a per-unit price for the
- * orders nor a per-set cost for either lever, and nothing reachable from the case supplies one.
- * Contracts §4 prices the added cost and the delayed revenue from exactly those, so a euro total
- * cannot be derived here without typing a price into this module, which rule P-6 forbids. Both
- * measures therefore report zero, and the adapter that composes a `Scenario` values the units this
- * function reports — `unitsLate`, the per-order results, and each side effect's `kitsDelayed` —
- * against the prices its own records carry. `src/types/solver.ts` must gain those members before
- * either figure can be computed at this layer.
+ * The two euro measures are computed from the case's own money (contracts §4 rules 9 and 10, rule
+ * P-6). No price, rate or amount is written here: the lever rates, the orders' prices and the
+ * transferred product's price all arrive on the case, which is what keeps this module a pure function
+ * of its arguments. Both totals are closed with `halfUp2`, the codebase's only rounding, so an order
+ * priced with decimals leaves no floating-point artifact and no money figure leaves at a finer scale
+ * than `Money` carries.
+ *
+ * The deferral is measured where it falls: at the site a transfer draws its sets from. The case names
+ * the product that site gives up, what those kits are worth and the working days it waits for them, and
+ * the side effect reports the three together. Nothing here values a deferral against this case's own
+ * orders, which are the ones the option is trying to serve.
+ *
+ * The write-backs are the case's plan, copied rather than invented: an option whose levers recover sets
+ * returns the steps the case states, as fresh objects the caller may mark up, and the do-nothing
+ * baseline sets nothing in motion and returns the empty list.
  *
  * OPEN ITEM — the confidence. `SolverResult.confidence` is required, and `SolverCase` has no member
  * holding one (the OPEN ITEM in `src/types/solver.ts` records the same gap from its side). The
  * result reports the lowest level with the reason that it is the lowest, and the adapter composing a
  * `Scenario` supplies the record's own confidence instead.
- *
- * OPEN ITEM — the write-backs. `WriteBack[]` is required, and the case declares no write-back to
- * walk. Nothing is invented to fill the gap: the result carries the empty list, and the approval
- * tracker reads the write-backs its own record states.
- *
- * OPEN ITEM — the deferral. `SideEffect.daysDeferred` needs the replenishment lead time of the site
- * a transfer draws from, which the case does not carry, so it reports zero.
  *
  * Purity and determinism (AAP 0.2.1, AAP 0.18.2). This is a pure function of its two arguments: it
  * reads no clock, no random source, no global state and no module-level mutable value, so the same
@@ -230,10 +234,11 @@ function checkLever(label: string, value: number, constraint: LeverConstraint, m
  * Collects one message per input the projection cannot be walked over without.
  *
  * The case is checked for the inputs each of the eleven rules reads — the opening position, the build
- * rate, a window that holds a working day, and at least one order with a quantity and a due date —
- * and each lever for finiteness, the floor of zero, the case's own maximum and its step. Nothing is
- * clamped and nothing is corrected: a breach is reported so the option can be shown as "Cannot
- * compute" with its reason (AAP 0.8, AAP 0.12.2).
+ * rate, a window that holds a working day, at least one order with a quantity, a due date and a price,
+ * the two lever rates and the transferred product's price and lead time — and each lever for
+ * finiteness, the floor of zero, the case's own maximum and its step. Nothing is clamped and nothing
+ * is corrected: a breach is reported so the option can be shown as "Cannot compute" with its reason
+ * (AAP 0.8, AAP 0.12.2).
  *
  * @param caseRecord The solver case to check.
  * @param levers The lever values the option sets.
@@ -252,6 +257,22 @@ function collectConstraintMessages(caseRecord: SolverCase, levers: Levers): stri
 
   if (!Number.isFinite(caseRecord.ratePerDay) || caseRecord.ratePerDay <= 0) {
     messages.push('The solver case must carry a build rate greater than zero units per working day.');
+  }
+
+  if (!Number.isFinite(caseRecord.airFreightCostPerSetEur) || caseRecord.airFreightCostPerSetEur < 0) {
+    messages.push('The solver case must carry a finite, non-negative air-freight cost per set.');
+  }
+
+  if (!Number.isFinite(caseRecord.transferCostPerSetEur) || caseRecord.transferCostPerSetEur < 0) {
+    messages.push('The solver case must carry a finite, non-negative transfer cost per set.');
+  }
+
+  if (!Number.isFinite(caseRecord.transferUnitPriceEur) || caseRecord.transferUnitPriceEur < 0) {
+    messages.push('The solver case must carry a finite, non-negative price for the transferred sets.');
+  }
+
+  if (!Number.isFinite(caseRecord.transferLeadTimeDays) || caseRecord.transferLeadTimeDays < 0) {
+    messages.push('The solver case must carry a finite, non-negative transfer lead time in working days.');
   }
 
   const windowOpens = isCalendarDate(caseRecord.windowStart);
@@ -276,6 +297,10 @@ function collectConstraintMessages(caseRecord: SolverCase, levers: Levers): stri
   for (const order of caseRecord.orders) {
     if (!Number.isFinite(order.quantity) || order.quantity < 0) {
       messages.push(`Order ${order.orderId} must carry a finite, non-negative quantity of units.`);
+    }
+
+    if (!Number.isFinite(order.unitPriceEur) || order.unitPriceEur < 0) {
+      messages.push(`Order ${order.orderId} must carry a finite, non-negative unit price.`);
     }
 
     if (!isCalendarDate(order.dueDate)) {
@@ -447,31 +472,49 @@ function daysLateOf(progress: OrderProgress, windowEnd: IsoDate): number {
  * Derives the side effects of the levers.
  *
  * A transfer recovers sets by drawing them from another site's supply, so the sets it moves are
- * deferred there: that is the effect, and its size is the lever's own value. The air lever takes no
- * sets from another site's plan, so it adds no side effect, and a lever at zero adds none either. The
- * product the deferral falls on is the one the case's orders are for, which is the product the
- * recovered sets supply.
+ * deferred there: that is the effect, its size is the lever's own value, its value is those sets at
+ * the price the case states for the transferred product, and its length is the working days that site
+ * waits. The air lever takes no sets from another site's plan, so it adds no side effect, and a lever
+ * at zero adds none either.
  *
  * @param caseRecord The case being measured.
  * @param levers The lever values the option sets.
  * @returns The side effects, empty when the transfer lever is at zero.
  */
 function sideEffectsOf(caseRecord: SolverCase, levers: Levers): SideEffect[] {
-  const effects: SideEffect[] = [];
-  const deferredProduct = caseRecord.orders[0]?.productId;
-
-  if (deferredProduct === undefined || levers.transferSets <= 0) {
-    return effects;
+  if (levers.transferSets <= 0) {
+    return [];
   }
 
-  effects.push({
-    productId: deferredProduct,
-    kitsDelayed: levers.transferSets,
-    valueDeferredEur: 0,
-    daysDeferred: 0,
-  });
+  return [
+    {
+      productId: caseRecord.transferProductId,
+      kitsDelayed: levers.transferSets,
+      valueDeferredEur: halfUp2(levers.transferSets * caseRecord.transferUnitPriceEur),
+      daysDeferred: caseRecord.transferLeadTimeDays,
+    },
+  ];
+}
 
-  return effects;
+/**
+ * The write-backs an option sets in motion.
+ *
+ * The steps the case's record states are what an approval of the plan would write back, so an option
+ * whose levers recover sets — by air freight, by transfer, or by both — returns them in the record's
+ * own order, as fresh objects on every call so a caller may mark a step up without reaching into the
+ * record. The do-nothing baseline recovers nothing and sets no plan in motion, so it returns the empty
+ * list. No step is derived, extended or invented here (rule P-6).
+ *
+ * @param caseRecord The case being measured.
+ * @param levers The lever values the option sets.
+ * @returns The steps the option writes back, or the empty list for an option that recovers no set.
+ */
+function writeBacksOf(caseRecord: SolverCase, levers: Levers): WriteBack[] {
+  if (levers.airSets + levers.transferSets <= 0) {
+    return [];
+  }
+
+  return caseRecord.writeBacks.map((step) => ({ ...step }));
 }
 
 /**
@@ -498,10 +541,10 @@ function caseConfidence(): Confidence {
  * Measures one response option against a supply-delay case.
  *
  * Implements contracts §4 rules 1 to 11 in order over the parts `SolverCase` carries: the opening
- * position, the two levers, the daily projection, the run-out day and the fraction of it, line idle
- * days rounded half up to two decimals, the per-order results, the counts read off them, the added
- * cost, the revenue delayed, the side effects and the write-backs. The header of this module states
- * each step, and the two euro measures the case cannot price.
+ * position, the two levers and the rates they cost, the daily projection, the run-out day and the
+ * fraction of it, line idle days rounded half up to two decimals, the per-order results, the counts
+ * read off them, the added cost, the revenue delayed, the side effects the transfer defers and the
+ * write-backs the plan sets in motion. The header of this module states each step.
  *
  * The function is pure and deterministic: it reads no clock, no random source and no global state,
  * and it mutates neither argument, so the same case and the same levers always produce a deeply equal
@@ -565,6 +608,7 @@ export function solveSupplyDelay(caseRecord: SolverCase, levers: Levers): Solver
   let unitsLate = 0;
   let ordersOnTime = 0;
   let maxDaysLate = 0;
+  let delayedRevenue = 0;
 
   for (const progress of projection.orders) {
     const outstanding = progress.order.quantity - progress.unitsServed;
@@ -577,6 +621,12 @@ export function solveSupplyDelay(caseRecord: SolverCase, levers: Levers): Solver
 
     if (unitsLateForOrder === 0) {
       ordersOnTime += 1;
+    } else {
+      /*
+       * An order that misses its date holds up its own revenue, so the units it is left late are
+       * valued at the price its own record states rather than at the case's product price.
+       */
+      delayedRevenue += unitsLateForOrder * progress.order.unitPriceEur;
     }
 
     if (daysLate > maxDaysLate) {
@@ -585,13 +635,17 @@ export function solveSupplyDelay(caseRecord: SolverCase, levers: Levers): Solver
   }
 
   /*
-   * The two euro measures are zero because the case carries no money. The header's OPEN ITEM states
-   * why, and the adapter values the units reported here against the prices its own records carry.
+   * What the option costs is what its levers cost: every set it recovers by air freight at the case's
+   * air-freight rate, every set it transfers at the case's transfer rate. The sum is closed once with
+   * `halfUp2`, so a rate with decimals cannot leave a trailing artifact behind in a euro figure.
    */
-  const addedCostEur = 0;
-  const revenueDelayedEur = 0;
+  const addedCostEur = halfUp2(
+    levers.airSets * caseRecord.airFreightCostPerSetEur +
+      levers.transferSets * caseRecord.transferCostPerSetEur,
+  );
 
-  const writeBacks: WriteBack[] = [];
+  /** The delayed revenue, closed the same way once every order's units have been valued. */
+  const revenueDelayedEur = halfUp2(delayedRevenue);
 
   return {
     unitsLate,
@@ -607,7 +661,7 @@ export function solveSupplyDelay(caseRecord: SolverCase, levers: Levers): Solver
     constraintCheck,
     constraintMessages,
     sideEffects: sideEffectsOf(caseRecord, levers),
-    writeBacks,
+    writeBacks: writeBacksOf(caseRecord, levers),
     levers: echoedLevers,
     confidence: caseConfidence(),
   };

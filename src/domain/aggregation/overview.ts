@@ -1,6 +1,7 @@
 /**
- * The overview aggregates of SCR-01: the four computed tiles, the "changed since your last visit"
- * list, the risk-by-plant rows and the fourteen-day opened-and-resolved series.
+ * The overview aggregates of SCR-01: the four computed tiles, the alternate-source readiness share, the
+ * "changed since your last visit" list, the risk-by-plant rows and the fourteen-day opened-and-resolved
+ * series.
  *
  * Fixing inputs:
  * - `platform-contracts.md` §5, which fixes the computed aggregates as pure functions over records.
@@ -20,11 +21,13 @@
  * - AAP 0.10, which places each simulation label on the component that renders a figure: this module
  *   emits values and no label.
  *
- * Four aggregates, one call. The tiles count what is still open, value it, count the customer orders
- * it carries and measure how long an approved plan takes. The changed-since list reports the activity
- * the records themselves date. The by-plant rows are the tiles split across the plants in scope, and
- * the fourteen-day series is the flow behind the open count. Each is computed from the records handed
- * in, and each returned collection is freshly built.
+ * Five aggregates, one call. The tiles count what is still open, value it, count the customer orders
+ * it carries and measure how long an approved plan takes. The readiness share reads the material
+ * master the bundle carries and reports how much of what the scope reaches a second supplier can
+ * cover. The changed-since list reports the activity the records themselves date. The by-plant rows
+ * are the tiles split across the plants in scope, and the fourteen-day series is the flow behind the
+ * open count. Each is computed from the records handed in, and each returned collection is freshly
+ * built.
  *
  * Where the figures come from. Every euro is computed by `revenueAtRisk` from the affected lines
  * `resolveAffectedLines` derives, and no revenue figure is summed a second way here: the by-plant rows
@@ -43,8 +46,9 @@
  *
  * Rules this module is built to satisfy:
  * - P-6: every number is computed from the records handed in — a count of the exceptions in scope, a
- *   duration between two record instants, or a euro amount `revenueAtRisk` computed — and `halfUp2`
- *   from `src/domain/solver/rounding.ts` is the only rounding applied.
+ *   duration between two record instants, a euro amount `revenueAtRisk` computed, or a share of the
+ *   material master — and the two helpers of `src/domain/solver/rounding.ts` are the only rounding
+ *   applied: `halfUp2` for money and `wholePercent` for the readiness share.
  * - P-5: every value here is a first-party figure computed from first-party records. Nothing in this
  *   module reads a market-intelligence value, so no tile, row, series point or change can blend the
  *   two provenances.
@@ -62,14 +66,18 @@
  *   or vendor name is written here.
  * - B-1 and B-2: it contacts no host, addresses none and reads no configuration.
  *
- * OPEN ITEM — alternate-source readiness has no member on screen. AAP 0.8's row for this module and
- * contracts §5 both name alternate-source readiness among the overview aggregates, and AAP 0.8 has it
- * rounded through `wholePercent`; `Overview` and `PlantRiskRow` in `src/types/screen-dto.ts` declare no
- * readiness member, and that module owns the shape. No field is added here and no percentage is
- * computed, because a figure with no destination is dead arithmetic. Readiness therefore has no
- * surface on the overview as typed; adding `PlantRiskRow.alternateSourceReadinessPercent` to
- * `src/types/screen-dto.ts` is where it would begin, and this module would fill it through
- * `wholePercent` in the same by-plant pass that fills the two counts.
+ * Alternate-source readiness — the aggregate that is not a tile. AAP 0.8's row for this module and
+ * contracts §5 both name alternate-source readiness among the overview aggregates, rounded through
+ * `wholePercent`, and `Overview.alternateSourceReadinessPercent` in `src/types/screen-dto.ts` is where
+ * it reaches a screen. `alternateSourceReadiness` below states the rule it follows: a material is in
+ * scope when the products it goes into meet the resolved scope's products, where an empty `products`
+ * member is the "All products" selection `./scope` states, so the rule is the product admission the
+ * rest of the overview already applies; the part is the in-scope materials carrying an
+ * `alternateSupplierId`; the whole is the in-scope materials; and the part over its whole is rounded
+ * half up to a whole percent. With no material in scope the member is `0`, the identity of an empty set
+ * rather than a reading of zero readiness. It is reported once for the overview and not per
+ * `PlantRiskRow`, because a material record names the products it goes into and no plant: a per-plant
+ * share would read a plant into records that do not carry one.
  *
  * OPEN ITEM — what "since your last visit" dates from. No record carries the instant of a user's
  * previous visit and the bundle carries none, so the window is the demonstration's own reading of the
@@ -121,6 +129,7 @@ import type {
   DailyCountPoint,
   ExceptionId,
   IsoDate,
+  MaterialId,
   Money,
   OperationalException,
   Overview,
@@ -128,13 +137,13 @@ import type {
   PlantRiskRow,
   ProductId,
   Scope,
-  SolverResult,
+  SupplierId,
   Timestamp,
 } from '../../types';
-import type { ExceptionAggregateInput } from './exceptions';
+import type { BaselineView, ExceptionAggregateInput } from './exceptions';
 import { isWorkingDay } from '../solver/calendar';
-import { halfUp2 } from '../solver/rounding';
-import { resolveAffectedLines, revenueAtRisk } from './exceptions';
+import { halfUp2, wholePercent } from '../solver/rounding';
+import { baselineViewFor, resolveAffectedLines, revenueAtRisk } from './exceptions';
 
 /* ---------------------------------------------------------------------------------------------
  * A. Structural constants
@@ -180,6 +189,12 @@ const WORKING_DAY_LOOKBACK = 7;
 const NO_QUALIFYING_MEDIAN = 0;
 
 /**
+ * The readiness share with no material in scope: the identity of an empty set, not a reading that none
+ * of a sourced population has an alternate.
+ */
+const NO_MATERIAL_IN_SCOPE = 0;
+
+/**
  * The activity-trail action that dates the moment an exception was detected, as
  * `src/seed/exception-history.ts` spells it. The series counts its opened days from the exception
  * record's own `detectedAt` instead, which every exception carries; the median measures from this
@@ -211,6 +226,29 @@ export interface NamedPlant {
 
   /** The plant's display name, as the plant record states it. */
   readonly name: string;
+}
+
+/**
+ * One material, as the readiness share reads it: the products it goes into and whether a second
+ * supplier can cover it.
+ *
+ * Declared here rather than in `src/types` for the same reason as `NamedPlant`: it is not a contracts
+ * type but the minimal shape of the call, and the material records of `src/seed/materials.ts` are
+ * richer — name, primary supplier, origin, unit cost, lead time — and assignable to it, so the adapter
+ * passes them through without mapping them (see the module header's last OPEN ITEM).
+ */
+export interface SourcedMaterial {
+  /** The material's identifier, `MAT-` followed by its own key. */
+  readonly id: MaterialId;
+
+  /** The products the material goes into, which is the reach the product selection admits it by. */
+  readonly productIds: readonly ProductId[];
+
+  /**
+   * The second qualified supplier that can cover the material, absent where the material is
+   * single-sourced: the one member the readiness share counts.
+   */
+  readonly alternateSupplierId?: SupplierId;
 }
 
 /**
@@ -247,8 +285,9 @@ export interface ActivityRecord {
  * is that argument. It extends the exception aggregate's own bundle, so the adapter that already builds
  * one for the queue hands the same object here: the exceptions, the product prices their lines are
  * valued at, the order book, the baseline solves, the read's freshness and the as-of instant are the
- * queue's, and the overview adds only what it alone reads — the plants it groups by, the activity trail
- * it dates changes and approvals from, and the approvals themselves.
+ * queue's, and the overview adds only what it alone reads — the plants it groups by, the material
+ * master its readiness share counts, the activity trail it dates changes and approvals from, and the
+ * approvals themselves.
  *
  * Inheriting the queue's bundle is what makes the two agree: this module admits exceptions with the same
  * two filters the queue applies and values their revenue through the same function, so a narrowed queue
@@ -262,6 +301,15 @@ export interface ActivityRecord {
 export interface OverviewInput extends ExceptionAggregateInput {
   /** The plants the by-plant rows report on, each with the name its record states. */
   readonly plants: readonly NamedPlant[];
+
+  /**
+   * The material master the alternate-source readiness share is measured over.
+   *
+   * One record per material, carrying the products it goes into and the second supplier that can cover
+   * it. `alternateSourceReadiness` counts the materials the resolved scope's products reach, so this
+   * member and the scope the call is made with are all the figure reads.
+   */
+  readonly materials: readonly SourcedMaterial[];
 
   /** The activity trail, which dates the changed-since list, the median and the resolved count. */
   readonly history: readonly ActivityRecord[];
@@ -593,8 +641,11 @@ interface ScopedException {
   /** The plant in scope this exception is grouped under, and the row it contributes to. */
   readonly plantId: PlantId;
 
-  /** The exception's baseline solve, or `null` when it carries no solver case. */
-  readonly baseline: SolverResult | null;
+  /**
+   * The exception's baseline: its solve, or `null` when it carries no solver case, together with the
+   * records its lines are derived and valued from.
+   */
+  readonly baseline: BaselineView;
 
   /** The affected lines `resolveAffectedLines` derived for it. */
   readonly lines: AffectedLine[];
@@ -628,33 +679,6 @@ function assignedPlantOf(exception: OperationalException, scope: Scope): PlantId
   for (const plantId of exception.alsoAffectsPlantIds) {
     if (scope.plants.includes(plantId)) {
       return plantId;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Finds an exception's baseline solve in the bundle.
- *
- * An exception whose record names no solver case has no case to solve, so it answers `null` and its own
- * stored lines are the ones used. An exception that names a case the bundle carries no solve for also
- * answers `null`, because the aggregate reports the record's own lines rather than inventing a
- * measurement. The lookup reads the bundle's own `baselines` array, which is the record
- * `ExceptionAggregateInput` carries for exactly this purpose.
- *
- * @param records The record bundle the overview was called with.
- * @param exception The exception whose baseline is wanted.
- * @returns That exception's baseline solve, or `null` when it has none or none was supplied.
- */
-function baselineOf(records: OverviewInput, exception: OperationalException): SolverResult | null {
-  if (exception.solverCaseId === undefined) {
-    return null;
-  }
-
-  for (const baseline of records.baselines) {
-    if (baseline.exceptionId === exception.id) {
-      return baseline.result;
     }
   }
 
@@ -731,8 +755,8 @@ function scopedExceptions(records: OverviewInput, scope: Scope): ScopedException
       continue;
     }
 
-    const baseline = baselineOf(records, exception);
-    const lines = resolveAffectedLines(records, exception, baseline);
+    const baseline = baselineViewFor(records, exception);
+    const lines = resolveAffectedLines(exception, baseline);
 
     if (!admitsProducts(productIdsOf(lines), scope)) {
       continue;
@@ -779,6 +803,45 @@ function plantNameOf(plants: readonly NamedPlant[], plantId: PlantId): string {
   return plantId;
 }
 
+/**
+ * Measures alternate-source readiness: the share of the in-scope materials a second supplier can cover.
+ *
+ * Implements contracts §5 and AAP 0.8's "readiness through `wholePercent`". A material is in scope when
+ * the products it goes into meet the resolved scope's product selection, which is the admission the
+ * exception rows are narrowed by — `admitsProducts`, whose empty `products` member is the "All products"
+ * selection `./scope` states — so the share describes the same product selection as the rest of the
+ * overview. The part is the in-scope materials carrying an `alternateSupplierId`, the whole is every
+ * in-scope material, and the part over its whole is rounded half up to a whole percent, the one rounding
+ * AAP 0.8 fixes for readiness.
+ *
+ * A material record names no plant, which is why the figure is reported once for the overview rather
+ * than per by-plant row. With no material in scope the answer is the empty set's identity rather than a
+ * reading that a population of nothing is unsourced, and the division by zero that reading would need is
+ * never taken.
+ *
+ * @param materials The material master the bundle carries, in any order.
+ * @param scope The resolved scope, whose products member is the product selection.
+ * @returns The readiness as a whole percent in `[0, 100]`, and `0` when no material is in scope.
+ */
+function alternateSourceReadiness(materials: readonly SourcedMaterial[], scope: Scope): number {
+  let inScope = 0;
+  let withAlternate = 0;
+
+  for (const material of materials) {
+    if (!admitsProducts(material.productIds, scope)) {
+      continue;
+    }
+
+    inScope += 1;
+
+    if (material.alternateSupplierId !== undefined) {
+      withAlternate += 1;
+    }
+  }
+
+  return wholePercent(inScope === 0 ? NO_MATERIAL_IN_SCOPE : withAlternate / inScope);
+}
+
 /* ---------------------------------------------------------------------------------------------
  * E. The four tiles — contracts §5; AAP 0.8; AAP 0.12.2's `Overview`
  * ------------------------------------------------------------------------------------------- */
@@ -791,17 +854,16 @@ function plantNameOf(plants: readonly NamedPlant[], plantId: PlantId): string {
  * only rounding this module applies (AAP 0.8, contracts §4 rule 5). The by-plant rows partition exactly
  * these amounts, so the tile and the rows add up to the cent.
  *
- * @param records The record bundle: the product prices the lines are valued at, and the order book.
  * @param open The open exceptions the scope admits, lines and baselines in hand.
  * @returns The revenue at risk in euro, at most two decimals, and `0` when nothing is open.
- * @throws Error when an affected line names a product the bundle does not carry, which `revenueAtRisk`
- *   refuses rather than valuing at a price of its own.
+ * @throws Error when an affected line names a product the baseline carries no price for, which
+ *   `revenueAtRisk` refuses rather than valuing at a price of its own.
  */
-function totalRevenue(records: OverviewInput, open: readonly ScopedException[]): Money {
+function totalRevenue(open: readonly ScopedException[]): Money {
   let total = 0;
 
   for (const entry of open) {
-    total += revenueAtRisk(records, entry.exception, entry.baseline);
+    total += revenueAtRisk(entry.exception, entry.baseline);
   }
 
   return halfUp2(total);
@@ -938,11 +1000,12 @@ function medianHoursToApprovedPlan(
  * still gets its row, with a count and an amount of zero, because a plant a planner can see and that has
  * no exception is a reading in its own right.
  *
- * @param records The record bundle: the plant names and the product prices the lines are valued at.
+ * @param records The record bundle: the plant names the rows are labelled with.
  * @param scope The resolved scope, which fixes the rows and their order.
  * @param open The open exceptions the scope admits, lines and baselines in hand.
  * @returns A fresh row per plant in scope, in canonical plant order.
- * @throws Error when an affected line names a product the bundle does not carry, as `totalRevenue` does.
+ * @throws Error when an affected line names a product the baseline carries no price for, as
+ *   `totalRevenue` does.
  */
 function plantRows(
   records: OverviewInput,
@@ -957,7 +1020,7 @@ function plantRows(
     revenueByPlant.set(
       entry.plantId,
       (revenueByPlant.get(entry.plantId) ?? 0) +
-        revenueAtRisk(records, entry.exception, entry.baseline),
+        revenueAtRisk(entry.exception, entry.baseline),
     );
   }
 
@@ -1237,8 +1300,9 @@ function groupHistoryByException(
 }
 
 /**
- * Computes the overview: the four tiles, the changed-since list, the by-plant rows and the series —
- * contracts §5; AAP 0.8's overview row; AAP 0.12.1's overview aggregates.
+ * Computes the overview: the four tiles, the alternate-source readiness share, the changed-since list,
+ * the by-plant rows and the series — contracts §5; AAP 0.8's overview row; AAP 0.12.1's overview
+ * aggregates.
  *
  * One pure call over the records the caller hands in and a scope the caller has already resolved, which
  * is the whole contract of this module: the scope is never re-derived (AAP 0.2.1), no clock is read (the
@@ -1254,6 +1318,8 @@ function groupHistoryByException(
  * - `customerOrdersAtRisk` counts the distinct customer orders their affected lines name.
  * - `medianHoursToApprovedPlan` takes the middle detection-to-approval duration of the exceptions that
  *   carry both activities, unrounded.
+ * - `alternateSourceReadinessPercent` reports the share of the in-scope materials a second supplier can
+ *   cover, rounded half up through `wholePercent`.
  * - `changedSinceLastVisit` lists the activity and the decisions of the window the module header fixes.
  * - `byPlant` splits the open exceptions across the plants in scope, in canonical plant order, so the
  *   rows add up to the tiles.
@@ -1264,7 +1330,8 @@ function groupHistoryByException(
  * market-intelligence one (rule P-5).
  *
  * @param records The record bundle: the exceptions, the product prices their lines are valued at, the
- *   order book, the baseline solves, the plants, the activity trail, the approvals and the as-of instant.
+ *   order book, the baseline solves, the plants, the material master, the activity trail, the approvals
+ *   and the as-of instant.
  * @param scope The resolved scope, from `./scope`'s `resolveScope`. Its `plants` member empty means
  *   nothing is in scope.
  * @returns The computed overview, freshly built.
@@ -1279,9 +1346,10 @@ export function computeOverview(records: OverviewInput, scope: Scope): Overview 
 
   return {
     openExceptions: open.length,
-    revenueAtRiskEur: totalRevenue(records, open),
+    revenueAtRiskEur: totalRevenue(open),
     customerOrdersAtRisk: distinctOrderCount(open),
     medianHoursToApprovedPlan: medianHoursToApprovedPlan(scoped, historyByException),
+    alternateSourceReadinessPercent: alternateSourceReadiness(records.materials, scope),
     changedSinceLastVisit: collectChanges(records, scoped, asOfDate),
     byPlant: plantRows(records, scope, open),
     openResolvedSeries: buildSeries(records, scoped, asOfDate),

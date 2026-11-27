@@ -12,22 +12,25 @@
  * working week contracts §1 fixes, because a test module per helper would be a second and third
  * file in a folder the plan gives exactly one.
  *
- * THE EXPECTED-RESULTS COMPARISON IS NOT IN THIS FILE, AND WHY. AAP 0.7 success criterion 1 is a
- * row-by-row comparison of this function's output against `tests/fixtures/solver-expected-results.ts`
- * — the seed file's expected-results table held as a fixture, four named scenarios plus two sandbox
- * rows. That fixture is not in this tree, and the seed document it transcribes is not available to
- * this run, so neither the six rows' levers nor their expected measures can be written here from an
- * available source: an expectation invented in this file would breach rule P-6, and one copied
- * from the function's current output would turn the acceptance evidence into a snapshot of whatever
- * the solver happens to return. The comparison belongs in this module, beside the assertions below,
- * the moment the fixture lands; the row shape it must carry is `SolverCase` and the six measures
- * `unitsLate`, `maxDaysLate`, `ordersOnTime`, `addedCostEur`, `lineIdleDays` and
- * `revenueDelayedEur` of `SolverResult`.
+ * THE EXPECTED-RESULTS COMPARISON IS IN THIS FILE, AND WHAT IT PROVES. AAP 0.7 success criterion 1
+ * is a row-by-row comparison of this function's output against the fixture
+ * `tests/fixtures/solver-expected-results.ts` — the seed file's expected-results table held as a
+ * fixture, four named scenarios plus two sandbox rows — and the last section below is that
+ * comparison: it runs `solveSupplyDelay` on the seeded case `CASE-1184` with each row's levers and
+ * asserts units late, maximum days late, orders on
+ * time, added cost, line idle days, revenue delayed and the constraint check against the fixture,
+ * failing on the first mismatch with the row and the measure in the message. The fixture's figures
+ * are derived from the seeded case's own inputs and each group states its arithmetic, so the
+ * comparison proves the seed's own expected results rather than recording whatever this function
+ * returns. Everything else in the file remains: the probe cases below assert each rule against an
+ * expectation the rule produces from inputs chosen to make the arithmetic followable by hand, which
+ * is a different question from whether the seeded case's table comes out.
  *
- * The two euro measures are asserted for the invariants a euro figure must keep — finite,
- * non-negative, at most two decimals — and not for a value, because `SolverCase` carries no price to
- * derive one from (the OPEN ITEM in `solve-supply-delay.ts` and in `src/types/solver.ts` records the
- * same gap). Pinning them to a figure here would freeze a gap as the right answer.
+ * The two euro measures are asserted for the values the probe case's own money produces — each lever's
+ * recovered sets at the rate the case carries for that lever, and each late order's units at the price
+ * that order's record states — and for the invariants every euro figure keeps: finite, non-negative and
+ * on a hundredth. Both figures come from the case's own record, so nothing here restates a price the
+ * case does not carry (rule P-6).
  *
  * The probe cases. The inputs below are structural values chosen so each rule's arithmetic can be
  * followed by hand: small whole numbers of units, the plain Monday-to-Friday week of 1 to 5 March
@@ -36,11 +39,16 @@
  *
  * Rules this module is built to satisfy:
  * - P-6: no business figure is typed here. Every expected measure is either re-derived from the
- *   probe case's own inputs by the rule under test, or an invariant over the result.
- * - P-2: it imports the three sibling modules, the shared types and `vitest` — no seed record, no
- *   service, no React — so the arithmetic is exercised exactly as the adapter exercises it.
- * - P-7: the identifiers are test-local and carry `PROBE`; no real vendor, customer, carmaker or
- *   cloud product is named, and no filler prose appears.
+ *   probe case's own inputs by the rule under test, computed by hand from those inputs where the
+ *   arithmetic is small enough to follow in the comment that states it, an invariant over the
+ *   result, or read from `tests/fixtures/solver-expected-results.ts`, which rule P-6 makes the one
+ *   home of an expected figure.
+ * - P-2: it imports the three sibling modules, the shared types, the seeded case and `vitest` — no
+ *   service, no React — so the arithmetic is exercised exactly as the adapter exercises it. The one
+ *   seed import is the documented exception the note above it states.
+ * - P-7: the probe identifiers are test-local and carry `PROBE`, and every other identifier is a
+ *   seeded record's own; no real vendor, customer, carmaker or cloud product is named, and no filler
+ *   prose appears.
  * - P-4: no title or message claims the calculation establishes anything about a live system.
  * - B-1, B-2: the suite performs no I/O beyond importing its modules and holds no credential-shaped
  *   literal; nothing reads configuration.
@@ -60,6 +68,22 @@ import type {
 import { isWorkingDay, nextWorkingDay, workingDaysBetween, workingDaysInRange } from './calendar';
 import { halfUp2, wholePercent } from './rounding';
 import { solveSupplyDelay } from './solve-supply-delay';
+
+/*
+ * The seeded case is reached here for one reason: AAP 0.7 success criterion 1 and T-25 compare this
+ * function's output against the seed's expected-results table, and a comparison cannot exist without
+ * the case the table is measured at. Rule P-2 bars components and screens from reaching records and
+ * makes the mock adapter the one road to the data at runtime; this is a suite, and the boundary it
+ * draws is asserted by `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat
+ * an import of a seed record by a test file as this documented exception rather than as a screen's
+ * shortcut — the same exception `src/services/service-conformance.test.ts` records for the two seed
+ * names it reads.
+ *
+ * The fixture is imported rather than the figures typed here, because rule P-6 gives the expected
+ * results exactly one home.
+ */
+import { SOLVER_CASES } from '../../seed/solver-cases';
+import { EXPECTED_SOLVER_ROWS, SOLVER_CASE_ID } from '../../../tests/fixtures/solver-expected-results';
 
 /* ---------------------------------------------------------------------------------------------
  * A. The probe cases
@@ -84,6 +108,12 @@ const TRANSFER_LEVERS: Levers = { airSets: 0, transferSets: 4 };
  * for the last three. The two orders are listed latest due date first, which is the order that would
  * hide a serving rule that went by array position instead of by due date: the earlier-due order is
  * `CO-PROBE-B` at index one.
+ *
+ * Its money is chosen so that each euro total is a piece of arithmetic short enough to follow in the
+ * assertion that checks it: three euro a set by air freight and one and a quarter by transfer, orders
+ * agreed at three euro thirty-three and twenty, and the transferred sets worth seven and a half each
+ * for two working days. Its two write-back steps are the plan the case states, so an option that
+ * recovers sets has steps to set in motion and the baseline has none.
  */
 const PROBE_CASE: SolverCase = {
   id: 'CASE-PROBE-1',
@@ -94,12 +124,45 @@ const PROBE_CASE: SolverCase = {
   delayedPurchaseOrderId: 'PO-PROBE-1',
   airSets: { max: 6, step: 2 },
   transferSets: { max: 8, step: 2 },
+  airFreightCostPerSetEur: 3,
+  transferCostPerSetEur: 1.25,
+  transferProductId: 'PRD-PROBE-SVC',
+  transferUnitPriceEur: 7.5,
+  transferLeadTimeDays: 2,
   orders: [
-    { orderId: 'CO-PROBE-A', productId: 'PRD-PROBE', quantity: 3, dueDate: '2027-03-03' },
-    { orderId: 'CO-PROBE-B', productId: 'PRD-PROBE', quantity: 4, dueDate: '2027-03-02' },
+    {
+      orderId: 'CO-PROBE-A',
+      productId: 'PRD-PROBE',
+      quantity: 3,
+      unitPriceEur: 3.33,
+      dueDate: '2027-03-03',
+    },
+    {
+      orderId: 'CO-PROBE-B',
+      productId: 'PRD-PROBE',
+      quantity: 4,
+      unitPriceEur: 20,
+      dueDate: '2027-03-02',
+    },
   ],
   windowStart: WINDOW_START,
   windowEnd: WINDOW_END,
+  writeBacks: [
+    {
+      sequence: 1,
+      system: 'erp',
+      recordRef: 'PROBE.REL.0001',
+      description: 'Move the probe release to the week the recovered sets arrive.',
+      state: 'pending',
+    },
+    {
+      sequence: 2,
+      system: 'mes',
+      recordRef: 'PROBE.WO.0001',
+      description: 'Release the revised probe production order to the line.',
+      state: 'pending',
+    },
+  ],
 };
 
 /**
@@ -117,9 +180,23 @@ const PARTIAL_RUN_OUT_CASE: SolverCase = {
   delayedPurchaseOrderId: 'PO-PROBE-2',
   airSets: { max: 6, step: 2 },
   transferSets: { max: 8, step: 2 },
-  orders: [{ orderId: 'CO-PROBE-C', productId: 'PRD-PROBE', quantity: 1, dueDate: '2027-03-05' }],
+  airFreightCostPerSetEur: 3,
+  transferCostPerSetEur: 1.25,
+  transferProductId: 'PRD-PROBE-SVC',
+  transferUnitPriceEur: 7.5,
+  transferLeadTimeDays: 2,
+  orders: [
+    {
+      orderId: 'CO-PROBE-C',
+      productId: 'PRD-PROBE',
+      quantity: 1,
+      unitPriceEur: 20,
+      dueDate: '2027-03-05',
+    },
+  ],
   windowStart: WINDOW_START,
   windowEnd: WINDOW_END,
+  writeBacks: [],
 };
 
 /**
@@ -140,12 +217,30 @@ const DUE_BEFORE_WINDOW_CASE: SolverCase = {
   delayedPurchaseOrderId: 'PO-PROBE-3',
   airSets: { max: 6, step: 2 },
   transferSets: { max: 8, step: 2 },
+  airFreightCostPerSetEur: 3,
+  transferCostPerSetEur: 1.25,
+  transferProductId: 'PRD-PROBE-SVC',
+  transferUnitPriceEur: 7.5,
+  transferLeadTimeDays: 2,
   orders: [
-    { orderId: 'CO-PROBE-Y', productId: 'PRD-PROBE', quantity: 2, dueDate: '2027-03-01' },
-    { orderId: 'CO-PROBE-X', productId: 'PRD-PROBE', quantity: 4, dueDate: '2027-02-26' },
+    {
+      orderId: 'CO-PROBE-Y',
+      productId: 'PRD-PROBE',
+      quantity: 2,
+      unitPriceEur: 2,
+      dueDate: '2027-03-01',
+    },
+    {
+      orderId: 'CO-PROBE-X',
+      productId: 'PRD-PROBE',
+      quantity: 4,
+      unitPriceEur: 4.5,
+      dueDate: '2027-02-26',
+    },
   ],
   windowStart: WINDOW_START,
   windowEnd: WINDOW_END,
+  writeBacks: [],
 };
 
 /**
@@ -488,7 +583,7 @@ describe('solveSupplyDelay — the per-order measures', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * E. The levers and their side effects — contracts §4 rules 2 and 11
+ * E. The levers, the money and their side effects — contracts §4 rules 2, 9, 10 and 11
  * ------------------------------------------------------------------------------------------- */
 
 describe('solveSupplyDelay — the levers', () => {
@@ -505,6 +600,30 @@ describe('solveSupplyDelay — the levers', () => {
     expect(withTransfer.unitsLate).toBeLessThan(withoutLevers.unitsLate);
   });
 
+  it('charges each recovered set the rate the case carries for the lever that recovers it', () => {
+    const airOnly: Levers = { airSets: PROBE_CASE.airSets.step, transferSets: 0 };
+    const bothLevers: Levers = {
+      airSets: PROBE_CASE.airSets.step,
+      transferSets: TRANSFER_LEVERS.transferSets,
+    };
+
+    // Two sets by air at three euro each, four by transfer at one and a quarter, and both together.
+    expect(solveSupplyDelay(PROBE_CASE, NO_LEVERS).addedCostEur).toBe(0);
+    expect(solveSupplyDelay(PROBE_CASE, airOnly).addedCostEur).toBe(6);
+    expect(solveSupplyDelay(PROBE_CASE, TRANSFER_LEVERS).addedCostEur).toBe(5);
+    expect(solveSupplyDelay(PROBE_CASE, bothLevers).addedCostEur).toBe(11);
+  });
+
+  it('values each late order at the price its own record states', () => {
+    // Three units of CO-PROBE-A at three euro thirty-three: the product sits off a hundredth before
+    // the rounding closes it, which is the case that proves the total is rounded rather than trusted.
+    expect(solveSupplyDelay(PROBE_CASE, NO_LEVERS).revenueDelayedEur).toBe(9.99);
+    // Two units of CO-PROBE-X at four and a half, two of CO-PROBE-Y at two.
+    expect(solveSupplyDelay(DUE_BEFORE_WINDOW_CASE, NO_LEVERS).revenueDelayedEur).toBe(13);
+    // An order that arrives in full holds up nothing, so an option that serves both delays no revenue.
+    expect(solveSupplyDelay(PROBE_CASE, TRANSFER_LEVERS).revenueDelayedEur).toBe(0);
+  });
+
   it('echoes the levers the measurement was taken under', () => {
     const result = solveSupplyDelay(PROBE_CASE, TRANSFER_LEVERS);
 
@@ -516,10 +635,17 @@ describe('solveSupplyDelay — the levers', () => {
     const effect = firstOf(result.sideEffects, 'side effect for the transfer option');
 
     expect(effect.kitsDelayed).toBe(TRANSFER_LEVERS.transferSets);
-    expect(effect.valueDeferredEur).toBeGreaterThanOrEqual(0);
+    expect(effect.productId).toBe(PROBE_CASE.transferProductId);
     expect(sitsOnHundredth(effect.valueDeferredEur)).toBe(true);
-    expect(effect.daysDeferred).toBeGreaterThanOrEqual(0);
-    expect(PROBE_CASE.orders.map((order) => order.productId)).toContain(effect.productId);
+  });
+
+  it('values the deferral at the transferred product price and reports the days it lasts', () => {
+    const result = solveSupplyDelay(PROBE_CASE, TRANSFER_LEVERS);
+    const effect = firstOf(result.sideEffects, 'side effect for the transfer option');
+
+    // Four transferred sets at seven and a half each, deferred for the two working days the case states.
+    expect(effect.valueDeferredEur).toBe(30);
+    expect(effect.daysDeferred).toBe(PROBE_CASE.transferLeadTimeDays);
   });
 
   it('reports no side effect for the air-freight lever alone', () => {
@@ -534,6 +660,26 @@ describe('solveSupplyDelay — the levers', () => {
     const result = solveSupplyDelay(PROBE_CASE, NO_LEVERS);
 
     expect(result.sideEffects).toEqual([]);
+  });
+
+  it('sets the case plan in motion for an option that recovers sets, and none for the baseline', () => {
+    const byAir: Levers = { airSets: PROBE_CASE.airSets.step, transferSets: 0 };
+    const baseline = solveSupplyDelay(PROBE_CASE, NO_LEVERS);
+
+    expect(baseline.writeBacks).toEqual([]);
+
+    for (const levers of [byAir, TRANSFER_LEVERS]) {
+      const acting = solveSupplyDelay(PROBE_CASE, levers);
+
+      expect(acting.writeBacks).toEqual(PROBE_CASE.writeBacks);
+    }
+
+    // The steps arrive as fresh objects, so a caller marking one up never reaches the record stating it.
+    const step = firstOf(solveSupplyDelay(PROBE_CASE, TRANSFER_LEVERS).writeBacks, 'write-back step');
+    const recorded = firstOf(PROBE_CASE.writeBacks, 'write-back step the case states');
+
+    expect(step).toEqual(recorded);
+    expect(step).not.toBe(recorded);
   });
 });
 
@@ -570,7 +716,7 @@ describe('solveSupplyDelay — shape, determinism and purity', () => {
     }
   });
 
-  it('carries its own confidence and no write-back the case does not declare', () => {
+  it('carries its own confidence, and the do-nothing baseline sets no write-back in motion', () => {
     const result = solveSupplyDelay(PROBE_CASE, NO_LEVERS);
 
     expect(result.writeBacks).toEqual([]);
@@ -848,4 +994,66 @@ describe('the working calendar', () => {
       expect(isWorkingDay(day), `${day} is a working day`).toBe(true);
     }
   });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * K. The expected results of `CASE-1184` — AAP 0.8, AAP 0.7's success criterion 1, T-25
+ *
+ * The comparison the plan ranks highest: every row of the seed's expected-results table, held as
+ * `tests/fixtures/solver-expected-results.ts`, measured at the seeded case's own inputs. The fixture
+ * holds the six measures and states the arithmetic each one comes from; this section holds no
+ * expected value of its own (rule P-6) and fails on the first row and measure that differ, so a
+ * regression names the row it broke rather than the file it broke in.
+ *
+ * What it proves, beyond the probe cases: the probe cases assert each rule against inputs chosen to
+ * make the arithmetic followable by hand, while this table asserts the seeded case's own outcome —
+ * the do-nothing baseline's 1,220 units late worth 1,512,800 (AAP 0.8's assistant answer of 580 and
+ * 640 units), the air-freight option's 18,600, the recommended option's 21,300 and its 900 deferred
+ * kits, and the two sandbox positions the constraint check refuses.
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Measures the seeded case under one fixture row's levers.
+ *
+ * The case is looked up from `src/seed/solver-cases.ts` by the fixture's own `SOLVER_CASE_ID`, so the
+ * comparison is anchored on the case the table names rather than on whichever case the seed holds
+ * first.
+ *
+ * @param row The fixture row whose levers are set.
+ * @returns The measurement of the seeded case under those levers.
+ * @throws Error When the seed carries no case with that identifier, because a comparison with nothing
+ *   to measure against must fail loudly instead of passing on an empty table.
+ */
+function measureSeededRow(row: (typeof EXPECTED_SOLVER_ROWS)[number]): SolverResult {
+  const caseRecord = SOLVER_CASES.find((entry) => entry.id === SOLVER_CASE_ID);
+
+  if (caseRecord === undefined) {
+    throw new Error(
+      `The seed carries no solver case ${SOLVER_CASE_ID}, so the seeded case's expected results cannot be compared.`,
+    );
+  }
+
+  return solveSupplyDelay(caseRecord, row.levers);
+}
+
+describe('the expected results of the seeded case', () => {
+  it('holds four named scenarios and the two sandbox checks, each with its own identifier', () => {
+    expect(EXPECTED_SOLVER_ROWS).toHaveLength(6);
+    expect(EXPECTED_SOLVER_ROWS.filter((row) => row.id.startsWith('SB-'))).toHaveLength(2);
+    expect(new Set(EXPECTED_SOLVER_ROWS.map((row) => row.id)).size).toBe(EXPECTED_SOLVER_ROWS.length);
+  });
+
+  for (const row of EXPECTED_SOLVER_ROWS) {
+    it(`reproduces ${row.id}: ${row.label}`, () => {
+      const measured = measureSeededRow(row);
+
+      expect(measured.constraintCheck, `${row.id}'s constraint check`).toBe(row.constraintCheck);
+      expect(measured.unitsLate, `${row.id}'s units late`).toBe(row.unitsLate);
+      expect(measured.maxDaysLate, `${row.id}'s maximum days late`).toBe(row.maxDaysLate);
+      expect(measured.ordersOnTime, `${row.id}'s orders on time`).toBe(row.ordersOnTime);
+      expect(measured.addedCostEur, `${row.id}'s added cost`).toBe(row.addedCostEur);
+      expect(measured.lineIdleDays, `${row.id}'s line idle days`).toBe(row.lineIdleDays);
+      expect(measured.revenueDelayedEur, `${row.id}'s revenue delayed`).toBe(row.revenueDelayedEur);
+    });
+  }
 });

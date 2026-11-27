@@ -20,10 +20,12 @@
  * 9. the tamper control, whose edit a verification reports and repairs nothing of;
  * 10. the assistant's cited answer and its fixed notice;
  * 11. determinism: the same call twice returns the same business figures;
- * 12. the loading trigger, which leaves every served call pending while the controls that lift it still
+ * 12. the comparison option set of the case measured at call time: its four measured columns, the
+ *     recommendation, the rejected alternate and the trade-off its figures fill;
+ * 13. the loading trigger, which leaves every served call pending while the controls that lift it still
  *     answer;
- * 13. the empty trigger, which empties every collection a read returns rather than the queue alone.
- * 14. the shell's selection: the plant and product the top bar names, resolved once and applied to every
+ * 14. the empty trigger, which empties every collection a read returns rather than the queue alone.
+ * 15. the shell's selection: the plant and product the top bar names, resolved once and applied to every
  *     read it narrows.
  *
  * WHY THE NODE ENVIRONMENT, MANDATORY ON THE FIRST LINE ABOVE. The bootstrap hashes the 200 seeded
@@ -973,8 +975,16 @@ describe('the audit append', () => {
     await actAs(backend, AUDITOR);
 
     const trail = (await backend.listAuditEvents({})).data;
+    /*
+     * The count is of the events this session appended. The seeded trail may already carry a note on
+     * the same exception, so the write's own event is the one past the seeded run and every note below
+     * it is seed content the case did not write.
+     */
     const appended = trail.filter(
-      (event) => event.objectRef === target.id && event.action === NOTE_ACTION,
+      (event) =>
+        event.objectRef === target.id &&
+        event.action === NOTE_ACTION &&
+        event.sequence > SEEDED_EVENT_COUNT,
     );
 
     expect(appended).toHaveLength(1);
@@ -1269,7 +1279,82 @@ describe('the assistant', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 11. Determinism — the same call twice returns the same business figures
+ * 11. The comparison option set — AAP 0.7's T-04 row, AAP 0.8
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The trade-off sentence AAP 0.8 fixes for the recommended option of the case measured at call time.
+ *
+ * An expected value rather than a record: it carries the figures the measurement produces — what the plan
+ * spends, the kits it defers, their value, the days they wait and the delayed revenue avoided — so a
+ * template filled from the wrong member of the scenario still reads as a sentence but fails here.
+ */
+const EXPECTED_TRADE_OFF =
+  'Spends EUR 21,300 and defers 900 Brno service kits (EUR 108,000) by 10 days to avoid EUR 2,257,000 of delayed revenue.';
+
+describe('the comparison option set', () => {
+  it('serves the four seeded positions as measured columns, one recommended and one rejected', async () => {
+    const backend = await readyBackend();
+    const lodged = (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data;
+    const subject = firstOf(lodged, 'pending approval').exceptionId;
+    const set = (await backend.getScenarioSet(subject)).data;
+    const [baseline, airOnly, plan, beyondMaximum] = set.scenarios;
+
+    if (
+      baseline === undefined ||
+      airOnly === undefined ||
+      plan === undefined ||
+      beyondMaximum === undefined
+    ) {
+      throw new Error('The set holds fewer than the four columns the records state for the case.');
+    }
+
+    // T-04's four rows, in the seed's order, and each one the solver's output rather than a shipped
+    // figure: the columns are measured here, from the positions the records state.
+    expect(set.scenarios.length).toBe(4);
+    expect(set.scenarios.map((scenario) => scenario.id)).toEqual([
+      'SCN-1184-A',
+      'SCN-1184-B',
+      'SCN-1184-C',
+      'SCN-1184-D',
+    ]);
+    expect(set.scenarios.every((scenario) => scenario.origin === 'solver')).toBe(true);
+    expect(new Set(set.scenarios.map((scenario) => scenario.name)).size).toBe(set.scenarios.length);
+
+    // The first column is the do-nothing baseline, and the plan the records state is the one the rule
+    // recommends: fewest units late first, then the lowest added cost.
+    expect(baseline.levers).toEqual(NO_ACTION_LEVERS);
+    expect(set.recommendedId).toBe(plan.id);
+    expect(plan.levers).toEqual({ airSets: 600, transferSets: 900 });
+    expect(baseline.addedCostEur).toBe(0);
+    expect(airOnly.unitsLate).toBeGreaterThan(plan.unitsLate);
+    expect(airOnly.addedCostEur).toBeLessThan(plan.addedCostEur);
+
+    // The position beyond the air lever's bound keeps its column, where its cell carries the reason a
+    // figure is missing, and it is the alternate the set lists with the constraint that blocked it.
+    expect(beyondMaximum.constraintCheck).toBe('fail');
+    expect(set.rejected).toEqual([
+      {
+        scenarioId: beyondMaximum.id,
+        blockingConstraint: beyondMaximum.constraintMessages.join(' '),
+      },
+    ]);
+    expect(set.rejected[0]?.blockingConstraint.length).toBeGreaterThan(0);
+
+    // AAP 0.8's sentence, with every figure the measurement produced written into it.
+    expect(set.tradeOff).toBe(EXPECTED_TRADE_OFF);
+
+    // An option that sets a plan in motion writes the case's own steps back; the baseline recovers
+    // nothing, and the rejected position cannot be carried out, so neither writes anything back.
+    expect(baseline.writeBacks).toEqual([]);
+    expect(beyondMaximum.writeBacks).toEqual([]);
+    expect(plan.writeBacks.length).toBeGreaterThan(0);
+    expect(plan.writeBacks).toEqual(airOnly.writeBacks);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 12. Determinism — the same call twice returns the same business figures
  * ------------------------------------------------------------------------------------------- */
 
 describe('determinism', () => {

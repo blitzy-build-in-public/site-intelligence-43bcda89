@@ -1,11 +1,15 @@
 /**
- * Seeded response options for the three exceptions whose option sets ship with the dataset.
+ * Seeded response options: the option sets three exceptions ship, and the option positions of the one
+ * case this run measures at call time.
  *
  * Holds one `ScenarioSet` for each of `EXC-2026-1185`, `EXC-2026-1187` and `EXC-2026-1195`, which
- * is what lets their comparison matrices render without a solver case. `EXC-2026-1184` is
- * deliberately absent: its options are measured at call time by `solveSupplyDelay`, so storing any
- * of them here would present a computed result as shipped content and leave two answers to one
- * question (AAP 0.8, AAP 0.10).
+ * is what lets their comparison matrices render without a solver case, and `SOLVER_OPTION_SETS`, the
+ * four lever positions `EXC-2026-1184`'s option set is built from. The split is the one AAP 0.10
+ * draws: a seeded set's measures are shipped content and carry `origin: 'seeded'`, while that case's
+ * options are measured at call time by `solveSupplyDelay`, so what these records state for them is the
+ * position each option stands at, the name its column is labelled with and the protected revenue the
+ * plan protects — never a measure, which would present a computed result as shipped content and leave
+ * two answers to one question (AAP 0.8, AAP 0.10).
  *
  * These are seed records, not solver output (AAP 0.10). Every option carries `origin: 'seeded'`,
  * the provenance member `Scenario` declares for exactly this case: the comparison matrix reads it
@@ -30,6 +34,18 @@
  * records transcribe over this set and supersede it; no consumer changes, because the mock adapter
  * reads every set from here.
  *
+ * DERIVATION - the measured case's option positions. `CASE-1184`'s options are solver output, so what
+ * is seeded for them is only the record side: the four lever positions, the words each column is
+ * labelled with, and the protected revenue the plan protects. The positions are the ones the records
+ * and the AAP fix - the do-nothing baseline AAP 0.8 measures by name, the air-freight position at the
+ * air lever's maximum, the position the seeded plan APR-2026-104 names and whose cost AAP 0.8 states,
+ * and one position beyond that maximum so the set holds the option the constraint check rejects - and
+ * each name is plain words about the position, because rule P-7 admits no company, product or person
+ * this file could name. Not one measure of that case appears below: units late, maximum days late,
+ * added cost, line idle days, revenue delayed, the trade-off's figures and the write-backs are all
+ * `solveSupplyDelay`'s output at call time, and the only sentence stored is the trade-off template
+ * AAP 0.8 fixes, whose braces the adapter fills from the measurement it just took (rule P-6).
+ *
  * Rules served:
  * - P-6: every member is a seed record value disclosed as one through `origin: 'seeded'`. Nothing
  *   here restates a solver expected result, and no consumer may present an option as a computation
@@ -47,7 +63,7 @@
  * - B-2: nothing here reads configuration and nothing resembles a credential.
  */
 
-import type { ExceptionId, ScenarioSet } from '../types';
+import type { ExceptionId, Levers, Money, ScenarioId, ScenarioSet } from '../types';
 
 /**
  * One exception and the option set the dataset ships for it.
@@ -684,5 +700,98 @@ export const EXCEPTION_SCENARIOS: readonly ExceptionScenarioSeed[] = [
         },
       ],
     },
+  },
+];
+
+/* ---------------------------------------------------------------------------------------------
+ * The measured case's option positions — AAP 0.7's T-04 row, AAP 0.8, rule P-6
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One option position the records state for an exception measured from its solver case.
+ *
+ * This is the record side of an option and holds no measure: the identifier its column takes, the
+ * position it is measured at, the words the column is labelled with, the revenue the plan behind it
+ * protects and, for the one option whose trade-off AAP 0.8 states, the sentence template that
+ * trade-off is written from. The measure side — units late, maximum days late, orders on time, added
+ * cost, line idle days, revenue delayed, the side effects and the write-backs — is
+ * `solveSupplyDelay`'s output for `levers`, computed when the comparison is read (rule P-6).
+ */
+export interface SeededSolverOption {
+  /** The option's identifier within its set, `SCN-nnnn-x` (contracts §1). */
+  readonly id: ScenarioId;
+
+  /** The exception whose case measures the option. */
+  readonly exceptionId: ExceptionId;
+
+  /** The words the comparison matrix labels the option's column with. */
+  readonly name: string;
+
+  /** The lever position the option is measured at. */
+  readonly levers: Levers;
+
+  /**
+   * The revenue the plan at this position protects, in euro.
+   *
+   * One plan protects one revenue, so every position of a set carries the same figure — the one the
+   * seeded plan for the exception states. It is the record value the trade-off sentence's last figure
+   * comes from, and no measurement produces it.
+   */
+  readonly protectedRevenueEur: Money;
+
+  /**
+   * The trade-off sentence the recommended option's figures are written into, where the records state
+   * one.
+   *
+   * The template is record content in the form AAP 0.8 fixes, with a brace for each figure the adapter
+   * fills from the measurement it took. Only the recommended option of a set carries one: a trade-off
+   * is the recommendation's, not an option's.
+   */
+  readonly tradeOffTemplate?: string;
+}
+
+/**
+ * The four option positions of `EXC-2026-1184`, in the order the comparison matrix shows them.
+ *
+ * AAP 0.7's T-04 row fixes the number — "SCN-1184's four rows are solver output" — and AAP 0.8 fixes
+ * what the set holds: the do-nothing baseline every other option is measured against, the air-freight
+ * position at that lever's maximum, the position the seeded plan APR-2026-104 names and whose cost
+ * AAP 0.8 states, and one position beyond the air lever's maximum, which the solver's own constraint
+ * check rejects, so the screen carries the set-aside alternate AAP 0.12.4 shows with its blocking
+ * constraint.
+ *
+ * The order is the one a reader follows: what doing nothing costs, then the recovery that only pulls
+ * the air lever, then the plan, then the position the records show cannot be carried out.
+ */
+export const SOLVER_OPTION_SETS: readonly SeededSolverOption[] = [
+  {
+    id: 'SCN-1184-A',
+    exceptionId: 'EXC-2026-1184',
+    name: 'Neither lever applied',
+    levers: { airSets: 0, transferSets: 0 },
+    protectedRevenueEur: 2257000,
+  },
+  {
+    id: 'SCN-1184-B',
+    exceptionId: 'EXC-2026-1184',
+    name: 'Air freight only',
+    levers: { airSets: 600, transferSets: 0 },
+    protectedRevenueEur: 2257000,
+  },
+  {
+    id: 'SCN-1184-C',
+    exceptionId: 'EXC-2026-1184',
+    name: 'Air freight and transfer',
+    levers: { airSets: 600, transferSets: 900 },
+    protectedRevenueEur: 2257000,
+    tradeOffTemplate:
+      'Spends EUR {addedCostEur} and defers {kitsDeferred} Brno service kits (EUR {valueDeferredEur}) by {daysDeferred} days to avoid EUR {protectedRevenueEur} of delayed revenue.',
+  },
+  {
+    id: 'SCN-1184-D',
+    exceptionId: 'EXC-2026-1184',
+    name: 'Air freight beyond the air lever maximum, with transfer',
+    levers: { airSets: 700, transferSets: 900 },
+    protectedRevenueEur: 2257000,
   },
 ];

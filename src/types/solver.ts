@@ -157,13 +157,23 @@ export interface SolverOrderInput {
   /** How many units the order is for. */
   quantity: number;
 
+  /**
+   * The price the order was agreed at, in euro with at most two decimals; a record value copied from
+   * the customer order.
+   *
+   * Contracts §4 prices the revenue an option delays from exactly this: the units an order is left
+   * late, valued at the price its own record carries, so no price is typed into the solver.
+   */
+  unitPriceEur: Money;
+
   /** The date the order is due. */
   dueDate: IsoDate;
 }
 
 /**
- * The solver's whole input: one exception's supply position, the bounds the two levers are held to,
- * the orders at stake and the window the projection covers (AAP 0.12.2).
+ * The solver's whole input: one exception's supply position, the bounds the two levers are held to and
+ * the rates those levers are charged at, the orders at stake with the price each was agreed at, the
+ * window the projection covers and the write-back steps a plan sets in motion (AAP 0.12.2).
  *
  * One case is a record, and a scenario is only ever produced from a case, which is why the case
  * carries both its own reference and the exception it belongs to.
@@ -193,6 +203,38 @@ export interface SolverCase {
   /** The bound on the transfer lever. */
   transferSets: LeverConstraint;
 
+  /**
+   * What expediting one set by air freight adds, in euro with at most two decimals.
+   *
+   * Contracts §4 sums the added cost of an option from the sets each lever recovers and the rate that
+   * lever is charged at, so both rates are record content the case carries rather than a figure the
+   * solver may state for itself (rule P-6).
+   */
+  airFreightCostPerSetEur: Money;
+
+  /** What transferring one set adds, in euro with at most two decimals. */
+  transferCostPerSetEur: Money;
+
+  /**
+   * The product a transfer draws its sets from.
+   *
+   * A transfer recovers sets by drawing them from another site's supply, so the deferral that follows
+   * falls on that product's kits rather than on the product the case's own orders are for.
+   */
+  transferProductId: ProductId;
+
+  /** The price one transferred set carries, in euro with at most two decimals. */
+  transferUnitPriceEur: Money;
+
+  /**
+   * The working days a transferred set is deferred at the site it is drawn from.
+   *
+   * The deferral is the other site's, not this projection's: the recovered sets still join the
+   * position on the window's first working day, and this member reports how long the site they came
+   * from waits for them.
+   */
+  transferLeadTimeDays: number;
+
   /** The customer orders the projection measures, one entry per order at stake. */
   orders: SolverOrderInput[];
 
@@ -201,6 +243,15 @@ export interface SolverCase {
 
   /** The last date the projection covers. */
   windowEnd: IsoDate;
+
+  /**
+   * The write-back steps this case's plan sets in motion, in the plan's order.
+   *
+   * An option whose levers recover sets is the option that moves the plan, so the solver returns these
+   * steps for it and the empty list for the do-nothing baseline, which sets nothing in motion. The
+   * steps are record content: the solver copies them and invents none.
+   */
+  writeBacks: readonly WriteBack[];
 }
 
 /* ---------------------------------------------------------------------------------------------

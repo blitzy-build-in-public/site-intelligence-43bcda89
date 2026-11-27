@@ -20,8 +20,9 @@
  * - a cited package's readiness: its passing elements over its full element set, through
  *   `wholePercent`, which is the one readiness rule the codebase applies (contracts §5);
  * - the kits a transfer defers and the value that deferral carries: the cited case measured with the
- *   transfer lever at the largest quantity the case admits, whose side effect reports the kits, then
- *   valued at the unit price the deferred order carries (see the OPEN ITEM on the euro amount below);
+ *   transfer lever at the largest quantity the case admits, whose side effect reports both figures as
+ *   the solver computed them — the kits the lever moves and what they are worth at the price the case
+ *   states for the transferred product;
  * - what a cited exception records of the change, and the inputs its impact assessment could not
  *   read: that exception record's own text and its own list, joined as the records write lists;
  * - the catalogue entry the model selector offers, and the label that marks the workspace's
@@ -49,21 +50,13 @@
  * same answer words for words (AAP 0.18.2). The only mutable values in the module are the two local
  * solver measurements one fill memoises and the query list it fills.
  *
- * OPEN ITEM — the euro amount the deferral carries. The solver reports the kits a transfer defers
- * but no value for them, because a solver case carries no price and rule P-6 forbids one being typed
- * into the solver (its own header records the same gap). The value is therefore composed here, in the
- * adapter layer that AAP 0.8 assigns it to: the deferred kits are valued at the unit price of the one
- * customer order that carries exactly that many kits at the plant the cited exception names, which is
- * the order the deferral holds up. Where that order is not uniquely identifiable the answer is
- * withheld rather than valued twice.
- *
- * OPEN ITEM — the currency marker of a composed amount. The sentence states the amount with its
- * grouping and at most two decimals but without a currency marker, because the marker is presentation
- * that `src/components/mono-value.tsx` owns (the note on `Money` in `src/types/primitives.ts` says so
- * explicitly) and rule P-6 admits no currency literal in a service module. A component renders an
- * amount with its code; a sentence composed before rendering carries the grouped figure. A record's own
- * body that states an amount together with its code is quoted as it stands, because that text is the
- * record's content rather than a figure composed here.
+ * OPEN ITEM — the currency marker of an amount an answer states. The sentence states the amount with
+ * its grouping and at most two decimals but without a currency marker, because the marker is
+ * presentation that `src/components/mono-value.tsx` owns (the note on `Money` in
+ * `src/types/primitives.ts` says so explicitly) and rule P-6 admits no currency literal in a service
+ * module. A component renders an amount with its code; a sentence composed before rendering carries
+ * the grouped figure. A record's own body that states an amount together with its code is quoted as it
+ * stands, because that text is the record's content rather than a figure composed here.
  *
  * OPEN ITEM — the wording of the unscripted answer's `missing` entry. Contracts §10 requires the
  * field to name what the answer lacked, and no seed record supplies that diagnostic, because the
@@ -93,7 +86,7 @@
  * Imports — the solver, the rounding, the world's types, and the one door to the seed (rule P-2)
  * ------------------------------------------------------------------------------------------- */
 
-import { halfUp2, wholePercent } from '../../domain/solver/rounding';
+import { wholePercent } from '../../domain/solver/rounding';
 import { solveSupplyDelay } from '../../domain/solver/solve-supply-delay';
 import { SIM_LABELS } from '../../types';
 import type {
@@ -104,6 +97,7 @@ import type {
   Levers,
   OperationalException,
   PpapPackage,
+  SideEffect,
   SimLabel,
   SolverCase,
   SolverResult,
@@ -516,10 +510,15 @@ function renderCount(value: number): string {
  * Renders one amount for a sentence, with the grouping and at most two decimals the prose convention
  * uses and without a currency marker (see the OPEN ITEM on the marker in the module header).
  *
+ * One prose formatter serves both of the application's narrative surfaces: an answer and the
+ * comparison screen's trade-off sentence are the same kind of prose, so `handlers/scenarios.ts` fills
+ * the seeded trade-off template with this function rather than growing a second one that could group
+ * or round a figure differently from the sentence beside it (AAP 0.8, rule P-6).
+ *
  * @param value - The amount to render. It arrives already rounded to the scale `Money` carries.
  * @returns The grouped amount.
  */
-function renderAmount(value: number): string {
+export function renderAmount(value: number): string {
   return AMOUNT_PROSE.format(value);
 }
 
@@ -580,47 +579,6 @@ function packageReadinessOf(packageRecord: PpapPackage): string | undefined {
   const passing = packageRecord.elements.filter((element) => element.state === 'pass').length;
 
   return `${wholePercent(passing / packageRecord.elements.length)}%`;
-}
-
-/**
- * The value the deferred kits carry, composed from the records the question cites.
- *
- * The solver reports how many kits a transfer pushes past their own dates but no value for them,
- * because a case carries no price; the value is composed in the adapter layer AAP 0.8 assigns it to,
- * by valuing those kits at the unit price of the customer order the deferral holds up — the one order
- * carrying exactly that many kits at the plant the cited exception names. `halfUp2` closes the product
- * at the scale `Money` carries, so a price with decimals cannot leave a trailing artifact in the
- * sentence.
- *
- * A record set in which that order is not uniquely identifiable leaves the token unresolved, and the
- * answer is withheld rather than valued against the wrong order.
- *
- * @param records - The session's record set.
- * @param question - The seeded question whose answer is being built.
- * @param kitsDelayed - The kits the transfer defers, as the solver measured them.
- * @returns The composed amount, rendered, or `undefined` when the deferred order cannot be identified.
- */
-function deferredValueOf(
-  records: SeedRecordSet,
-  question: AssistantQuestion,
-  kitsDelayed: number,
-): string | undefined {
-  const exception = firstCited(records, question, 'exception');
-
-  if (exception === undefined) {
-    return undefined;
-  }
-
-  const candidates = records.customerOrders.filter(
-    (order) => order.quantity === kitsDelayed && order.plantId === exception.plantId,
-  );
-  const [deferredOrder] = candidates;
-
-  if (deferredOrder === undefined || candidates.length > 1) {
-    return undefined;
-  }
-
-  return renderAmount(halfUp2(kitsDelayed * deferredOrder.unitPriceEur));
 }
 
 /**
@@ -706,7 +664,7 @@ function placeholderResolver(
     return transferred;
   };
 
-  const transferredKits = (): number | undefined => {
+  const transferredEffect = (): SideEffect | undefined => {
     const result = measureTransfer();
 
     if (result === undefined) {
@@ -715,7 +673,7 @@ function placeholderResolver(
 
     const [effect] = result.sideEffects;
 
-    return effect === undefined ? undefined : effect.kitsDelayed;
+    return effect;
   };
 
   return (placeholder: string): string | undefined => {
@@ -745,15 +703,15 @@ function placeholderResolver(
       }
 
       case PLACEHOLDER_TOKENS.kitsDelayed: {
-        const kits = transferredKits();
+        const effect = transferredEffect();
 
-        return kits === undefined ? undefined : renderCount(kits);
+        return effect === undefined ? undefined : renderCount(effect.kitsDelayed);
       }
 
       case PLACEHOLDER_TOKENS.valueDeferredEur: {
-        const kits = transferredKits();
+        const effect = transferredEffect();
 
-        return kits === undefined ? undefined : deferredValueOf(records, question, kits);
+        return effect === undefined ? undefined : renderAmount(effect.valueDeferredEur);
       }
 
       case PLACEHOLDER_TOKENS.modelLabel:

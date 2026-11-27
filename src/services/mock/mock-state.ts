@@ -106,7 +106,7 @@ import type {
   UserId,
 } from '../../types';
 import { loadSeed } from './seed-loader';
-import type { SeedRecordSet } from './seed-loader';
+import type { MockRecordSet } from './seed-loader';
 
 /* ---------------------------------------------------------------------------------------------
  * The state the adapter holds — AAP 0.12.1, contracts §1
@@ -126,12 +126,14 @@ import type { SeedRecordSet } from './seed-loader';
 export interface MockState {
   /**
    * The seeded records the demonstration reads and edits: one deep clone of the seed's record set,
-   * taken by `loadSeed()` so the modules under `src/seed/` are never written to (contracts §1).
+   * taken by `loadSeed()` so the modules under `src/seed/` are never written to (contracts §1). The
+   * set carries the option positions of the case measured at call time beside the seed's own
+   * aggregate, so a handler reads them from the session like every other record.
    *
    * Replaced wholesale by `restoreSeed` rather than reverted field by field, because a clone is the
    * only way to put back a record a handler removed.
    */
-  records: SeedRecordSet;
+  records: MockRecordSet;
 
   /**
    * The audit chain, in sequence order: the seeded trail hashed at bootstrap, followed by the events
@@ -247,7 +249,7 @@ const INITIAL_REQUEST_COUNT = 0;
  */
 interface SeededSession {
   /** A fresh clone of the seeded record set. */
-  readonly records: SeedRecordSet;
+  readonly records: MockRecordSet;
 
   /** The chain hashed from that clone's audit drafts, in the seed's own order. */
   readonly auditEvents: AuditEvent[];
@@ -295,7 +297,7 @@ async function hashSeededTrail(drafts: readonly AuditEventDraft[]): Promise<Audi
  * @returns The identifier of the persona the session acts as.
  * @throws Error - The record set holds no persona at all.
  */
-function defaultPersonaId(records: SeedRecordSet): UserId {
+function defaultPersonaId(records: MockRecordSet): UserId {
   const [persona] = records.users;
 
   if (persona === undefined) {

@@ -1,7 +1,8 @@
 /**
  * The purchase orders of the demonstration: the five named procurement commitments the record set
  * states a fact about, out of the sixty the plan's scale table fixes, the rest of which
- * `src/seed/filler.ts` generates (AAP 0.2.3, AAP 0.12.2, AAP 0.15.1).
+ * `src/seed/filler.ts` generates and `src/seed/index.ts` composes into the book the mock adapter
+ * loads (AAP 0.2.3, AAP 0.12.2, AAP 0.15.1).
  *
  * Fixing inputs: `platform-contracts.md` §3 fixes the entity vocabulary and AAP 0.12.2 fixes the
  * three references a purchase order carries — "a purchase order names one supplier, one material

@@ -147,12 +147,19 @@ export interface DailyCountPoint {
 }
 
 /**
- * The overview: four tiles, the changed-since list, the by-plant table and the fourteen-day series.
+ * The overview: four tiles, the alternate-source readiness share, the changed-since list, the
+ * by-plant table and the fourteen-day series.
  *
  * Fixing input: AAP 0.12.2's `Overview` row — the four tiles are open exceptions, revenue at risk,
  * customer orders at risk and median hours to approved plan, and every value is computed per
  * contracts §5 by `src/domain/aggregation/overview.ts` over the records the caller's scope admits.
  * The screen labels each tile `Simulated calculation`, since a tile is a computed figure (rule P-1).
+ *
+ * `alternateSourceReadinessPercent` is the contracts §5 aggregate AAP 0.8's row for that module names
+ * beside the four tiles: the share of the material master the caller's resolved scope reaches that a
+ * second supplier can cover. It is a reading of the material records rather than one of the tiles, so
+ * its rule — which materials count, what "in scope" means and what an empty set reports — is stated
+ * on the member and computed only in that module (rule P-6).
  *
  * `medianHoursToApprovedPlan` is the middle value of the qualifying history records and stays
  * unrounded (AAP 0.8's aggregation table); the two counts are whole exceptions and orders. No member
@@ -170,6 +177,18 @@ export interface Overview {
 
   /** The median hours from an exception's detection to its approved plan, the fourth tile. */
   medianHoursToApprovedPlan: number;
+
+  /**
+   * The share of the in-scope materials that have an alternate source, as a whole percent.
+   *
+   * Computed per contracts §5 and AAP 0.8: the materials whose products the caller's resolved scope
+   * reaches are the whole, the ones carrying an `alternateSupplierId` are the part, and that part over
+   * its whole is rounded half up to a whole percent (`wholePercent` in
+   * `src/domain/solver/rounding.ts`). An empty `products` selection reaches every product, so it
+   * measures the whole material master; with no material in scope the member is `0`, the identity of an
+   * empty set rather than a reading of zero readiness.
+   */
+  alternateSourceReadinessPercent: number;
 
   /** What changed since the user's previous visit, as the records state it. */
   changedSinceLastVisit: ChangedSinceLastVisitItem[];

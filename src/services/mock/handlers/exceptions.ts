@@ -183,7 +183,11 @@ import type {
   UserId,
 } from '../../../types';
 
-import { computeExceptionRows, resolveAffectedLines } from '../../../domain/aggregation/exceptions';
+import {
+  baselineViewFor,
+  computeExceptionRows,
+  resolveAffectedLines,
+} from '../../../domain/aggregation/exceptions';
 import type { BaselineSolve } from '../../../domain/aggregation/exceptions';
 import { computeOverview } from '../../../domain/aggregation/overview';
 import type { OverviewInput } from '../../../domain/aggregation/overview';
@@ -633,6 +637,7 @@ function aggregateBundle(
     freshness: readFreshness(ctx),
     asOf: DEMO_CLOCK,
     plants: records.plants,
+    materials: records.materials,
     history: records.exceptionHistory,
     approvals: records.approvals,
   };
@@ -1240,9 +1245,9 @@ export async function getException(ctx: HandlerContext, id: ExceptionId): Promis
 
   const exception = visibleException(ctx, id);
   const bundle = aggregateBundle(ctx, [exception]);
-  const [firstBaseline] = bundle.baselines;
-  const baseline = firstBaseline === undefined ? null : firstBaseline.result;
-  const lines = resolveAffectedLines(bundle, exception, baseline);
+  const view = baselineViewFor(bundle, exception);
+  const baseline = view.solve;
+  const lines = resolveAffectedLines(exception, view);
 
   return {
     exception: structuredClone(exception),
