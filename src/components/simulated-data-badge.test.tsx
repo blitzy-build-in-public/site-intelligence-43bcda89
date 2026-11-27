@@ -20,8 +20,11 @@
  *
  * The labels and strings here are this suite's caller-level text: the component authors none of them,
  * because a simulation label is the exact specification §5.3 string its caller supplies and the clock
- * is the constant `src/types` owns. Nothing here hashes or reads the system clock, so the jsdom
- * environment `vite.config.ts` sets by default applies.
+ * is the constant `src/types` owns. Both are therefore read from `SIM_LABELS` and `DEMO_CLOCK` rather
+ * than retyped here, so no assertion can outlive the constant it means to check (rule P-6). The
+ * presence-and-label case carries the `T-15` identifier, because T-15 is the labelling acceptance test;
+ * every other title states the behaviour it checks. Nothing here hashes or reads the system clock, so
+ * the jsdom environment `vite.config.ts` sets by default applies.
  */
 
 import { render, screen } from '@testing-library/react';
@@ -32,8 +35,23 @@ import { DEMO_CLOCK, SIM_LABELS } from '../types';
 import type { SimLabel } from '../types';
 import { SimulatedDataBadge } from './simulated-data-badge';
 
-/** The label a case renders: the demonstration-wide one the shell passes, in the specification's case. */
-const LABEL: SimLabel = 'Simulated data';
+/**
+ * One of the seven fixed simulation labels, read from `SIM_LABELS` rather than retyped, so a reworded
+ * label cannot leave this suite asserting a string the interface no longer shows (rule P-6).
+ */
+function simLabelAt(index: number): SimLabel {
+  const label = SIM_LABELS[index];
+  if (label === undefined) {
+    throw new Error(`no simulation label is defined at index ${index}`);
+  }
+  return label;
+}
+
+/**
+ * The label a case renders: the demonstration-wide `Simulated data` string of specification §5.3,
+ * which is the one the shell mounts on every route (rule P-1, AAP §0.10).
+ */
+const LABEL = simLabelAt(0);
 
 /** Both themes of specification §4.1, as the `data-theme` values the theme provider applies. */
 const THEMES = ['command', 'paper'] as const;
@@ -99,6 +117,17 @@ function renderBadge(onActivate?: () => void): HTMLElement {
 }
 
 describe('SimulatedDataBadge', () => {
+  /* Acceptance test T-15, the labelling case (rule P-1): the badge is present and the word on it is
+     the fixed §5.3 string the shell supplies, with the demonstration clock reading beside it — the
+     presence and wording every route has to carry. That the shell mounts it outside the router outlet,
+     so no route can omit it, is that shell's assertion and is stated in this file's header. */
+  it('T-15 shows the badge with its fixed label and the demonstration clock', () => {
+    render(<SimulatedDataBadge label={LABEL} />);
+
+    expect(screen.getByText(LABEL)).toBeVisible();
+    expect(screen.getByText(DEMO_CLOCK)).toBeVisible();
+  });
+
   /* Rule P-1: a label is the caller's exact §5.3 string, painted as visible text. Asserted for all
      seven strings rather than for one example, so a label that were re-cased, abbreviated or trimmed
      would fail on the member it affects. */
@@ -142,16 +171,25 @@ describe('SimulatedDataBadge', () => {
   });
 
   /* Rule P-8: with nothing to activate, the badge is not a control. It must therefore have no button,
-     no link and no focus stop, and must still paint its whole content. */
-  it('renders a non-interactive span when it has nothing to activate', () => {
+     no link, no focus stop and no role that would announce one, no click action reachable on it, and it
+     must still paint its whole content. A dead control — a button that does nothing — is exactly what
+     the rule forbids, so the honest state is plain text. */
+  it('renders a non-interactive span when it has nothing to activate', async () => {
+    const user = userEvent.setup();
     const root = renderBadge();
 
     expect(root.tagName).toBe('SPAN');
+    expect(root).not.toHaveAttribute('role');
     expect(screen.queryByRole('button')).toBeNull();
     expect(root.querySelectorAll('a, button, input, select, textarea, [tabindex]')).toHaveLength(0);
     expect(root).not.toHaveAttribute('aria-haspopup');
     expect(screen.getByText(LABEL)).toBeVisible();
     expect(root).toHaveTextContent(DEMO_CLOCK);
+
+    /* Activating it reaches no handler: nothing opens, nothing is added and no callback could run. */
+    await user.click(root);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
   /* The non-control state must not wear a control's hover, pressed or focus styling either: a ring on
