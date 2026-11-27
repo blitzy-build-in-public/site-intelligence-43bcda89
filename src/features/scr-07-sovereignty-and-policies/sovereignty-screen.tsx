@@ -979,13 +979,17 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
    * The roster a second approver is chosen from. `listPersonas` is optional on the capability — a
    * deployment knows its caller from the session that reached it — so the read runs only when the
    * bound adapter holds it, and it is bound once here rather than narrowed again inside the query.
+   *
+   * The value cached is the persona list under the plain `['listPersonas']` key the shell's role
+   * switcher (`src/app/role-switcher.tsx`) reads, not the `Result` envelope: one method, one key, one
+   * shape, so neither reader can hand the other a value of the wrong type.
    */
   const readPersonas =
     demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);
 
-  const personasQuery = useQuery<Result<ActiveUser[]>, unknown>({
+  const personasQuery = useQuery<readonly ActiveUser[], unknown>({
     queryKey: ['listPersonas'],
-    queryFn: readPersonas === undefined ? skipToken : () => readPersonas(),
+    queryFn: readPersonas === undefined ? skipToken : async () => (await readPersonas()).data,
     retry: false,
   });
 
@@ -1018,7 +1022,7 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
   });
 
   const actingUserId = actingUserQuery.data?.data.id;
-  const personaRecords = personasQuery.data?.data ?? NO_PERSONAS;
+  const personaRecords = personasQuery.data ?? NO_PERSONAS;
 
   /*
    * The personas offered as the second approver, in the roster's own order and without the acting

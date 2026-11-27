@@ -390,9 +390,32 @@ const SELECTION_CAPTION_CLASSES = 'min-w-0 text-13 text-text-secondary';
  * A companion tag — the competitor name tag, the market-intelligence label or the client series
  * label — inside the control radius with the hairline boundary, so it reads as a tag rather than as
  * a continuation of the name beside it.
+ *
+ * This list belongs to a card surface, where the caption role is the correct one: the card paints
+ * the page's own surface, and Khaki in Command and Coffee Bean in Paper are measured against it.
  */
 const OPTION_TAG_CLASSES =
   'rounded-control border border-hairline px-1 text-12 text-text-caption';
+
+/**
+ * The same companion tag where it sits inside a selector control, which is a different surface.
+ *
+ * A control that carries the tag is filled with the action pair or the secondary surface, and the
+ * primary fill inverts against the page — Cream on the Command ground, Chocolate on the Paper one —
+ * so a caption role painted here would be a page-surface colour on the wrong surface: Khaki on Cream
+ * measures 2.51:1 and Coffee Bean on Chocolate 2.36:1, both under the 4.5:1 rule B-3 requires of
+ * text. The colour role is therefore left off and the tag inherits the control's own foreground,
+ * which is the one value that suits the fill in every state of every variant: the primary action pair
+ * (17.08:1 in both themes), that pair inverted on hover and on press (17.08:1 and 13.28:1 in
+ * Command, 17.08:1 and 15.12:1 in Paper) and the secondary variant's primary text (13.28:1 and
+ * 15.12:1). The boundary follows the same inherited foreground rather than the page hairline, so the
+ * edge stays as legible as the text it encloses on whichever fill the control paints — the hairline
+ * role would drop to 1.82:1 against the primary hover fill in Command.
+ *
+ * Only the two colour decisions differ from {@link OPTION_TAG_CLASSES}: the control radius, the 12 px
+ * step and the padding are the tag's own and are unchanged.
+ */
+const CONTROL_TAG_CLASSES = 'rounded-control border border-current px-1 text-12';
 
 /**
  * An identifier in the tabular mono face, so the class identifiers line up when a reader compares
@@ -1167,7 +1190,7 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                       }}
                     >
                       <span>{entry.label}</span>{' '}
-                      <span className={OPTION_TAG_CLASSES}>
+                      <span className={CONTROL_TAG_CLASSES}>
                         {entry.provenance === 'first_party'
                           ? CLIENT_SELF_ASSESSMENT_LABEL
                           : COMPETITOR_NAME_TAG}

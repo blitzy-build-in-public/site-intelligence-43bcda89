@@ -222,6 +222,17 @@ export const FILEMAP_CANVAS_TEXT = {
 
   /** What the boundary says when the records moved under the reader. */
   conflict: 'These records changed while they were being read, so the canvas was not updated. Read it again.',
+
+  /**
+   * What the dock's events half says when the acting role may not read the audit trail.
+   *
+   * The trail is the dock's accessory read rather than a precondition of the canvas: `audit.read`
+   * belongs to the auditor and the platform administrator, while this screen is the entry route of the
+   * four planning personas, so a refused trail states itself here instead of replacing the surface the
+   * reader came for. The sentence names the permission's absence and invents no record.
+   */
+  auditUnavailable:
+    'The acting role may not read the audit trail, so no event is shown here.',
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
@@ -819,10 +830,24 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
     retry: false,
   });
 
+  /*
+   * Whether the trail was refused rather than unanswered: only a refusal has a reader-facing
+   * explanation worth printing, and an unreachable source keeps the dock's own neutral sentence so a
+   * defect is never described as a permission.
+   *
+   * It is read before the events because it decides them. A refusal is the service's answer that this
+   * role holds no event, so what the read still carries must not reach the dock (rule P-2): the role
+   * switch invalidates every read and React Query keeps the previous `data` across the refetch it
+   * starts, so a role without `audit.read` would otherwise be handed the records the previous role
+   * read together with their evidence controls (rule P-8) — exactly the case the dock's refusal
+   * sentence exists to cover.
+   */
+  const trailRefused = isProblem(auditQuery.error) && auditQuery.error.type === 'permission';
+
   const topology = topologyQuery.data?.data;
   const ribbonTiles = ribbonQuery.data?.data ?? NO_TILES;
   const urgentRows = urgentQuery.data?.data ?? NO_ROWS;
-  const auditEvents = auditQuery.data?.data ?? NO_EVENTS;
+  const auditEvents = trailRefused ? NO_EVENTS : (auditQuery.data?.data ?? NO_EVENTS);
   const atlas = atlasQuery.data?.data;
 
   const nodes = useMemo(
@@ -869,11 +894,14 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
   const productHealth = useMemo(() => productHealthOf(urgentRows), [urgentRows]);
 
   /*
-   * The state, read from what the four reads the screen needs settled to. A typed refusal outranks an
-   * untyped rejection, and the atlas — the one optional read — is not among them, because its refusal
-   * degrades an overlay rather than the surface.
+   * The state, read from what the three reads the surface needs settled to. A typed refusal outranks an
+   * untyped rejection, and neither the atlas nor the audit trail is among them: the atlas is the one
+   * optional read, because its refusal degrades an overlay rather than the surface, and the trail is the
+   * dock's accessory read, because `audit.read` belongs to the auditor and the platform administrator
+   * while this screen is the entry route of the four planning personas — a refused trail states itself
+   * in the dock's events half instead of blanking the canvas those personas land on (rule P-8).
    */
-  const errors = [topologyQuery.error, ribbonQuery.error, urgentQuery.error, auditQuery.error];
+  const errors = [topologyQuery.error, ribbonQuery.error, urgentQuery.error];
   const failure =
     errors.find((error) => isProblem(error)) ??
     errors.find((error) => error !== null && error !== undefined);
@@ -1041,6 +1069,9 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
                   stockSeries={detail.stockSeries}
                   stockEvidenceRef={selectedException.id}
                   auditEvents={auditEvents}
+                  auditEmptyMessage={
+                    trailRefused ? FILEMAP_CANVAS_TEXT.auditUnavailable : undefined
+                  }
                 />
               </div>
             )}

@@ -458,6 +458,16 @@ const AUDIT_EVENTS: readonly AuditEvent[] = AUDIT_EVENT_SPECS.map((spec, positio
   eventHash: `event-${spec.id}`,
 }));
 
+/**
+ * The cache key the screen reads the trail under: the method's own name and the window it asks for,
+ * and no scope, by the port's own signature.
+ *
+ * A case names it because a role switch leaves the previous role's successful read in the cache under
+ * exactly this key and the screen re-reads it from there; it holds a window rather than a figure, so
+ * nothing is typed that rule P-6 bars.
+ */
+const AUDIT_CACHE_KEY = ['listAuditEvents', { limit: AUDIT_WINDOW }] as const;
+
 /* ---------------------------------------------------------------------------------------------
  * The ribbon's six figures
  * ------------------------------------------------------------------------------------------- */
@@ -702,12 +712,19 @@ function ExceptionProbe() {
  * payload.
  *
  * @param props - The members of the screen's contract this case varies. All are optional upstream.
+ * @param seedCache - Fills the cache before the first render, which is how a case mounts the screen
+ *   over an entry a previous reader left behind. Omitted, the screen reads into an empty cache.
  * @returns The render result, so a case can unmount before rendering again.
  */
-function renderScreen(props: Partial<FilemapCanvasScreenProps> = {}): RenderResult {
+function renderScreen(
+  props: Partial<FilemapCanvasScreenProps> = {},
+  seedCache?: (client: QueryClient) => void,
+): RenderResult {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: Infinity } },
   });
+
+  seedCache?.(client);
 
   return render(
     <MemoryRouter initialEntries={[CANVAS_ROUTE]}>
@@ -1099,6 +1116,33 @@ describe('FilemapCanvasScreen', () => {
     }
 
     expect(within(dock).getByText(SIM_LABELS[4])).toBeInTheDocument();
+  });
+
+  it('prints the refusal instead of the events a previous role left cached', async () => {
+    /*
+     * The switch, as `role-switcher.tsx` performs it: the previous role's trail is in the cache under
+     * the key this screen reads, the switcher invalidates every read, and the refetch that follows is
+     * refused for the role that does not hold `audit.read`. React Query keeps the previous `data`
+     * across that refetch, so the refusal has to outrank it.
+     */
+    port.listAuditEvents.mockRejectedValue(DENIAL);
+
+    renderScreen({}, (cache) => {
+      cache.setQueryData(AUDIT_CACHE_KEY, envelope([...AUDIT_EVENTS]));
+      void cache.invalidateQueries({ queryKey: AUDIT_CACHE_KEY, refetchType: 'none' });
+    });
+
+    expect(await screen.findByText(FILEMAP_CANVAS_TEXT.auditUnavailable)).toBeInTheDocument();
+
+    const trail = auditTrail();
+
+    /* Not one of the cached events reaches the dock, and no record this role may not read carries the
+       control that would open it (rules P-2, P-8). */
+    for (const event of AUDIT_EVENTS) {
+      expect(within(trail).queryByText(event.id)).not.toBeInTheDocument();
+    }
+
+    expect(within(trail).queryAllByRole('button', { name: /open evidence/u })).toHaveLength(0);
   });
 
   it('shows the loading state while the reads the canvas needs are pending', async () => {

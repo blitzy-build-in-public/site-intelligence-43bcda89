@@ -258,6 +258,17 @@ export interface TimelineDockProps {
    * module's to apply, so a caller hands over the page it read and the dock shows the head of it.
    */
   readonly auditEvents: readonly AuditEvent[];
+
+  /**
+   * What the events half says instead of {@link TIMELINE_DOCK_TEXT.activityEmpty} when the caller has a
+   * reason of its own for the list being empty.
+   *
+   * The canvas uses it for the one case the neutral sentence would misdescribe: a role the permission
+   * matrix does not grant `audit.read` receives no events at all, and "no event is recorded" would
+   * state an absence of records where the records exist and the read was refused. The caller owns the
+   * wording, because only the caller knows why it passed nothing.
+   */
+  readonly auditEmptyMessage?: string | undefined;
 }
 
 /**
@@ -281,6 +292,7 @@ export function TimelineDock({
   stockSeries,
   stockEvidenceRef,
   auditEvents,
+  auditEmptyMessage,
 }: TimelineDockProps): ReactElement {
   const headingId = useId();
   const latestEvents = auditEvents.slice(0, TIMELINE_DOCK_AUDIT_EVENTS);
@@ -361,7 +373,9 @@ export function TimelineDock({
             }
           >
             {latestEvents.length === 0 ? (
-              <p className="text-13 text-text-secondary">{TIMELINE_DOCK_TEXT.activityEmpty}</p>
+              <p className="text-13 text-text-secondary">
+                {auditEmptyMessage ?? TIMELINE_DOCK_TEXT.activityEmpty}
+              </p>
             ) : (
               <ol className="flex min-w-0 flex-col gap-3">
                 {latestEvents.map((event) => (
