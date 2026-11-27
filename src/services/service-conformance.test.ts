@@ -38,8 +38,9 @@
  * of `src/services/create-service.ts`, and rule P-2 keeps the choice there. It tests no behaviour of
  * a member: the solver's proof is `src/domain/solver/solve-supply-delay.test.ts`, the chain's is
  * `src/domain/audit/audit.test.ts`, and the mock adapter's own suite covers its refusals and its
- * redaction. It reads no seed record beyond the two facts it needs to name a persona and to count the
- * seeded trail, and it types no figure and no identifier of its own (rule P-6).
+ * redaction. It reaches the seeded records only through the mock folder's own loader, for the two
+ * facts that name the auditor persona and count the seeded trail, so no import of the seed modules
+ * leaves `src/services/mock/`; and it types no figure and no identifier of its own (rule P-6).
  *
  * The Node environment is declared on line 1 rather than inherited from the shared jsdom default,
  * because the mock backend hashes its seeded trail through `globalThis.crypto.subtle` during its
@@ -50,9 +51,9 @@
  * Rules this suite is built to satisfy:
  * - P-2: it exists to prove the one service interface is implemented twice, and it imports both
  *   adapters itself rather than letting a screen or a component reach either of them.
- * - P-6: the only quantities it compares are the seeded trail's own count, imported from `src/seed`,
- *   and the single record the role switch appends, each named as a constant instead of being written
- *   into an assertion.
+ * - P-6: the only quantities it compares are the seeded trail's own count, read from the record set
+ *   the mock folder's loader returns, and the single record the role switch appends, each named as a
+ *   constant instead of being written into an assertion.
  * - B-1: nothing here opens a socket. The API client is constructed and its two demonstration members
  *   are called, and the case that calls them asserts that the platform's `fetch` was never reached.
  * - B-2: no credential, no environment read and no configuration of the build is consulted.
@@ -64,21 +65,24 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-/*
- * The seeded record set is reached here for exactly two names: `SEEDED_EVENT_COUNT`, the number of
- * events the readiness case expects the chain to hold, and `USERS`, which locates the auditor persona
- * the audit read needs. Rule P-6 forbids typing either value and the port exposes neither, so the
- * barrel is the only source that keeps this suite from restating seed data. This is a suite rather
- * than a screen: rule P-2 bars components and screens from reaching records, and the boundary it draws
- * — the mock adapter as the one road to the data — is asserted by
- * `tests/source-checks/no-seed-import-outside-mock.test.ts`, which has to treat an import of the seed
- * barrel by a test file as this documented exception rather than as a screen's shortcut.
- */
-import { SEEDED_EVENT_COUNT, USERS } from '../seed';
-import type { SeededUser } from '../seed';
 import { ApiClient } from './api-client/api-client';
 import type { DemonstrationControls } from './demonstration-controls';
 import { MockBackend } from './mock/mock-backend';
+
+/*
+ * The seeded record set is reached here for exactly two facts: `SEEDED_EVENT_COUNT`, the number of
+ * events the readiness case expects the chain to hold, and the personas `loadSeed()` hands back, one
+ * of which is the auditor the audit read needs. Rule P-6 forbids typing either fact and the port
+ * exposes neither, so the record set's own values are the only source that keeps this suite from
+ * restating seed data. Both arrive through `src/services/mock/seed-loader.ts`, the mock folder's one
+ * door to the records and the only importer of them in the application, so no import of the seed
+ * modules leaves `src/services/mock/` and
+ * `tests/source-checks/no-seed-import-outside-mock.test.ts` holds over this file exactly as it holds
+ * over the rest of `src/`. Neither fact is typed here: the count is the record set's own constant and
+ * a persona is whatever the loader's clone carries.
+ */
+import { loadSeed, SEEDED_EVENT_COUNT } from './mock/seed-loader';
+import type { SeededUser } from './mock/seed-loader';
 import type { SiteIntelligenceService } from './site-intelligence-service';
 
 /* ---------------------------------------------------------------------------------------------
@@ -282,6 +286,18 @@ const SAMPLE_SIMULATION_FLAG: Parameters<SiteIntelligenceService['setSimulation'
 const ROLE_SWITCH_EVENTS = 1;
 
 /**
+ * The seeded personas, read once from the mock folder's loader.
+ *
+ * `src/services/mock/seed-loader.ts` is the application's only importer of `src/seed`, and its
+ * `loadSeed()` hands back a deep clone of the whole record set, so `users` on that clone is where a
+ * persona is found while this suite names no path into the seed modules itself. The clone is taken
+ * once here rather than once per lookup: which persona holds a role does not change while the module
+ * is loaded, and one clone costs one deep copy of the records. Nothing is typed here — the list is
+ * the record set's own value (rule P-6).
+ */
+const SEEDED_PERSONAS = loadSeed().users;
+
+/**
  * The seeded persona holding a role, so the audit read can be reached without typing an identifier.
  *
  * The auditor is the only role the permission matrix grants `audit.read` to, and the session opens as a
@@ -294,7 +310,7 @@ const ROLE_SWITCH_EVENTS = 1;
  *   longer spans the eight roles the demonstration's switcher offers.
  */
 function personaWithRole(role: SeededUser['role']): SeededUser {
-  const persona = USERS.find((candidate) => candidate.role === role);
+  const persona = SEEDED_PERSONAS.find((candidate) => candidate.role === role);
 
   if (persona === undefined) {
     throw new Error(

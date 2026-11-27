@@ -17,9 +17,13 @@
  * line break is wrapped in double quotes with every embedded quote doubled; `\n` is the only line
  * separator, so the output does not vary by platform.
  *
- * Labelling (rule P-1). A scenario column states whether its figures were computed in this session or
- * shipped with the dataset, and the recommended option's column carries the recommendation label. The
- * labels are the fixed strings of `platform-specification.md` §5.3, read from `SIM_LABELS` rather than
+ * Labelling (rule P-1). The payload opens with a marker record, `simulated,true`, declaring the whole
+ * comparison simulated — the flag the two sibling exports carry as `simulated: true` at their top
+ * level — so the file states what it is before a reader meets the first figure and no download can
+ * present a synthetic comparison as a real one. Separate from that marker, and inside the table, a
+ * scenario column states whether its figures were computed in this session or shipped with the
+ * dataset, and the recommended option's column carries the recommendation label. Those two label rows
+ * are the fixed strings of `platform-specification.md` §5.3, read from `SIM_LABELS` rather than
  * retyped, so none of them can drift from the vocabulary the screens render.
  */
 import { SIM_LABELS } from '../../../types';
@@ -55,6 +59,18 @@ const CSV_MEDIA_TYPE = 'text/csv;charset=utf-8';
 
 /** The file name's stem, before the exception identifier and the extension are appended. */
 const FILE_NAME_STEM = 'scenario-comparison';
+
+/**
+ * The marker record's key: `simulated`, the member the two sibling exports set at their top level, so
+ * the three downloads name the flag the same way.
+ */
+const SIMULATED_MARKER_KEY = 'simulated';
+
+/**
+ * The marker record's value: the flag itself, `true`. It is set on every comparison this module
+ * builds, so a reader opening the file meets the declaration before the first figure.
+ */
+const SIMULATED_MARKER_VALUE = 'true';
 
 /**
  * The label a column whose figures shipped with the dataset carries: `SIM_LABELS[0]`, which reads
@@ -178,15 +194,17 @@ function sourceLabelOf(scenario: Scenario): SimLabel {
 /**
  * Builds the comparison of one exception's options as CSV text.
  *
- * One column per scenario, in the order the set holds them — the order is never sorted, since a
- * re-sort would rename the columns between two exports of the same set — and one row per measure, in
- * the order the comparison matrix reads: units late, maximum days late, orders on time, added cost,
- * line idle days, confidence, constraint check and side effects. Two marker rows follow, stating each
- * column's source label and marking the recommended option, which is the column whose identifier the
- * set names.
+ * The payload opens with the marker record, `simulated,true`, declaring the whole comparison
+ * simulated before the measures begin — the same flag the two sibling exports carry at their top
+ * level. One column per scenario follows, in the order the set holds them — the order is never sorted,
+ * since a re-sort would rename the columns between two exports of the same set — and one row per
+ * measure, in the order the comparison matrix reads: units late, maximum days late, orders on time,
+ * added cost, line idle days, confidence, constraint check and side effects. Two label rows then
+ * follow the measures, stating each column's source label and marking the recommended option, which
+ * is the column whose identifier the set names.
  *
  * @param set - The options, recommendation and trade-off the service returned for the exception.
- * @returns The payload: the file name, the media type and the CSV text.
+ * @returns The payload: the file name, the media type and the CSV text, the marker record leading it.
  */
 export function buildScenarioComparisonCsv(set: ScenarioSet): ScenarioCsvExport {
   const { scenarios } = set;
@@ -196,6 +214,7 @@ export function buildScenarioComparisonCsv(set: ScenarioSet): ScenarioCsvExport 
     scenario.id === set.recommendedId ? RECOMMENDED_LABEL : '';
 
   const lines: string[] = [
+    csvRow([SIMULATED_MARKER_KEY, SIMULATED_MARKER_VALUE]),
     csvRow(['Measure', ...scenarios.map((scenario) => scenario.name)]),
     csvRow(['Units late', ...scenarios.map((scenario) => renderCount(scenario.unitsLate))]),
     csvRow([
