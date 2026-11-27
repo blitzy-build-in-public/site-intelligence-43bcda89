@@ -1,10 +1,12 @@
 /**
  * The saved views of the exception queue: the filter sets a planner keeps for the session.
  *
- * A saved view pairs a name the planner typed with the exception query that name stands for, so the
- * queue can reapply a whole filter set in one action. It lives in memory and only for the session:
- * the theme and the density are the only preferences this application keeps between visits
- * (platform-contracts.md §1), so no view reaches browser storage, a cookie or a request.
+ * A saved view pairs a name the planner typed with the query that name stands for, so the queue can
+ * reapply a whole filter set in one action: the filters, the page size and the ordering, and never the
+ * continuation position, which names a place in the records the query that produced it selected and so
+ * has no meaning over a different filter set (platform-contracts.md §9). A view lives in memory and
+ * only for the session: the theme and the density are the only preferences this application keeps
+ * between visits (platform-contracts.md §1), so no view reaches browser storage, a cookie or a request.
  *
  * A pure module (AAP 0.12.4 "saved views in memory"; AAP 0.13.1 and 0.15.1 name this file). It holds
  * no React, no I/O, no clock and no module-level mutable state, and every function returns a fresh
@@ -46,6 +48,19 @@ const EDGE_SEPARATOR = /^-+|-+$/g;
 const MISSING_NAME_MESSAGE = 'A saved view needs a name.';
 
 /**
+ * The query a saved view keeps: every member of the exception query except the continuation position.
+ *
+ * `ListQuery.cursor` is the opaque position a previous page's response reported, so it names a place in
+ * the records the query that produced it selected, and a different filter set selects a different set of
+ * records. Laid over one, it either names no record of the requested order — which the port's list reads
+ * that validate a cursor refuse as a `'validation'` failure rather than restarting the page
+ * (platform-contracts.md §9, and the list reads of `SiteIntelligenceService`) — or it still names one and
+ * starts the new list part-way through it. A view therefore stores the filters, the page size and the
+ * ordering only, and always reopens at the first page.
+ */
+type SavedQuery = Omit<ExceptionQuery, 'cursor'>;
+
+/**
  * One saved view of the exception queue: the name a planner recognises and the query it reapplies.
  */
 export interface SavedView {
@@ -61,10 +76,11 @@ export interface SavedView {
   readonly name: string;
 
   /**
-   * The filter set the view stands for. Copied when the view is created, so a later change to the
-   * query the caller passed cannot rewrite a view that is already saved.
+   * The filter set the view stands for: the filters, the page size and the ordering, and no
+   * continuation position. Copied when the view is created, so a later change to the query the caller
+   * passed cannot rewrite a view that is already saved.
    */
-  readonly query: ExceptionQuery;
+  readonly query: SavedQuery;
 }
 
 /**
@@ -85,15 +101,42 @@ function identifierOf(trimmedName: string): string {
 }
 
 /**
+ * Copies the members a saved view may keep, leaving the continuation position behind.
+ *
+ * Written member by member rather than by spreading the query and removing one key, so a member the
+ * caller left undefined stays absent from the copy instead of arriving as `undefined`, which
+ * `exactOptionalPropertyTypes` and this module both treat as a different query. `cursor` is the one
+ * member deliberately not copied: it is a position in the records the caller's query selected, not part
+ * of the filter set a view stands for.
+ *
+ * @param query - The query to project.
+ * @returns A new object holding the filters, the page size and the ordering, and nothing else.
+ */
+function filtersOf(query: ExceptionQuery): SavedQuery {
+  return {
+    ...(query.limit !== undefined ? { limit: query.limit } : {}),
+    ...(query.sort !== undefined ? { sort: query.sort } : {}),
+    ...(query.type !== undefined ? { type: query.type } : {}),
+    ...(query.plantId !== undefined ? { plantId: query.plantId } : {}),
+    ...(query.severity !== undefined ? { severity: query.severity } : {}),
+    ...(query.status !== undefined ? { status: query.status } : {}),
+    ...(query.ownerId !== undefined ? { ownerId: query.ownerId } : {}),
+    ...(query.supplierId !== undefined ? { supplierId: query.supplierId } : {}),
+  };
+}
+
+/**
  * Creates a saved view from a name and the query it stands for.
  *
  * The name is trimmed and kept as typed, the identifier is derived from it, and the query is copied
- * into the view, so the view never shares an object with its caller. The view and the query inside it
- * are both frozen: a saved view is a value, and a caller that wanted a different filter set creates a
- * different view.
+ * into the view as the filter set it stands for: its filters, its page size and its ordering, and not
+ * the continuation position, so applying the view always reopens the queue at its first page. The view
+ * never shares an object with its caller. The view and the query inside it are both frozen: a saved
+ * view is a value, and a caller that wanted a different filter set creates a different view.
  *
  * @param name - The name the planner typed. Whitespace at either end is not part of it.
- * @param query - The filter set to save. It is copied, never retained.
+ * @param query - The filter set to save. It is copied, never retained, and its continuation position is
+ * not part of what is saved.
  * @returns The saved view, frozen.
  * @throws RangeError when the trimmed name is empty, or holds no letter and no digit to derive an
  * identifier from.
@@ -106,7 +149,7 @@ export function createSavedView(name: string, query: ExceptionQuery): SavedView 
     throw new RangeError(MISSING_NAME_MESSAGE);
   }
 
-  const savedQuery: ExceptionQuery = Object.freeze({ ...query });
+  const savedQuery: SavedQuery = Object.freeze(filtersOf(query));
   const view: SavedView = { id, name: trimmedName, query: savedQuery };
 
   return Object.freeze(view);
@@ -117,33 +160,27 @@ export function createSavedView(name: string, query: ExceptionQuery): SavedView 
  *
  * Every member the saved view defines replaces the same member of `base`, and every member it leaves
  * undefined keeps `base`'s value. That is what lets a view save the filters a planner chose while the
- * page size, the continuation position and the ordering the queue is using survive the switch: a view
- * that names no `sort` leaves the queue sorted as it was.
+ * page size and the ordering the queue is using survive the switch: a view that names no `sort` leaves
+ * the queue sorted as it was.
  *
- * The result is a new object: neither `base` nor the view's own query is changed, and members the view
- * leaves undefined are absent from the result rather than present as `undefined`. Nothing is
- * intersected or re-filtered here, because narrowing a query to the acting role's plant scope is the
- * service's work (AAP 0.8, 0.12.4) and a queue that re-filtered would disagree with the overview.
+ * The continuation position is the one member that survives from neither side. `ListQuery.cursor` is the
+ * opaque position a previous page's response reported, so it names a place in the records the query that
+ * produced it selected; laid over a different filter set it either names no place at all, which the port
+ * refuses as a `'validation'` failure rather than restarting the page, or it still names one and starts
+ * the new list part-way through it, dropping every row before it. Applying a view therefore always
+ * reopens the queue at its first page.
+ *
+ * The result is a new object: neither `base` nor the view's own query is changed, and members neither
+ * side names are absent from the result rather than present as `undefined`. Nothing is intersected or
+ * re-filtered here, because narrowing a query to the acting role's plant scope is the service's work
+ * (AAP 0.8, 0.12.4) and a queue that re-filtered would disagree with the overview.
  *
  * @param view - The saved view to apply.
  * @param base - The query the queue currently holds.
- * @returns A new query: the view's defined members over the base.
+ * @returns A new query: the view's defined members over the base's, carrying no continuation position.
  */
 export function applySavedView(view: SavedView, base: ExceptionQuery): ExceptionQuery {
-  const saved = view.query;
-
-  return {
-    ...base,
-    ...(saved.limit !== undefined ? { limit: saved.limit } : {}),
-    ...(saved.cursor !== undefined ? { cursor: saved.cursor } : {}),
-    ...(saved.sort !== undefined ? { sort: saved.sort } : {}),
-    ...(saved.type !== undefined ? { type: saved.type } : {}),
-    ...(saved.plantId !== undefined ? { plantId: saved.plantId } : {}),
-    ...(saved.severity !== undefined ? { severity: saved.severity } : {}),
-    ...(saved.status !== undefined ? { status: saved.status } : {}),
-    ...(saved.ownerId !== undefined ? { ownerId: saved.ownerId } : {}),
-    ...(saved.supplierId !== undefined ? { supplierId: saved.supplierId } : {}),
-  };
+  return { ...filtersOf(base), ...filtersOf(view.query) };
 }
 
 /**

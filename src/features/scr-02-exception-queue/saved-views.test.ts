@@ -5,10 +5,12 @@
  * queue screen relies on: a name decides its identifier, so the same name always yields the same one
  * and nothing here needs a counter, a clock or a random source; a view and the query inside it are
  * copied and frozen, so a caller that changes its own query afterwards cannot rewrite a view that is
- * already saved; applying a view lays its defined members over the queue's current query and leaves
- * the paging and the ordering the view says nothing about; listing returns a new array in the order
- * the planner's own names imply; and no call reaches browser storage, because the theme and the
- * density are the only preferences this application keeps between visits (platform-contracts.md §1).
+ * already saved; a view stores the filters, the page size and the ordering rather than a continuation
+ * position, and applying one lays its defined members over the queue's current query, keeps the page
+ * size and the ordering it says nothing about, and sends no continuation position from either side,
+ * so the queue reopens at its first page; listing returns a new array in the order the planner's own
+ * names imply; and no call reaches browser storage, because the theme and the density are the only
+ * preferences this application keeps between visits (platform-contracts.md §1).
  *
  * The filter values below are placeholders that name no record: this module copies a query and
  * resolves none, so no plant, supplier, owner or exception is named here (rule P-6), and the service
@@ -18,7 +20,7 @@
  * declare: the storage case spies on `Storage.prototype`, so that interface has to be present.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { applySavedView, createSavedView, listSavedViews } from './saved-views';
 // The namespace form backs the public-surface case: a helper exported in future would appear here.
@@ -164,9 +166,11 @@ describe('applySavedView', () => {
     // The members the view defines replace the base's own.
     expect(applied.severity).toBe('critical');
     expect(applied.plantId).toBe(PLANT_FILTER);
-    // The paging and the ordering the view says nothing about survive the switch.
+    // The page size and the ordering the view says nothing about survive the switch.
     expect(applied.limit).toBe(PAGE_SIZE);
-    expect(applied.cursor).toBe(CURSOR_KEY);
+    // The continuation position does not: it names a place in the population the previous query
+    // selected, so the applied query asks the service for the first page instead.
+    expect('cursor' in applied).toBe(false);
     expect(applied.sort).toBe(SEVERITY_ORDER);
     // A member neither side names stays absent rather than arriving as `undefined`.
     expect('ownerId' in applied).toBe(false);
@@ -174,6 +178,27 @@ describe('applySavedView', () => {
     // The base is the queue's own query, and switching views does not consume it.
     expect(base.severity).toBe('high');
     expect(base.plantId).toBeUndefined();
+  });
+
+  it('carries no continuation position from the view or from the base query', () => {
+    // Both sides carry a position: the view was saved while the queue was part way through one list,
+    // and the query it is applied over is part way through another.
+    const view = createSavedView('Critical rows', queryOf({ severity: 'critical' }));
+    const base = queryOf({ severity: 'high' });
+
+    expect('cursor' in base).toBe(true);
+    expect('cursor' in view.query).toBe(false);
+
+    const applied = applySavedView(view, base);
+
+    // A position names a place in the records the query that produced it selected, so it cannot travel
+    // to a different filter set: the applied query asks for the first page of the new one.
+    expect('cursor' in applied).toBe(false);
+    expect(applied).toEqual({
+      limit: PAGE_SIZE,
+      sort: SEVERITY_ORDER,
+      severity: 'critical',
+    });
   });
 
   it('returns a new query and changes neither of its inputs', () => {
@@ -259,6 +284,13 @@ describe('determinism', () => {
  * ------------------------------------------------------------------------------------------- */
 
 describe('saved views touch no side channel', () => {
+  // The spies below are put back explicitly rather than left to the runner's `restoreMocks` setting, so
+  // the property this block rests on holds whatever the configuration says: a later case sees the
+  // platform's own storage, clock and random source.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('touches no browser storage', () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
     const getItem = vi.spyOn(Storage.prototype, 'getItem');
