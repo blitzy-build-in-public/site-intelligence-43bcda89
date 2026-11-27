@@ -61,10 +61,13 @@
  *   is declared configuration the engine never evaluates: the record is shown, marked unevaluated,
  *   and never hidden (rule P-4).
  * - `policy.exception.request` for the time-boxed exception, which is the write this family owns.
- * - `admin.read` for the source catalogue. The six sources are declared configuration rather than a
- *   screen in this run: no stage S1 to S3 route renders the catalogue, and the freshness strip reads
- *   the same six records from every result's `meta`, so the read is restrained to the administrator
- *   who will own the sources workspace.
+ * - No role gate on the source catalogue, deliberately. The six sources' state and as-of instants
+ *   already travel to every persona in the `meta` of every result the port returns, so a role check on
+ *   this read would withhold nothing; the shell's freshness strip
+ *   (`src/app/freshness-strip.tsx`) renders the six pills in the top bar on every route for every
+ *   persona, which is the visible half of the freshness rule (AAP §0.2.1, T-13). The read still
+ *   honours the demonstration's forbidden trigger, and `admin.read` stays the permission the sources
+ *   workspace of a later stage will require.
  * - The evidence pack requires `sovereignty.read` of its own right and then each section's
  *   permission through the entry point that builds it, which is why it also needs `policy.read` and,
  *   because the chain section is `verifyAuditChain`'s report, `audit.read`. That last gate sits in
@@ -145,11 +148,12 @@ const POLICY_READ: Permission = 'policy.read';
 const POLICY_EXCEPTION_REQUEST: Permission = 'policy.exception.request';
 
 /**
- * The permission the source catalogue requires.
+ * The permission the sources workspace of a later stage requires, and the permission the source
+ * catalogue's refusal reports while the demonstration's forbidden trigger is on.
  *
- * The six sources are records rather than a screen in this run, so the read is restrained to the role
- * that owns the sources workspace; the model catalogue and the plan grid of the same stage are served
- * by the stage that shows them.
+ * The catalogue read itself is not gated on it: the six sources' state and as-of instants reach every
+ * persona in the `meta` of every result the port returns, and the shell's freshness strip shows them
+ * in the top bar on every route, so the read withholds nothing a role check could protect.
  */
 const ADMIN_READ: Permission = 'admin.read';
 
@@ -270,6 +274,31 @@ function requirePermission(ctx: HandlerContext, permission: Permission, subject:
 
   if (!hasPermission(ctx.actor.role, permission, null, ctx.actor)) {
     throw permissionProblem(ctx, permission, `The ${subject} is not available to the acting role.`);
+  }
+}
+
+/**
+ * Refuses the source catalogue while the demonstration's forbidden trigger is on, and admits every
+ * acting persona otherwise.
+ *
+ * The six sources' state and as-of instants are ambient workspace state rather than a disclosure: they
+ * already reach every persona in the `meta` of every result the port returns, and the shell's freshness
+ * strip renders them in the top bar on every route for every persona (AAP §0.2.1, T-13). A role check
+ * here would therefore withhold nothing, while refusing the read to a planner would leave the top bar
+ * unable to say how current the data behind the plan is. The trigger is kept so the demonstration's
+ * refusal state is reported by the strip instead of being papered over with pills that would read as
+ * current.
+ *
+ * @param ctx - The call's context: the state whose triggers are read, and the persona the refusal is
+ *   reported for.
+ */
+function requireCatalogueReadable(ctx: HandlerContext): void {
+  if (isSimulationOn(ctx.state, 'forbidden')) {
+    throw permissionProblem(
+      ctx,
+      ADMIN_READ,
+      'The source catalogue is not available in this state, which the demonstration reports as forbidden.',
+    );
   }
 }
 
@@ -668,16 +697,24 @@ export async function requestPolicyException(
  * for record. Each label is `SOURCE_LABELS`' entry for its own source key, so a record cannot print a
  * name that contradicts its key.
  *
+ * No acting persona is refused this read, and that is the decision rather than an omission. The six
+ * sources' state and as-of instants already reach every persona in the `meta` of every result the port
+ * returns, so there is nothing here for a role check to withhold, while the shell's freshness strip
+ * renders these records in the top bar on every route for every persona (AAP §0.2.1, T-13). The
+ * forbidden trigger still refuses it, so the demonstration's refusal state is reported by the strip
+ * instead of being papered over with pills that would read as current.
+ *
  * The six are the only stage S5-family records whose subject is declared configuration; the plan grid
  * and the exit package belong to the stage that shows them and this module invents no record set for
  * either.
  *
- * @param ctx - The call's context: the persona the permission is evaluated for and the state read.
+ * @param ctx - The call's context: the state whose triggers and freshness are read, and the persona
+ *   the refusal is reported for.
  * @returns The six source records, labelled, in the specification's order.
- * @throws Problem - A `'permission'` failure when the catalogue is not readable by the acting role, or while the forbidden trigger is on.
+ * @throws Problem - A `'permission'` failure while the demonstration's forbidden trigger is on.
  */
 export async function getSourceCatalogue(ctx: HandlerContext): Promise<SourceCatalogue> {
-  requirePermission(ctx, ADMIN_READ, 'source catalogue');
+  requireCatalogueReadable(ctx);
 
   return {
     health: freshnessFor(ctx.state).map((freshness) => ({
