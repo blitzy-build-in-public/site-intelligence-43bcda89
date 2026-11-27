@@ -29,9 +29,10 @@
  * diamond for a customer — and every node prints its own label, so a reader who cannot separate the
  * hues still reads the network. A node's evidence pins are counted per state and printed as numerals
  * on the same marker, and the node's accessible name spells the counts out, so the badge never asks a
- * reader to tell a hue apart. Every node is a focus stop with a visible focus ring, the controls
- * beside the map are native buttons of at least 24x24 px, and no animation runs here at all: the map
- * changes only when a prop changes, which honours a reduced-motion session without a branch.
+ * reader to tell a hue apart. Every node is a focus stop with a visible focus ring that a hover or a
+ * press reveals as well, the controls beside the map are native buttons of at least 24x24 px, and the
+ * one transition in the file is a `motion-safe` fade: the map changes only when a prop changes and
+ * nothing moves, so a reduced-motion session is shown the same drawing with nothing to undo.
  *
  * PROVENANCE IS STRUCTURAL (rule P-5). First-party nodes are drawn from the topology and only a
  * competitor element is drawn from the atlas payload. The two are never combined into one mark, one
@@ -46,7 +47,7 @@
  * - B-1, T-20: the bundled module is the only geographic source; no request of any kind is made.
  * - B-2: no credential, no environment read, no configuration.
  * - B-3: keyboard-operable nodes and controls with accessible names, a visible focus indication, 24x24
- *   px targets, per-state pin numerals, and no motion.
+ *   px targets, per-state pin numerals, and one guarded fade rather than motion.
  * - P-1: the market-intelligence label is imported from `src/types`, never spelled here.
  * - P-2: no data access. The topology and the atlas are props the screen reads through the service.
  * - P-4: nothing here claims a property of the workspace — no sentence states confinement, copy
@@ -78,10 +79,10 @@ import type {
 } from '../types';
 
 import { EvidenceDrawer } from './evidence-drawer';
+import { CHART_TONE_CLASSES, CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 import { Legend } from './legend';
 import type { LegendEntry } from './legend';
 import { meaningOf } from './status-indicator';
-import type { StatusMeaning } from './status-indicator';
 import { ActionButton, CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from './tooltip';
 
 /* ---------------------------------------------------------------------------------------------
@@ -312,22 +313,6 @@ const PIN_STATE_WORDS = {
 } as const satisfies Record<PinState, string>;
 
 /**
- * The fill of one pin badge per status meaning, taken from the `--color-status-*` role tokens so a
- * badge is the same colour as the status it counts and both themes are covered by the same class.
- *
- * Exhaustive by type, so a meaning added to the shared vocabulary without a badge colour fails to
- * compile rather than painting an unpainted chip.
- */
-const PIN_BADGE_CLASSES = {
-  pass: 'fill-status-pass',
-  fail: 'fill-status-fail',
-  warning: 'fill-status-warning',
-  review: 'fill-status-review',
-  empty: 'fill-status-empty',
-  simulated: 'fill-status-simulated',
-} as const satisfies Record<StatusMeaning, string>;
-
-/**
  * The style every first-party node marker shares: the accent role, which specification §4.1 reserves
  * for first-party flows, so a first-party mark can never be painted in a competitor's hue.
  *
@@ -342,13 +327,33 @@ const NODE_SELECTED_RING_CLASSES = 'fill-none stroke-focus-ring';
 
 /**
  * The ring a node shows while it holds keyboard focus: the focus-ring role, hidden until the group is
- * focused, so a keyboard reader sees where they are and a pointer press leaves no ring behind.
+ * focused, so a keyboard reader sees where they are and a pointer press leaves no keyboard indicator
+ * behind.
  *
  * Tailwind's `group-focus-visible` variant is what makes a child react to its parent's focus state;
  * the `group` marker is set on the node's own `<g>`.
  */
 const NODE_FOCUS_RING_CLASSES =
   'fill-none stroke-focus-ring opacity-0 group-focus-visible:opacity-100';
+
+/**
+ * The ring a node shows while the pointer is over it or a press is held on it: the accent role, at the
+ * same radius, drawn over the keyboard ring so each state keeps its own element and neither has to
+ * out-rank the other in the cascade.
+ *
+ * It is a second circle rather than two more variants on the focus ring for one reason: the selected
+ * node already draws a ring in the `focus-ring` role at this radius, so a hover revealed in that same
+ * role would be invisible on exactly the node a reader is most likely to point at. The accent is the
+ * role specification §4.1 gives first-party flows, so the pointer state is still a role token, it never
+ * repaints the marker that states the node's family, and `pointer-events-none` leaves the hit area
+ * exactly as it was. `motion-safe:` gates the fade, so a reduced-motion session gets the same hover and
+ * pressed states with no transition (rule B-3), and the theme layer exposes no shadow to select.
+ */
+const NODE_POINTER_RING_CLASSES = [
+  'pointer-events-none fill-none stroke-accent opacity-0',
+  'group-hover:opacity-100 group-active:opacity-100',
+  'motion-safe:transition-opacity motion-safe:duration-150',
+].join(' ');
 
 /** A node's printed name: the primary text role, haloed by the surface role so it stays legible. */
 const NODE_LABEL_CLASSES = 'fill-text-primary stroke-surface-1 text-12';
@@ -363,13 +368,6 @@ const LANE_CLASSES = 'fill-none stroke-control-boundary';
  * Overlay — competitor marks, chokepoint halos and the legend
  * ------------------------------------------------------------------------------------------- */
 
-/** The three competitor roles of specification §4.2, in the order the pack lists the companies. */
-const COMPETITOR_MARK_CLASSES = {
-  1: 'fill-none stroke-competitor-1',
-  2: 'fill-none stroke-competitor-2',
-  3: 'fill-none stroke-competitor-3',
-} as const satisfies Record<1 | 2 | 3, string>;
-
 /**
  * How many competitor networks the overlay draws.
  *
@@ -380,7 +378,9 @@ const COMPETITOR_MARK_CLASSES = {
  */
 const COMPETITOR_SLOTS: readonly (1 | 2 | 3)[] = [1, 2, 3];
 
-/** A competitor site's mark: hollow, so it never competes with a filled first-party mark. */
+/** A competitor site's mark: hollow, so it never competes with a filled first-party mark. Its stroke
+ * is the chart tone table's `competitor-1/2/3` role for the network's own slot (§4.2, rule P-5), so a
+ * mark, a radar series and a legend swatch of one company resolve one token from one owner. */
 const COMPETITOR_SITE_CLASSES = 'fill-none';
 
 /** A chokepoint halo: the simulated status role, dashed so it reads as an extent rather than a place. */
@@ -718,8 +718,10 @@ function pinBadgesFor(
               y={badgeY}
               width={BADGE_WIDTH}
               height={BADGE_HEIGHT}
-              rx={2}
-              className={PIN_BADGE_CLASSES[meaningOf(state).meaning]}
+              className={joinClassNames(
+                CHART_TONE_CLASSES[meaningOf(state).meaning].fill,
+                CONTROL_RADIUS_CLASSES,
+              )}
             />
             <text
               x={badgeX + BADGE_WIDTH / 2}
@@ -761,7 +763,7 @@ function handleNodeKeyDown(
 /** The radius of a node's invisible hit area: a 28 px target, above the 24 px minimum. */
 const NODE_TARGET_RADIUS = 14;
 
-/** The radius of the ring drawn while a node is selected or focused. */
+/** The radius of the ring drawn while a node is selected, focused, hovered or pressed. */
 const NODE_RING_RADIUS = 11;
 
 /** The stroke of a ring drawn around a node. */
@@ -774,11 +776,18 @@ const NODE_RING_STROKE = 2;
  * the target size, a visible focus ring and both activation keys. Activating it reports the selection
  * to the screen — the screen owns the selection, and the graph lens beside the map is told the same
  * identifier — and the screen's selection is echoed back here as a ring so the two lenses agree about
- * which node is chosen.
+ * which node is chosen. The pointer receives the same signal as the keyboard: the group carries the
+ * `group` marker, and the accent ring reveals itself under a hover and holds through a press, so the
+ * node under the pointer is visible without a keyboard and without a render of the surface's own.
+ *
+ * A node the caller resolved an evidence reference for also declares `aria-haspopup="dialog"`, so the
+ * control says what activating it opens before it is pressed; a node no record stands behind declares
+ * nothing and opens nothing (rule P-8).
  *
  * @param placed The node and its projected point.
  * @param counts The node's pin counts, or `undefined`.
  * @param isSelected Whether the screen's selection is this node.
+ * @param opensEvidence Whether the caller resolved an evidence reference for this node.
  * @param onActivate What to do when the node is activated.
  * @returns The node's group.
  */
@@ -786,6 +795,7 @@ function nodeElement(
   placed: PlacedNode,
   counts: PinCounts | undefined,
   isSelected: boolean,
+  opensEvidence: boolean,
   onActivate: () => void,
 ): ReactElement {
   const { node, x, y } = placed;
@@ -796,6 +806,7 @@ function nodeElement(
       role="button"
       tabIndex={0}
       aria-label={nodeAriaLabel(node, counts)}
+      {...(opensEvidence ? { 'aria-haspopup': 'dialog' as const } : {})}
       className="group cursor-pointer"
       onClick={onActivate}
       onKeyDown={(event) => {
@@ -818,6 +829,14 @@ function nodeElement(
         r={NODE_RING_RADIUS}
         strokeWidth={NODE_RING_STROKE}
         className={NODE_FOCUS_RING_CLASSES}
+      />
+      {/* The pointer's ring: nothing until the node is hovered or pressed. */}
+      <circle
+        cx={x}
+        cy={y}
+        r={NODE_RING_RADIUS}
+        strokeWidth={NODE_RING_STROKE}
+        className={NODE_POINTER_RING_CLASSES}
       />
       {markerFor(node.kind, x, y)}
       <text
@@ -923,7 +942,10 @@ function competitorMarksFor(overlay: Atlas, projection: GeoProjection): ReactNod
                   key={site.id}
                   points={`${x},${y - COMPETITOR_SITE_RADIUS} ${x + COMPETITOR_SITE_RADIUS},${y} ${x},${y + COMPETITOR_SITE_RADIUS} ${x - COMPETITOR_SITE_RADIUS},${y}`}
                   strokeWidth={2}
-                  className={joinClassNames(COMPETITOR_SITE_CLASSES, COMPETITOR_MARK_CLASSES[slot])}
+                  className={joinClassNames(
+                    COMPETITOR_SITE_CLASSES,
+                    CHART_TONE_CLASSES[`competitor-${slot}`].stroke,
+                  )}
                 />
               );
             })}
@@ -1112,15 +1134,26 @@ export interface MapCanvasProps {
   readonly overlay?: Atlas | undefined;
 
   /**
-   * The evidence reference a node's figures open, when the caller has one for it.
+   * Resolves the evidence reference a node's figures open, or `undefined` for a node no record stands
+   * behind. Required.
    *
-   * Activating a node always reports the selection; it opens the evidence drawer for that node only
-   * when this function returns a reference. The reference is the caller's because an evidence
-   * reference names a record, and which record stands behind a node is a service question rather than
-   * a drawing one: a node whose evidence this stage cannot resolve therefore opens nothing, instead of
-   * opening a drawer that would report a record it was never given.
+   * REQUIRED BECAUSE A NODE MAY NOT LOSE ITS EVIDENCE SILENTLY. AAP 0.2.1 F12 opens the evidence
+   * drawer from "any figure, chart mark, node, arc or pin", so a lens that could be composed without
+   * stating how its nodes' evidence opens would leave the reader a mark they cannot inspect. The
+   * obligation belongs to the caller, because only the caller knows which record it drew.
+   *
+   * WHAT A RETURNED REFERENCE MUST BE. One the service's `getEvidence` read resolves, which selects a
+   * family by identifier prefix and looks the record up by its exact identifier: `PPAP-`, `EXC-`,
+   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`. A node's own evidence today is a pin
+   * attached to that node — `EvidencePin.nodeRef` names the node whose evidence the pin is — or the
+   * record the screen attributes to the node. A bare topology node identifier matches no family, so
+   * returning one would open a drawer reporting the not-found refusal instead of a record.
+   *
+   * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind this node. Activating
+   * the node still reports the selection to the screen, and it opens no dialog — never a drawer shown
+   * for a record it was not given (rule P-8).
    */
-  readonly evidenceRefForNode?: ((node: TopologyNode) => string | undefined) | undefined;
+  readonly evidenceRefForNode: (node: TopologyNode) => string | undefined;
 }
 
 /**
@@ -1133,8 +1166,9 @@ export interface MapCanvasProps {
  * everything once. No effect is used and nothing is stored but the evidence drawer's own open
  * reference: the lens holds no data, keeps no selection of its own and reads no clock.
  *
- * @param props The topology, the controlled zoom and preset, the shared selection and the optional
- *   atlas overlay. See {@link MapCanvasProps}.
+ * @param props The topology, the controlled zoom and preset, the shared selection, the required
+ *   mapper that resolves each node's evidence reference, and the optional atlas overlay. See
+ *   {@link MapCanvasProps}.
  * @returns The lens, ready to be composed inside `./chart-frame.tsx` by the canvas screen.
  */
 export function MapCanvas({
@@ -1201,14 +1235,14 @@ export function MapCanvas({
       : undefined;
 
   /**
-   * Reports a node's selection and opens its evidence, when the caller named a reference for it.
+   * Reports a node's selection and opens the evidence the caller resolved for it.
    *
-   * A node the caller holds no reference for closes whatever drawer was open rather than leaving
-   * another node's evidence on screen beside a newly selected node.
+   * A node the mapper cannot resolve closes whatever drawer was open rather than leaving another
+   * node's evidence on screen beside a newly selected node.
    */
   function activateNode(node: TopologyNode): void {
     onSelectNode(node.id);
-    setOpenEvidenceRef(evidenceRefForNode === undefined ? null : (evidenceRefForNode(node) ?? null));
+    setOpenEvidenceRef(evidenceRefForNode(node) ?? null);
   }
 
   return (
@@ -1297,6 +1331,7 @@ export function MapCanvas({
               entry,
               topology.pinsByNode[entry.node.id],
               entry.node.id === selectedNodeId,
+              evidenceRefForNode(entry.node) !== undefined,
               () => {
                 activateNode(entry.node);
               },
@@ -1306,7 +1341,7 @@ export function MapCanvas({
       </svg>
 
       {legendEntries.length === 0 ? null : (
-        <Legend entries={legendEntries} orientation="row" />
+        <Legend entries={legendEntries} />
       )}
 
       {openEvidenceRef === null ? null : (

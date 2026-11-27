@@ -18,9 +18,10 @@
  * module follows it, and neither literal appears in this file.
  *
  * WHY THE SWATCH LEGEND IS NOT HERE. The calling screen renders `./legend.tsx` from the same
- * `AtlasSeries` data, so a series' swatch and its polygon resolve the same role token and cannot
- * disagree. This component prints each series' name and its companion tag inside the drawing, which
- * is what rule P-1 requires of a labelled series, and leaves the colour legend to the screen.
+ * `AtlasSeries` data, so a series' swatch and its polygon resolve the same role token — both from the
+ * one chart tone table `./horizontal-bar-chart.tsx` exports — and cannot disagree. This component
+ * prints each series' name and its companion tag inside the drawing, which is what rule P-1 requires
+ * of a labelled series, and leaves the colour legend to the screen.
  *
  * THE SCALE IS A CHART CONCERN. `RadarAxis` declares no bounds. The simulated market-intelligence
  * pack fixes its scores as integers from zero to one hundred, one per axis in axis order, with the
@@ -32,18 +33,22 @@
  * WHAT IT DOES NOT DO. It reads no clock, keeps no state beyond the evidence it has open, sends no
  * request (rule B-1), reads no configuration (rule B-2) and imports no seed record (rule P-2: every
  * score arrives in the `series` prop exactly as the atlas payload stated it). It computes and
- * formats no domain figure (rule P-6), declares no animation or transition so there is no motion for
- * `prefers-reduced-motion` to undo (rule B-3), claims nothing about where a record is held or whether
- * it could be altered (rule P-4), and names no company, place or person of its own (rule P-7).
+ * formats no domain figure (rule P-6), declares one transition — the guarded fade that reveals a
+ * vertex's ring under a hover or a press — and no animation at all, so a reduced-motion session is
+ * shown the same drawing with nothing to undo (rule B-3), claims nothing about where a record is held
+ * or whether it could be altered (rule P-4), and names no company, place or person of its own (rule
+ * P-7).
  *
  * ACCESSIBILITY (rule B-3). The drawing is one `<svg role="group">` named by
  * `RADAR_CHART_TEXT.groupLabel`, which deliberately does not repeat the `<figcaption>` the caller's
  * `./chart-frame.tsx` supplies. Each axis is named at its outer end in the secondary text role, and
- * the rings, spokes and vertex dots are decoration. A vertex that can act — because the caller
- * supplied `evidenceRefFor` or `onActivate` — is a `<g role="button" tabIndex={0}>` whose accessible
- * name states the axis, the series and the value, operable by pointer and by `Enter` or `Space`, with
- * a focus ring in the `focus-ring` role drawn around the mark. A vertex that can do nothing stays a
- * plain `<circle>`, so rule P-8 is never broken by a control with nothing behind it.
+ * the rings, spokes and vertex dots are decoration. A vertex that can act — because the caller's
+ * `evidenceRefFor` resolved a reference for it, or because `onActivate` was supplied — is a
+ * `<g role="button" tabIndex={0}>` whose accessible name states the axis, the series and the value,
+ * operable by pointer and by `Enter` or `Space`, with a ring in the `focus-ring` role drawn around the
+ * mark and revealed by a keyboard focus, a hover or a press, so the pointer has the indicator the
+ * keyboard already had. A vertex that can do nothing stays a plain `<circle>`, so rule P-8 is never
+ * broken by a control with nothing behind it.
  */
 import { useState } from 'react';
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -52,6 +57,7 @@ import { CLIENT_SELF_ASSESSMENT_LABEL, COMPETITOR_NAME_TAG } from '../types';
 import type { AtlasSeries, RadarAxis } from '../types';
 
 import { EvidenceDrawer } from './evidence-drawer';
+import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording, in the one place it is written
@@ -102,21 +108,37 @@ export interface RadarChartProps {
   /**
    * Called with the series' identifier whenever one of its vertices is activated.
    *
-   * A vertex becomes a control when this handler or {@link RadarChartProps.evidenceRefFor} is
-   * supplied, so a screen that only needs to learn which series a reader picked passes this alone,
-   * and a chart with neither draws plain marks that operate nothing (rule P-8).
+   * A vertex becomes a control when this handler is supplied or {@link RadarChartProps.evidenceRefFor}
+   * resolves a reference for it, so a screen that only needs to learn which series a reader picked
+   * passes this alone, and a chart whose mapper resolves nothing draws plain marks that operate
+   * nothing (rule P-8).
    */
   readonly onActivate?: ((seriesId: string) => void) | undefined;
 
   /**
    * Resolves the evidence reference a vertex opens, given the series and the axis it sits on.
+   * Required.
    *
-   * `AtlasSeries` carries no per-value evidence reference, so the caller supplies one. When a
-   * collection returns a reference for a vertex, activating that vertex opens `./evidence-drawer.tsx`
-   * with it; when the caller passes no collection, no vertex claims to open evidence it does not
-   * have.
+   * REQUIRED BECAUSE A MARK MAY NOT LOSE ITS EVIDENCE SILENTLY. AAP 0.2.1 F12 opens the evidence
+   * drawer from "any figure, chart mark, node, arc or pin", and AAP 0.5.2 fixes "typed series with
+   * `evidenceRef` per mark" for this chart beside the other three. An optional collection would let a
+   * caller omit that decision without noticing, so the caller states it here — per mark, which is the
+   * shape the requirement has.
+   *
+   * WHAT A RETURNED REFERENCE MUST BE. One the service's `getEvidence` read resolves, which selects a
+   * family by identifier prefix and looks the record up by its exact identifier: `PPAP-`, `EXC-`,
+   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`. `AtlasSeries` carries no record
+   * reference of its own, so which record stands behind a series' score is the calling screen's to
+   * name. A reference this chart composed, or one naming a record the service does not hold, would
+   * open a drawer reporting the not-found refusal for that reference instead of the record behind the
+   * mark.
+   *
+   * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind that reading. The
+   * vertex then stays a plain dot, which reports the series' selection through
+   * {@link RadarChartProps.onActivate} and opens no dialog, so a mark is never a control that claims
+   * evidence it cannot show (rule P-8).
    */
-  readonly evidenceRefFor?: ((seriesId: string, axisId: string) => string) | undefined;
+  readonly evidenceRefFor: (seriesId: string, axisId: string) => string | undefined;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -190,7 +212,7 @@ const SCORE_MAX = 100;
 const COORDINATE_PRECISION = 100;
 
 /* ---------------------------------------------------------------------------------------------
- * Colours — one role token per series family, chosen in one place
+ * Colours — one role token per series family, resolved from the table that owns them
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -202,37 +224,6 @@ const COORDINATE_PRECISION = 100;
  */
 type CompetitorTone = 1 | 2 | 3;
 
-/**
- * The three competitor series tones, in the order specification §4.2 assigns the competitor hues:
- * the first market-intelligence series takes the first token, the second the second, the third the
- * third. `./legend.tsx` paints its swatches from the same three role tokens, so a polygon and the
- * legend row that names it are the same colour in both themes.
- *
- * Exhaustive by type, so a fourth competitor would have to bring its own token rather than borrow
- * another company's colour — borrowing one would make two companies indistinguishable on the
- * drawing, which is a blending of the very kind rule P-5 forbids.
- */
-const COMPETITOR_AREA_CLASSES = {
-  1: 'fill-competitor-1',
-  2: 'fill-competitor-2',
-  3: 'fill-competitor-3',
-} as const satisfies Record<CompetitorTone, string>;
-
-/** The same three tones for a polygon's outline, so a series' fill and its stroke stay one colour. */
-const COMPETITOR_LINE_CLASSES = {
-  1: 'stroke-competitor-1',
-  2: 'stroke-competitor-2',
-  3: 'stroke-competitor-3',
-} as const satisfies Record<CompetitorTone, string>;
-
-/**
- * The client's own series tone: the accent role, which specification §4.1 reserves for first-party
- * flows. It is a role token like the others, so the client's series cannot be painted in a
- * competitor's hue on one theme and something else on the other.
- */
-const CLIENT_AREA_CLASSES = 'fill-accent';
-const CLIENT_LINE_CLASSES = 'stroke-accent';
-
 /** One series' resolved colours: the wash inside its polygon and the outline around it. */
 interface SeriesTone {
   /** The `fill-` utility of the series' role token. */
@@ -241,8 +232,18 @@ interface SeriesTone {
   readonly line: string;
 }
 
-/** The client's series tone, the only one that is not selected by an ordinal. */
-const CLIENT_TONE: SeriesTone = { area: CLIENT_AREA_CLASSES, line: CLIENT_LINE_CLASSES };
+/**
+ * The client's own series tone, the only one that is not selected by an ordinal: the accent entry of
+ * the one chart tone table, which specification §4.1 reserves for first-party flows.
+ *
+ * It is a role token like the others, so the client's series cannot be painted in a competitor's hue
+ * on one theme and something else on the other, and both utilities are read from the same entry, so
+ * the polygon's wash and its outline cannot disagree about which tone the series is drawn in.
+ */
+const CLIENT_TONE: SeriesTone = {
+  area: CHART_TONE_CLASSES.accent.fill,
+  line: CHART_TONE_CLASSES.accent.stroke,
+};
 
 /**
  * The ordinal a competitor's series takes among the market-intelligence series it is drawn with.
@@ -305,15 +306,20 @@ function toneAtOrBelow(ordinal: number): CompetitorTone {
  * competitor hues. A market-intelligence series that somehow carries no ordinal still receives a
  * competitor hue rather than the accent, because painting a competitor in the first-party accent
  * would present a market-intelligence reading as the client's own (rule P-5).
+ *
+ * The hues themselves come from `./horizontal-bar-chart.tsx`'s {@link CHART_TONE_CLASSES}, the one
+ * table in which a chart tone becomes a role token, so a polygon, the legend row that names it and
+ * the other chart surfaces all paint the same token and a re-pointed role reaches them together.
+ * Nothing here names a colour utility of its own.
  */
 function toneOf(series: readonly AtlasSeries[], one: AtlasSeries): SeriesTone {
   if (one.provenance !== 'market_intelligence') {
     return CLIENT_TONE;
   }
 
-  const tone = competitorToneOf(series, one.id) ?? 1;
+  const entry = CHART_TONE_CLASSES[`competitor-${competitorToneOf(series, one.id) ?? 1}`];
 
-  return { area: COMPETITOR_AREA_CLASSES[tone], line: COMPETITOR_LINE_CLASSES[tone] };
+  return { area: entry.fill, line: entry.stroke };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -328,19 +334,27 @@ const SVG_CLASSES = 'block h-auto w-full min-w-0';
  *
  * The target is the SVG half of the 24x24 px minimum a pointer needs (rule B-3): the dot is a few
  * units across, so the group carries a larger hit circle declared `fill="none"` with pointer events
- * enabled, which receives the pointer without painting anything.
+ * enabled, which receives the pointer without painting anything. Its `group` marker is what the ring's
+ * hover and pressed variants hang on, so a hover is applied by the browser rather than held in state.
  */
 const MARK_GROUP_CLASSES = 'group cursor-pointer';
 
 /**
- * The focus ring, drawn only while the mark has keyboard focus.
+ * The ring around one vertex: the `focus-ring` role the token layer measures for that purpose in both
+ * themes, revealed by a keyboard focus, a hover or a press.
  *
- * `:focus-visible` rather than `:focus`, so a pointer press does not leave a ring behind and a
- * keyboard reader always sees one, and the ring takes the `focus-ring` role the token layer measures
- * for that purpose in both themes. The circle has no stroke until the variant applies, so the ring
- * costs nothing while the mark is unfocused.
+ * `:focus-visible` rather than `:focus` for the keyboard half, so a pointer press does not leave a
+ * keyboard indicator behind and a keyboard reader always sees one; `group-hover` and `group-active` for
+ * the pointer half, so a vertex under the pointer or under a press is visibly live for a reader who
+ * never uses a keyboard. All three reveal the same ring, so no state repaints the reading the vertex
+ * encodes, and the ring is mounted at every render but painted at zero opacity until one of them
+ * applies: nothing about it is conditionally rendered, so a hover leaves the surface's own state alone.
+ * `motion-safe:` carries the fade, which is the only property any of these states changes (rule B-3);
+ * no raw palette value, no arbitrary value and no opacity literal appears beyond the two ends of the
+ * opacity scale, and the theme layer exposes no shadow to select.
  */
-const FOCUS_RING_CLASSES = 'group-focus-visible:stroke-focus-ring';
+const FOCUS_RING_CLASSES =
+  'stroke-focus-ring opacity-0 group-focus-visible:opacity-100 group-hover:opacity-100 group-active:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
 
 /* ---------------------------------------------------------------------------------------------
  * Geometry helpers — pure arithmetic over the drawing's own coordinate space
@@ -517,8 +531,8 @@ interface SeriesLayerProps {
   readonly allSeries: readonly AtlasSeries[];
   /** The axes the series' values align to. */
   readonly axes: readonly RadarAxis[];
-  /** Resolves the evidence reference a vertex opens, when the caller supplies one. */
-  readonly evidenceRefFor: ((seriesId: string, axisId: string) => string) | undefined;
+  /** Resolves the evidence reference a vertex opens, or `undefined` where no record stands behind it. */
+  readonly evidenceRefFor: (seriesId: string, axisId: string) => string | undefined;
   /** Reports the series a reader picked, when the caller supplies the handler. */
   readonly onActivate: ((seriesId: string) => void) | undefined;
   /** Reports one activated vertex to the chart, which owns the evidence it has open. */
@@ -533,10 +547,11 @@ interface SeriesLayerProps {
  * never a shape standing in for a total. Nothing here aggregates, so a reader comparing the outlines
  * is comparing the records themselves.
  *
- * A mark becomes a control only when activating it does something — it opens the evidence the caller
- * resolved for it, or it reports the series through `onActivate`. A series the caller has wired to
- * neither is drawn with plain dots: a dot that took focus and then did nothing would be a control
- * that cannot act (rule P-8), and the drawing still shows every reading it holds.
+ * A mark becomes a control only when activating it does something — it opens the evidence the caller's
+ * mapper resolved for that vertex, or it reports the series through `onActivate`. A vertex the mapper
+ * cannot resolve, on a series no handler reports, is drawn as a plain dot: a dot that took focus and
+ * then did nothing would be a control that cannot act (rule P-8), and the drawing still shows every
+ * reading it holds.
  */
 function SeriesLayer({
   series,
@@ -555,7 +570,7 @@ function SeriesLayer({
   const tone = toneOf(allSeries, series);
 
   function renderMark(vertex: SeriesVertex): JSX.Element {
-    const evidenceRef = evidenceRefFor?.(series.id, vertex.axisId) ?? null;
+    const evidenceRef = evidenceRefFor(series.id, vertex.axisId) ?? null;
     const canAct = evidenceRef !== null || onActivate !== undefined;
 
     if (!canAct) {
@@ -606,7 +621,7 @@ function SeriesLayer({
           r={MARK_RADIUS}
           className={tone.area}
         />
-        {/* The focus ring: no stroke of its own until the group is keyboard focused. */}
+        {/* The ring: revealed by keyboard focus, a hover or a press. */}
         <circle
           cx={vertex.point.x}
           cy={vertex.point.y}

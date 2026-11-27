@@ -191,6 +191,18 @@ function markCentre(mark: SVGGElement): number {
   return Number(cy);
 }
 
+
+/**
+ * The pointer-state utilities one class list declares, filtered by their prefix rather than matched as a
+ * whole string, so a legitimate token change inside a state cannot fail the case while the requirement —
+ * a hover and a pressed treatment built from role tokens — still holds.
+ */
+function pointerStates(classList: string): readonly string[] {
+  return classList
+    .split(' ')
+    .filter((utility) => utility.startsWith('group-hover:') || utility.startsWith('group-active:'));
+}
+
 /** The y coordinate of the zero reference line the caller supplied. */
 function zeroLineY(container: HTMLElement): number {
   const label = screen.getByText(ZERO_LABEL);
@@ -388,6 +400,34 @@ describe('LineChart', () => {
       /* The pointer target is 24 viewBox units across, the minimum rule B-3 sets. */
       const target = mark.querySelectorAll('circle')[2];
       expect(Number(target?.getAttribute('r')) * 2).toBeGreaterThanOrEqual(24);
+    }
+  });
+
+  it('reveals the same ring under a hover and a press, and keeps the keyboard ring', () => {
+    renderChart({ series: [BASELINE] });
+
+    const marks = screen.getAllByRole('button');
+    expect(marks.length).toBeGreaterThan(0);
+
+    for (const mark of marks) {
+      /* The keyboard indicator on the group is untouched by the pointer states. */
+      expect(mark.getAttribute('class')).toContain('focus-visible:outline-focus-ring');
+
+      const ringClasses = mark.querySelectorAll('circle')[1]?.getAttribute('class') ?? '';
+      const states = pointerStates(ringClasses);
+
+      expect(states.some((utility) => utility.startsWith('group-hover:'))).toBe(true);
+      expect(states.some((utility) => utility.startsWith('group-active:'))).toBe(true);
+      for (const utility of states) {
+        /* Every state names a role-token property: no palette literal, no arbitrary value, no shadow. */
+        expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(/^(fill|stroke|opacity)-[a-z0-9]/u);
+        expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/iu);
+        expect(utility).not.toContain('shadow');
+      }
+
+      /* The ring still answers the keyboard, and the fade is the one a reduced-motion session skips. */
+      expect(ringClasses).toContain('group-focus-visible:opacity-100');
+      expect(ringClasses).toContain('motion-safe:transition-opacity');
     }
   });
 

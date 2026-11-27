@@ -79,15 +79,22 @@ const LEGEND_CLASSES = 'mb-1 p-0 text-12 font-medium text-text-secondary';
  * here, because dimming a label is exactly how contrast falls below the ratio the rule requires.
  *
  * The focus ring is the 2 px `--color-focus-ring` role, drawn on `focus-visible` so a pointer click
- * leaves none behind while a keyboard user never loses the indicator. No transition is declared at
- * all: the control has no animated state to suppress, so it satisfies the reduced-motion clause of
- * rule B-3 by carrying nothing to opt out of.
+ * leaves none behind while a keyboard user never loses the indicator. The pointer is answered as
+ * well: `hover:` lifts the boundary to the accent role, the state the secondary control and the
+ * simulated-data badge carry, and the resting boundary and surface are untouched, so the picker looks
+ * exactly as it did until a pointer reaches it. A control that cannot act answers neither state:
+ * `disabled:hover:` re-asserts the resting boundary over the hover, the same stacking the disabled
+ * action uses with `aria-disabled:`, so pointing at a picker that cannot act leaves it looking inert.
+ * `motion-safe:` gates the colour transition, so a reduced-motion session gets the same hover with no
+ * transition (rule B-3).
  */
 const SELECT_CLASSES = [
   'block w-full min-h-6 rounded-control border border-control-boundary px-2 py-1',
-  'bg-surface-1 text-13 text-text-primary',
+  'bg-surface-1 text-13 text-text-primary hover:border-accent',
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
+  'motion-safe:transition-colors motion-safe:duration-150',
   'disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-secondary',
+  'disabled:hover:border-control-boundary',
 ].join(' ');
 
 /** The explanation of a control that cannot act: plain text, not a hint behind a hover. */

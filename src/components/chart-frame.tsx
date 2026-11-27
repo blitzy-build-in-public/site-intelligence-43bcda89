@@ -3,10 +3,11 @@
  * be omitted.
  *
  * Success criterion 9 of this build and rule B-3 both require a table view of every chart, map and
- * graph, and `tableRows` is what makes that a compile-time guarantee rather than a habit: the prop
- * is required and carries the caption, the columns, the rows and the row key the table view needs,
- * so a caller cannot place a surface in this frame without also handing it the data that surface
- * draws. `src/components/chart-frame.test.tsx` and the component suites of each chart assert it.
+ * graph, and `tableRows` is what makes that a compile error rather than a habit: the prop is
+ * required and carries the caption, the columns, the rows and the row key the table view needs, so
+ * a caller cannot place a surface in this frame without also handing it the data that surface
+ * draws, and a chart that omits it does not compile. `src/components/chart-frame.test.tsx` and the
+ * component suites of each chart assert it.
  *
  * The charts, `./map-canvas.tsx` and `./dependency-graph.tsx` are deliberately pure SVG surfaces
  * that carry no toggle of their own; this frame is the one place the toggle lives and the one place
@@ -79,9 +80,9 @@ export interface ChartFrameProps<Row> {
    */
   readonly simLabel?: SimLabel;
   /**
-   * The data of the table view. Required, and the compile-time guarantee this frame exists for: a
-   * chart cannot be given a frame without the rows that let a reader take the same values as a table
-   * (success criterion 9, rule B-3).
+   * The data of the table view. Required, and the reason this frame exists: a chart cannot be given a
+   * frame without the rows that let a reader take the same values as a table (success criterion 9,
+   * rule B-3), because the prop is required and a chart that omits it does not compile.
    */
   readonly tableRows: ChartTableSpec<Row>;
   /** The chart, map or graph surface itself. Unmounted, not hidden, while the table view is up. */

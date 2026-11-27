@@ -7,9 +7,10 @@
  * projection; the five presets are native controls that report the view they were asked for; each of
  * the four node families reaches the map as a labelled, focusable control whose accessible name states
  * the family and the evidence-pin counts per state (rules B-3, P-6); activating a node reports the
- * selection and opens the evidence drawer for the reference the caller named; the two zoom controls
- * stop at the ends of their range and say why (rule P-8); the competitor marks, the chokepoint halos
- * and the legend appear only when the atlas payload supplies them, and always with the fixed
+ * selection and opens the evidence drawer for the reference the required mapper resolves for it, a
+ * node the mapper cannot resolve declaring no drawer and opening none (rule P-8); the two zoom
+ * controls stop at the ends of their range and say why (rule P-8); the competitor marks, the chokepoint
+ * halos and the legend appear only when the atlas payload supplies them, and always with the fixed
  * market-intelligence label imported from `src/types` (rules P-1, P-5); and the lens renders under
  * both themes.
  *
@@ -25,10 +26,11 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Atlas, Chokepoint, PinCounts, Topology } from '../types';
+import type { Atlas, Chokepoint, PinCounts, Topology, TopologyNode } from '../types';
 import { SIM_LABELS } from '../types';
 import { MAP_CANVAS_TEXT, MAP_VIEW_PRESETS, MAP_VIEW_PRESET_LABELS, MapCanvas } from './map-canvas';
 import type { MapCanvasProps } from './map-canvas';
+import { CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 
 /**
  * The service the evidence drawer reads through, replaced because this suite is about the drawing.
@@ -162,6 +164,13 @@ const ATLAS: Atlas = {
   radarSeries: [],
 };
 
+/**
+ * The mapping a case that asserts nothing about evidence starts from: no record stands behind any
+ * node, so activating one reports the selection and opens nothing. The prop is required, so the lens
+ * is never composed without one; a case that exercises the drawer names its own mapper.
+ */
+const NO_NODE_EVIDENCE: (node: TopologyNode) => string | undefined = () => undefined;
+
 /** The props every case starts from, so a case states only what it changes. */
 const BASE_PROPS: MapCanvasProps = {
   topology: TOPOLOGY,
@@ -171,6 +180,7 @@ const BASE_PROPS: MapCanvasProps = {
   viewPreset: 'world',
   onViewPresetChange: () => undefined,
   onSelectNode: () => undefined,
+  evidenceRefForNode: NO_NODE_EVIDENCE,
 };
 
 /** Renders the lens inside the query cache the evidence drawer reads through. */
@@ -196,6 +206,23 @@ function lanePathsOf(container: HTMLElement): readonly string[] {
   return [...(group?.querySelectorAll('path') ?? [])].map(
     (path) => path.getAttribute('d') ?? '',
   );
+}
+
+
+/**
+ * The pointer-state utilities one class list declares, filtered by their prefix rather than matched as a
+ * whole string, so a legitimate token change inside a state cannot fail the case while the requirement —
+ * a hover and a pressed treatment built from role tokens — still holds.
+ */
+function pointerStates(classList: string): readonly string[] {
+  return classList
+    .split(' ')
+    .filter((utility) => utility.startsWith('group-hover:') || utility.startsWith('group-active:'));
+}
+
+/** Every node of the map, as the focusable groups the drawing renders one of per topology node. */
+function nodeMarks(container: HTMLElement): readonly Element[] {
+  return [...container.querySelectorAll('svg g[role="button"]')];
 }
 
 describe('MapCanvas', () => {
@@ -289,7 +316,23 @@ describe('MapCanvas', () => {
     expect(within(supplier).getByText('2')).toBeInTheDocument();
   });
 
-  it('reports the selection and opens the evidence the caller names for the node', async () => {
+  it('rounds a pin badge from the control radius token, not a literal radius', () => {
+    renderLens();
+
+    const supplier = screen.getByRole('button', { name: /Rheinstern Elektronik/ });
+    const badges = [...supplier.querySelectorAll('rect')].filter((rect) =>
+      rect.classList.contains(CONTROL_RADIUS_CLASSES),
+    );
+
+    /* Two states are present on this node, so two badges are drawn and neither carries a literal radius. */
+    expect(badges).toHaveLength(2);
+
+    for (const badge of badges) {
+      expect(badge).not.toHaveAttribute('rx');
+    }
+  });
+
+  it('reports the selection and opens the evidence the mapper resolves for the node', async () => {
     const user = userEvent.setup();
     const selected: string[] = [];
     renderLens({
@@ -299,7 +342,11 @@ describe('MapCanvas', () => {
       evidenceRefForNode: (node) => `evidence-for-${node.id}`,
     });
 
-    await user.click(screen.getByRole('button', { name: /Rheinstern Elektronik/ }));
+    const supplier = screen.getByRole('button', { name: /Rheinstern Elektronik/ });
+
+    expect(supplier).toHaveAttribute('aria-haspopup', 'dialog');
+
+    await user.click(supplier);
 
     expect(selected).toStrictEqual(['node-supplier']);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
@@ -325,13 +372,38 @@ describe('MapCanvas', () => {
     expect(selected).toStrictEqual(['node-plant', 'node-plant']);
   });
 
-  it('opens nothing when the caller names no evidence for a node', async () => {
+  it('opens nothing for a node the mapper resolves no record for, and declares no drawer', async () => {
     const user = userEvent.setup();
-    renderLens();
+    renderLens({ evidenceRefForNode: NO_NODE_EVIDENCE });
 
-    await user.click(screen.getByRole('button', { name: /Regensburg plant/ }));
+    const plant = screen.getByRole('button', { name: /Regensburg plant/ });
+
+    expect(plant).not.toHaveAttribute('aria-haspopup');
+
+    await user.click(plant);
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('decides per node: only the node the mapper resolves declares and opens evidence', async () => {
+    const user = userEvent.setup();
+    renderLens({
+      evidenceRefForNode: (node) => (node.id === 'node-plant' ? 'evidence-for-plant' : undefined),
+    });
+
+    const plant = screen.getByRole('button', { name: /Regensburg plant/ });
+    const supplier = screen.getByRole('button', { name: /Rheinstern Elektronik/ });
+
+    expect(plant).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(supplier).not.toHaveAttribute('aria-haspopup');
+
+    await user.click(supplier);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(plant);
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
   it('rings the node the screen holds as selected', () => {
@@ -344,6 +416,44 @@ describe('MapCanvas', () => {
       ).length;
 
     expect(ringCount(selected)).toBeGreaterThan(ringCount(unselected));
+  });
+
+  it('answers the pointer on every node, over the ring the keyboard reveals', () => {
+    const { container } = renderLens();
+
+    const nodes = nodeMarks(container);
+
+    expect(nodes.length).toBeGreaterThan(0);
+
+    for (const node of nodes) {
+      /* The group marker the pointer ring's variants hang on. */
+      expect(node.getAttribute('class')).toContain('group');
+
+      /* The pointer ring is the node's one element painted in the accent role as a stroke. */
+      const pointerRing = node.querySelector('.stroke-accent');
+      const ringClasses = pointerRing?.getAttribute('class') ?? '';
+      const states = pointerStates(ringClasses);
+
+      expect(pointerRing).not.toBeNull();
+      expect(states.some((utility) => utility.startsWith('group-hover:'))).toBe(true);
+      expect(states.some((utility) => utility.startsWith('group-active:'))).toBe(true);
+      for (const utility of states) {
+        /* Every state names a role-token property: no palette literal, no arbitrary value, no shadow. */
+        expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(/^(fill|stroke|opacity)-[a-z0-9]/u);
+        expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/iu);
+        expect(utility).not.toContain('shadow');
+      }
+      expect(ringClasses).toContain('motion-safe:transition-opacity');
+
+      /* The keyboard's own ring is still drawn, in the focus-ring role, on the mark it belongs to. */
+      const focusRing = [...node.querySelectorAll('circle')].some((circle) => {
+        const classes = circle.getAttribute('class') ?? '';
+
+        return classes.includes('stroke-focus-ring') && classes.includes('group-focus-visible:opacity-100');
+      });
+
+      expect(focusRing).toBe(true);
+    }
   });
 
   it('stops the zoom controls at the ends of the range with the reason stated', () => {

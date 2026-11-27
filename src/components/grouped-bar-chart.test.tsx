@@ -6,8 +6,9 @@
  * and the already-formatted value the caller supplied, keyboard activation of a cell opening that
  * cell's own evidence, the same for a cluster's own evidence, the group index and series id reported to
  * `onActivate`, a zero value that keeps its label on screen, a series shorter than the group list that
- * draws no invented mark, the focus ring the surface holds in state, the tone each series is painted in,
- * and both themes of specification §4.1 rendering the same controls.
+ * draws no invented mark, the focus ring the surface holds in state, the accent ring every mark reveals
+ * under a hover or a press, the tone each series is painted in, and both themes of specification §4.1
+ * rendering the same controls.
  *
  * The cells hold plain words because the chart formats nothing (rule P-6): `valueLabel` arrives ready to
  * paint, so the values below are the caller's own labels rather than a currency amount or a
@@ -190,6 +191,23 @@ function focusRings(): readonly Element[] {
   return Array.from(document.querySelectorAll(FOCUS_RING_SELECTOR));
 }
 
+/**
+ * The pointer ring a mark carries: the only element of a mark painted in the accent role, because the
+ * bars themselves take the role their series' tone names.
+ */
+const POINTER_RING_SELECTOR = '.stroke-accent';
+
+/**
+ * The pointer-state utilities one class list declares, filtered by their prefix rather than matched as
+ * one whole string, so a legitimate token change inside a state cannot fail the case while the
+ * requirement — a hover and a pressed treatment built from role tokens — still holds.
+ */
+function pointerStates(classList: string): readonly string[] {
+  return classList
+    .split(' ')
+    .filter((utility) => utility.startsWith('group-hover:') || utility.startsWith('group-active:'));
+}
+
 beforeEach(() => {
   getEvidence.mockResolvedValue(RESULT);
 });
@@ -345,6 +363,47 @@ describe('GroupedBarChart', () => {
 
     const control = cellControl('Order alpha, Plan two: six');
     fireEvent.focus(control);
+    expect(focusRings()).toHaveLength(1);
+
+    fireEvent.blur(control);
+    expect(focusRings()).toHaveLength(0);
+  });
+
+  it('answers the pointer on every cell and cluster label without losing the focus ring', () => {
+    renderChart(chart());
+
+    const controls = screen.getAllByRole('button');
+
+    expect(controls.length).toBeGreaterThan(0);
+
+    for (const control of controls) {
+      /* The mark's own group is what the ring's hover and pressed variants hang on. */
+      expect(control.getAttribute('class')).toContain('group');
+
+      const ring = control.querySelector(POINTER_RING_SELECTOR);
+
+      expect(ring).not.toBeNull();
+
+      const states = pointerStates(ring?.getAttribute('class') ?? '');
+
+      expect(states.some((utility) => utility.startsWith('group-hover:'))).toBe(true);
+      expect(states.some((utility) => utility.startsWith('group-active:'))).toBe(true);
+      for (const utility of states) {
+        /* Every state names a role-token property: no palette literal, no arbitrary value, no shadow. */
+        expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(/^(fill|stroke|opacity)-[a-z0-9]/u);
+        expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/iu);
+        expect(utility).not.toContain('shadow');
+      }
+
+      /* The ring's own paint is the accent role, and its fade is the one the reduced-motion guard gates. */
+      expect(ring?.getAttribute('class')).toContain('stroke-accent');
+      expect(ring?.getAttribute('class')).toContain('motion-safe:transition-opacity');
+    }
+
+    /* The keyboard affordance is untouched: focus still draws the focus-ring ring, on that mark alone. */
+    const control = cellControl('Order alpha, Plan two: six');
+    fireEvent.focus(control);
+    expect(control.querySelector(FOCUS_RING_SELECTOR)).not.toBeNull();
     expect(focusRings()).toHaveLength(1);
 
     fireEvent.blur(control);

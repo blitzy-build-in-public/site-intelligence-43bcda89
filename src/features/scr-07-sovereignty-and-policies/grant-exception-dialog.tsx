@@ -27,9 +27,10 @@
  *   at the heading this component renders itself; focus moves into the first field on open, `Tab` and
  *   `Shift+Tab` are trapped in both directions, `Esc` closes it and focus returns to the element that
  *   opened it; every field has a programmatic label and a described-by message; every control is
- *   keyboard operable with the theme's 2 px focus ring and the 24x24 px minimum target; the only
- *   transition is `motion-safe:` on the controls it composes, so a reduced-motion session animates
- *   nothing here.
+ *   keyboard operable with the theme's 2 px focus ring and the 24x24 px minimum target; every field
+ *   lifts its boundary to the accent role under the pointer, so a pointer reader sees a state the
+ *   keyboard reader has an equivalent of; and every transition is `motion-safe:`, so a reduced-motion
+ *   session animates nothing here.
  * - P-2: data access is `useService()` alone. No seed module, adapter, API client, shell module or
  *   other feature is imported, so this dialog cannot become a second data boundary.
  * - P-6: no figure, date, identifier, user, role or count is typed here. The policy identifier and its
@@ -280,11 +281,19 @@ const LABEL_CLASSES = 'text-13 font-medium text-text-primary';
  * control boundary, the 2 px control radius, the 24x24 px minimum target of rule B-3 and the theme's
  * 2 px focus ring on `focus-visible`, so a keyboard user sees where they are and a pointer click
  * leaves no ring behind.
+ *
+ * The pointer is answered as well: `hover:` lifts the boundary to the accent role, the state the
+ * secondary control, the simulated-data badge and the audit screen's filters carry, so no field in the
+ * product looks inert when it is aimed at. Nothing changes at rest, and no press state is declared,
+ * because a press on a text field is its focus. `motion-safe:` gates the colour transition, so a
+ * reduced-motion session gets the same hover with no transition (rule B-3), and no raw palette value,
+ * arbitrary value or shadow appears here — the theme layer exposes no shadow to select.
  */
 const FIELD_CONTROL_CLASSES = [
   'w-full min-h-6 rounded-control border border-control-boundary bg-ground',
-  'px-2 py-1 text-13 text-text-primary',
+  'px-2 py-1 text-13 text-text-primary hover:border-accent',
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
+  'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
 
 /** The reason field: tall enough to write a sentence in, and resizable down the column. */

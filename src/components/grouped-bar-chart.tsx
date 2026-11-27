@@ -46,18 +46,23 @@
  * three competitors to `--color-competitor-1/2/3`, so the legend, this chart and its sibling agree, and
  * `BarTone` below names exactly the table's keys so a tone it does not know fails to compile.
  *
- * KEYBOARD AND FOCUS (rule B-3, WCAG 2.2 AA). Every cell is a focus stop with its own accessible name,
- * operated by `Enter` or `Space` as well as by the pointer, and every cluster label is a second focus
- * stop that opens the cluster's own evidence. The ring is a rectangle drawn in `--color-focus-ring`
- * around the focused slot rather than a CSS outline, because an outline on an SVG `<g>` is not reliably
- * painted by every engine and a slot-shaped ring marks a bar of zero height as focused too. The ring is
- * held in state rather than in a `:focus-visible` utility so that it is observable in a component test
- * without relying on an engine's focus heuristic. Closing a drawer puts focus back on the control that
- * opened it, which the surface does itself because the drawer restores focus only to an HTML element
- * while these controls are SVG groups.
+ * KEYBOARD, FOCUS AND THE POINTER (rule B-3, WCAG 2.2 AA). Every cell is a focus stop with its own
+ * accessible name, operated by `Enter` or `Space` as well as by the pointer, and every cluster label is
+ * a second focus stop that opens the cluster's own evidence. The focus ring is a rectangle drawn in
+ * `--color-focus-ring` around the focused slot rather than a CSS outline, because an outline on an SVG
+ * `<g>` is not reliably painted by every engine and a slot-shaped ring marks a bar of zero height as
+ * focused too. That ring is held in state rather than in a `:focus-visible` utility so that it is
+ * observable in a component test without relying on an engine's focus heuristic. The pointer is
+ * answered as well: a second slot-shaped ring in the accent role is revealed by `group-hover` and held
+ * by `group-active`, so hovering or pressing a mark is visible without a keyboard, and both are CSS
+ * variants on the mark's own group rather than React state — a hover therefore costs the surface no
+ * render. Closing a drawer puts focus back on the control that opened it, which the surface does
+ * itself because the drawer restores focus only to an HTML element while these controls are SVG
+ * groups.
  *
- * MOTION. There is none: nothing here transitions, animates or pulses, so there is nothing to gate
- * behind `prefers-reduced-motion` and no reduced-motion session can be shown a different drawing.
+ * MOTION. One property fades and nothing moves: the pointer ring's opacity is carried by a
+ * `motion-safe` transition, so a reduced-motion session is shown the same resting, hovered and pressed
+ * drawing with the fade suppressed and no state of this surface depends on an animation finishing.
  *
  * THE EVIDENCE DRAWER IS A SIBLING OF THE `<svg>`, never a child: an HTML dialog inside an SVG document
  * fragment is not rendered by the browser, so the drawer is composed after the surface, outside it, and
@@ -69,7 +74,7 @@ import { useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
 import { EvidenceDrawer } from './evidence-drawer';
-import { CHART_TONE_FILL_CLASSES } from './horizontal-bar-chart';
+import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 import type { StatusMeaning } from './status-indicator';
 
 /* ---------------------------------------------------------------------------------------------
@@ -366,6 +371,33 @@ const SLOT_CLASSES = 'fill-none';
 /** The cell's and the cluster's focus ring, and the only place the ring's colour is chosen. */
 const FOCUS_RING_CLASSES = 'fill-none stroke-focus-ring';
 
+/**
+ * The pointer ring: the same slot drawn in the accent role, invisible until the pointer is over the
+ * mark or a press is held on it.
+ *
+ * It is a second element rather than a variant on the focus ring, and both halves of that are
+ * deliberate. The focus ring is the surface's own state, so the ring carrying `stroke-focus-ring`
+ * stays exactly the element that means "the keyboard is here"; and an accent ring is visibly
+ * distinct from the focus ring it is drawn over, so a mark under the pointer reads differently from
+ * a mark whose drawer is still open. `pointer-events-none` keeps the resting hit area exactly the
+ * slot it was — the ring is a signal, not a target — and `motion-safe:` carries the fade, so a
+ * reduced-motion session gets the same hover and pressed states with no transition (rule B-3).
+ *
+ * No raw palette value, no arbitrary value and no opacity literal appears here: the ring is the
+ * accent role at full strength and nothing else, and the theme layer exposes no shadow to select.
+ */
+const POINTER_RING_CLASSES =
+  'pointer-events-none fill-none stroke-accent opacity-0 group-hover:opacity-100 group-active:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
+
+/**
+ * The mark's own group, and the only thing it carries: the `group` marker its ring variants hang on.
+ *
+ * Declaring the pointer states as variants of the ring rather than as React state is what makes a
+ * hover cost no render: the pointer moves over the drawing, the browser applies the variant, and the
+ * surface's two pieces of state are untouched.
+ */
+const MARK_GROUP_CLASSES = 'group';
+
 /** The value beside a bar: the secondary text role, in the mono face with tabular numerals. */
 const VALUE_TEXT_CLASSES = 'fill-text-secondary font-mono text-12 tabular-nums';
 
@@ -529,6 +561,7 @@ export function GroupedBarChart({
                     tabIndex={0}
                     aria-haspopup="dialog"
                     aria-label={`${group.label}, ${barSeries.label}: ${cell.valueLabel}`}
+                    className={MARK_GROUP_CLASSES}
                     onClick={(event) => {
                       activate(event.currentTarget);
                     }}
@@ -553,7 +586,7 @@ export function GroupedBarChart({
                       y={barTop}
                       width={barWidth}
                       height={barHeight}
-                      className={CHART_TONE_FILL_CLASSES[barSeries.tone]}
+                      className={CHART_TONE_CLASSES[barSeries.tone].fill}
                     />
                     <text
                       x={barLeft + barWidth / 2}
@@ -563,6 +596,15 @@ export function GroupedBarChart({
                     >
                       {cell.valueLabel}
                     </text>
+                    {/* The pointer's ring: nothing until the mark is hovered or pressed. */}
+                    <rect
+                      x={slotLeft}
+                      y={PLOT_TOP}
+                      width={slotWidth}
+                      height={PLOT_HEIGHT}
+                      strokeWidth={FOCUS_RING_WIDTH}
+                      className={POINTER_RING_CLASSES}
+                    />
                     {focusedKey === key ? (
                       <rect
                         x={slotLeft}
@@ -581,6 +623,7 @@ export function GroupedBarChart({
                 tabIndex={0}
                 aria-haspopup="dialog"
                 aria-label={`${group.label} ${GROUPED_BAR_CHART_TEXT.groupActivationSuffix}`}
+                className={MARK_GROUP_CLASSES}
                 onClick={(event) => {
                   openEvidence(event.currentTarget, group.evidenceRef);
                 }}
@@ -610,6 +653,15 @@ export function GroupedBarChart({
                 >
                   {group.label}
                 </text>
+                {/* The pointer's ring: nothing until the label is hovered or pressed. */}
+                <rect
+                  x={clusterLeft + clusterInset}
+                  y={GROUP_LABEL_TOP}
+                  width={clusterLabelWidth}
+                  height={GROUP_LABEL_HEIGHT}
+                  strokeWidth={FOCUS_RING_WIDTH}
+                  className={POINTER_RING_CLASSES}
+                />
                 {focusedKey === clusterLabelKey ? (
                   <rect
                     x={clusterLeft + clusterInset}

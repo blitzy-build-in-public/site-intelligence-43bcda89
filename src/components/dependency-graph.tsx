@@ -42,9 +42,10 @@
  * the drawer resolves is a record reference, and the topology payload carries the pin *counts* of a
  * node rather than the references of its pins; the evidence read resolves record families only, so a
  * node identifier is not one of them, and spelling a pin identifier here would fabricate a domain
- * identifier (rule P-6). `evidenceRefForNode` is therefore how a caller that holds a node's evidence
- * supplies the reference; with none supplied the activation reports the selection and no dialog
- * opens, so the lens can never put a refusal in front of a reader in place of a record.
+ * identifier (rule P-6). `evidenceRefForNode` is therefore required: it is how the caller that holds a
+ * node's evidence supplies the reference, so no composition of this lens can leave a node without a
+ * stated answer. A node it resolves nothing for reports the selection and opens no dialog, so the lens
+ * can never put a refusal in front of a reader in place of a record.
  *
  * WHAT IT DOES NOT DO. It reads no data (rule P-2): the topology arrives as a prop, the drawer does
  * its own read, and nothing here calls the service. It computes no business figure (rule P-6): the
@@ -70,6 +71,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 import type { PinCounts, PinState, Topology, TopologyNode, TopologyNodeKind } from '../types';
 
 import { EvidenceDrawer } from './evidence-drawer';
+import { CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 import { PENDING_CLOCK_ICON, StatusIndicator, meaningOf } from './status-indicator';
 import { ActionButton, CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES, Tooltip } from './tooltip';
 
@@ -268,9 +270,6 @@ const NODE_TEXT_INSET = 8;
  * clearance keeps the border of a node in the last column from being halved by the edge.
  */
 const GRAPH_PADDING = 8;
-
-/** The corner radius of a node's box. It mirrors the `--radius-control` role the tokens fix. */
-const NODE_CORNER_RADIUS = 2;
 
 /** The half-width of the arrowhead that marks a lane's direction. */
 const ARROW_HALF_HEIGHT = 4;
@@ -532,12 +531,27 @@ type NodeEmphasis = 'selected' | 'path' | 'dimmed' | 'default';
  * boundary in the accent role, and the label weight moves with it below. Every value is a role
  * token — no raw palette value, no arbitrary value and no opacity — so a boundary that must not
  * appear on a surface cannot be selected, and the contrasts are the ones specification 4 measured.
+ *
+ * Every level answers the pointer too, and in the same two steps, so a reader learns one rule from the
+ * whole lens. `hover:` lifts the boundary to the accent role where it is not already there and steps the
+ * surface to its neighbour — the selected node and the traced node trade their resting surface for the
+ * other one, the plain node steps in to the first surface — so the node under the pointer is always
+ * distinguishable from the neighbours sharing its level. `active:` holds the accent boundary and steps
+ * the surface down to the ground, so a press reads as one step below the hover that preceded it. The
+ * dimmed level is no exception and its dimming survives every state: it keeps the ground fill and the
+ * hairline weight while merely hovered, taking only the accent boundary, and a press raises its surface
+ * by the one step that makes the press visible. No level therefore rests its meaning on those colours —
+ * each keeps its own boundary weight and its own label weight throughout — and none of the four states
+ * changes the geometry, the text or the size of a box.
  */
 const NODE_BOX_CLASSES = {
-  selected: 'fill-surface-1 stroke-accent stroke-2',
-  path: 'fill-surface-2 stroke-accent stroke-2',
-  dimmed: 'fill-ground stroke-hairline stroke-1',
-  default: 'fill-surface-2 stroke-control-boundary stroke-1 group-hover:stroke-accent',
+  selected:
+    'fill-surface-1 stroke-accent stroke-2 group-hover:fill-surface-2 group-active:fill-ground',
+  path: 'fill-surface-2 stroke-accent stroke-2 group-hover:fill-surface-1 group-active:fill-ground',
+  dimmed:
+    'fill-ground stroke-hairline stroke-1 group-hover:stroke-accent group-active:stroke-accent group-active:fill-surface-1',
+  default:
+    'fill-surface-2 stroke-control-boundary stroke-1 group-hover:stroke-accent group-hover:fill-surface-1 group-active:stroke-accent group-active:fill-ground',
 } as const satisfies Record<NodeEmphasis, string>;
 
 /**
@@ -560,7 +574,10 @@ const NODE_SUMMARY_CLASSES = 'text-12 fill-text-caption';
  *
  * `focus-visible:outline-*` is the two-pixel `--color-focus-ring` outline the themes define, drawn
  * for the keyboard rather than for a click; `motion-safe:` keeps the colour transition out of a
- * reduced-motion session (rule B-3), and nothing on the drawing moves.
+ * reduced-motion session (rule B-3), and nothing on the drawing moves. The `group` marker is what the
+ * boundary's `hover:` and `active:` variants in {@link NODE_BOX_CLASSES} hang on, so the pointer states
+ * are applied by the browser rather than held in React state, and the transition above is the one that
+ * carries them whichever emphasis level the node is drawn at.
  */
 const NODE_GROUP_CLASSES = [
   'group cursor-pointer',
@@ -741,16 +758,28 @@ export interface DependencyGraphProps {
   readonly onPreviewScenarioChange?: ((scenarioId: string | null) => void) | undefined;
 
   /**
-   * The evidence reference to open for a node, or `undefined` for a node whose evidence the caller
-   * cannot name.
+   * Resolves the evidence reference a node opens, or `undefined` for a node no record stands behind.
+   * Required.
    *
-   * The topology payload carries a node's pin counts rather than its pins, and the evidence read
-   * resolves record references, so this component cannot derive a resolvable reference without
-   * fabricating a record identifier (rule P-6). The caller that holds a node's evidence supplies it
-   * here; when it supplies none, activating a node reports the selection and opens no drawer, so a
-   * reader is never shown a refusal where a record belongs.
+   * REQUIRED BECAUSE A NODE MAY NOT LOSE ITS EVIDENCE SILENTLY. AAP 0.2.1 F12 opens the evidence
+   * drawer from "any figure, chart mark, node, arc or pin", so a lens that could be composed without
+   * stating how its nodes' evidence opens would leave the reader a mark they cannot inspect, and the
+   * requirement's obligations would rest on a prop nobody was obliged to supply.
+   *
+   * WHAT A RETURNED REFERENCE MUST BE. One the service's `getEvidence` read resolves, which selects a
+   * family by identifier prefix and looks the record up by its exact identifier: `PPAP-`, `EXC-`,
+   * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`. The topology payload carries a node's
+   * pin counts rather than its pins, so this component cannot derive a resolvable reference of its own
+   * (rule P-6). A node's evidence today is a pin attached to that node — `EvidencePin.nodeRef` names
+   * the node whose evidence the pin is — or the record the screen attributes to the node; a bare
+   * topology node identifier matches no family, so returning one would open a drawer reporting the
+   * not-found refusal instead of a record.
+   *
+   * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind this node. Activating
+   * the node still reports the selection to the screen and opens no dialog, so a reader is never shown
+   * a refusal where a record belongs (rule P-8).
    */
-  readonly evidenceRefForNode?: ((node: TopologyNode) => string | undefined) | undefined;
+  readonly evidenceRefForNode: (node: TopologyNode) => string | undefined;
 }
 
 /**
@@ -761,9 +790,10 @@ export interface DependencyGraphProps {
  * all computed from the payload's own counts by the pure functions above. It carries no table and no
  * toggle, because `./chart-frame.tsx` owns the table view of every chart, map and graph.
  *
- * Activation reports the node and, when the caller supplied a reference for it, opens the evidence
- * drawer beside the drawing. The drawer is a sibling of the `svg`, never a child of it: a dialog
- * cannot live inside an SVG fragment, and the drawer itself portals into the document body.
+ * Activation reports the node and, when the caller's mapper resolves a reference for it, opens the
+ * evidence drawer beside the drawing; a control that opens the drawer declares that with
+ * `aria-haspopup="dialog"`. The drawer is a sibling of the `svg`, never a child of it: a dialog cannot
+ * live inside an SVG fragment, and the drawer itself portals into the document body.
  *
  * @param props The topology, the drawing's title, the shared selection and the optional overlays.
  * @returns The lens: a preview switch, the drawing, the pin-state key, the selected-node strip and,
@@ -817,14 +847,19 @@ export function DependencyGraph({
     return dimmed.has(nodeId) ? 'dimmed' : 'default';
   };
 
+  /**
+   * Reports a node's selection and opens the evidence the caller resolved for it.
+   *
+   * A node the mapper cannot resolve closes whatever drawer was open rather than leaving another
+   * node's evidence on screen beside a newly selected node, which is the reading the map lens gives
+   * the same gesture.
+   */
   const activateNode = (node: TopologyNode): void => {
     onSelectNode(node.id);
 
-    const reference = evidenceRefForNode?.(node);
+    const reference = evidenceRefForNode(node);
 
-    if (reference !== undefined) {
-      setOpenEvidenceRef(reference);
-    }
+    setOpenEvidenceRef(reference ?? null);
   };
 
   const handleNodeKeyDown = (
@@ -963,6 +998,7 @@ export function DependencyGraph({
           const counts = topology.pinsByNode[node.id];
           const emphasis = emphasisOf(node.id);
           const summary = visiblePinSummary(counts);
+          const opensEvidence = evidenceRefForNode(node) !== undefined;
 
           return (
             <g
@@ -970,6 +1006,7 @@ export function DependencyGraph({
               role="button"
               tabIndex={0}
               aria-label={nodeAccessibleName(node, counts)}
+              {...(opensEvidence ? { 'aria-haspopup': 'dialog' as const } : {})}
               transform={`translate(${x} ${y})`}
               className={NODE_GROUP_CLASSES}
               onClick={() => {
@@ -982,8 +1019,7 @@ export function DependencyGraph({
               <rect
                 width={NODE_WIDTH}
                 height={NODE_HEIGHT}
-                rx={NODE_CORNER_RADIUS}
-                className={NODE_BOX_CLASSES[emphasis]}
+                className={[NODE_BOX_CLASSES[emphasis], CONTROL_RADIUS_CLASSES].join(' ')}
               />
               <text
                 x={NODE_TEXT_INSET}

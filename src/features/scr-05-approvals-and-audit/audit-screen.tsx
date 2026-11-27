@@ -704,9 +704,18 @@ const LABEL_CLASSES = 'text-12 text-text-caption';
 /**
  * A filter's control: the control boundary and the first surface, at least 24 by 24 px (rule B-3), with
  * the 2 px focus ring of the active theme drawn for keyboard focus only.
+ *
+ * The pointer is answered too: `hover:` lifts the boundary to the accent role, the same boundary the
+ * secondary control and the simulated-data badge raise under the pointer, so a filter is not the one
+ * control in the product that looks inert when it is aimed at. Nothing changes at rest — the resting
+ * boundary, surface and label are exactly what they were — and a press needs no state of its own,
+ * because a press on a text field *is* its focus: the caret appears and the focus ring says where the
+ * reader is. `motion-safe:` gates the colour transition, so a reduced-motion session gets the same
+ * hover with no transition (rule B-3), and no raw palette value, arbitrary value or shadow appears
+ * here.
  */
 const CONTROL_CLASSES =
-  'min-h-6 min-w-32 rounded-control border border-control-boundary bg-surface-1 px-2 py-1 text-13 text-text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring';
+  'min-h-6 min-w-32 rounded-control border border-control-boundary bg-surface-1 px-2 py-1 text-13 text-text-primary hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring motion-safe:transition-colors motion-safe:duration-150';
 
 /** A filter's supporting hint, under the control it explains. */
 const HINT_CLASSES = 'text-12 text-text-caption';

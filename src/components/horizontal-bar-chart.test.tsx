@@ -9,10 +9,12 @@
  * by `Tab` and activation by `Enter` and by `Space`; a pointer activation; the evidence drawer
  * opening on the datum's own reference — outside the graphic, where HTML belongs — beside the
  * `onActivate` report a screen filters its queue with; a zero value drawn at zero length with its
- * labels intact; a value beyond the caller's axis held inside the track; the mark's simulation label
- * spoken rather than spelled by the chart (rule P-1); a long category label shortened in the drawing
- * while its accessible name keeps it whole; the selected datum marked by something other than
- * colour alone; and an empty set drawing nothing at all.
+ * labels intact; a value beyond the caller's axis held inside the track; the bar and its focus ring
+ * rounded from the control radius token rather than a literal radius (AAP §0.5.3); the one tone table
+ * in which every chart surface resolves a role token and its four utilities (AAP §0.5.3); the mark's
+ * simulation label spoken rather than spelled by the chart (rule P-1); a long category label
+ * shortened in the drawing while its accessible name keeps it whole; the selected datum marked by
+ * something other than colour alone; and an empty set drawing nothing at all.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary the drawer is allowed to read
  * through (rule P-2), so no adapter and no query cache beyond the suite's own client are involved,
@@ -33,8 +35,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Evidence, Meta, Result } from '../types';
 import { EVIDENCE_DRAWER_TEXT } from './evidence-drawer';
-import { HORIZONTAL_BAR_CHART_TEXT, HorizontalBarChart } from './horizontal-bar-chart';
-import type { HorizontalBarChartProps, HorizontalBarDatum } from './horizontal-bar-chart';
+import {
+  CHART_TONE_CLASSES,
+  CONTROL_RADIUS_CLASSES,
+  HORIZONTAL_BAR_CHART_TEXT,
+  HorizontalBarChart,
+} from './horizontal-bar-chart';
+import type {
+  ChartTone,
+  ChartToneClasses,
+  HorizontalBarChartProps,
+  HorizontalBarDatum,
+} from './horizontal-bar-chart';
 
 /**
  * The port member the drawer resolves a mark's evidence through, replaced before the component
@@ -108,6 +120,29 @@ const BETA_NAME = 'Beta plant: twenty units';
 
 /** The two themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
 const THEMES = ['command', 'paper'] as const;
+
+/**
+ * Every tone `ChartTone` declares, as a value list a case can iterate: the six status meanings, the
+ * accent role and the three competitor series.
+ *
+ * The list has to be complete in both directions, and two checks hold it there. The table itself is
+ * `satisfies Record<ChartTone, ChartToneClasses>`, so a tone added to the union cannot exist without
+ * an entry; and the case below compares this list with the table's own keys, so an entry with no
+ * line here fails rather than passing unnoticed. The annotation catches the third case, a name in
+ * this list that is no longer a tone.
+ */
+const TONES = [
+  'pass',
+  'fail',
+  'warning',
+  'review',
+  'empty',
+  'simulated',
+  'accent',
+  'competitor-1',
+  'competitor-2',
+  'competitor-3',
+] as const satisfies readonly ChartTone[];
 
 /**
  * A label longer than the drawing budget, whose start is still what tells two categories apart: it
@@ -206,6 +241,23 @@ describe('HorizontalBarChart', () => {
 
     expect(full).toBeGreaterThan(0);
     expect(half).toBeCloseTo(full / 2, 6);
+  });
+
+  it('rounds the bar and its focus ring from the control radius token, not a literal radius', () => {
+    renderBars();
+
+    for (const mark of screen.getAllByRole('button')) {
+      const ring = mark.querySelector('.stroke-focus-ring');
+
+      if (ring === null) {
+        throw new Error('the mark drew no focus ring');
+      }
+
+      for (const rect of [barOf(mark), ring]) {
+        expect(rect.getAttribute('class')).toContain(CONTROL_RADIUS_CLASSES);
+        expect(rect.hasAttribute('rx')).toBe(false);
+      }
+    }
   });
 
   it('reaches the first mark with Tab and opens its evidence with Enter', async () => {
@@ -377,5 +429,28 @@ describe('HorizontalBarChart', () => {
       'fill-accent',
     );
     expect(container.querySelectorAll('rect').length).toBe(BARS.length * 2);
+  });
+
+  it('resolves every tone from one table of a role token and its four utilities', () => {
+    expect(Object.keys(CHART_TONE_CLASSES).sort()).toEqual([...TONES].sort());
+
+    for (const tone of TONES) {
+      const entry: ChartToneClasses = CHART_TONE_CLASSES[tone];
+      const role = entry.roleVariable.slice('--color-'.length);
+
+      // The token is the role custom property the theme layer defines, and each of the four
+      // utilities is that same property's name with its own prefix — which is what makes a fill, a
+      // stroke, a text and a swatch of one tone unable to name two different roles.
+      expect(entry.roleVariable.startsWith('--color-')).toBe(true);
+      expect(role).not.toBe('');
+      expect(entry.fill).toBe(`fill-${role}`);
+      expect(entry.stroke).toBe(`stroke-${role}`);
+      expect(entry.text).toBe(`text-${role}`);
+      expect(entry.swatch).toBe(`bg-${role}`);
+
+      for (const utility of [entry.fill, entry.stroke, entry.text, entry.swatch]) {
+        expect(utility).not.toBe('');
+      }
+    }
   });
 });

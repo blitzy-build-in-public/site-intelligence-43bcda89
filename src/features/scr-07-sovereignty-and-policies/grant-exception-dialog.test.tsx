@@ -270,6 +270,36 @@ describe('GrantExceptionDialog', () => {
     }
   });
 
+  it('answers the pointer on every field, keeping the resting boundary and the focus ring', () => {
+    renderDialog();
+
+    const fields = [
+      screen.getByLabelText(TEXT.reasonLabel),
+      screen.getByLabelText(TEXT.expiryLabel),
+      screen.getByLabelText(TEXT.approverLabel),
+    ];
+
+    for (const field of fields) {
+      const utilities = (field.getAttribute('class') ?? '').split(' ');
+      const pointerStates = utilities.filter(
+        (utility) => utility.startsWith('hover:') || utility.startsWith('active:'),
+      );
+
+      expect(pointerStates.some((utility) => utility.startsWith('hover:'))).toBe(true);
+      for (const utility of pointerStates) {
+        /* The state names a role-token property: no palette literal, no arbitrary value, no shadow. */
+        expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(/^(bg|text|border)-[a-z]/u);
+        expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/iu);
+        expect(utility).not.toContain('shadow');
+      }
+
+      /* Nothing is added at rest, the keyboard ring is untouched, and the transition is guarded. */
+      expect(field.getAttribute('class')).toContain('border-control-boundary');
+      expect(field.getAttribute('class')).toContain('focus-visible:outline-focus-ring');
+      expect(field.getAttribute('class')).toContain('motion-safe:transition-colors');
+    }
+  });
+
   it('carries the fixed simulated-control label, because the flow is a demonstration control', () => {
     renderDialog();
 

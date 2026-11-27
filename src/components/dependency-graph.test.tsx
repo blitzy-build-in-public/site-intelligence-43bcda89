@@ -33,6 +33,7 @@ import userEvent from '@testing-library/user-event';
 import type { PinCounts, Topology, TopologyNode } from '../types';
 import { DEPENDENCY_GRAPH_LANES, DEPENDENCY_GRAPH_TEXT, DependencyGraph } from './dependency-graph';
 import type { DependencyGraphProps } from './dependency-graph';
+import { CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 
 vi.mock('./evidence-drawer', () => ({
   EvidenceDrawer: ({ evidenceRef }: { evidenceRef: string }) => (
@@ -105,10 +106,18 @@ const NODE_COUNT =
 const noop = (): void => {};
 
 /**
+ * The mapping a case that asserts nothing about evidence starts from: no record stands behind any
+ * node, so activating one reports the selection and opens nothing. The prop is required, so the lens
+ * is never composed without one; a case that exercises the drawer names its own mapper.
+ */
+const NO_NODE_EVIDENCE: (node: TopologyNode) => string | undefined = () => undefined;
+
+/**
  * Renders the lens with the props a case does not vary.
  *
- * Each optional prop is applied only when the case supplies it, because the component distinguishes
- * an absent handler from a present one and an explicit `undefined` would not exercise that.
+ * `evidenceRefForNode` is required, so it is supplied unconditionally. Each remaining optional prop is
+ * applied only when the case supplies it, because the component distinguishes an absent handler from a
+ * present one and an explicit `undefined` would not exercise that.
  */
 function renderGraph(overrides: Partial<DependencyGraphProps> = {}): ReturnType<typeof render> {
   return render(
@@ -116,6 +125,7 @@ function renderGraph(overrides: Partial<DependencyGraphProps> = {}): ReturnType<
       topology={overrides.topology ?? TOPOLOGY}
       title={overrides.title ?? TITLE}
       onSelectNode={overrides.onSelectNode ?? noop}
+      evidenceRefForNode={overrides.evidenceRefForNode ?? NO_NODE_EVIDENCE}
       {...(overrides.selectedNodeId === undefined
         ? {}
         : { selectedNodeId: overrides.selectedNodeId })}
@@ -129,9 +139,6 @@ function renderGraph(overrides: Partial<DependencyGraphProps> = {}): ReturnType<
       {...(overrides.onPreviewScenarioChange === undefined
         ? {}
         : { onPreviewScenarioChange: overrides.onPreviewScenarioChange })}
-      {...(overrides.evidenceRefForNode === undefined
-        ? {}
-        : { evidenceRefForNode: overrides.evidenceRefForNode })}
     />,
   );
 }
@@ -345,24 +352,88 @@ describe('DependencyGraph activation', () => {
     expect(onSelectNode).toHaveBeenCalledWith('customer-harbour');
   });
 
-  it('opens the evidence drawer for the reference the caller supplies', async () => {
+  it('opens the evidence drawer for the reference the mapper supplies', async () => {
     const user = userEvent.setup();
 
     renderGraph({ evidenceRefForNode: (node) => `reference-${node.id}` });
-    await user.click(nodeButton('First tier partner'));
+
+    const supplier = nodeButton('First tier partner');
+
+    expect(supplier).toHaveAttribute('aria-haspopup', 'dialog');
+
+    await user.click(supplier);
 
     expect(screen.getByRole('dialog', { name: 'Evidence' })).toHaveTextContent(
       'Evidence for reference-supplier-one',
     );
   });
 
-  it('opens no drawer when the caller supplies no reference for the node', async () => {
+  it('opens no drawer for a node the mapper resolves no record for, and declares none', async () => {
     const user = userEvent.setup();
 
-    renderGraph();
-    await user.click(nodeButton('First tier partner'));
+    renderGraph({ evidenceRefForNode: NO_NODE_EVIDENCE });
+
+    const supplier = nodeButton('First tier partner');
+
+    expect(supplier).not.toHaveAttribute('aria-haspopup');
+
+    await user.click(supplier);
 
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('decides per node: only the node the mapper resolves declares and opens evidence', async () => {
+    const user = userEvent.setup();
+
+    renderGraph({
+      evidenceRefForNode: (node) => (node.id === 'plant-main' ? 'reference-plant' : undefined),
+    });
+
+    const plant = nodeButton('Main assembly site');
+    const customer = nodeButton('Harbour works');
+
+    expect(plant).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(customer).not.toHaveAttribute('aria-haspopup');
+
+    await user.click(customer);
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await user.click(plant);
+
+    expect(screen.getByRole('dialog', { name: 'Evidence' })).toHaveTextContent(
+      'Evidence for reference-plant',
+    );
+  });
+
+  it('closes an open drawer when a newly selected node resolves no reference', async () => {
+    const user = userEvent.setup();
+
+    renderGraph({
+      evidenceRefForNode: (node) => (node.id === 'plant-main' ? 'reference-plant' : undefined),
+    });
+
+    await user.click(nodeButton('Main assembly site'));
+
+    expect(screen.getByRole('dialog', { name: 'Evidence' })).toBeInTheDocument();
+
+    await user.click(nodeButton('Harbour works'));
+
+    /* The map lens answers the same gesture the same way: another node's evidence never sits beside
+       the node the reader has just selected. */
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('rounds a node box from the control radius token, not a literal radius', () => {
+    renderGraph({});
+
+    for (const name of ['Main assembly site', 'Harbour works']) {
+      const box = nodeButton(name).querySelector('rect');
+
+      expect(box).not.toBeNull();
+      expect(box?.getAttribute('class')).toContain(CONTROL_RADIUS_CLASSES);
+      expect(box).not.toHaveAttribute('rx');
+    }
   });
 });
 
@@ -412,6 +483,43 @@ describe('DependencyGraph overlays', () => {
     expect(nodeBoxTokens('Main assembly site')).toContain('stroke-accent');
     expect(nodeBoxTokens('Harbour works')).not.toContain('stroke-accent');
   });
+
+  it.each([
+    { emphasis: 'default', node: 'Harbour works', overrides: {} },
+    { emphasis: 'dimmed', node: 'Second tier partner', overrides: { dimmedNodeIds: ['supplier-two'] } },
+    { emphasis: 'path', node: 'First tier partner', overrides: { pathNodeIds: ['supplier-one'] } },
+    { emphasis: 'selected', node: 'First tier partner', overrides: { selectedNodeId: 'supplier-one' } },
+  ] as const)(
+    'answers the pointer on the $emphasis level without giving up the emphasis it carries',
+    ({ node, overrides }) => {
+      renderGraph(overrides);
+
+      const tokens = nodeBoxTokens(node);
+      const states = tokens.filter(
+        (utility) => utility.startsWith('group-hover:') || utility.startsWith('group-active:'),
+      );
+
+      expect(states.some((utility) => utility.startsWith('group-hover:'))).toBe(true);
+      expect(states.some((utility) => utility.startsWith('group-active:'))).toBe(true);
+      for (const utility of states) {
+        /* Every state names a role-token property: no palette literal, no arbitrary value, no shadow. */
+        expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(
+          /^(fill|stroke|opacity)-[a-z0-9]/u,
+        );
+        expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/iu);
+        expect(utility).not.toContain('shadow');
+      }
+
+      /* Emphasis is untouched by those states: the level keeps exactly one boundary weight of its own. */
+      expect(tokens.filter((utility) => /^stroke-[12]$/u.test(utility))).toHaveLength(1);
+
+      /* The keyboard indicator is still on the node's own group, carried by the guarded transition. */
+      const group = nodeButton(node).getAttribute('class') ?? '';
+
+      expect(group).toContain('focus-visible:outline-focus-ring');
+      expect(group).toContain('motion-safe:transition-colors');
+    },
+  );
 });
 
 /* ---------------------------------------------------------------------------------------------

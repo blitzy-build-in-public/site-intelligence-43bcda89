@@ -19,11 +19,12 @@
  * The pack banner `ATLAS_PACK_BANNER` is deliberately not rendered here: the competitive atlas screen
  * owns it, and a legend that repeated it would put the same sentence on screen twice.
  *
- * Colours are role tokens only, and each entry kind resolves through its own single map:
+ * Colours are role tokens only, and every entry kind resolves through the one chart tone table
+ * `./horizontal-bar-chart.tsx` exports rather than through a map of this component's own:
  * `--color-status-*` for a status series, `--color-competitor-1/2/3` for the three competitors in the
  * order specification §4.2 assigns them, and the accent role for the client's own series, which §4.1
  * gives to first-party flows. That is what keeps a category the same colour in every chart that draws
- * it — a radar series, an atlas mark and a legend row resolve the same token — so a chart may not pick
+ * it — a radar series, an atlas mark and a legend row resolve the same entry — so a chart may not pick
  * a hue of its own, and this component may not either.
  *
  * The list carries no focus stop and no interactive element: a legend describes what a chart is
@@ -38,6 +39,7 @@ import type { ReactNode } from 'react';
 
 import { CLIENT_SELF_ASSESSMENT_LABEL, COMPETITOR_NAME_TAG } from '../types';
 import type { SimLabel } from '../types';
+import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 
 import type { StatusMeaning } from './status-indicator';
 
@@ -113,64 +115,18 @@ export interface ClientSeriesLegendEntry {
  */
 export type LegendEntry = StatusLegendEntry | CompetitorLegendEntry | ClientSeriesLegendEntry;
 
-/** Which way the rows run. Row is the default: a legend sits beside or beneath the chart it serves. */
-export type LegendOrientation = 'row' | 'column';
-
-/* ---------------------------------------------------------------------------------------------
- * Colours, per entry kind — the only place each one is chosen
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The status swatch per meaning: the `bg-` utility of a `--color-status-*` role token, so the swatch
- * paints in the colour each theme measured for that role and no raw palette value is reachable.
- *
- * Exhaustive by type, so a meaning added to the shared vocabulary without a colour fails to compile
- * rather than rendering an unpainted swatch.
- */
-const STATUS_SWATCH_CLASSES = {
-  pass: 'bg-status-pass',
-  fail: 'bg-status-fail',
-  warning: 'bg-status-warning',
-  review: 'bg-status-review',
-  empty: 'bg-status-empty',
-  simulated: 'bg-status-simulated',
-} as const satisfies Record<StatusMeaning, string>;
-
-/**
- * The competitor swatch per series index, in the order specification §4.2 assigns the three
- * competitor hues, so a legend row, a radar series and an atlas mark agree on which colour belongs to
- * which company.
- *
- * Exhaustive by type for the same reason as the status map: a fourth competitor would have to bring
- * its colour token with it.
- */
-const COMPETITOR_SWATCH_CLASSES = {
-  1: 'bg-competitor-1',
-  2: 'bg-competitor-2',
-  3: 'bg-competitor-3',
-} as const satisfies Record<1 | 2 | 3, string>;
-
-/**
- * The client's series swatch: the accent role, which specification §4.1 reserves for first-party
- * flows. It is a role token like the others, so the same series cannot be painted in a competitor's
- * hue on one theme and something else on the other.
- */
-const CLIENT_SERIES_SWATCH_CLASSES = 'bg-accent';
-
 /* ---------------------------------------------------------------------------------------------
  * Layout
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * How the rows are arranged: `row` wraps them beside a chart, `column` stacks them in a drawer.
+ * How the rows are arranged: one wrapping row, because a legend sits beside or beneath the chart it
+ * describes.
  *
- * `flex-wrap` is part of the row arrangement rather than the caller's problem, so a long set of series
+ * `flex-wrap` is part of the arrangement rather than the caller's problem, so a long set of series
  * wraps instead of overflowing its container at a narrow width.
  */
-const LIST_CLASSES = {
-  row: 'flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1',
-  column: 'flex min-w-0 flex-col items-start gap-2',
-} as const satisfies Record<LegendOrientation, string>;
+const LIST_CLASSES = 'flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1';
 
 /** One row: the swatch, then the label and any companion tag, wrapping as one item. */
 const ITEM_CLASSES = 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1';
@@ -201,8 +157,6 @@ export interface LegendProps {
    * and this component renders nothing for one.
    */
   readonly entries: readonly LegendEntry[];
-  /** Which way the rows run. Defaults to `'row'`. */
-  readonly orientation?: LegendOrientation | undefined;
   /** Layout-only additions from the calling screen. Never a colour and never a surface. */
   readonly className?: string | undefined;
 }
@@ -219,13 +173,13 @@ export interface LegendProps {
  * contributes no stray landmark and no empty list to the accessibility tree. Each entry's `id` keys its
  * row, so a caller must keep those identifiers unique within one legend.
  */
-export function Legend({ entries, orientation = 'row', className }: LegendProps) {
+export function Legend({ entries, className }: LegendProps) {
   if (entries.length === 0) {
     return null;
   }
 
   return (
-    <ul role="list" className={joinClassNames(LIST_CLASSES[orientation], className)}>
+    <ul role="list" className={joinClassNames(LIST_CLASSES, className)}>
       {entries.map((entry) => (
         <li key={entry.id} className={ITEM_CLASSES}>
           <span
@@ -242,17 +196,19 @@ export function Legend({ entries, orientation = 'row', className }: LegendProps)
 /**
  * The colour a row's swatch takes, chosen by entry kind and by nothing else.
  *
- * The `switch` is exhaustive over `LegendEntry` and has no `default` arm, so a new kind fails to
- * compile here until its colour has been decided in one of the maps above.
+ * Each arm reads the swatch of the tone the entry names from the one chart tone table
+ * `./horizontal-bar-chart.tsx` exports, so a legend row and the mark it describes resolve the same
+ * role token instead of two copies of it. The `switch` is exhaustive over `LegendEntry` and has no
+ * `default` arm, so a new kind fails to compile here until its colour has been decided.
  */
 function swatchClassFor(entry: LegendEntry): string {
   switch (entry.kind) {
     case 'status':
-      return STATUS_SWATCH_CLASSES[entry.meaning];
+      return CHART_TONE_CLASSES[entry.meaning].swatch;
     case 'competitor':
-      return COMPETITOR_SWATCH_CLASSES[entry.index];
+      return CHART_TONE_CLASSES[`competitor-${entry.index}`].swatch;
     case 'client-series':
-      return CLIENT_SERIES_SWATCH_CLASSES;
+      return CHART_TONE_CLASSES.accent.swatch;
   }
 }
 

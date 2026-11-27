@@ -20,7 +20,7 @@
  * clamped to at most `0`: `yMin` is honoured where it is negative and the bottom stays `0` where it
  * is absent or positive, so the zero line always sits inside the drawn area when nothing is
  * negative. A supplied point below zero is still drawn truthfully rather than clipped, because the
- * guarantee belongs to the solver that produced the series and a chart that hid a negative value
+ * reading belongs to the solver that produced the series and a chart that hid a negative value
  * would be the defect rather than the guard.
  *
  * EVIDENCE PER POINT. `LinePoint.evidenceRef` is required, so a mark cannot be constructed without
@@ -32,20 +32,29 @@
  * PROVENANCE (rules P-1, P-5). A series' `simLabel` is the exact specification §5.3 string, typed as
  * `SimLabel` and never spelled in this module; it is rendered in that series' accessible description
  * and nowhere else, so nothing is invented for a series that carries none — the surrounding frame
- * and legend supply the provenance there. Tones resolve through one lookup, and no reading is shared
- * between two series: each draws its own path and its own marks, and nothing here sums, totals or
- * blends a first-party figure with a market-intelligence one.
+ * and legend supply the provenance there. A tone resolves through the one chart tone table
+ * `./horizontal-bar-chart.tsx` owns, and no reading is shared between two series: each draws its own
+ * path and its own marks, and nothing here sums, totals or blends a first-party figure with a
+ * market-intelligence one.
+ *
+ * THE POINTER IS ANSWERED TOO (rule B-3). A mark is a focus stop with a drawn focus ring, so a
+ * keyboard reader always sees where they are; the same ring is revealed by `group-hover` and held by
+ * `group-active`, so a hovered or pressed mark is visibly live for a pointer reader as well, and
+ * neither state repaints the value the mark encodes. The only property either state transitions is
+ * opacity, and it is carried by a `motion-safe` transition, so a reduced-motion session is shown the
+ * same three states with no animation and nothing on this surface depends on one finishing.
  *
  * Rules served: B-1 (no charting dependency, no fetched asset), B-2 (nothing to configure), B-3
- * (keyboard-reachable named marks, role tokens only, and no animation at all, so nothing here can
- * outlive `prefers-reduced-motion`), P-1, P-5, P-6, P-7.
+ * (keyboard-reachable named marks, pointer states from role tokens only, and every transition gated
+ * behind `motion-safe`), P-1, P-5, P-6, P-7.
  */
 import { useId, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
 import type { IsoDate, SimLabel } from '../types';
 import { EvidenceDrawer } from './evidence-drawer';
-import type { StatusMeaning } from './status-indicator';
+import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
+import type { ChartTone } from './horizontal-bar-chart';
 
 /* ---------------------------------------------------------------------------------------------
  * The vocabulary a caller draws with
@@ -55,15 +64,11 @@ import type { StatusMeaning } from './status-indicator';
  * The colours a line may take: the six status meanings of `./status-indicator.tsx`, the accent role
  * specification §4.1 gives first-party flows, and the three competitor hues of §4.2 in their order.
  *
- * The union is the status vocabulary plus exactly the four series roles a chart needs, so a caller
- * cannot ask for a colour this surface has no role token for.
+ * It is `./horizontal-bar-chart.tsx`'s {@link ChartTone} rather than a second union naming the same
+ * roles, so this surface and every other chart draw from one vocabulary whose role tokens have one
+ * owner, and a caller cannot ask for a colour this surface has no role token for.
  */
-export type LineTone =
-  | StatusMeaning
-  | 'accent'
-  | 'competitor-1'
-  | 'competitor-2'
-  | 'competitor-3';
+export type LineTone = ChartTone;
 
 /**
  * One plotted value: where it sits on the x axis, its numeric height, the formatted text that
@@ -187,34 +192,6 @@ export interface LineChartProps {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * Colours — one lookup, and the only place a series colour is chosen
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The text-role utility each tone paints a path and its marks with, so `stroke="currentColor"` and
- * `fill="currentColor"` resolve to the role token that theme measured for it.
- *
- * The classes mirror the role tokens `./legend.tsx` uses for its swatches, so a series draws in the
- * colour its legend row shows. The map is exhaustive by type, so a tone added without a colour fails
- * to compile rather than drawing an unpaintable line.
- *
- * The status half is defined here rather than imported because the chart's tone union extends the
- * status vocabulary, and `./status-indicator.tsx` keeps its own lookup private to the icon mark.
- */
-const TONE_TEXT_CLASSES = {
-  pass: 'text-status-pass',
-  fail: 'text-status-fail',
-  warning: 'text-status-warning',
-  review: 'text-status-review',
-  empty: 'text-status-empty',
-  simulated: 'text-status-simulated',
-  accent: 'text-accent',
-  'competitor-1': 'text-competitor-1',
-  'competitor-2': 'text-competitor-2',
-  'competitor-3': 'text-competitor-3',
-} as const satisfies Record<LineTone, string>;
-
-/* ---------------------------------------------------------------------------------------------
  * Layout: the viewBox the surface draws into
  * ------------------------------------------------------------------------------------------- */
 
@@ -257,22 +234,36 @@ const MAX_X_LABELS = 7;
 const Y_TICK_TARGET = 5;
 
 /**
- * The mark a point draws: a 5-unit dot on the line, a ring that appears only while the mark holds
- * keyboard focus, and the larger transparent circle that gives the mark a target a pointer can hit
- * without the dot itself growing large enough to hide the series.
+ * The mark a point draws: a 5-unit dot on the line, a ring that appears while the mark holds keyboard
+ * focus, is hovered or is pressed, and the larger transparent circle that gives the mark a target a
+ * pointer can hit without the dot itself growing large enough to hide the series.
  *
  * The hit circle is 24 viewBox units across — the minimum target rule B-3 sets — and the last child
- * of each mark group, so it sits above the line it overlaps. The focus ring is drawn in the series'
+ * of each mark group, so it sits above the line it overlaps. The ring is drawn in the series'
  * own tone as well as the outline utility on the group, because an engine that draws no outline
- * around an SVG container still shows the ring (rule B-3).
+ * around an SVG container still shows the ring (rule B-3); the same ring answers the pointer, so a
+ * mark under a hover or a press is visible to a reader who never uses a keyboard.
  */
 const MARK_RADIUS = 2.5;
 const HIT_RADIUS = 12;
 const FOCUS_RING_RADIUS = 6;
 const FOCUS_RING_STROKE_WIDTH = 1.5;
 
-/** The focus ring is invisible until the mark holds keyboard focus. */
-const FOCUS_RING_CLASSES = 'opacity-0 group-focus-visible:opacity-100';
+/**
+ * The ring around one mark: the series' own tone, invisible while the mark is neither focused, hovered
+ * nor held down.
+ *
+ * `:focus-visible` rather than `:focus` for the keyboard half, so a pointer press does not leave a
+ * keyboard indicator behind; `group-hover` and `group-active` for the pointer half, so a mark under the
+ * pointer or under a press is visibly live even for a reader who is not using a keyboard. All three
+ * reveal the same ring in the series' tone, which keeps the reading untouched: the ring adds a halo
+ * around the dot and never repaints the value the mark encodes. `motion-safe:` carries the fade, so a
+ * reduced-motion session gets the same states with no transition (rule B-3). No raw palette value, no
+ * arbitrary value and no opacity literal appears here — `opacity-0` and `opacity-100` are the two
+ * ends of the utility set the theme layer exposes, and no shadow utility exists to select.
+ */
+const FOCUS_RING_CLASSES =
+  'opacity-0 group-focus-visible:opacity-100 group-hover:opacity-100 group-active:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
 
 /** Stroke widths and dash patterns: the hairline grid, a solid series, a dashed one, and the rest. */
 const HAIRLINE_STROKE_WIDTH = 1;
@@ -309,8 +300,9 @@ const AXIS_TITLE_CLASSES = 'font-mono text-12 text-text-caption';
 const AXIS_LABEL_CLASSES = 'font-mono text-12';
 
 /**
- * A point mark: pointer cursor, and the 2 px focus ring on the focus-ring role token, so a keyboard
- * user sees which point they are on. The ring is the same one every control in the interface draws.
+ * A point mark: the pointer cursor, the 2 px focus ring on the focus-ring role token so a keyboard user
+ * sees which point they are on, and the `group` marker the ring's hover and pressed variants hang on.
+ * The ring is the same one every control in the interface draws.
  */
 const POINT_CLASSES =
   'group cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring';
@@ -781,13 +773,13 @@ export function LineChart({
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeDasharray={spec.dashed === true ? SERIES_DASH : undefined}
-            className={TONE_TEXT_CLASSES[spec.tone]}
+            className={CHART_TONE_CLASSES[spec.tone].text}
           />
         ))}
 
         {/* One focusable mark per point: small dot, generous target, evidence on activation. */}
         {series.map((spec) => (
-          <g key={`marks-${spec.id}`} className={TONE_TEXT_CLASSES[spec.tone]}>
+          <g key={`marks-${spec.id}`} className={CHART_TONE_CLASSES[spec.tone].text}>
             {spec.points.map((point, index) => {
               const key = `${spec.id}-${index}`;
               const isOpen = opened?.key === key;
@@ -812,7 +804,7 @@ export function LineChart({
                   className={POINT_CLASSES}
                 >
                   <circle cx={cx} cy={cy} r={MARK_RADIUS} fill="currentColor" />
-                  {/* Shown only while this mark holds keyboard focus, in the series' own tone. */}
+                  {/* Revealed by keyboard focus, a hover or a press, in the series' own tone. */}
                   <circle
                     cx={cx}
                     cy={cy}

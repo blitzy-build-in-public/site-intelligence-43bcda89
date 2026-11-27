@@ -18,13 +18,14 @@
  * required so a mark cannot exist without the record behind it: activating a mark opens the shared
  * {@link EvidenceDrawer}, and the table view of the same figures belongs to `ChartFrame`, not here.
  *
- * COLOUR, AND WHY A TONE IS A NAME RATHER THAN A VALUE. {@link CHART_TONE_FILL_CLASSES} is the one
- * table in which a chart's tone becomes a role token, and it is shared by the four SVG surfaces so a
- * category keeps one colour wherever it is drawn. It maps onto `src/theme/tokens.css`'s role tokens
- * exactly as `./legend.tsx` maps the swatches of the same series, so a legend row and the mark it
- * describes cannot disagree. No raw palette value, no functional colour notation and no arbitrary
- * colour is reachable from here, and the status tones line up with `StatusMeaning` — a union this
- * module does not own — so a meaning added without a fill fails to compile.
+ * COLOUR, AND WHY A TONE IS A NAME RATHER THAN A VALUE. {@link CHART_TONE_CLASSES} is the one
+ * table in which a chart's tone becomes a role token, and it is shared by the four SVG surfaces and
+ * by `./legend.tsx`, so a category keeps one colour wherever it is drawn. It maps onto
+ * `src/theme/tokens.css`'s role tokens, and a legend row takes its swatch from the entry of the tone
+ * it describes, so the row and the mark cannot disagree. No raw palette value, no functional colour
+ * notation and no arbitrary colour is reachable from here, and the status tones line up with
+ * `StatusMeaning` — a union this module does not own — so a meaning added without a fill fails to
+ * compile.
  *
  * RULE P-5 IS A CALLER CONTRACT, STATED HERE SO IT IS NOT LOST. A `competitor-*` tone belongs only to
  * a market-intelligence mark, and no mark may combine a first-party value with a market-intelligence
@@ -94,25 +95,116 @@ export type ChartTone =
 export const DEFAULT_CHART_TONE: ChartTone = 'accent';
 
 /**
- * The `fill-` utility of a role token per tone, and the only table that chooses a chart colour.
+ * One tone's role token and the four utilities that paint it: the wash inside a mark, its outline,
+ * the text it draws in and the swatch a legend shows for it.
  *
- * Each value resolves through `src/theme/tokens.css`, so the same tone paints in the colour the
- * active theme measured for that role and the map serves both themes from one class list. The
- * declaration is exhaustive by type: a tone added without a fill fails to compile here rather than
- * rendering an unpainted mark.
+ * `roleVariable` is the name of the role custom property `src/theme/tokens.css` exposes, which AAP §0.5.3
+ * defines once per theme, and the four utilities are that one property's `fill-`, `stroke-`, `text-`
+ * and `bg-` forms. Holding them in one entry is what keeps a tone from taking one token's fill and
+ * another token's text, and it is why a re-pointed token reaches every surface at once.
  */
-export const CHART_TONE_FILL_CLASSES = {
-  pass: 'fill-status-pass',
-  fail: 'fill-status-fail',
-  warning: 'fill-status-warning',
-  review: 'fill-status-review',
-  empty: 'fill-status-empty',
-  simulated: 'fill-status-simulated',
-  accent: 'fill-accent',
-  'competitor-1': 'fill-competitor-1',
-  'competitor-2': 'fill-competitor-2',
-  'competitor-3': 'fill-competitor-3',
-} as const satisfies Record<ChartTone, string>;
+export interface ChartToneClasses {
+  /** The role custom property the tone resolves to, e.g. `--color-status-pass`. */
+  readonly roleVariable: `--color-${string}`;
+
+  /** The `fill-` utility of {@link roleVariable}, for the wash inside a mark. */
+  readonly fill: string;
+
+  /** The `stroke-` utility of the same role variable, for a mark's outline. */
+  readonly stroke: string;
+
+  /** The `text-` utility of the same role variable, for a path or a mark drawn in `currentColor`. */
+  readonly text: string;
+
+  /** The `bg-` utility of the same role variable, for a legend's swatch. */
+  readonly swatch: string;
+}
+
+/**
+ * Every tone's role token and its four utilities, and the only table in which a chart colour becomes
+ * a role token. The four SVG surfaces and `./legend.tsx` resolve their colours here, so a category
+ * keeps one colour wherever it is drawn and a re-pointed token is changed in this one place.
+ *
+ * The status and competitor entries name the roles specification §4.2 assigns them, the accent entry
+ * the role §4.1 gives first-party flows. Each utility resolves through `src/theme/tokens.css`, so the
+ * same tone paints in the colour the active theme measured for that role and one class list serves
+ * both themes. Every entry is one complete literal: Tailwind emits a rule only for text it can scan,
+ * so a class name assembled at run time would emit nothing and the mark would draw unpainted. The
+ * declaration is exhaustive by type, so a tone added without its token and its utilities fails to
+ * compile here rather than rendering an unpainted mark.
+ */
+export const CHART_TONE_CLASSES = {
+  pass: {
+    roleVariable: '--color-status-pass',
+    fill: 'fill-status-pass',
+    stroke: 'stroke-status-pass',
+    text: 'text-status-pass',
+    swatch: 'bg-status-pass',
+  },
+  fail: {
+    roleVariable: '--color-status-fail',
+    fill: 'fill-status-fail',
+    stroke: 'stroke-status-fail',
+    text: 'text-status-fail',
+    swatch: 'bg-status-fail',
+  },
+  warning: {
+    roleVariable: '--color-status-warning',
+    fill: 'fill-status-warning',
+    stroke: 'stroke-status-warning',
+    text: 'text-status-warning',
+    swatch: 'bg-status-warning',
+  },
+  review: {
+    roleVariable: '--color-status-review',
+    fill: 'fill-status-review',
+    stroke: 'stroke-status-review',
+    text: 'text-status-review',
+    swatch: 'bg-status-review',
+  },
+  empty: {
+    roleVariable: '--color-status-empty',
+    fill: 'fill-status-empty',
+    stroke: 'stroke-status-empty',
+    text: 'text-status-empty',
+    swatch: 'bg-status-empty',
+  },
+  simulated: {
+    roleVariable: '--color-status-simulated',
+    fill: 'fill-status-simulated',
+    stroke: 'stroke-status-simulated',
+    text: 'text-status-simulated',
+    swatch: 'bg-status-simulated',
+  },
+  accent: {
+    roleVariable: '--color-accent',
+    fill: 'fill-accent',
+    stroke: 'stroke-accent',
+    text: 'text-accent',
+    swatch: 'bg-accent',
+  },
+  'competitor-1': {
+    roleVariable: '--color-competitor-1',
+    fill: 'fill-competitor-1',
+    stroke: 'stroke-competitor-1',
+    text: 'text-competitor-1',
+    swatch: 'bg-competitor-1',
+  },
+  'competitor-2': {
+    roleVariable: '--color-competitor-2',
+    fill: 'fill-competitor-2',
+    stroke: 'stroke-competitor-2',
+    text: 'text-competitor-2',
+    swatch: 'bg-competitor-2',
+  },
+  'competitor-3': {
+    roleVariable: '--color-competitor-3',
+    fill: 'fill-competitor-3',
+    stroke: 'stroke-competitor-3',
+    text: 'text-competitor-3',
+    swatch: 'bg-competitor-3',
+  },
+} as const satisfies Record<ChartTone, ChartToneClasses>;
 
 /* ---------------------------------------------------------------------------------------------
  * The datum and the props
@@ -229,9 +321,6 @@ const BAR_HEIGHT = 14;
 /** The bar's offset inside its row, so a thin bar sits on the row's centre line. */
 const BAR_OFFSET = (ROW_HEIGHT - BAR_HEIGHT) / 2;
 
-/** The bar's corner radius: the 2 px control radius of specification §4.3. */
-const BAR_RADIUS = 2;
-
 /**
  * How many characters of a category label are drawn before it is shortened.
  *
@@ -257,6 +346,23 @@ const SURFACE_CLASSES = 'block h-auto w-full';
 
 /** The baseline the bars grow from, in the decorative hairline role, at hairline weight. */
 const BASELINE_CLASSES = 'stroke-hairline stroke-1';
+
+/**
+ * The corner radius every SVG mark that mirrors the control radius shares: the bar and its row's
+ * focus ring in this file, a node's box in `./dependency-graph.tsx` and a pin badge in
+ * `./map-canvas.tsx`. It is the control radius role of AAP §0.5.3, which carries specification
+ * §4.3's 2 px control radius as `--radius-control` on both themes.
+ *
+ * It is a class rather than a numeric `rx` attribute because no radius family reaches this shape:
+ * `border-radius` does not round an SVG `<rect>` — the `rx` geometry property does — and a
+ * presentation attribute cannot hold a `var()` reference, so a literal radius written there would
+ * restate the token instead of following it.
+ *
+ * The candidate has to stay one complete literal exactly as written: Tailwind emits the rule from the
+ * text it scans, so a name assembled at run time would emit nothing and the corner would draw square.
+ * It is exported so the suite names the utility through it instead of retyping the string.
+ */
+export const CONTROL_RADIUS_CLASSES = '[rx:var(--radius-control)]';
 
 /**
  * One mark. `group` is what lets the mark's focus ring know it is focused, `cursor-pointer` is the
@@ -400,14 +506,14 @@ export function HorizontalBarChart({
               </text>
               <rect
                 className={joinClassNames(
-                  CHART_TONE_FILL_CLASSES[tone],
+                  CHART_TONE_CLASSES[tone].fill,
                   isActive ? ACTIVE_BAR_CLASSES : undefined,
+                  CONTROL_RADIUS_CLASSES,
                 )}
                 x={TRACK_START}
                 y={rowTop + BAR_OFFSET}
                 width={barWidth(datum.value, divisor)}
                 height={BAR_HEIGHT}
-                rx={BAR_RADIUS}
                 aria-hidden="true"
               />
               <text
@@ -421,12 +527,11 @@ export function HorizontalBarChart({
                 {datum.valueLabel}
               </text>
               <rect
-                className={FOCUS_RING_CLASSES}
+                className={joinClassNames(FOCUS_RING_CLASSES, CONTROL_RADIUS_CLASSES)}
                 x={0}
                 y={rowTop}
                 width={CHART_WIDTH}
                 height={ROW_HEIGHT}
-                rx={BAR_RADIUS}
                 aria-hidden="true"
               />
             </g>
