@@ -409,10 +409,13 @@ const TOGGLE_BUSY_CLASSES =
  * the panel's memory to "all lifted".
  *
  * Every change goes through the port: a screen state is set through `setSimulation`, the two extra
- * triggers the same way, and `Reset demo data` through `resetDemo`. A resolved change invalidates the
- * query cache, so each screen re-reads through the port and no surface is left serving the payload it
- * cached before the trigger moved. A rejected one leaves the mirror untouched, keeps the panel open
- * and offers the retry, so nothing on screen pretends a change took effect (rule P-8).
+ * triggers the same way, and `Reset demo data` through `resetDemo`. A resolved change drops the reads
+ * it was holding and starts them again without awaiting the refetches, so each screen re-reads
+ * through the port and no surface is left serving the payload it cached before the trigger moved,
+ * while the panel's busy state covers the port call alone: the `loading` trigger holds every read
+ * open, so a panel that waited for those refetches would stay disabled with no way to lift the
+ * trigger it set (rule P-8). A rejected one leaves the mirror untouched, keeps the panel open and
+ * offers the retry, so nothing on screen pretends a change took effect (rule P-8).
  *
  * @returns The popover while it is open, or `null` while it is closed.
  */
@@ -429,6 +432,30 @@ export function SimulationControls(): ReactElement | null {
   const [failure, setFailure] = useState<Failure | null>(null);
 
   /**
+   * Drops the reads a change was holding and starts them again, in that order.
+   *
+   * WHY THE QUERIES ARE CANCELLED BEFORE THEY ARE INVALIDATED. While the `loading` trigger is in
+   * effect the adapter answers a read by never answering it, so a screen that began fetching inside
+   * that window holds an in-flight fetch that never settles. Invalidating alone would not restart it:
+   * the invalidation's refetch dedupes onto the fetch already in flight and hands back its pending
+   * promise, so no new read would start and the screen would never leave its pending state once the
+   * trigger was lifted. Cancelling first reverts the query to the state it held before that fetch,
+   * which is what lets the refetch the invalidation then starts reach the adapter and be answered.
+   *
+   * WHAT IS NOT AWAITED. The chain is issued and not awaited, so the panel's busy state still covers
+   * the port call alone: the `loading` trigger holds every read open, and a panel that waited for
+   * these refetches would stay disabled with no way to lift the trigger it set (rule P-8). Nothing is
+   * left here to reject either: the query cache hands a failed refetch to the screen that owns the
+   * read, which renders it, and neither the cancellation nor the invalidation reports a failure back
+   * to this caller.
+   */
+  function reissueReads(): void {
+    void queryClient
+      .cancelQueries()
+      .then(() => queryClient.invalidateQueries());
+  }
+
+  /**
    * Asks the port for one change and reports what happened.
    *
    * The screen states are mutually exclusive as a screen's condition, although the adapter keeps a set
@@ -436,6 +463,12 @@ export function SimulationControls(): ReactElement | null {
    * previous state's call comes first and the new state's second: if the first is refused, the second
    * is never made, and the panel reports that refusal rather than leaving the adapter with a state the
    * mirror does not describe.
+   *
+   * WHAT THE CHANGE IN FLIGHT IS. `pending` covers the port call and nothing after it. The reads a
+   * resolved change drops and starts again are the screens' own work (see `reissueReads`), and
+   * awaiting those refetches would tie this panel's busy state to reads the `loading` trigger never
+   * answers, leaving every control disabled for the rest of the session (rule P-8). The chain is
+   * therefore issued and not awaited.
    */
   async function run(action: PendingAction): Promise<void> {
     setPending(action);
@@ -450,7 +483,10 @@ export function SimulationControls(): ReactElement | null {
            the scope, the selection and this panel's open flag, which is why the panel closes here and
            returns focus to the badge that opened it. */
         resetShell();
-        await queryClient.invalidateQueries();
+        /* Issued, not awaited: the busy state covers the port call, and a refetch the `loading` trigger
+           holds would otherwise keep every control disabled for the rest of the session (rule P-8). The
+           reads the reset was holding are dropped first, so the refetch starts a new one. */
+        reissueReads();
         return;
       }
 
@@ -469,13 +505,13 @@ export function SimulationControls(): ReactElement | null {
 
           return current === action.state ? null : current;
         });
-        await queryClient.invalidateQueries();
+        reissueReads();
         return;
       }
 
       await service.setSimulation(action.flag, action.on);
       setExtraFlags((current) => ({ ...current, [action.flag]: action.on }));
-      await queryClient.invalidateQueries();
+      reissueReads();
     } catch (error) {
       setFailure({
         message: problemMessageOf(error) ?? SIMULATION_CONTROLS_TEXT.unreportedFailure,
