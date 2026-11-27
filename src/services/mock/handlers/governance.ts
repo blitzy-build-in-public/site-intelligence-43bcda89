@@ -1,8 +1,7 @@
 /**
  * The governance family of the in-browser mock adapter: the declared deployment configuration SCR-07
  * reads, the outbound ledger computed from the audit trail, the policy list and its detail, the
- * time-boxed policy exception the screen requests, the source catalogue, and the sections the
- * evidence-pack export is assembled from.
+ * time-boxed policy exception the screen requests, and the source catalogue.
  *
  * Implements the "Handlers" row of AAP 0.12.1 — one handler module per read/write family, of which
  * this is the governance family — at the path AAP 0.13.1 gives `handlers/`, over the records
@@ -16,12 +15,11 @@
  * configuration or a mechanism, never a property the deployment has been shown to have (rule P-4).
  * The deployment summary, the ten configuration rows and POL-009 state what the configuration
  * declares, each under the fixed `Declared, not verified` label the component that renders it applies
- * from `SIM_LABELS`; the ledger's two columns are counts of recorded audit events; and the chain
- * section of the evidence pack is a recomputation that exposes an edited record and establishes
- * nothing about the store behind a browser page. No sentence here, and no value it returns, states
- * that the workspace establishes a residency boundary, prevents a copy or withstands an edit. The
- * interface labels the chain `Simulated control` wherever it surfaces, and the harness behind the
- * permission checks is a demonstration control rather than production authorisation (rule P-3).
+ * from `SIM_LABELS`; and the ledger's two columns are counts of recorded audit events. No sentence
+ * here, and no value it returns, states that the workspace establishes a residency boundary, prevents
+ * a copy or withstands an edit. The interface labels the chain `Simulated control` wherever it
+ * surfaces, and the harness behind the permission checks is a demonstration control rather than
+ * production authorisation (rule P-3).
  *
  * WHY NO LABEL STRING IS TYPED HERE. `SovereigntyStatus`, `DeploymentSummary` and `SovereigntyRow`
  * carry no label member: the row's `status` is the literal `'declared'` and the summary's
@@ -41,7 +39,6 @@
  * - `PolicyDetail.recentDecisions` lists the events the policy engine itself appended for that
  *   policy, read from the chain. Nothing is filtered by result, so a reader counts what the trail
  *   recorded rather than what this module selected.
- * - The evidence pack's chain section is `verifyAuditChain`'s report, returned unchanged.
  *
  * WHY THE PENDING REQUEST LIVES ON THE SESSION. `requestPolicyException` records a time-boxed
  * exception as `status: 'pending'` on `MockState.policyExceptions`, beside the seeds rather than
@@ -68,13 +65,10 @@
  *   persona, which is the visible half of the freshness rule (AAP §0.2.1, T-13). The read still
  *   honours the demonstration's forbidden trigger, and `admin.read` stays the permission the sources
  *   workspace of a later stage will require.
- * - The evidence pack requires `sovereignty.read` of its own right and then each section's
- *   permission through the entry point that builds it, which is why it also needs `policy.read` and,
- *   because the chain section is `verifyAuditChain`'s report, `audit.read`. That last gate sits in
- *   `./audit.ts` and is deliberately not bypassed here: a persona holding one of the three is refused
- *   with the permission it lacks and the roles that hold it, which is what a disabled control's
- *   explanation needs. SCR-07's own "Export evidence pack" action reaches the file through
- *   `../exports/evidence-pack.ts`, which carries no such gate, so the screen is unaffected.
+ * - The export's sections are composed in `../exports/evidence-pack.ts` and not here. That builder
+ *   reads the session's records through `computeLedger` and `chain.ts`'s `verifyChain`, so the pack
+ *   has one composition and cannot disagree with the screen it came from (rule P-6); SCR-07's
+ *   "Export evidence pack" action reaches the file through it directly.
  *
  * A REFUSAL NAMES WHAT IS MISSING, IN PLAIN WORDS (rule P-8). Every denial is a `Problem` literal
  * built here with cause `'permission'`, a sentence naming the acting role, the permission it lacks
@@ -110,8 +104,8 @@ import { DEMO_CLOCK, SOURCE_LABELS } from '../../../types';
 import type {
   AuditAction,
   AuditEvent,
-  ChainReport,
   LedgerRow,
+  ListQuery,
   Permission,
   PolicyDetail,
   PolicyException,
@@ -126,7 +120,7 @@ import type {
 import type { HandlerContext } from '../mock-state';
 import type { SeededPolicy } from '../seed-loader';
 import { freshnessFor, isSimulationOn } from '../simulation';
-import { appendAuditEvent, traceIdFor, verifyAuditChain } from './audit';
+import { appendAuditEvent, traceIdFor } from './audit';
 
 /* ---------------------------------------------------------------------------------------------
  * The vocabulary this family addresses — contracts §7.1, §7.2, §6
@@ -405,6 +399,275 @@ function findPolicy(ctx: HandlerContext, policyId: PolicyId): SeededPolicy {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * Ordering and paging the list reads — contracts §9 list parameters, AAP 0.6.3 and AAP 0.12.3
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The ledger members a caller may order the rows by, spelled as `sort=field:dir` names them.
+ *
+ * The set is the row's own readable members rather than a display concept — the endpoint, its
+ * purpose, its declared state, its last attempt and its two counted columns — and an unknown member
+ * falls back to the default ordering rather than failing a read a screen can recover from.
+ */
+const LEDGER_SORT_FIELDS = [
+  'endpoint',
+  'purpose',
+  'state',
+  'lastAttempt',
+  'allowed',
+  'blocked',
+] as const;
+
+/** One member of `LEDGER_SORT_FIELDS`. */
+type LedgerSortField = (typeof LEDGER_SORT_FIELDS)[number];
+
+/**
+ * The policy members a caller may order the entries by, spelled as `sort=field:dir` names them: the
+ * identifier, the title, the display statement and the flag saying whether the engine evaluates the
+ * policy. `recentDecisions` is not among them, because the events an entry carries are its payload
+ * rather than a value the entry is ordered by.
+ */
+const POLICY_SORT_FIELDS = ['id', 'title', 'statement', 'evaluated'] as const;
+
+/** One member of `POLICY_SORT_FIELDS`. */
+type PolicySortField = (typeof POLICY_SORT_FIELDS)[number];
+
+/** Whether a string names a ledger member the rows may be ordered by. */
+function isLedgerSortField(value: string): value is LedgerSortField {
+  return LEDGER_SORT_FIELDS.some((field) => field === value);
+}
+
+/** Whether a string names a policy member the entries may be ordered by. */
+function isPolicySortField(value: string): value is PolicySortField {
+  return POLICY_SORT_FIELDS.some((field) => field === value);
+}
+
+/** One ordering: the member to order by and the direction to read it in. */
+interface SortOrder<TField extends string> {
+  /** The member ordered by. */
+  readonly field: TField;
+
+  /** Whether the order runs from the greatest value to the least. */
+  readonly descending: boolean;
+}
+
+/**
+ * The ordering a `sort=field:dir` parameter asks for, or `null` when it asks for none this read can
+ * honour — the default being the order the records the read was given hold.
+ *
+ * The parameter's form is contracts §9's: the member, a colon, then `asc` or `desc`. A member the
+ * family's vocabulary does not name, or a direction spelled in another form, yields that default
+ * rather than a failure: a read that can answer is worth more than a refusal over a presentation
+ * hint.
+ *
+ * @param isField - The family's own test for a member it can order by.
+ * @param sort - The parameter as the query carried it, or `undefined` when it carried none.
+ * @returns The ordering to apply, or `null` for the order the records hold.
+ */
+function sortOrderOf<TField extends string>(
+  isField: (value: string) => value is TField,
+  sort: string | undefined,
+): SortOrder<TField> | null {
+  if (sort === undefined) {
+    return null;
+  }
+
+  const [field, direction] = sort.split(':');
+
+  if (field === undefined || !isField(field)) {
+    return null;
+  }
+
+  if (direction === undefined || direction === 'asc') {
+    return { field, descending: false };
+  }
+
+  return direction === 'desc' ? { field, descending: true } : null;
+}
+
+/** Orders two strings by their own lexical order, which is also ISO 8601's for a single offset. */
+function compareText(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+
+  return left > right ? 1 : 0;
+}
+
+/**
+ * Orders two row values in the type they compare in: two counts numerically, and every other member
+ * as the text it renders to.
+ *
+ * @param left - One row's value.
+ * @param right - The other's.
+ * @returns A negative number when `left` comes first and a positive one when `right` does.
+ */
+function compareValues(left: string | number, right: string | number): number {
+  if (typeof left === 'number' && typeof right === 'number') {
+    return left - right;
+  }
+
+  return compareText(String(left), String(right));
+}
+
+/**
+ * The value one sortable ledger member holds on a row.
+ *
+ * `allowed` and `blocked` are counts and compare numerically; `lastAttempt` compares as text, which
+ * is its instant order because every record in this build carries the one offset contracts §1 fixes,
+ * and an endpoint never contacted reads as an empty string, so it stands before every attempted one
+ * in `asc` rather than being dropped from the ordering.
+ *
+ * @param row - The ledger row.
+ * @param field - The member to read.
+ * @returns The row's value for that member.
+ */
+function ledgerValueOf(row: LedgerRow, field: LedgerSortField): string | number {
+  if (field === 'allowed') {
+    return row.allowed;
+  }
+
+  if (field === 'blocked') {
+    return row.blocked;
+  }
+
+  if (field === 'lastAttempt') {
+    return row.lastAttempt ?? '';
+  }
+
+  return row[field];
+}
+
+/**
+ * The value one sortable policy member holds on an entry.
+ *
+ * `evaluated` compares as its own text, so an ordering by it groups the declared policies beside each
+ * other and the evaluated ones beside each other; the other three members are the record's own
+ * strings.
+ *
+ * @param detail - The policy entry.
+ * @param field - The member to read.
+ * @returns The entry's value for that member.
+ */
+function policyValueOf(detail: PolicyDetail, field: PolicySortField): string | number {
+  return field === 'evaluated' ? String(detail.evaluated) : detail[field];
+}
+
+/**
+ * Orders two ledger rows by one ordering, and by endpoint where the ordered members are equal.
+ *
+ * @param left - One row.
+ * @param right - The other.
+ * @param order - The ordering to apply.
+ * @returns A negative number when `left` comes first and a positive one when `right` does; the
+ *   endpoint breaks every tie in the same direction, so no pair is unordered.
+ */
+function compareLedgerRows(
+  left: LedgerRow,
+  right: LedgerRow,
+  order: SortOrder<LedgerSortField>,
+): number {
+  const primary = compareValues(
+    ledgerValueOf(left, order.field),
+    ledgerValueOf(right, order.field),
+  );
+
+  if (primary !== 0) {
+    return order.descending ? -primary : primary;
+  }
+
+  return order.descending
+    ? compareText(right.endpoint, left.endpoint)
+    : compareText(left.endpoint, right.endpoint);
+}
+
+/**
+ * Orders two policy entries by one ordering, and by identifier where the ordered members are equal.
+ *
+ * @param left - One entry.
+ * @param right - The other.
+ * @param order - The ordering to apply.
+ * @returns A negative number when `left` comes first and a positive one when `right` does; the
+ *   identifier breaks every tie in the same direction, so no pair is unordered.
+ */
+function comparePolicyEntries(
+  left: PolicyDetail,
+  right: PolicyDetail,
+  order: SortOrder<PolicySortField>,
+): number {
+  const primary = compareValues(
+    policyValueOf(left, order.field),
+    policyValueOf(right, order.field),
+  );
+
+  if (primary !== 0) {
+    return order.descending ? -primary : primary;
+  }
+
+  return order.descending ? compareText(right.id, left.id) : compareText(left.id, right.id);
+}
+
+/**
+ * The position in an ordered page from which a cursor continues.
+ *
+ * The cursor is opaque to a caller and holds the identity of the last row the previous page returned
+ * — the endpoint of a ledger row, the identifier of a policy — so the next page starts at the row
+ * that follows it in the requested order and a page boundary can neither repeat nor skip a row
+ * however the records have grown in between. A cursor that names no row of this read in the
+ * requested order — a malformed one, or one from an ordering the caller has since changed — is
+ * refused rather than silently restarted, because a page beginning again at the top would read as a
+ * truncated list.
+ *
+ * @param ordered - The rows the read admits, already in the requested order.
+ * @param cursor - The position the previous page ended at, or `undefined` for the first page.
+ * @param keyOf - The row's own identity, which is what a cursor names.
+ * @param ctx - The call's context, whose state supplies the trace a refusal carries.
+ * @param family - How the read that refused is named, such as `ledger`.
+ * @returns The index the page starts at.
+ * @throws Problem - A `'validation'` failure when the cursor names no row of the ordered page.
+ */
+function startIndexFor<TRow>(
+  ordered: readonly TRow[],
+  cursor: string | undefined,
+  keyOf: (row: TRow) => string,
+  ctx: HandlerContext,
+  family: string,
+): number {
+  if (cursor === undefined) {
+    return 0;
+  }
+
+  const found = ordered.findIndex((row) => keyOf(row) === cursor);
+
+  if (found < 0) {
+    throw validationProblem(
+      ctx,
+      `The ${family} cursor ${cursor} names no record of this read in the requested order.`,
+    );
+  }
+
+  return found + 1;
+}
+
+/**
+ * The greatest number of records a page may hold, or `null` when the query sets no boundary.
+ *
+ * A parameter that is absent, not an integer, or not positive asks for no page rather than for an
+ * empty one: contracts §9 leaves `limit` optional, and a caller that omits it wants the whole read.
+ * The bound is the parameter's alone, so no page size is fixed here (rule P-6).
+ *
+ * @param limit - The parameter as the query carried it.
+ * @returns The page's greatest length, or `null` for every remaining record.
+ */
+function limitOf(limit: number | undefined): number | null {
+  if (limit === undefined || !Number.isInteger(limit) || limit <= 0) {
+    return null;
+  }
+
+  return limit;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The two payloads this family declares — AAP 0.12.1, contracts §3 and §11
  * ------------------------------------------------------------------------------------------- */
 
@@ -414,9 +677,9 @@ function findPolicy(ctx: HandlerContext, policyId: PolicyId): SeededPolicy {
  * Declared here rather than in `src/types` because that folder holds no shape for it: the port's own
  * `requestPolicyException` adds the policy identifier to the same three terms and declares its
  * request there, while this interface is the handler's calling convention — the arrangement
- * `AuditWriteDraft` in `./audit.ts` and `RibbonTile` in `src/domain/aggregation/urgency.ts` already
- * use. What comes back is `PolicyException` from `src/types/screen-dto.ts`, carrying these three
- * terms beside the requester and the pending status the handler supplies.
+ * `AuditWriteDraft` in `./audit.ts` already uses. What comes back is `PolicyException` from
+ * `src/types/screen-dto.ts`, carrying these three terms beside the requester and the pending status
+ * the handler supplies.
  *
  * SCR-07's grant flow fixes all three: a reason a second approver can read, an expiry that makes the
  * exception time-boxed, and a second persona whose approval the request needs (AAP 0.12.4).
@@ -430,38 +693,6 @@ export interface PolicyExceptionDraft {
 
   /** The second persona whose approval the request needs; never the persona requesting it. */
   secondApproverId: UserId;
-}
-
-/**
- * The sections an evidence pack carries, composed from the screen's own payloads.
- *
- * Declared here rather than in `src/types` because it is not a contracts type but the working set the
- * evidence-pack export is composed from: `../exports/evidence-pack.ts` renders the downloadable
- * document, and this interface is the four sections assembled for it from the payloads the screen
- * already holds. Every member is a payload an entry point of this module returns, so the pack
- * recomputes no count, re-verifies no chain and cannot disagree with the screen it came from (rule
- * P-6).
- *
- * `sovereignty` already carries the ledger, and `ledger` repeats it as its own member because the
- * pack lists the ledger as a section of its own; both come from one `computeLedger` call, copied so
- * that an edit to either cannot change the other. `simulated` is the literal `true`, not a boolean,
- * which is how every payload of this application records that it is a demonstration's (rule P-1).
- */
-export interface EvidencePackSections {
-  /** The declared deployment configuration: the summary, the ten rows and the counted ledger. */
-  sovereignty: SovereigntyStatus;
-
-  /** The outbound ledger on its own, as the pack's second section lists it. */
-  ledger: LedgerRow[];
-
-  /** Every policy with its display detail and the decisions the engine recorded for it. */
-  policies: PolicyDetail[];
-
-  /** The audit chain's verification, as `verifyAuditChain` reported it. */
-  chain: ChainReport;
-
-  /** The marker every export carries, typed as the literal so it cannot be set to anything else. */
-  simulated: true;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -496,32 +727,65 @@ export async function getSovereignty(ctx: HandlerContext): Promise<SovereigntySt
  * the declared rows beside them and both reads answer by the same rule (contracts §5). Nothing here
  * is a reachability test: a `.example` host resolves nowhere and no code path contacts one (rule B-1).
  *
+ * The list parameters are the ones contracts §9 fixes: `sort` as `member:dir` over the row's own
+ * members, `limit` as the page's greatest length, and `cursor` as the endpoint a previous page ended
+ * at. Without a `sort` the rows keep the order the declared record states its endpoints in, which is
+ * the order the sovereignty screen shows them.
+ *
  * @param ctx - The call's context: the chain the counts are taken from and the record declaring the endpoints.
- * @returns Fresh ledger rows, one per declared endpoint, in the record's own order.
- * @throws Problem - A `'permission'` failure when the ledger is not readable by the acting role, or while the forbidden trigger is on.
+ * @param query - The ordering and page position the read carries.
+ * @returns Fresh ledger rows, one page of them in the requested order.
+ * @throws Problem - A `'permission'` failure when the ledger is not readable by the acting role or while the forbidden trigger is on, and a `'validation'` failure when the cursor names no endpoint of the ordered rows.
  */
-export async function getOutboundLedger(ctx: HandlerContext): Promise<LedgerRow[]> {
+export async function getOutboundLedger(
+  ctx: HandlerContext,
+  query: ListQuery,
+): Promise<LedgerRow[]> {
   requirePermission(ctx, SOVEREIGNTY_READ, 'outbound ledger');
 
-  return ledgerOf(ctx);
+  const rows = ledgerOf(ctx);
+  const order = sortOrderOf(isLedgerSortField, query.sort);
+  const ordered =
+    order === null ? rows : [...rows].sort((left, right) => compareLedgerRows(left, right, order));
+  const start = startIndexFor(ordered, query.cursor, (row) => row.endpoint, ctx, 'ledger');
+  const limit = limitOf(query.limit);
+
+  return limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
 }
 
 /**
  * Reads the policy list: every policy the engine evaluates and the one the deployment only declares.
  *
- * The order is the record set's, which is the order the policy list shows, and each entry carries its
- * own statement, its evaluated flag and the decisions the engine recorded for it. POL-009 comes back
- * with the rest and is never evaluated, hidden or paraphrased: it is declared configuration, and the
- * screen prints it under `Declared, not verified` (rule P-4).
+ * The order is the record set's unless `query.sort` names another, which is the order the policy list
+ * shows, and each entry carries its own statement, its evaluated flag and the decisions the engine
+ * recorded for it. POL-009 comes back with the rest and is never evaluated, hidden or paraphrased: it
+ * is declared configuration, and the screen prints it under `Declared, not verified` (rule P-4).
+ *
+ * The list parameters are the ones contracts §9 fixes: `sort` as `member:dir` over the entry's own
+ * members, `limit` as the page's greatest length, and `cursor` as the identifier a previous page
+ * ended at.
  *
  * @param ctx - The call's context: the persona the permission is evaluated for and the records read.
- * @returns One entry per seeded policy, in the record set's order.
- * @throws Problem - A `'permission'` failure when the policy set is not readable by the acting role, or while the forbidden trigger is on.
+ * @param query - The ordering and page position the read carries.
+ * @returns One page of entries in the requested order.
+ * @throws Problem - A `'permission'` failure when the policy set is not readable by the acting role or while the forbidden trigger is on, and a `'validation'` failure when the cursor names no policy of the ordered entries.
  */
-export async function listPolicies(ctx: HandlerContext): Promise<PolicyDetail[]> {
+export async function listPolicies(
+  ctx: HandlerContext,
+  query: ListQuery,
+): Promise<PolicyDetail[]> {
   requirePermission(ctx, POLICY_READ, 'policy set');
 
-  return ctx.state.records.policies.map((policy) => policyDetailOf(ctx, policy));
+  const entries = ctx.state.records.policies.map((policy) => policyDetailOf(ctx, policy));
+  const order = sortOrderOf(isPolicySortField, query.sort);
+  const ordered =
+    order === null
+      ? entries
+      : [...entries].sort((left, right) => comparePolicyEntries(left, right, order));
+  const start = startIndexFor(ordered, query.cursor, (entry) => entry.id, ctx, 'policy');
+  const limit = limitOf(query.limit);
+
+  return limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
 }
 
 /**
@@ -725,45 +989,6 @@ export async function getSourceCatalogue(ctx: HandlerContext): Promise<SourceCat
       state: freshness.state,
       asOf: freshness.asOf,
     })),
-  };
-}
-
-/* ---------------------------------------------------------------------------------------------
- * The evidence pack's sections — contracts §11, AAP 0.12.4
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * Composes the sections an evidence pack is built from: the declared configuration, the ledger, the
- * policy list and the audit chain's verification, with the literal `simulated: true`.
- *
- * Nothing is computed here. The summary, the rows and the ledger are `getSovereignty`'s payload, the
- * policies are `listPolicies`'s, and the chain section is `verifyAuditChain`'s report unchanged — so
- * the file a reader downloads and the screen it came from cannot disagree (rule P-6). The ledger is
- * copied into its own section rather than shared, so editing one section cannot alter the other.
- *
- * Each section is built through the entry point that owns it, which is where its permission is
- * checked: `sovereignty.read` for the configuration, `policy.read` for the policies, and `audit.read`
- * for the chain, that last gate living in `./audit.ts`. The chain is a mechanism and nothing more:
- * its report shows where a stored hash and a recomputation disagree, repairs nothing, and is labelled
- * `Simulated control` where it surfaces (rule P-4).
- *
- * @param ctx - The call's context: the persona the permissions are evaluated for, and the state read.
- * @returns The four sections and the simulation marker.
- * @throws Problem - A `'permission'` failure naming whichever permission the acting role lacks, or the forbidden trigger being on.
- */
-export async function buildEvidencePackSections(ctx: HandlerContext): Promise<EvidencePackSections> {
-  requirePermission(ctx, SOVEREIGNTY_READ, 'evidence pack');
-
-  const sovereignty = await getSovereignty(ctx);
-  const policies = await listPolicies(ctx);
-  const chain = await verifyAuditChain(ctx);
-
-  return {
-    sovereignty,
-    ledger: sovereignty.ledger.map((row) => ({ ...row })),
-    policies,
-    chain,
-    simulated: true,
   };
 }
 

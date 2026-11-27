@@ -363,15 +363,17 @@ function approvalRequest(
  * The input behind each one: the plant manager's `approval.decide` is the persona's home route and
  * the request-then-decide journey (AAP 0.2.3, 0.12.4); the auditor's `audit.read` is its home route
  * `/audit`; the platform administrator's `sovereignty.read` and `admin.read` are its home route
- * `/admin/sovereignty` and the exception it grants (SCR-07); and `exception.read` for the material
- * planner, the head of supply chain, the production planner and the supplier quality engineer is what
- * lets those four personas reach the queue from the canvas (AAP 0.12.4).
+ * `/admin/sovereignty` and the exception it grants (SCR-07), and its `audit.read` is what lets that
+ * home screen's "Export evidence pack" carry the chain's verification; and `exception.read` for the
+ * material planner, the head of supply chain, the production planner and the supplier quality engineer
+ * is what lets those four personas reach the queue from the canvas (AAP 0.12.4).
  */
 const HELD_CELLS: Array<[role: Role, permission: Permission]> = [
   ['plant-manager', 'approval.decide'],
   ['auditor', 'audit.read'],
   ['platform-administrator', 'sovereignty.read'],
   ['platform-administrator', 'admin.read'],
+  ['platform-administrator', 'audit.read'],
   ['material-planner', 'exception.read'],
   ['head-of-supply-chain', 'exception.read'],
   ['production-planner', 'exception.read'],

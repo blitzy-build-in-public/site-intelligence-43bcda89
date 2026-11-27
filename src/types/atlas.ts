@@ -224,14 +224,26 @@ export interface Chokepoint {
  *
  * `packLabel` carries the banner naming the simulated pack: the exact `ATLAS_PACK_BANNER` string
  * from `./primitives`, which the handler copies in rather than retyping, so the fixed text has one
- * owner. `productClasses` is the selector's list, typed as product identifiers because the selector
- * filters the client and the competitors by product class (AAP 0.12.4 SCR-13). The client's own
- * sites and the competitors' networks are separate members, and no member of this record combines
- * them (rule P-5).
+ * owner. `packVersion` is the release label that banner names, published here so the chokepoint brief
+ * can be composed over this read alone (AAP 0.12.1 "Exports" row). `productClasses` is the selector's
+ * list, typed as product identifiers because the selector filters the client and the competitors by
+ * product class (AAP 0.12.4 SCR-13). The client's own sites and the competitors' networks are separate
+ * members, and no member of this record combines them (rule P-5).
  */
 export interface Atlas {
   /** The banner text naming the simulated market-intelligence pack. */
   packLabel: string;
+
+  /**
+   * The pack's release label, which is the release the banner names and the value the chokepoint
+   * brief's document states under `packVersion` (AAP 0.12.1 "Exports" row, contracts §11).
+   *
+   * It travels with the atlas rather than being imported from the seeded pack so that an adapter with
+   * no records of its own can compose that brief over this read alone: the client builds the same
+   * document the mock adapter builds, from the same label, without reaching the seed the label is
+   * defined beside (rule P-2, AAP 0.12.3).
+   */
+  packVersion: string;
 
   /** The product classes the selector offers, as product identifiers. */
   productClasses: ProductId[];

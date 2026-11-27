@@ -106,7 +106,7 @@ import { isSimulationOn } from '../simulation';
  * there would put a handler's calling convention in the shared vocabulary: `AuditEventDraft` in
  * `src/types/audit.ts` is the chain module's input and carries the instant, the actor and the trace
  * the chain knows nothing about, while this interface is what one handler asks another's family for.
- * The same arrangement is used for `RibbonTile` in `src/domain/aggregation/urgency.ts`.
+ * The same arrangement is used for `PolicyExceptionDraft` in `./governance.ts`.
  *
  * Every member is a term of the record an append produces: what was done (`action`), to which record
  * (`objectRef`), with what outcome (`result`), by which policy where a policy decided it, and the two

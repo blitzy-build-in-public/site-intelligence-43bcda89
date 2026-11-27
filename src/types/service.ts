@@ -1,12 +1,14 @@
 /**
  * The service boundary vocabulary: the envelope every read returns, the typed failure every call can
  * produce, the list-query shapes the read methods accept, the seven screen states with their
- * simulation flags, and the decision the pure policy engine returns.
+ * simulation flags, the payload the browser-built exports hand back, and the decision the pure policy
+ * engine returns.
  *
  * Fixed by `platform-contracts.md` §2, which declares `Meta`, `Result<T>` and `Problem` as the two
- * halves of every response, and derived by AAP 0.12.1 (the envelope and the policy decision), AAP
- * 0.12.2 (the query shapes, whose fields the consuming screen fixes) and AAP 0.12.3 (`{ data, meta }`
- * on every response, and the five causes a `Problem` distinguishes).
+ * halves of every response, and derived by AAP 0.12.1 (the envelope, the export payload and the policy
+ * decision), AAP 0.12.2 (the query shapes, whose fields the consuming screen fixes) and AAP 0.12.3
+ * (`{ data, meta }` on every response, the five causes a `Problem` distinguishes, and the behaviour
+ * both adapters share).
  *
  * `Meta`, `Result` and `Problem` are declared here and nowhere else. The port,
  * `src/services/site-intelligence-service.ts`, imports and re-exports them, so the mock adapter, the
@@ -364,4 +366,34 @@ export interface PolicyDecision {
    * can offer the in-boundary model in one click instead of leaving the reader at a refusal.
    */
   permittedAlternative?: string;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The export payload — platform-contracts.md §11, AAP 0.12.1 "Exports", AAP 0.12.3
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * What the three browser-built exports hand back: the document's text together with the two members a
+ * browser needs to offer it as a file.
+ *
+ * Fixed by contracts §11's exports, which AAP 0.12.1's "Exports" row restates as builders that return
+ * "the download payload", and required on both adapters by AAP 0.12.3's swap-invisibility clause: the
+ * evidence pack, the scenario comparison and the chokepoint brief are assembled in the browser, so the
+ * shape they answer with belongs to the boundary vocabulary rather than to either adapter.
+ *
+ * The three members are one payload and not three answers. A caller offers `content` as a file under
+ * the name `filename` suggests and the type `mediaType` states, so no screen has to invent a
+ * download's name or media type. The content is the document as its builder serialised it: the two
+ * JSON payloads carry `"simulated": true` at their top level (AAP 0.12.1, rule P-1) and the scenario
+ * comparison is CSV, which carries its labels on their own row instead (AAP 0.6.3).
+ */
+export interface ExportPayload {
+  /** The file name the download suggests, fixed by the builder so two exports cannot be confused. */
+  filename: string;
+
+  /** The media type of `content`, as the type a saved file states. */
+  mediaType: string;
+
+  /** The document itself: JSON text for the pack and the brief, RFC 4180 CSV for the comparison. */
+  content: string;
 }

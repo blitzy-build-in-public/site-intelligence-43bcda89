@@ -134,6 +134,7 @@ import { DEMO_CLOCK, SOURCE_LABELS } from '../../../types';
 import type {
   Approval,
   ApprovalId,
+  ApprovalOutcome,
   ApprovalStatus,
   AuditAction,
   AuditPayload,
@@ -156,7 +157,6 @@ import type {
   SimulationFlag,
   SourceId,
   SolverCase,
-  SolverResult,
   WriteBack,
   WriteBackState,
 } from '../../../types';
@@ -1457,25 +1457,13 @@ function requireRecordEligibility(ctx: HandlerContext, approval: Approval): void
 
 /* ---------------------------------------------------------------------------------------------
  * L. The plan's outcome — AAP 0.12.4 SCR-05, rule P-6
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The outcome card's two measurements: the plan as approved, and the state the records reached.
  *
- * Both are `solveSupplyDelay`'s own output and neither is a difference this module computes. The
- * planned measurement is taken at the plan's own levers; the resulting measurement is taken at those
- * levers when every write-back step succeeded and at the do-nothing levers otherwise, because AAP
- * 0.2.2 makes a simulated write-back all-or-nothing — a change any of whose steps is pending or
- * failed has not been applied, so the records stand where they stood before it. The card's label is
- * applied where the figures are shown, never here (rule P-1).
- */
-export interface ApprovalOutcome {
-  /** The plan as approved, measured at the option's own levers. */
-  planned: SolverResult;
-
-  /** The state the approval's write-backs left, measured on the same case. */
-  resulting: SolverResult;
-}
+ * The shape the outcome card reads, `ApprovalOutcome`, is declared in `src/types/screen-dto.ts`: the
+ * port resolves it and imports `src/types` alone (rule P-2). Both of its measurements are
+ * `solveSupplyDelay`'s own output — the plan taken at its option's levers, the records taken at the
+ * levers the change actually reached — so nothing in this module computes a difference for the card,
+ * and AAP 0.2.2's all-or-nothing rule is what decides whether the change landed at all.
+ * ------------------------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------------------------
  * M. The public surface — AAP 0.12.1 handlers row, AAP 0.12.3 approval paths

@@ -432,10 +432,12 @@ function radarSeriesOf(series: AtlasSeries): AtlasSeries {
  * series, each labelled.
  *
  * The payload is assembled from three record sets and adds nothing of its own: the banner is
- * `ATLAS_PACK_BANNER`, the product classes are the identifiers of the client's own products, the
- * client's sites are its plants, and everything else is the pack's records copied member by member.
- * The banner is taken from the constant rather than from the pack's `packLabel` slot so the fixed
- * string has one owner and the payload carries it even if a record were mis-seeded without it.
+ * `ATLAS_PACK_BANNER`, the release label beside it is `MARKET_PACK_VERSION`, the product classes are
+ * the identifiers of the client's own products, the client's sites are its plants, and everything else
+ * is the pack's records copied member by member. The banner is taken from the constant rather than from
+ * the pack's `packLabel` slot so the fixed string has one owner and the payload carries it even if a
+ * record were mis-seeded without it; the release label travels with the atlas so the chokepoint brief
+ * can be composed over this read alone, by both adapters (AAP 0.12.1 "Exports" row).
  *
  * `productClass` is validated before the payload is built: an unknown class is refused as
  * `'not-found'`, naming it and the classes the atlas offers. A known class leaves the pack whole, for
@@ -473,6 +475,7 @@ export async function getAtlas(
 
   return {
     packLabel: ATLAS_PACK_BANNER,
+    packVersion: MARKET_PACK_VERSION,
     productClasses,
     clientSites: records.plants.map(clientSiteOf),
     competitors: pack.competitors.map(competitorNetworkOf),
@@ -491,8 +494,8 @@ export async function getAtlas(
  * crossings.
  *
  * Declared here rather than in `src/types` because `src/types` declares no shape for it and the brief
- * is one export's own payload — the same arrangement as `RibbonTile` in
- * `src/domain/aggregation/urgency.ts`. It is what
+ * is one export's own payload — the same arrangement as `AssistantQueryInput` in `./assistant.ts`. It
+ * is what
  * `src/services/mock/exports/chokepoint-brief.ts` reads, so the document never recomputes a figure the
  * pack already states.
  *

@@ -10,46 +10,56 @@
  * than by a value a caller supplies (rule B-1). Nothing here is configuration either — the base is a
  * code constant, and no entry reads an environment value (rule B-2).
  *
- * THE LIST AND THE PORT IT SERVES. Thirty-five distinct path entries follow, numbered 1 to 35 below
- * in the order of the members that serve them, and each is built from `API_BASE_PATH` alone, so
- * the `/api/v1` prefix AAP 0.6.3 and 0.12.3 require holds entry for entry. They serve the port's
- * thirty-six server-backed members: the port in `src/services/site-intelligence-service.ts`
- * declares forty-one, and five carry no path and take none here. `setSimulation(flag, on)` and
+ * THE LIST AND THE PORT IT SERVES. Forty distinct path entries follow, numbered 1 to 40 below in
+ * the order of the members that serve them, and each is built from `API_BASE_PATH` alone, so the
+ * `/api/v1` prefix AAP 0.6.3 and 0.12.3 require holds entry for entry. They serve the port's
+ * forty-one server-backed members: the port in `src/services/site-intelligence-service.ts`
+ * declares forty-six, and five carry no path and take none here. `setSimulation(flag, on)` and
  * `resetDemo()` are demonstration controls with no server-side counterpart (AAP 0.6.2), and
  * `exportEvidencePack()`, `exportScenarioComparison(exceptionId)` and `exportChokepointBrief()`
  * assemble their payload in the browser and offer it as a download instead of sending a request
  * (contracts §11, AAP 0.12.1 "exports"). `approvalsPath` is the only entry two members share —
- * `listApprovals` reads that collection with `GET`, `requestApproval` posts to it — so thirty-six
- * members occupy thirty-five entries. No entry is invented to reach a round count, and no member
- * is left without one.
+ * `listApprovals` reads that collection with `GET`, `requestApproval` posts to it — so forty-one
+ * members occupy forty entries. No entry is invented to reach a round count, and no member is left
+ * without one.
  *
- * AAP'S THIRTY-FOUR AND THIS FILE'S THIRTY-FIVE. AAP 0.6.3 ("Backend HTTP API"), 0.12.1 ("API
- * client" row) and 0.12.3 each state that contracts §9 fixes thirty-four paths — "against the 34
- * paths of contracts §9", "paths.ts holds the 34 path constants", "ApiClient implements all 34
- * paths" — and this file holds thirty-five. AAP 0.13.1's tree comment and 0.15.1 repeat the
- * figure, and 0.17 records contracts §9 itself as "the 34 API paths", so the plan states
- * thirty-four consistently. The gap is not closed by trimming. AAP 0.12.3 also names S4/S5
- * conformance endpoints this port omits on purpose — among them the binder manifest,
- * the supplier profile and the material profile, which the port's own OPEN ITEM records and
- * explains — so the plan's set and this set differ structurally; and contracts §9 and §2 are
- * absent from this checkout and from the whole run, so no entry's presence or absence can be
- * checked against the document that fixes it. Both figures stand as their source states them, and
- * every claim in this header is one this file and its suite can be checked against.
+ * AAP'S THIRTY-FOUR AND THIS FILE'S FORTY. AAP 0.6.3 ("Backend HTTP API"), 0.12.1 ("API client"
+ * row) and 0.12.3 each state that contracts §9 fixes thirty-four paths — "against the 34 paths of
+ * contracts §9", "paths.ts holds the 34 path constants", "ApiClient implements all 34 paths" —
+ * and this file holds forty. AAP 0.13.1's tree comment and 0.15.1 repeat the figure, and 0.17
+ * records contracts §9 itself as "the 34 API paths", so the plan states thirty-four consistently.
+ * The gap is not closed by trimming. AAP 0.12.3 also names S4/S5 conformance endpoints this port
+ * omits on purpose — among them the binder manifest, the supplier profile and the material profile,
+ * which the port's own derivation record explains — so the plan's set and this set differ
+ * structurally; five entries serve capabilities the specification names without a §9 member beside
+ * them (the canvas ribbon, the audit detail read, the approval outcome card, the write-back retry
+ * and the assistant's suggested questions); and contracts §9 and §2 are absent from this checkout
+ * and from the whole run, so no entry's presence or absence can be checked against the document
+ * that fixes it. Both figures stand as their source states them, and every claim in this header is
+ * one this file and its suite can be checked against.
  *
  * HOW EACH PATH WAS FIXED. Nine entries are transcribed character for character from the paths AAP
  * 0.12.3 tabulates: `/approvals`, for both of its methods, `/approvals/{id}/decision`,
  * `/assistant/queries`, `/evidence`, `/documents/{id}`, `/audit-events/verify`,
  * `/market-intelligence/atlas`, `/exceptions/{id}/scenarios/solve` and `/topology`. The other
- * twenty-six are derived from their member's family and name in the style those nine follow —
+ * thirty-one are derived from their member's family and name in the style those nine follow —
  * kebab-case plural collection segments, an `{id}` segment for one record and a sub-resource
  * segment for an action — and derivation is the only provenance each has, stated in its own TSDoc
- * on every one of the twenty-six.
+ * on every one of the thirty-one.
  *
  * WHAT REVERSES THIS. A supplied contracts §9 — or §2, which types the members these entries
  * serve — settles both the count and each derived entry: that document decides whether
- * thirty-five is the right number, which derived path is spelled differently, and which entry has
+ * forty is the right number, which derived path is spelled differently, and which entry has
  * no member behind it. Until one is supplied no entry here may be called verbatim, and the count
  * in this header is this file's own rather than the plan's.
+ *
+ * FIVE ENTRIES BESIDE THE TRANSCRIBED SET. Entries 36 to 40 serve the five reads the port gained for
+ * capabilities the plan fixes without a §9 member beside them: the canvas ribbon (AAP 0.12.4 SCR-12),
+ * the audit detail drawer and the approval outcome card (AAP 0.12.4 SCR-05), the write-back retry
+ * (AAP 0.2.2) and the assistant's suggested questions (AAP 0.12.4 SCR-06). Each is derived in the
+ * style above from its member's family and name, each says in its own TSDoc that it is derived, and
+ * none is numbered into the transcribed sequence: the existing entries keep their numbers, so a
+ * reader comparing this file with §9 finds path 1 to path 35 where they were.
  *
  * QUERY PARAMETERS ARE NOT PART OF A PATH. `limit`, `cursor`, `sort=field:dir` and every filter are
  * added by the request module from its typed inputs (AAP 0.12.3), and the evidence read's `ref` is a
@@ -64,6 +74,7 @@
 
 import type {
   ApprovalId,
+  AuditEventId,
   DocumentId,
   EvidencePinId,
   ExceptionId,
@@ -195,7 +206,7 @@ export function exceptionScenarioSolvePath(exceptionId: ExceptionId): string {
  * for both methods. Serves two port members: `listApprovals(query, scope)` reads it, narrowed by the
  * acting persona's plant scope and by the status in its query; `requestApproval(request)` posts to
  * it, gated by `approval.request`. A collection with two methods is one path, so this is the single
- * entry those two members share, and it is why thirty-six members occupy thirty-five paths.
+ * entry those two members share, and it is why forty-one members occupy forty paths.
  */
 export const approvalsPath = `${API_BASE_PATH}/approvals`;
 
@@ -275,14 +286,14 @@ export const sovereigntyPath = `${API_BASE_PATH}/sovereignty`;
 
 /**
  * §9 path 19 — `GET` `/sovereignty/outbound-ledger`, derived as the sub-resource of the record
- * above. Serves `getOutboundLedger()`, whose counts are computed from audit events. Gated by
- * `sovereignty.read`.
+ * above. Serves `getOutboundLedger(query)`, whose counts are computed from audit events and whose
+ * page and order travel as query parameters. Gated by `sovereignty.read`.
  */
 export const sovereigntyOutboundLedgerPath = `${API_BASE_PATH}/sovereignty/outbound-ledger`;
 
 /**
  * §9 path 20 — `GET` `/policies`, derived from the family's collection segment. Serves
- * `listPolicies()`. Gated by `policy.read`.
+ * `listPolicies(query)`, whose page and order travel as query parameters. Gated by `policy.read`.
  */
 export const policiesPath = `${API_BASE_PATH}/policies`;
 
@@ -325,8 +336,8 @@ export function documentPath(documentId: DocumentId): string {
 
 /**
  * §9 path 25 — `GET` `/evidence-pins`, derived from the family's collection segment. Serves
- * `listPins()`, narrowed by the adapter to the pins the acting persona may see. Gated by
- * `evidence.read`.
+ * `listPins(query)`, narrowed by the adapter to the pins the acting persona may see, with its page
+ * and order travelling as query parameters. Gated by `evidence.read`.
  */
 export const evidencePinsPath = `${API_BASE_PATH}/evidence-pins`;
 
@@ -344,7 +355,8 @@ export function evidencePinReviewPath(pinId: EvidencePinId): string {
 
 /**
  * §9 path 27 — `GET` `/packages`, derived from the packages family AAP 0.12.3 names. Serves
- * `listPackages()`. Gated by `evidence.read`.
+ * `listPackages(query)`, whose page and order travel as query parameters. Gated by
+ * `evidence.read`.
  */
 export const packagesPath = `${API_BASE_PATH}/packages`;
 
@@ -428,13 +440,73 @@ export function plantPlanGridPath(plantId: PlantId): string {
 export const exitPackagePath = `${API_BASE_PATH}/exit-package`;
 
 /* ---------------------------------------------------------------------------------------------
+ * The port's five remaining reads, entries 36 to 40 — derived, not transcribed
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * §9 path 36 — `GET` `/topology/ribbon`, derived: the sub-resource of path 31 that carries the six
+ * computed tiles of SCR-12's ribbon beside the topology they summarise. Serves
+ * `getCanvasRibbon(scope)`, whose selection travels as query parameters. Gated by `exception.read`
+ * within the reach left by that selection and by the acting persona's plant scope, exactly as path 31
+ * is; each tile's value is a computed aggregate and carries `Simulated calculation` where the tile is
+ * rendered (rule P-1).
+ */
+export const canvasRibbonPath = `${API_BASE_PATH}/topology/ribbon`;
+
+/**
+ * §9 path 37 — `GET` `/audit-events/{id}`, derived: one event of the collection path 14 lists, with
+ * the before and after payloads the audit detail drawer shows. Serves `getAuditEvent(auditEventId)`.
+ * Gated by `audit.read`, and the chain is not plant-scoped, so this read takes no scope; an
+ * identifier the chain does not hold is refused as a not-found rather than answered with an empty
+ * event.
+ */
+export function auditEventPath(auditEventId: AuditEventId): string {
+  return `${API_BASE_PATH}/audit-events/${encodeSegment(auditEventId)}`;
+}
+
+/**
+ * §9 path 38 — `GET` `/approvals/{id}/outcome`, derived: the comparison the review of path 13
+ * records a reading of, split out because SCR-05's outcome card reads it before anyone confirms it.
+ * Serves `getApprovalOutcome(approvalId)`. Both sides of the comparison are computed by the service
+ * from the records it holds, so the call carries no body and no parameter beyond this path.
+ */
+export function approvalOutcomePath(approvalId: ApprovalId): string {
+  return `${API_BASE_PATH}/approvals/${encodeSegment(approvalId)}/outcome`;
+}
+
+/**
+ * §9 path 39 — `POST` `/approvals/{id}/write-backs/{writeBackId}/retry`, derived in the shape of the
+ * decision of path 12: an action on one step of the change the approval set in motion, addressed by
+ * the reference that step writes. Serves `retryWriteBack(approvalId, writeBackId)`, whose body
+ * carries nothing because the step and its state are the service's to read. AAP 0.2.2 fixes the
+ * behaviour behind the path: a retry re-attempts a failed step and never writes one that already
+ * succeeded, so a step's success record cannot be duplicated. Gated by `approval.decide`, the
+ * permission the decision and the outcome review share.
+ */
+export function approvalWriteBackRetryPath(approvalId: ApprovalId, writeBackId: string): string {
+  return `${API_BASE_PATH}/approvals/${encodeSegment(approvalId)}/write-backs/${encodeSegment(
+    writeBackId,
+  )}/retry`;
+}
+
+/**
+ * §9 path 40 — `GET` `/assistant/questions`, derived: the collection of questions the assistant
+ * panel offers, beside the queries collection of path 17 they are submitted to. Serves
+ * `listSuggestedQuestions()`. Gated by `evidence.read`, the permission every read of the assistant
+ * family requires; only each question's identifier and prompt cross the boundary, because an
+ * answer's outline, template and citations belong to the answer itself (rule P-6).
+ */
+export const assistantQuestionsPath = `${API_BASE_PATH}/assistant/questions`;
+
+/* ---------------------------------------------------------------------------------------------
  * The five members with no entry here — AAP 0.6.2 and contracts §11
  * ------------------------------------------------------------------------------------------- */
 
 /*
  * `setSimulation`, `resetDemo`, `exportEvidencePack`, `exportScenarioComparison` and
  * `exportChokepointBrief` have no entry above: the first two are demonstration controls and the last
- * three build their payload in the browser. `api-client.ts` answers all five without a request, which
- * is the reason it needs no path for them.
+ * three build their payload in the browser. `api-client.ts` answers all five without a request of their
+ * own, which is the reason it needs no path for them: the exports are composed from reads that do have
+ * entries above.
  */
 

@@ -14,7 +14,10 @@
  * sources, identity and authorisation in place of the seeded personas, and a store behind the audit
  * chain. This adapter sends the call the port describes and reports what came back. It manufactures
  * no record, computes no figure, draws no inference from a payload and offers no fallback: a call it
- * cannot complete propagates the typed failure it received (AAP 0.12.3, rules P-1, P-6).
+ * cannot complete propagates the typed failure it received (AAP 0.12.3, rules P-1, P-6). The three
+ * exports are the one place it composes rather than forwards, and it composes them from its own reads
+ * of the service, handing those reads to the same builders the demonstration adapter calls — it holds
+ * no record of its own to compose from, and it invents none.
  *
  * WHO IS AUTHORISED, AND WHERE THAT IS DECIDED. The port carries no acting user, no role and no
  * session: the demonstration adapter holds the acting persona in its own state, and the eight personas
@@ -35,15 +38,20 @@
  * P-1). This file holds none of the seven fixed simulation labels and composes no label of its own:
  * labelling belongs to `src/components/`, where a reader sees it beside the element it qualifies.
  *
- * WHAT IT DELIBERATELY DOES NOT DO. It adds no latency — the 150 to 400 ms band is the demonstration
- * adapter's mechanism for making a loading state observable, and a real service's own latency
- * replaces it (AAP 0.12.1). It redacts nothing and withholds nothing: message-level redaction
- * belongs to the service that holds the records, so a customer-confidential body never crosses the
- * boundary upstream and no filtering here could be mistaken for that guarantee (AAP 0.6.2). It
- * performs no aggregation, so the competitive atlas arrives as the service composed it and no
- * first-party value is combined with a market-intelligence one at this layer (rule P-5). It types
- * no figure, identifier or currency amount: identifiers arrive as typed parameters and values leave
- * as received (rule P-6). It names no origin: every call is a path relative to the origin that
+ * IT TAKES THE SAME TIME THE DEMONSTRATION ADAPTER TAKES. AAP 0.12.3 requires both adapters to share
+ * the observable behaviour that makes the swap invisible, and the delay is part of it: the transport of
+ * `http.ts` waits the same 150 to 400 ms ladder the demonstration adapter waits before it sends a call,
+ * which AAP 0.12.1 assigns so that a loading state is observable rather than skipped and 0.12.3 keeps
+ * on both adapters so that a bound client behaves like the in-browser one. A deployment's own service
+ * adds its real latency on top of that wait, and nothing here sleeps for any other reason: no call is
+ * repeated, no answer is delayed past its arrival and no timer is read from a clock. Beyond that delay
+ * the adapter does nothing of its own. It redacts nothing and withholds nothing: message-level
+ * redaction belongs to the service that holds the records, so a customer-confidential body never
+ * crosses the boundary upstream and no filtering here could be mistaken for that guarantee
+ * (AAP 0.6.2). It performs no aggregation, so the competitive atlas arrives as the service composed it
+ * and no first-party value is combined with a market-intelligence one at this layer (rule P-5). It
+ * types no figure, identifier or currency amount: identifiers arrive as typed parameters and values
+ * leave as received (rule P-6). It names no origin: every call is a path relative to the origin that
  * served the application, so a request cannot address a third-party host (rule B-1). It reads no
  * configuration, environment value or credential, because the application needs none (rule B-2).
  *
@@ -51,23 +59,26 @@
  * cache and no module-level mutable value, and its constructor takes no argument, so
  * `new ApiClient()` is the whole of its construction. Every helper below the imports is a
  * module-private function rather than a member, which keeps the class's public surface exactly the
- * port's own member set.
+ * port's own member set. The one value that does survive between calls lives in the transport beside
+ * this file — the call counter its latency band is derived from (see `http.ts`) — so nothing about a
+ * call is retained here.
  *
  * NAMING. The product is Site Intelligence and its workspace is the FileMap canvas; every path this
  * file calls serves that workspace (rule P-7).
+ *
+ * THE EXPORTS ARE COMPOSED, NOT FETCHED. The three export members carry no §9 path, because contracts
+ * §11's payloads are browser-built downloads rather than resources a service serves (AAP 0.12.1
+ * "exports"). Each is composed here from this adapter's own reads and handed to the same shared builder
+ * the demonstration adapter calls, so the file a reader downloads is the same whichever adapter is
+ * bound (AAP 0.12.3) and no record is invented at this end. A deployment that would rather serve those
+ * documents from its own service adds a §9 entry for them, and the three members become one request
+ * each.
  *
  * OPEN ITEM: `platform-contracts.md` §9 is a plan attachment rather than a file in this checkout, so
  * the paths this class calls are the ones `src/services/api-client/paths.ts` holds. The nine paths
  * AAP 0.12.3 quotes exactly are transcribed there character for character and the remainder are
  * derived in the same style; that file records the derivation under each entry. Reconciling the
  * derived paths with §9 is an open item for the attachment, not a decision taken here.
- * OPEN ITEM: the three export members — `exportEvidencePack`, `exportScenarioComparison` and
- * `exportChokepointBrief` — carry no §9 path, because the payload is assembled in the browser from
- * the records the demonstration adapter holds (contracts §11, AAP 0.12.1 "exports"). This adapter
- * holds no record and has no target to ask for one, so it reports that absence with a typed failure
- * instead of handing back an empty file that a reader would take for an export, or inventing a path
- * that §9 does not fix. A deployment that serves exports supplies them from its own service, and
- * this is the member that would change.
  * THE TWO VERBS CONTRACTS §9 USES ARE THE TWO THE TRANSPORT OFFERS. Every read here is a `GET` and
  * every write a `POST`, so `RequestOptions` needs no third method and no call acquires one. The
  * assignee sub-resource is the one place a third verb could be imagined, and `paths.ts` documents
@@ -86,16 +97,21 @@
  * saying why a deployment has no such control.
  */
 
-import { ProblemError, request } from './http';
+import { request } from './http';
 import {
   approvalDecisionPath,
+  approvalOutcomePath,
   approvalOutcomeReviewPath,
   approvalPath,
   approvalsPath,
+  approvalWriteBackRetryPath,
   assistantQueriesPath,
+  assistantQuestionsPath,
   atlasPath,
   auditEventsPath,
   auditEventsVerifyPath,
+  auditEventPath,
+  canvasRibbonPath,
   documentPath,
   evidencePath,
   evidencePinReviewPath,
@@ -129,8 +145,10 @@ import type {
   Answer,
   Approval,
   ApprovalId,
+  ApprovalOutcome,
   Atlas,
   AuditEvent,
+  AuditEventId,
   AuditQuery,
   ChainReport,
   Decision,
@@ -145,8 +163,10 @@ import type {
   ExceptionQuery,
   ExceptionRow,
   ExitPackage,
+  ExportPayload,
   LedgerRow,
   Levers,
+  ListQuery,
   Meta,
   ModelCatalogue,
   OperationalException,
@@ -160,6 +180,7 @@ import type {
   PolicyId,
   PpapPackage,
   Result,
+  RibbonTile,
   Scenario,
   ScenarioSet,
   Scope,
@@ -167,9 +188,14 @@ import type {
   SimulationFlag,
   SourceCatalogue,
   SovereigntyStatus,
+  SuggestedQuestion,
   Topology,
   UserId,
+  WriteBack,
 } from '../../types';
+import { buildChokepointBrief } from '../exports/chokepoint-brief';
+import { buildEvidencePack } from '../exports/evidence-pack';
+import { buildScenarioComparisonCsv } from '../exports/scenario-csv';
 import type { SiteIntelligenceService } from '../site-intelligence-service';
 
 /* ---------------------------------------------------------------------------------------------
@@ -217,24 +243,6 @@ function selectionQuery(scope: Scope): SelectionParameters {
   return selection;
 }
 
-/**
- * The typed failure a member reports when this adapter's contract carries no target for what the
- * member produces: a `Problem` whose cause is `'not-found'`, because nothing answers the call
- * (see the second OPEN ITEM in this module's header).
- *
- * @param capability - What the member produces, named as the port names it.
- * @returns The failure to throw, carrying the reason a reader needs to see why nothing was sent.
- */
-function notServedHere(capability: string): ProblemError {
-  return new ProblemError({
-    type: 'not-found',
-    message:
-      `This client's contract carries no path for the ${capability}, which the demonstration ` +
-      'adapter assembles in the browser from the records it holds.',
-    traceId: '',
-  });
-}
-
 /* ---------------------------------------------------------------------------------------------
  * The shapes a member sends, taken from the port so they cannot drift from it
  * ------------------------------------------------------------------------------------------- */
@@ -274,10 +282,10 @@ type PolicyExceptionDraft = Parameters<SiteIntelligenceService['requestPolicyExc
  *
  * Each member does one of three things, and nothing else: it sends the call its name describes with
  * the query or the body the port fixes for it; or, for the two demonstration controls, it resolves
- * without sending anything, because a deployment has no simulation flag and no demo reset; or, for
- * the three exports, it reports that this adapter's contract carries no target for a payload the
- * browser assembles. No member catches a failure, retries a call, substitutes a payload or reports a
- * success it did not receive (AAP 0.12.3).
+ * without sending anything, because a deployment has no simulation flag and no demo reset; or, for the
+ * three exports, it reads what the document is composed from through its own members and hands those
+ * reads to the shared builder both adapters call. No member catches a failure, retries a call,
+ * substitutes a payload or reports a success it did not receive (AAP 0.12.3).
  */
 export class ApiClient implements SiteIntelligenceService {
   /* -------------------------------------------------------------------------------------------
@@ -505,6 +513,23 @@ export class ApiClient implements SiteIntelligenceService {
   }
 
   /**
+   * Reads the outcome card's two measurements through `GET /approvals/{id}/outcome`, the path
+   * `paths.approvalOutcomePath` builds.
+   *
+   * Both sides are the service's: the plan taken at its option's levers and the records taken at the
+   * levers the change actually reached, so this member sends the identifier and carries no figure
+   * either way (rule P-6). AAP 0.2.2's all-or-nothing rule, which decides the second side, is applied
+   * where the records are.
+   *
+   * @param approvalId - The approval whose outcome is measured.
+   * @returns The planned and resulting measurements the service returned.
+   * @throws Problem - The failure the service reported, whose `type` names its cause.
+   */
+  async getApprovalOutcome(approvalId: ApprovalId): Promise<Result<ApprovalOutcome>> {
+    return request<ApprovalOutcome>(approvalOutcomePath(approvalId));
+  }
+
+  /**
    * Puts a scenario forward for approval through `POST /approvals`, the same collection the inbox
    * reads.
    *
@@ -564,6 +589,28 @@ export class ApiClient implements SiteIntelligenceService {
     return request<Approval>(approvalOutcomeReviewPath(approvalId), { method: 'POST' });
   }
 
+  /**
+   * Re-attempts one failed write-back step through
+   * `POST /approvals/{id}/write-backs/{writeBackId}/retry`, the path
+   * `paths.approvalWriteBackRetryPath` builds.
+   *
+   * The call carries no body: the step is named in the path by the reference it writes, and the
+   * service decides from its own records whether that step may be re-attempted at all. A step that
+   * already succeeded is refused there rather than written a second time, which is how AAP 0.2.2's
+   * retry never duplicates a success record. `approval.decide` is the permission the endpoint
+   * requires, and the order book's freshness gates the write just as it gates the decision.
+   *
+   * @param approvalId - The approval whose step is retried.
+   * @param writeBackId - The reference of the step to re-attempt.
+   * @returns The step as the service left it.
+   * @throws Problem - The failure the service reported, whose `type` names its cause.
+   */
+  async retryWriteBack(approvalId: ApprovalId, writeBackId: string): Promise<Result<WriteBack>> {
+    return request<WriteBack>(approvalWriteBackRetryPath(approvalId, writeBackId), {
+      method: 'POST',
+    });
+  }
+
   /* -------------------------------------------------------------------------------------------
    * Audit — specification SCR-05, platform-contracts.md §6
    * ----------------------------------------------------------------------------------------- */
@@ -583,6 +630,22 @@ export class ApiClient implements SiteIntelligenceService {
    */
   async listAuditEvents(query: AuditQuery): Promise<Result<AuditEvent[]>> {
     return request<AuditEvent[], AuditQuery>(auditEventsPath, { query });
+  }
+
+  /**
+   * Reads one event of the chain through `GET /audit-events/{id}`, the path `paths.auditEventPath`
+   * builds, and returns the before and after payloads the audit detail drawer shows.
+   *
+   * `audit.read` is the permission the endpoint requires, and the chain is not plant-scoped, so this
+   * read takes no selection. An identifier the service does not hold arrives as a `'not-found'`
+   * `Problem` rather than as an empty event, so the drawer never renders a blank record as a real one.
+   *
+   * @param auditEventId - The event to read.
+   * @returns The event the service returned.
+   * @throws Problem - The failure the service reported, whose `type` names its cause.
+   */
+  async getAuditEvent(auditEventId: AuditEventId): Promise<Result<AuditEvent>> {
+    return request<AuditEvent>(auditEventPath(auditEventId));
   }
 
   /**
@@ -617,6 +680,22 @@ export class ApiClient implements SiteIntelligenceService {
    */
   async getModelCatalogue(): Promise<Result<ModelCatalogue>> {
     return request<ModelCatalogue>(modelsPath);
+  }
+
+  /**
+   * Lists the assistant's suggested questions through `GET /assistant/questions`, the path
+   * `paths.assistantQuestionsPath` holds.
+   *
+   * Only each question's identifier and prompt travel, so the panel can offer them without any
+   * answer crossing the boundary before it is asked for (rule P-6). `evidence.read` is the permission
+   * the assistant family requires, and a role without it meets here the same refusal a question
+   * meets.
+   *
+   * @returns The questions the service returned, in its own order.
+   * @throws Problem - The failure the service reported, whose `type` names its cause.
+   */
+  async listSuggestedQuestions(): Promise<Result<SuggestedQuestion[]>> {
+    return request<SuggestedQuestion[]>(assistantQuestionsPath);
   }
 
   /**
@@ -671,13 +750,16 @@ export class ApiClient implements SiteIntelligenceService {
    * `paths.sovereigntyOutboundLedgerPath` holds, gated by `sovereignty.read`.
    *
    * It is separate from the payload above so a caller refreshing the counts after a decision does not
-   * re-read the declared rows beside them; both reads are computed by the same rule upstream.
+   * re-read the declared rows beside them; both reads are computed by the same rule upstream. The
+   * query's `limit`, `cursor` and `sort=field:dir` travel as query parameters, as contracts §9 fixes
+   * every list read (AAP 0.6.3, AAP 0.12.3).
    *
+   * @param query - The ordering and page position the read carries.
    * @returns One row per endpoint, with its declared state and its counts.
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
-  async getOutboundLedger(): Promise<Result<LedgerRow[]>> {
-    return request<LedgerRow[]>(sovereigntyOutboundLedgerPath);
+  async getOutboundLedger(query: ListQuery): Promise<Result<LedgerRow[]>> {
+    return request<LedgerRow[], ListQuery>(sovereigntyOutboundLedgerPath, { query });
   }
 
   /**
@@ -686,13 +768,15 @@ export class ApiClient implements SiteIntelligenceService {
    *
    * Each entry states whether the engine evaluates it, which is how the screen tells a policy it can
    * show decisions for from one it can only show as declared: POL-009 is declared and never evaluated
-   * (rule P-4).
+   * (rule P-4). The query's `limit`, `cursor` and `sort=field:dir` travel as query parameters, as
+   * contracts §9 fixes every list read (AAP 0.6.3, AAP 0.12.3).
    *
+   * @param query - The ordering and page position the read carries.
    * @returns The policies the service holds.
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
-  async listPolicies(): Promise<Result<PolicyDetail[]>> {
-    return request<PolicyDetail[]>(policiesPath);
+  async listPolicies(query: ListQuery): Promise<Result<PolicyDetail[]>> {
+    return request<PolicyDetail[], ListQuery>(policiesPath, { query });
   }
 
   /**
@@ -778,13 +862,16 @@ export class ApiClient implements SiteIntelligenceService {
    *
    * The service filters the pins to what the acting persona may see, so an external supplier engineer
    * receives its own vendor's pins and no other. The per-node counts travel with the topology, so the
-   * canvas badges a node without this call (AAP 0.12.2).
+   * canvas badges a node without this call (AAP 0.12.2). The query's `limit`, `cursor` and
+   * `sort=field:dir` travel as query parameters over the pins the persona may see, as contracts §9
+   * fixes every list read (AAP 0.6.3, AAP 0.12.3).
    *
+   * @param query - The ordering and page position the read carries.
    * @returns The pins the service released for the acting persona.
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
-  async listPins(): Promise<Result<EvidencePin[]>> {
-    return request<EvidencePin[]>(evidencePinsPath);
+  async listPins(query: ListQuery): Promise<Result<EvidencePin[]>> {
+    return request<EvidencePin[], ListQuery>(evidencePinsPath, { query });
   }
 
   /**
@@ -812,13 +899,16 @@ export class ApiClient implements SiteIntelligenceService {
    * gated by `evidence.read`.
    *
    * Readiness in the payload is the service's whole-percent figure over the package's own element
-   * count; this member transports it and computes nothing (rule P-6).
+   * count; this member transports it and computes nothing (rule P-6). The query's `limit`, `cursor`
+   * and `sort=field:dir` travel as query parameters, as contracts §9 fixes every list read (AAP
+   * 0.6.3, AAP 0.12.3).
    *
+   * @param query - The ordering and page position the read carries.
    * @returns The packages the service returned.
    * @throws Problem - The failure the service reported, whose `type` names its cause.
    */
-  async listPackages(): Promise<Result<PpapPackage[]>> {
-    return request<PpapPackage[]>(packagesPath);
+  async listPackages(query: ListQuery): Promise<Result<PpapPackage[]>> {
+    return request<PpapPackage[], ListQuery>(packagesPath, { query });
   }
 
   /**
@@ -899,6 +989,26 @@ export class ApiClient implements SiteIntelligenceService {
     return request<Topology, SelectionParameters>(topologyPath, { query: selectionQuery(scope) });
   }
 
+  /**
+   * Reads the six computed tiles of the FileMap canvas ribbon through `GET /topology/ribbon`, the
+   * path `paths.canvasRibbonPath` holds, with the selection as query parameters — the same encoding
+   * `getTopology` sends.
+   *
+   * Each tile's value is the service's computed aggregate, so this member transports the six without
+   * aggregating anything itself and counts nothing (rule P-6); a tile's caption and its simulation
+   * label belong to the component that renders it (rule P-1). `exception.read` is the permission the
+   * endpoint requires, within the reach left by the selection.
+   *
+   * @param scope - The shell's plant and product selection.
+   * @returns The six tiles the service returned.
+   * @throws Problem - The failure the service reported, whose `type` names its cause.
+   */
+  async getCanvasRibbon(scope: Scope): Promise<Result<RibbonTile[]>> {
+    return request<RibbonTile[], SelectionParameters>(canvasRibbonPath, {
+      query: selectionQuery(scope),
+    });
+  }
+
   /* -------------------------------------------------------------------------------------------
    * Competitive atlas — specification SCR-13, AAP 0.12.3, rule P-5
    * ------------------------------------------------------------------------------------------- */
@@ -971,56 +1081,98 @@ export class ApiClient implements SiteIntelligenceService {
   }
 
   /* -------------------------------------------------------------------------------------------
-   * Browser-built exports — contracts §11, and the second OPEN ITEM in this module's header
+   * Browser-built exports — contracts §11, AAP 0.12.1 "exports", AAP 0.12.3
    * ------------------------------------------------------------------------------------------- */
 
   /**
-   * The evidence pack download.
+   * Builds the evidence pack from this adapter's own reads and resolves it as a download payload.
    *
-   * contracts §9 fixes no path for it: the payload is assembled in the browser from the records the
-   * demonstration adapter holds, so its top level carries `simulated: true` (contracts §11, AAP
-   * 0.12.1 "exports"). This adapter holds no record and has no target to ask for one, so it reports
-   * that absence rather than handing back an empty file a reader would take for an export.
+   * The four reads the document is composed from are taken together, through the members that serve
+   * them, so one export costs one round of calls: the declared deployment configuration and the
+   * outbound ledger from the governance reads, gated by `sovereignty.read`, and the audit trail and its
+   * verification from the audit reads, gated by `audit.read`. The ledger is read on its own rather than
+   * taken from the sovereignty payload, because that is the member a screen refreshing those counts
+   * calls, so this section and the ledger screen are one computation. The reads are handed to the
+   * builder the demonstration adapter also calls, so one service state yields one file on both adapters
+   * (AAP 0.12.3) and no figure, name or media type is invented here (rule P-6).
    *
-   * @returns Nothing: the member cannot produce the payload in this adapter.
-   * @throws ProblemError - `type: 'not-found'`, because this client's contract carries no target for
-   * the payload.
+   * The sovereignty read leads the composition and its `meta` is the envelope this result carries: it
+   * is the read the document opens with, and the other three answered from the same session.
+   *
+   * contracts §9 fixes no path for the payload itself, so nothing is sent for the export beyond those
+   * reads (contracts §11, AAP 0.12.1 "exports"). A refusal from any of them propagates unchanged, so a
+   * persona the service will not let read the trail is refused the pack exactly where the
+   * demonstration adapter refuses it.
+   *
+   * @returns The payload — the suggested file name, the media type and the pack's JSON text — carrying
+   *   the envelope of the read that leads the composition.
+   * @throws Problem - The failure any of the four reads reported, whose `type` names its cause.
    */
-  async exportEvidencePack(): Promise<Result<string>> {
-    throw notServedHere('evidence pack');
+  async exportEvidencePack(): Promise<Result<ExportPayload>> {
+    const [sovereignty, ledger, events, report] = await Promise.all([
+      this.getSovereigntyStatus(),
+      this.getOutboundLedger({}),
+      this.listAuditEvents({}),
+      this.verifyAuditChain(),
+    ]);
+
+    return {
+      data: buildEvidencePack({
+        sovereignty: { summary: sovereignty.data.summary, rows: sovereignty.data.rows },
+        ledgerRows: ledger.data,
+        events: events.data,
+        report: report.data,
+      }),
+      meta: sovereignty.meta,
+    };
   }
 
   /**
-   * The scenario comparison download for one exception.
+   * Builds one exception's scenario comparison from the scenario-set read and resolves it as a download
+   * payload.
    *
-   * contracts §9 fixes no path for it either: the comparison is built in the browser from the same
-   * solver output the matrix renders, so the file and the screen cannot disagree (AAP 0.12.4
-   * SCR-04). The measurement is the service's, but the CSV assembly is the demonstration's, so this
-   * member reports the absence rather than recomputing a figure or inventing a target.
+   * The set is read through the member that serves it, so a persona that may not read the exception's
+   * options is refused here exactly as it is refused on the screen, and the CSV and the comparison
+   * matrix cannot disagree (rule P-6). The composition is the shared builder both adapters call, so the
+   * file is the same whichever adapter is bound (AAP 0.12.3), and nothing is sent for the export itself:
+   * contracts §9 fixes no path for a download the browser assembles (contracts §11).
    *
-   * @param exceptionId - The exception whose comparison would be exported.
-   * @returns Nothing: the member cannot produce the payload in this adapter.
-   * @throws ProblemError - `type: 'not-found'`, because this client's contract carries no target for
-   * the payload.
+   * @param exceptionId - The exception whose options are compared.
+   * @returns The payload — the suggested file name, the CSV media type and the comparison's text —
+   *   carrying the envelope of the set read.
+   * @throws Problem - The failure the scenario-set read reported, whose `type` names its cause.
    */
-  async exportScenarioComparison(exceptionId: ExceptionId): Promise<Result<string>> {
-    throw notServedHere(`scenario comparison of ${exceptionId}`);
+  async exportScenarioComparison(exceptionId: ExceptionId): Promise<Result<ExportPayload>> {
+    const set = await this.getScenarioSet(exceptionId);
+
+    return { data: buildScenarioComparisonCsv(set.data), meta: set.meta };
   }
 
   /**
-   * The chokepoint brief download.
+   * Builds the chokepoint brief from the atlas read and resolves it as a download payload.
    *
-   * contracts §9 fixes no path for it: the brief is built in the browser from the market-intelligence
-   * pack, and every competitor figure in it carries the market-intelligence provenance and its own
-   * label so the file cannot be read as a first-party record (rules P-5, P-1). This adapter reports
-   * the absence rather than composing that payload itself.
+   * The atlas read is the whole of the input: it carries the pack's competitors, its crossings and its
+   * release label, which is everything the brief states, so the client composes the same document the
+   * demonstration adapter composes without reaching a seeded record (rule P-2, AAP 0.12.3). Its gate is
+   * the atlas's own, so the export is refused exactly where the picture is refused and the external
+   * supplier engineer reaches neither, and every competitor element the document carries keeps its own
+   * provenance and label (rules P-5, P-1).
    *
-   * @returns Nothing: the member cannot produce the payload in this adapter.
-   * @throws ProblemError - `type: 'not-found'`, because this client's contract carries no target for
-   * the payload.
+   * @returns The payload — the suggested file name, the JSON media type and the brief's text — carrying
+   *   the envelope of the atlas read.
+   * @throws Problem - The failure the atlas read reported, whose `type` names its cause.
    */
-  async exportChokepointBrief(): Promise<Result<string>> {
-    throw notServedHere('chokepoint brief');
+  async exportChokepointBrief(): Promise<Result<ExportPayload>> {
+    const atlas = await this.getAtlas();
+
+    return {
+      data: buildChokepointBrief({
+        competitors: atlas.data.competitors,
+        chokepoints: atlas.data.chokepoints,
+        packVersion: atlas.data.packVersion,
+      }),
+      meta: atlas.meta,
+    };
   }
 
   /* -------------------------------------------------------------------------------------------

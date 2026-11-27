@@ -130,6 +130,7 @@ import type {
   PlantId,
   Problem,
   ProductId,
+  RibbonTile,
   Scope,
   SourceId,
   SupplierId,
@@ -145,7 +146,6 @@ import type { OverviewInput } from '../../../domain/aggregation/overview';
 import { resolveScope } from '../../../domain/aggregation/scope';
 import type { ScopeFilterInput } from '../../../domain/aggregation/scope';
 import { computeRibbonTiles } from '../../../domain/aggregation/urgency';
-import type { RibbonTile } from '../../../domain/aggregation/urgency';
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
 import { solveSupplyDelay } from '../../../domain/solver/solve-supply-delay';
 

@@ -133,6 +133,7 @@ const CROSSING: Chokepoint = {
  */
 const ATLAS: Atlas = {
   packLabel: 'Market-intelligence pack, simulated',
+  packVersion: 'pack-one',
   productClasses: ['product-one'],
   clientSites: [],
   competitors: [

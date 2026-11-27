@@ -7,6 +7,7 @@
  * behaviour of `MockBackend`, because the duties rule P-2 loads onto the service have nowhere else to
  * be observed. The cases are grouped one `describe` per duty:
  *
+/* ---------------------------------------------------------------------------------------------
  * 1. the bootstrap, which hashes the seeded trail before the first call answers;
  * 2. the latency band that keeps a loading state observable;
  * 3. the refusal an approval meets while the order book is stale — the service half of the
@@ -27,6 +28,15 @@
  * 14. the empty trigger, which empties every collection a read returns rather than the queue alone.
  * 15. the shell's selection: the plant and product the top bar names, resolved once and applied to every
  *     read it narrows.
+ * 16. the port's remaining reads: the canvas ribbon, one audit event, the outcome card, the write-back
+ *     retry and the assistant's suggestions, each reached through the port rather than through a
+ *     handler;
+ * 17. the browser-built exports, which resolve a download payload whose document equals the one the
+ *     shared composition produces from the same reads, and which refuse the pack to a persona that may
+ *     not read the audit trail;
+ * 18. the list parameters the four collection reads carry, where `limit` bounds the page, `cursor`
+ *     continues from the position a previous page ended at, and `sort` orders the records by the
+ *     member it names in both directions.
  *
  * WHY THE NODE ENVIRONMENT, MANDATORY ON THE FIRST LINE ABOVE. The bootstrap hashes the 200 seeded
  * events through `crypto.subtle.digest`, which is a platform call rather than a DOM one: under
@@ -56,21 +66,32 @@ import { describe, expect, it } from 'vitest';
 import type {
   ActiveUser,
   DocumentBody,
+  EvidencePin,
   ExceptionId,
   ExceptionRow,
   ExceptionStatus,
   Freshness,
+  LedgerRow,
   Levers,
+  ListQuery,
+  PolicyDetail,
+  PpapPackage,
   Problem,
   ProductId,
+  Result,
+  RibbonTile,
   Scenario,
   ScenarioId,
   Scope,
+  SolverResult,
   SourceId,
   Topology,
   UserId,
 } from '../../types';
 import { DEMO_CLOCK, PERMISSIONS, SIM_LABELS, SOURCE_IDS, SOURCE_LABELS } from '../../types';
+import { buildChokepointBrief } from '../exports/chokepoint-brief';
+import { buildEvidencePack } from '../exports/evidence-pack';
+import { buildScenarioComparisonCsv } from '../exports/scenario-csv';
 import { MockBackend } from './mock-backend';
 import {
   BASELINE_CASE_ID,
@@ -110,6 +131,20 @@ const CONFIDENTIAL_CLASSIFICATION = 'customer-confidential';
 const NOTE_ACTION = 'note';
 const DECISION_ACTION = 'decision';
 const ROLE_SWITCH_ACTION = 'role switch';
+const WRITE_BACK_ACTION = 'simulated write-back';
+
+/**
+ * How many questions the assistant panel offers, and therefore how many the assistant answers from
+ * its script.
+ *
+ * The plan fixes six scripted answers (AAP 0.2.1's "six scripted assistant answers", AAP 0.8), and
+ * `src/seed/` holds the six prompts; the run re-exports no constant for the count, so it is stated
+ * here beside the other record facts this suite reads rather than counted from the seed (rule P-2).
+ */
+const SCRIPTED_QUESTION_COUNT = 6;
+
+/** The two members a suggestion publishes, and the only two the panel may read (rule P-6). */
+const SUGGESTION_MEMBERS = 'id,prompt';
 
 /**
  * The status the overview's open-exception tile counts, which is the one `src/domain/aggregation` reads
@@ -156,10 +191,9 @@ const DECISION_COMMENT = 'Approved against the transferred option, with the side
 /**
  * The first of the six seeded suggestions, character for character.
  *
- * The adapter matches a question against a seeded prompt exactly, and the port binds no read that would
- * hand the suggestions over — `handlers/assistant.ts` declares a suggested-questions read that
- * `mock-backend.ts` exposes on no member — so the case submits the prompt the assistant panel offers.
- * Its figures are filled in by the adapter, which is what the case cross-checks against the solver.
+ * The adapter matches a question against a seeded prompt exactly, so the case submits a prompt the
+ * assistant panel offers, read from the list the port publishes; its figures are filled in by the
+ * adapter, which is what the case cross-checks against the solver.
  */
 const SEEDED_QUESTION =
   'If nothing is done about the delayed air sets, which customer orders run late and by how much?';
@@ -488,12 +522,14 @@ async function firstFailedOptionOf(
  * The business figures of one measured option, which a determinism check compares.
  *
  * The identity members are left out on purpose: a sandbox option's identifier and name describe the
- * request, while every member below is arithmetic the solver performed.
+ * request, while every member below is arithmetic the solver performed. The parameter accepts the
+ * solver's own result as well as a scenario, because the outcome card's two sides are that result
+ * rather than a scenario the adapter assembled.
  *
- * @param scenario - The measured option.
+ * @param scenario - The measured option, or one side of the outcome card.
  * @returns The measures, as a comparable record.
  */
-function measuresOf(scenario: Scenario): Record<string, number> {
+function measuresOf(scenario: Scenario | SolverResult): Record<string, number> {
   return {
     unitsLate: scenario.unitsLate,
     maxDaysLate: scenario.maxDaysLate,
@@ -503,6 +539,27 @@ function measuresOf(scenario: Scenario): Record<string, number> {
     lineIdleDays: scenario.lineIdleDays,
     revenueDelayedEur: scenario.revenueDelayedEur,
   };
+}
+
+/**
+ * One ribbon tile's value, read by its aggregate key.
+ *
+ * The key is what the ribbon contract carries rather than the tile's position, so a case that reads a
+ * tile this way proves the key a consumer addresses a tile by is present as well as the value.
+ *
+ * @param tiles - The tiles the ribbon read returned.
+ * @param id - The aggregate key to read.
+ * @returns That tile's value.
+ * @throws Error - The ribbon carries no tile under that key.
+ */
+function tileValueOf(tiles: readonly RibbonTile[], id: string): number {
+  const tile = tiles.find((candidate) => candidate.id === id);
+
+  if (tile === undefined) {
+    throw new Error(`The canvas ribbon carries no ${id} tile, so the case cannot run.`);
+  }
+
+  return tile.value;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -910,11 +967,11 @@ describe('message redaction', () => {
 
     await actAs(backend, EXTERNAL_ENGINEER);
 
-    const externalPins = (await backend.listPins()).data;
+    const externalPins = (await backend.listPins({})).data;
 
     await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
 
-    const everyPin = (await backend.listPins()).data;
+    const everyPin = (await backend.listPins({})).data;
     const widerIds = new Set(everyPin.map((pin) => pin.id));
 
     expect(everyPin.length).toBeGreaterThan(externalPins.length);
@@ -1432,6 +1489,180 @@ describe('the loading trigger', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
+ * 15. The port's remaining reads — the ribbon, one audit event, the outcome card, the write-back
+ *     retry and the assistant's suggestions
+ * ------------------------------------------------------------------------------------------- */
+
+describe("the port's remaining reads", () => {
+  it('answers the canvas ribbon with six computed tiles in the order the aggregate states', async () => {
+    const backend = await readyBackend();
+    const tiles = (await backend.getCanvasRibbon(NO_SCOPE)).data;
+    const overview = (await backend.getOverview(NO_SCOPE)).data;
+
+    expect(tiles).toHaveLength(6);
+    expect(tiles.map((tile) => tile.id)).toEqual([
+      'open-exceptions',
+      'critical-exceptions',
+      'revenue-at-risk',
+      'customer-orders-at-risk',
+      'median-hours-to-approved-plan',
+      'plants-in-scope',
+    ]);
+    expect(tiles.every((tile) => tile.provenance === 'computed')).toBe(true);
+
+    // Five of the six report an overview aggregate or the length of one of its collections, so the
+    // ribbon adds no figure of its own and the same scope yields the same values through both reads
+    // (rule P-6). The sixth counts the rows the same scope returns, which the queue case covers.
+    expect(tileValueOf(tiles, 'open-exceptions')).toBe(overview.openExceptions);
+    expect(tileValueOf(tiles, 'revenue-at-risk')).toBe(overview.revenueAtRiskEur);
+    expect(tileValueOf(tiles, 'customer-orders-at-risk')).toBe(overview.customerOrdersAtRisk);
+    expect(tileValueOf(tiles, 'median-hours-to-approved-plan')).toBe(
+      overview.medianHoursToApprovedPlan,
+    );
+    expect(tileValueOf(tiles, 'plants-in-scope')).toBe(overview.byPlant.length);
+  }, CASE_TIMEOUT_MS);
+
+  it('reads one seeded audit event and refuses an identifier the chain does not hold', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, AUDITOR);
+
+    const event = (await backend.getAuditEvent(TAMPER_TARGET_ID)).data;
+
+    expect(event.id).toBe(TAMPER_TARGET_ID);
+    expect(event.eventHash).toMatch(EVENT_HASH_PATTERN);
+
+    // The drawer's two halves are the record's own payloads, which is what makes the detail a reading
+    // of the chain a verification walks rather than a second rendering of the action (AAP 0.12.4).
+    expect(event).toHaveProperty('before');
+    expect(event).toHaveProperty('after');
+
+    // An identifier the chain does not hold is refused rather than answered with an empty event. The
+    // unknown value is derived from the seeded one, so the case types no identifier of its own.
+    const unknown = `${TAMPER_TARGET_ID}0`;
+    const problem = await refusalOf(() => backend.getAuditEvent(unknown));
+
+    expect(problem.type).toBe('not-found');
+    expect(problem.message).toContain(unknown);
+  }, CASE_TIMEOUT_MS);
+
+  it('answers the outcome card with the planned measurement and the resulting one', async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+    const optionSet = (await backend.getScenarioSet(lodged.exceptionId)).data;
+    const option = optionSet.scenarios.find((candidate) => candidate.id === lodged.scenarioId);
+
+    if (option === undefined) {
+      throw new Error(
+        `The approval names the option ${lodged.scenarioId}, which its exception's set does not ` +
+          'hold, so the case cannot cross-check the planned side.',
+      );
+    }
+
+    const planned = (await backend.solveScenario(lodged.exceptionId, option.levers)).data;
+
+    await actAs(backend, PLANT_MANAGER);
+    await backend.decideApproval(lodged.id, { action: 'approve', comment: DECISION_COMMENT });
+
+    const approved = (await backend.getApproval(lodged.id)).data;
+    const outcome = (await backend.getApprovalOutcome(lodged.id)).data;
+
+    // Both sides are the solver's own output on the exception's case, so the card's planned side is
+    // the measurement a sandbox read at the plan's levers returns (rule P-6).
+    expect(measuresOf(outcome.planned)).toEqual(measuresOf(planned));
+
+    // Every step of this plan's change succeeded, so the change landed and the card's two sides
+    // agree (AAP 0.2.2).
+    expect(approved.writeBacks.every((step) => step.state === 'succeeded')).toBe(true);
+    expect(measuresOf(outcome.resulting)).toEqual(measuresOf(planned));
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a step that already succeeded and completes a failed one without a second success record', async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+    const doNothing = (await backend.solveScenario(lodged.exceptionId, NO_ACTION_LEVERS)).data;
+
+    await actAs(backend, PLANT_MANAGER);
+    await backend.setSimulation('partial', true);
+
+    // A decision whose write-back fails reports that failure, and the change stops where it stopped.
+    const failure = await refusalOf(() =>
+      backend.decideApproval(lodged.id, { action: 'approve', comment: DECISION_COMMENT }),
+    );
+
+    expect(failure.type).toBe('simulated-write-back');
+
+    const failedRun = (await backend.getApproval(lodged.id)).data;
+    const failedStep = firstOf(
+      failedRun.writeBacks.filter((step) => step.state === 'failed'),
+      'failed write-back step',
+    );
+    const unlanded = (await backend.getApprovalOutcome(lodged.id)).data;
+
+    // All-or-nothing: no later step ran, so no part of the change was applied and the card's
+    // resulting side stands at the do-nothing position (AAP 0.2.2).
+    expect(failedRun.writeBacks.filter((step) => step.state === 'succeeded')).toEqual([]);
+    expect(measuresOf(unlanded.resulting)).toEqual(measuresOf(doNothing));
+
+    await backend.setSimulation('partial', false);
+
+    const retried = (await backend.retryWriteBack(lodged.id, failedStep.recordRef)).data;
+
+    expect(retried.state).toBe('succeeded');
+
+    const completed = (await backend.getApproval(lodged.id)).data;
+    const landed = (await backend.getApprovalOutcome(lodged.id)).data;
+
+    expect(completed.writeBacks.every((step) => step.state === 'succeeded')).toBe(true);
+    expect(measuresOf(landed.resulting)).toEqual(measuresOf(landed.planned));
+
+    // The step that has now succeeded is refused rather than written a second time, which is what
+    // keeps a retry from leaving a second success record behind (AAP 0.2.2).
+    const repeated = await refusalOf(() =>
+      backend.retryWriteBack(lodged.id, failedStep.recordRef),
+    );
+
+    expect(repeated.type).toBe('validation');
+
+    await actAs(backend, AUDITOR);
+
+    const trail = (await backend.listAuditEvents({ objectRef: lodged.id })).data;
+    const stepEvents = trail.filter((event) => event.action === WRITE_BACK_ACTION);
+
+    // One failure record for the interrupted run and exactly one success record per step: the retry
+    // re-attempts without duplicating a step that already succeeded.
+    expect(stepEvents.filter((event) => event.result === 'failed')).toHaveLength(1);
+    expect(stepEvents.filter((event) => event.result === 'succeeded')).toHaveLength(
+      completed.writeBacks.length,
+    );
+  }, CASE_TIMEOUT_MS);
+
+  it('lists the six suggested questions with an identifier and a prompt only', async () => {
+    const backend = await readyBackend();
+    const questions = (await backend.listSuggestedQuestions()).data;
+
+    expect(questions).toHaveLength(SCRIPTED_QUESTION_COUNT);
+    expect(new Set(questions.map((question) => question.id)).size).toBe(questions.length);
+
+    // Only the two members the panel needs cross the boundary: no outline, no template and no figure
+    // of an answer reaches the screen before the answer does (rule P-6).
+    expect(
+      questions.every((question) => Object.keys(question).sort().join(',') === SUGGESTION_MEMBERS),
+    ).toBe(true);
+
+    // The list offers the prompt the assistant case submits and the script answers, so the panel and
+    // the assistant agree on the question (AAP 0.8, AAP 0.12.4).
+    expect(firstOf(questions, 'suggested question').prompt).toBe(SEEDED_QUESTION);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
  * 13. The empty trigger — every collection read answers with nothing, then with its records
  * ------------------------------------------------------------------------------------------- */
 
@@ -1465,19 +1696,19 @@ const COLLECTION_READS: readonly {
   },
   {
     name: 'getOutboundLedger',
-    read: async (backend) => (await backend.getOutboundLedger()).data,
+    read: async (backend) => (await backend.getOutboundLedger({})).data,
   },
   {
     name: 'listPolicies',
-    read: async (backend) => (await backend.listPolicies()).data,
+    read: async (backend) => (await backend.listPolicies({})).data,
   },
   {
     name: 'listPins',
-    read: async (backend) => (await backend.listPins()).data,
+    read: async (backend) => (await backend.listPins({})).data,
   },
   {
     name: 'listPackages',
-    read: async (backend) => (await backend.listPackages()).data,
+    read: async (backend) => (await backend.listPackages({})).data,
   },
   {
     name: 'searchIdentifiers',
@@ -1499,7 +1730,6 @@ describe('the empty trigger', () => {
       const subject = firstOf(await queueOf(backend), 'exception row').id;
 
       expect((await read(backend, subject)).length).toBeGreaterThan(0);
-
       await backend.setSimulation('empty', true);
 
       expect((await read(backend, subject)).length).toBe(0);
@@ -1508,6 +1738,176 @@ describe('the empty trigger', () => {
 
       // The records come back as they stood, so the trigger emptied the answer rather than the session.
       expect((await read(backend, subject)).length).toBeGreaterThan(0);
+    },
+    CASE_TIMEOUT_MS,
+  );
+});
+
+
+/* ---------------------------------------------------------------------------------------------
+ * The browser-built exports — contracts §11, AAP 0.12.1 "Exports", AAP 0.12.3
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The media types the two export formats declare.
+ *
+ * Stated here because they are two of the three members the port now carries beside the document: the
+ * adapter keeps no file name and no media type of its own, so an export's descriptive members are
+ * asserted against the format they describe rather than against a second copy inside the adapter.
+ */
+const JSON_MEDIA_TYPE = 'application/json';
+const CSV_MEDIA_TYPE = 'text/csv;charset=utf-8';
+
+/**
+ * The simulation marker at the top level of a JSON export, or `undefined` when the document states
+ * none.
+ *
+ * A guard rather than a cast: the case asserts the marker the file carries, so a payload whose top
+ * level is not an object has to read as a document without one rather than as a parse failure.
+ *
+ * @param content - The export's text, as the port returned it.
+ * @returns The document's `simulated` member, or `undefined` when it declares none.
+ */
+function simulationMarkerOf(content: string): unknown {
+  const parsed: unknown = JSON.parse(content);
+
+  if (typeof parsed !== 'object' || parsed === null || !('simulated' in parsed)) {
+    return undefined;
+  }
+
+  return parsed.simulated;
+}
+
+/**
+ * Two personas the pack is refused to, and the permission each of them lacks.
+ *
+ * The pack is composed from the declared deployment configuration and the audit trail, so the gate
+ * names `sovereignty.read` first — the permission the external engineer and the plant manager both
+ * lack. Naming the missing permission is what keeps the two adapters' refusals the same: the API client
+ * composes the same document from the same reads, so it refuses the same personas for the same reason
+ * (AAP 0.12.3).
+ */
+const REFUSED_EXPORTERS: [UserId, string][] = [
+  [EXTERNAL_ENGINEER, 'sovereignty.read'],
+  [PLANT_MANAGER, 'sovereignty.read'],
+];
+
+describe('the browser-built exports', () => {
+  it('resolves a download payload for each export, with the file name and media type beside the text', async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+
+    const comparison = (await backend.exportScenarioComparison(lodged.exceptionId)).data;
+
+    // The three members cross the boundary together: the CSV's own name and media type, and a document
+    // whose labels travel on their own row rather than as a top-level marker (AAP 0.6.3).
+    expect(comparison.mediaType).toBe(CSV_MEDIA_TYPE);
+    expect(comparison.filename.endsWith('.csv')).toBe(true);
+    expect(comparison.content.length).toBeGreaterThan(0);
+
+    // The pack is composed from the declared configuration and the audit trail, so it is exported by a
+    // persona holding both permissions; the brief needs the competitive read, which the auditor lacks.
+    await actAs(backend, AUDITOR);
+
+    const pack = (await backend.exportEvidencePack()).data;
+
+    expect(pack.mediaType).toBe(JSON_MEDIA_TYPE);
+    expect(pack.filename.endsWith('.json')).toBe(true);
+
+    // The marker sits at the document's top level, so a reader of the file meets it before any figure
+    // (rule P-1, AAP 0.12.1).
+    expect(simulationMarkerOf(pack.content)).toBe(true);
+
+    await actAs(backend, PLANT_MANAGER);
+
+    const brief = (await backend.exportChokepointBrief()).data;
+
+    expect(brief.mediaType).toBe(JSON_MEDIA_TYPE);
+    expect(brief.filename.endsWith('.json')).toBe(true);
+    expect(simulationMarkerOf(brief.content)).toBe(true);
+  }, CASE_TIMEOUT_MS);
+
+  it('composes the same document the shared builder produces from the same reads', async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+
+    // The comparison is a pure function of the set the scenario read returns, so the port's payload is
+    // the shared builder's payload for that set, byte for byte (AAP 0.12.3, rule P-6).
+    const set = (await backend.getScenarioSet(lodged.exceptionId)).data;
+
+    expect((await backend.exportScenarioComparison(lodged.exceptionId)).data).toEqual(
+      buildScenarioComparisonCsv(set),
+    );
+
+    await actAs(backend, AUDITOR);
+
+    // The four reads the pack is composed from, taken before the export: exporting appends the event
+    // that records it, so a read taken afterwards would describe a longer trail.
+    const sovereignty = (await backend.getSovereigntyStatus()).data;
+    const ledgerRows = (await backend.getOutboundLedger({})).data;
+    const events = (await backend.listAuditEvents({})).data;
+    const report = (await backend.verifyAuditChain()).data;
+
+    const expectedPack = buildEvidencePack({
+      sovereignty: { summary: sovereignty.summary, rows: sovereignty.rows },
+      ledgerRows,
+      events,
+      report,
+    });
+
+    expect((await backend.exportEvidencePack()).data).toEqual(expectedPack);
+
+    await actAs(backend, PLANT_MANAGER);
+
+    const atlas = (await backend.getAtlas()).data;
+
+    // The brief is composed over the atlas read alone, which publishes the pack's release label — the
+    // same document the client builds without reaching the seed (rule P-2).
+    expect((await backend.exportChokepointBrief()).data).toEqual(
+      buildChokepointBrief({
+        competitors: atlas.competitors,
+        chokepoints: atlas.chokepoints,
+        packVersion: atlas.packVersion,
+      }),
+    );
+  }, CASE_TIMEOUT_MS);
+
+  it(
+    'exports the pack for the administrator whose own screen offers the action',
+    async () => {
+      const backend = await readyBackend();
+
+      // SCR-07 is the platform administrator's home route and carries "Export evidence pack" as its
+      // primary action, so the persona that owns the screen reads the chain the pack declares. Both
+      // adapters answer this persona, which is what AAP 0.12.3's swap rule requires of them.
+      await actAs(backend, ADMINISTRATOR);
+
+      const pack = (await backend.exportEvidencePack()).data;
+
+      expect(pack.mediaType).toBe(JSON_MEDIA_TYPE);
+      expect(pack.filename.endsWith('.json')).toBe(true);
+      expect(simulationMarkerOf(pack.content)).toBe(true);
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it.each(REFUSED_EXPORTERS)(
+    'refuses the pack to %s, naming the %s the persona lacks',
+    async (userId, permission) => {
+      const backend = await readyBackend();
+
+      await actAs(backend, userId);
+
+      const refusal = await refusalOf(() => backend.exportEvidencePack());
+
+      expect(refusal.type).toBe('permission');
+      expect(refusal.requiredPermission).toBe(permission);
     },
     CASE_TIMEOUT_MS,
   );
@@ -1599,6 +1999,177 @@ describe("the shell's selection", () => {
         expect(nodeIds, `the lane-less customer ${customerId} was dropped`).toContain(customerId);
       }
     }
+
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 17. The list parameters of the collection reads — contracts §9, AAP 0.6.3 and AAP 0.12.3
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The page size the paging cases ask a read for.
+ *
+ * A parameter a caller passes rather than a figure of the domain: it bounds how many records a case
+ * looks at, it is never shown, and it describes no record (rule P-6).
+ */
+const PAGE_SIZE = 2;
+
+/**
+ * One collection read of the port, described by what a paging case needs from it.
+ *
+ * `sortField` and `valueOf` name one member whose values are distinct across the seeded records, so an
+ * ordering case compares two orders exactly: with two equal values the tie the adapter breaks by
+ * identity would be a rule the case had to restate rather than a property it measures.
+ */
+interface PagedRead<TRow> {
+  /** The read, addressed as the port addresses it, with the query under test. */
+  readonly read: (backend: MockBackend, query: ListQuery) => Promise<Result<TRow[]>>;
+
+  /** The persona the read is made as, which holds the permission it requires. */
+  readonly reader: UserId;
+
+  /** The identity the read's cursor names. */
+  readonly keyOf: (row: TRow) => string;
+
+  /** The member `sort` is asked for, spelled as `field:dir` names it. */
+  readonly sortField: string;
+
+  /** The value that member holds on a row, which is what the ordering is measured by. */
+  readonly valueOf: (row: TRow) => string;
+}
+
+/**
+ * The last member of a collection a read returned.
+ *
+ * @param values - The collection read.
+ * @param what - What the read returns, named in the failure message.
+ * @returns The last member.
+ * @throws Error - The collection is empty, so the case has no position to continue from.
+ */
+function lastOf<T>(values: readonly T[], what: string): T {
+  const last = values[values.length - 1];
+
+  if (last === undefined) {
+    throw new Error(`The read returned no ${what}, so the case cannot run.`);
+  }
+
+  return last;
+}
+
+/**
+ * Proves the three list parameters contracts §9 fixes on one collection read, through the port.
+ *
+ * `limit` bounds the page; `cursor` continues from the position a previous page ended at, so the second
+ * page holds the records that follow the first and repeats none of them; `sort` orders the records by
+ * the member it names, and the two directions are one order read backwards. A member the read cannot
+ * order by falls back to that read's own default order, and a cursor naming no position of the
+ * requested order is refused as a `'validation'` failure rather than restarting the page (AAP 0.6.3,
+ * AAP 0.12.3).
+ *
+ * The four reads are proved one case each rather than through one parameterised table, because they
+ * return four different record types and a table holding them would have to erase the row type.
+ *
+ * @param described - The read and the members the case measures it by.
+ * @throws Error - The seeded records hold too few rows for a second page, which would leave the case
+ *   without a subject.
+ */
+async function expectPageableAndSortable<TRow>(described: PagedRead<TRow>): Promise<void> {
+  const backend = await readyBackend();
+
+  await actAs(backend, described.reader);
+
+  const keysOf = (rows: readonly TRow[]): string[] => rows.map(described.keyOf);
+  const every = (await described.read(backend, {})).data;
+
+  if (every.length <= PAGE_SIZE) {
+    throw new Error(
+      `The read returned ${every.length} record(s), too few to page by ${PAGE_SIZE}, so the case cannot run.`,
+    );
+  }
+
+  // The limit bounds the page, and the page is the read's own order cut to that length.
+  const firstPage = (await described.read(backend, { limit: PAGE_SIZE })).data;
+
+  expect(keysOf(firstPage)).toEqual(keysOf(every).slice(0, PAGE_SIZE));
+
+  // The second page starts at the record after the position the first page ended at, and holds none of
+  // the records the first page returned (AAP 0.6.3).
+  const cursor = described.keyOf(lastOf(firstPage, 'record on the first page'));
+  const secondPage = (await described.read(backend, { limit: PAGE_SIZE, cursor })).data;
+  const firstKeys = new Set(keysOf(firstPage));
+
+  expect(keysOf(secondPage)).toEqual(keysOf(every).slice(PAGE_SIZE, PAGE_SIZE * 2));
+  expect(keysOf(secondPage).some((key) => firstKeys.has(key))).toBe(false);
+
+  // Ascending by the member the case names is the records ordered by that member's own value, and
+  // descending is the same order read backwards.
+  const byValue = [...every].sort((left, right) => {
+    const leftValue = described.valueOf(left);
+    const rightValue = described.valueOf(right);
+
+    if (leftValue === rightValue) {
+      return 0;
+    }
+
+    return leftValue < rightValue ? -1 : 1;
+  });
+  const ascending = (await described.read(backend, { sort: `${described.sortField}:asc` })).data;
+  const descending = (await described.read(backend, { sort: `${described.sortField}:desc` })).data;
+
+  expect(keysOf(ascending)).toEqual(keysOf(byValue));
+  expect(keysOf(descending)).toEqual([...keysOf(byValue)].reverse());
+
+  // A member the read cannot honour falls back to that read's own order rather than failing it.
+  const unhonoured = (await described.read(backend, { sort: 'not-a-member:asc' })).data;
+
+  expect(keysOf(unhonoured)).toEqual(keysOf(every));
+
+  // A cursor that names no position of the requested order is refused rather than restarted.
+  const refusal = await refusalOf(() => described.read(backend, { cursor: 'not-a-position' }));
+
+  expect(refusal.type).toBe('validation');
+}
+
+describe('the list parameters of the collection reads', () => {
+  it('pages and orders the outbound ledger', async () => {
+    await expectPageableAndSortable<LedgerRow>({
+      read: (backend, query) => backend.getOutboundLedger(query),
+      reader: AUDITOR,
+      keyOf: (row) => row.endpoint,
+      sortField: 'endpoint',
+      valueOf: (row) => row.endpoint,
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it('pages and orders the policy list', async () => {
+    await expectPageableAndSortable<PolicyDetail>({
+      read: (backend, query) => backend.listPolicies(query),
+      reader: AUDITOR,
+      keyOf: (entry) => entry.id,
+      sortField: 'title',
+      valueOf: (entry) => entry.title,
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it('pages and orders the evidence pins the persona may see', async () => {
+    await expectPageableAndSortable<EvidencePin>({
+      read: (backend, query) => backend.listPins(query),
+      reader: AUDITOR,
+      keyOf: (pin) => pin.id,
+      sortField: 'id',
+      valueOf: (pin) => pin.id,
+    });
+  }, CASE_TIMEOUT_MS);
+
+  it('pages and orders the part approval packages', async () => {
+    await expectPageableAndSortable<PpapPackage>({
+      read: (backend, query) => backend.listPackages(query),
+      reader: AUDITOR,
+      keyOf: (partPackage) => partPackage.id,
+      sortField: 'id',
+      valueOf: (partPackage) => partPackage.id,
+    });
   }, CASE_TIMEOUT_MS);
 });
 

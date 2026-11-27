@@ -70,7 +70,7 @@
  * group for revenue — rather than being allowed to corrupt the order.
  */
 
-import type { ExceptionId, ExceptionRow, Overview, Provenance, Severity } from '../../types';
+import type { ExceptionId, ExceptionRow, Overview, RibbonTile, Severity } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
  * The severity ordering — SCR-02 default sort, AAP 0.12.1
@@ -239,32 +239,11 @@ export function sortUrgent(rows: readonly ExceptionRow[]): ExceptionRow[] {
 
 /* ---------------------------------------------------------------------------------------------
  * The canvas ribbon — SCR-12, AAP 0.12.1
+ *
+ * `RibbonTile`, the shape a tile is handed across the service boundary in, is declared in
+ * `src/types/screen-dto.ts`: the port resolves the ribbon and imports `src/types` alone (rule P-2),
+ * while this module owns the six tiles' construction, each one's aggregate key and their order.
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * One tile of the FileMap canvas ribbon: an aggregate key, the value computed for it, and the
- * provenance of that value.
- *
- * Declared here rather than in `src/types` because it is not a contracts type but the shape of this
- * module's own output, which no other module reads as a shared vocabulary; the precedent is
- * `ScopedSubject` in `src/domain/policy/permissions.ts`. `id` is a stable aggregate key rather than a
- * figure, so a consumer can recognise a tile across renders and reorder the ribbon without depending
- * on its position.
- *
- * The tile carries no caption, no evidence reference and no simulation label (rule P-1): those belong
- * to the component that renders it, which is also the only place that knows how the value is
- * formatted (AAP 0.10).
- */
-export interface RibbonTile {
-  /** The aggregate key the tile reports, such as `open-exceptions`. Never a value. */
-  readonly id: string;
-
-  /** The value the aggregate computed, copied from it unchanged. */
-  readonly value: number;
-
-  /** Where the value came from; every tile this module builds is `'computed'` (rule P-5). */
-  readonly provenance: Provenance;
-}
 
 /**
  * Counts the rows whose severity is the most urgent level.

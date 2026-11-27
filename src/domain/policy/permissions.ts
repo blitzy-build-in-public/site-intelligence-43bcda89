@@ -26,7 +26,7 @@
  *
  * OPEN ITEM: contracts §7.1 is the authority for the exact cells and is not readable in this run, so
  * every cell below is settled from the AAP fact that names it and stays open to correction. The table
- * covers 8 roles x 14 permissions = 112 cells, of which 41 are granted and 71 are denied; those 41
+ * covers 8 roles x 14 permissions = 112 cells, of which 42 are granted and 70 are denied; those 42
  * grants are a documented derivation rather than a transcription, and `platform-contracts.md` §7.1
  * supersedes every line of it, the holder sets recorded below included, the moment §7.1 is supplied.
  * Per cell:
@@ -39,7 +39,12 @@
  *   `Approval.eligibleApproverRoles`, which is a list for exactly this reason.
  * - `approval.request` to the roles that send a plan for approval and not to `plant-manager`, so a
  *   request always has a distinct persona able to decide it.
- * - `audit.read` to `auditor` alone — the auditor's home route is `/audit` (AAP 0.12.4).
+ * - `audit.read` to `auditor` and `platform-administrator`, the two roles that hold `sovereignty.read`.
+ *   The auditor's home route is `/audit` (AAP 0.12.4), and SCR-07's "Export evidence pack" composes the
+ *   chain's own verification into the document it downloads, so the persona whose screen offers that
+ *   export reads the chain it declares — which is also what keeps the two adapters from disagreeing
+ *   about who may export (AAP 0.12.3). A supplied §7.1 that withholds the cell from the administrator
+ *   also narrows that export to the auditor.
  * - `sovereignty.read` and `policy.read` to `platform-administrator` and `auditor`; `admin.read` and
  *   `policy.exception.request` to `platform-administrator` alone, from its home route
  *   `/admin/sovereignty` and the time-boxed exception it grants (AAP 0.12.4, SCR-07).
@@ -180,6 +185,7 @@ const ROLE_PERMISSIONS = {
     'policy.read',
     'policy.exception.request',
     'admin.read',
+    'audit.read',
     'evidence.read',
     'competitive.read',
   ],

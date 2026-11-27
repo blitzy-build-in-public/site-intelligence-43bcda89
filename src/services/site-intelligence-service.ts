@@ -29,57 +29,110 @@
  * control` (rule P-4). Nothing here claims that this code establishes a configuration, prevents a
  * copy or defeats an edit.
  *
- * OPEN ITEM: `platform-contracts.md` §2, which fixes this interface method for method, is a plan
- * attachment rather than a file in this checkout, and no copy of it is readable in this run. The
- * members below therefore declare one method per capability AAP 0.6.2, 0.12.1, 0.12.3 and 0.12.4
- * name, each signature derived from the type that capability returns or accepts in `src/types`.
- * No method name or signature here is transcribed from §2, and the transcription has to be
- * reconciled with §2 before the interface is called verbatim.
- * OPEN ITEM: contracts §9 fixes 34 paths, and that document is not readable here either, so the
- * members below are not one per path. The nine paths AAP 0.12.3 quotes exactly are cited on the
- * member that serves them: `POST /approvals`, `POST /approvals/{id}/decision`,
- * `POST /assistant/queries`, `GET /evidence?ref=`, `GET /documents/{id}`,
- * `GET /audit-events/verify`, `GET /market-intelligence/atlas`,
- * `POST /exceptions/{id}/scenarios/solve` and `GET /topology`. Every other member's path is fixed
- * by §9 and held as a constant in `src/services/api-client/paths.ts`; no path literal is invented
- * here, and the two files have to describe the same set once §9 is available.
- * OPEN ITEM: the stage S4 reads for the binder manifest, a supplier profile and a material profile
- * are not declared. AAP 0.12.3 lists them among the endpoints both adapters carry for conformance,
- * but `src/types` holds no response type for them — the plant, supplier, material, product,
- * customer and order records are typed in `src/seed`, which rule P-2 bars this module from
- * importing — and this module declares no type of its own. They arrive with the stage that types
- * them. The package, pin and element-review reads of the same stage are declared, because
- * `src/types/packages.ts`, `src/types/entities.ts` and `src/types/topology.ts` type them.
- * OPEN ITEM: `listApprovals` narrows by approval status through an inline extension of `ListQuery`,
- * because `src/types` holds no `ApprovalQuery`. That one field is what the inbox's read needs, and
- * carrying it in the query keeps the limit and the cursor on the service side of the boundary
- * rather than applied to an already-truncated page by a screen.
- * OPEN ITEM: `requestApproval`, `requestPolicyException` and `askAssistant` take inline request
- * objects, because `src/types` holds no `ApprovalRequest`, no policy-exception draft and no
- * assistant-query type. Each member of those objects is fixed by the screen that sends it (SCR-04,
- * SCR-07, SCR-06); the requester, the second approver and the acting persona are not among them,
- * because the adapter takes the acting persona from its own state rather than from a caller.
- * OPEN ITEM: `reviewApprovalOutcome` takes the approval's identifier alone. SCR-05's outcome card
- * sets the plan's figures against the resulting ones, and both sides of that comparison are
- * computed by the adapter from the records it holds, so a caller supplies neither a figure nor a
- * comment (rule P-6).
- * OPEN ITEM: the three export members resolve to the payload's text, because `src/types` holds no
- * export-payload type. Each JSON payload carries `"simulated": true` at its top level (AAP 0.12.1)
- * and the caller offers the text as a download; the media type is JSON for the evidence pack and
- * the chokepoint brief and CSV for the scenario comparison (contracts §11).
- * OPEN ITEM: `searchIdentifiers` is not among the families AAP 0.12.3 tabulates, but specification
- * §5.1 requires the identifier search, and rule P-2 leaves a screen no other route to the records it
- * searches. Its response is `SearchHit`, which AAP 0.12.2 types for exactly that read.
- * OPEN ITEM: `decideApproval` carries no side-effect acknowledgement member. SCR-05's
- * acknowledgement gates the decision control in the interface (rule P-8), while the decision itself
- * carries the action and its comment, and the service refuses the call on grounds it reads from the
- * records: the acting persona's permission, POL-003, and the freshness of the source behind the
- * plan.
- * OPEN ITEM: AAP 0.2.2 says a policy denial creates no audit record, while AAP 0.8 says the policy
- * engine's denial appends a policy-actor event that the outbound ledger counts. The prose on the
- * members below asserts neither outcome for that event and describes only what a caller observes —
- * the approval left as it stood and no write-back created — so the conflict stays visible for the
- * adapter to settle rather than being settled silently here.
+ * HOW THIS INTERFACE RELATES TO contracts §2, AND WHAT IS MISSING (AAP 0.6.2, AAP 0.12.1
+ * "Port" row). `platform-contracts.md` §2 fixes this interface method for method, and that
+ * document is not readable anywhere in this run: it is a plan attachment (AAP 0.17), and no
+ * copy of it exists in the checkout (`git ls-files '*.md'` reports the README alone), in any
+ * git ref's history, on the filesystem, in the run's attached-file directory (which does not
+ * exist) or among the staged assets. No member name or signature below is transcribed from §2,
+ * and this interface is therefore not claimed to be that document's text. What is recorded
+ * instead is a derivation a reviewer can check against the document the moment it is supplied:
+ * one member per capability a fixing input names, that input cited on the member itself, and
+ * each member's §9 entry either quoted by AAP 0.12.3 or labelled derived in
+ * `src/services/api-client/paths.ts`. AAP 0.1 is the rule that decides this — where a value the
+ * work requires is undefined, the run reports it rather than inventing one — and reconciling
+ * the two files with §2 and §9 is mechanical, member by member, once they arrive.
+ *
+ * THE DERIVATION, FAMILY BY FAMILY — 46 members, each against the input that names the
+ * capability:
+ * - `getOverview` — AAP 0.12.1 "Overview aggregates" row, specification SCR-01.
+ * - `listExceptions`, `getExceptionDetail`, `getAffectedLines`, `assignException`,
+ *   `noteException`, `dismissException` — specification SCR-02 and SCR-03, and AAP 0.6.2 for
+ *   the three audited writes.
+ * - `getScenarioSet`, `solveScenario` — AAP 0.12.3 `POST /exceptions/{id}/scenarios/solve`,
+ *   specification SCR-04.
+ * - `listApprovals`, `getApproval`, `getApprovalOutcome`, `requestApproval`, `decideApproval`,
+ *   `reviewApprovalOutcome`, `retryWriteBack` — AAP 0.12.3 `POST /approvals` and
+ *   `POST /approvals/{id}/decision`, specification SCR-05, and AAP 0.2.2 for the outcome card
+ *   and the retry.
+ * - `listAuditEvents`, `getAuditEvent`, `verifyAuditChain` — AAP 0.12.3
+ *   `GET /audit-events/verify`, and specification SCR-05's audit table with its detail drawer.
+ * - `getModelCatalogue`, `listSuggestedQuestions`, `askAssistant` — AAP 0.12.3
+ *   `POST /assistant/queries`, specification SCR-06.
+ * - `getSovereigntyStatus`, `getOutboundLedger`, `listPolicies`, `getPolicy`,
+ *   `requestPolicyException` — specification SCR-07 and AAP 0.12.4's grant flow.
+ * - `getEvidence`, `getDocument`, `listPins`, `reviewPin`, `listPackages`, `getPackage`,
+ *   `reviewElement` — contracts §3 and §8 as AAP 0.12.2 types them, and AAP 0.6.2 for the
+ *   review.
+ * - `searchIdentifiers` — specification §5.1's identifier search, typed by AAP 0.12.2 as
+ *   `SearchHit`.
+ * - `getTopology`, `getCanvasRibbon` — AAP 0.12.3 `GET /topology`, specification SCR-12's
+ *   ribbon.
+ * - `getAtlas` — AAP 0.12.3 `GET /market-intelligence/atlas`, specification SCR-13.
+ * - `getSourceCatalogue`, `getPlanGrid`, `getExitPackage` — the S4 and S5 endpoints AAP 0.12.3
+ *   has both adapters carry for conformance.
+ * - `exportEvidencePack`, `exportScenarioComparison`, `exportChokepointBrief` — AAP 0.12.1's
+ *   "Exports" row and contracts §11.
+ * - `setSimulation`, `resetDemo` — AAP 0.6.2's two demonstration methods, which carry no HTTP
+ *   counterpart.
+ *
+ * THREE ITEMS THIS RECORD USED TO CARRY ARE CLOSED BY THE CODE THAT STANDS: the three export
+ * members resolved the payload's text because `src/types` held no export-payload type, and
+ * `ExportPayload` now sits in `src/types/service.ts` and they resolve it; the four collection
+ * reads `getOutboundLedger`, `listPolicies`, `listPins` and `listPackages` carried no list
+ * parameters, and all four now take `ListQuery` with their handlers paging and ordering; and
+ * five capabilities the specification names had no member at all — SCR-12's ribbon, SCR-05's
+ * audit detail read, its write-back retry and its outcome card, and SCR-06's suggested
+ * questions — each of which is now a member both adapters bind.
+ *
+ * STILL OPEN, each naming the clause that is absent and the condition that closes it:
+ * - §2 itself, method for method: no member's name, parameter list or return type is that
+ *   document's. Closes when §2 is supplied, and the reconciliation is then a review of the
+ *   family list above against §2's entries rather than a redesign, because every member already
+ *   names the capability it serves.
+ * - §9's entries: `paths.ts` holds 40, of which the nine AAP 0.12.3 quotes are transcribed and
+ *   the other 31 are derived — the five added for this interface among them, `GET /topology/ribbon`,
+ *   `GET /audit-events/{id}`, `GET /approvals/{id}/outcome`,
+ *   `POST /approvals/{id}/write-backs/{writeBackId}/retry` and `GET /assistant/questions`, whose
+ *   capabilities the specification names without a §9 entry beside them. Each entry says in its
+ *   own TSDoc that it is derived. Closes when §9 is supplied, or when AAP 0.12.3 names them.
+ * - The stage S4 reads for a binder manifest, a supplier profile and a material profile are not
+ *   declared. AAP 0.12.3 lists them among the endpoints both adapters carry for conformance,
+ *   but `src/types` holds no response type for them — the plant, supplier, material, product,
+ *   customer and order records are typed in `src/seed`, which rule P-2 bars this module from
+ *   importing — and this module declares no type of its own. Closes when those response types
+ *   enter `src/types`; the package, pin and element-review reads of the same stage are declared
+ *   because their types exist.
+ * - `listApprovals` narrows by approval status through an inline extension of `ListQuery`,
+ *   because `src/types` holds no `ApprovalQuery`. That one field is what the inbox's read needs,
+ *   and carrying it in the query keeps the limit and the cursor on the service side of the
+ *   boundary rather than applied to an already-truncated page by a screen. Closes when §9 or §3
+ *   names that query.
+ * - `requestApproval`, `requestPolicyException` and `askAssistant` take inline request objects,
+ *   because `src/types` holds no `ApprovalRequest`, no policy-exception draft and no
+ *   assistant-query type. Each member of those objects is fixed by the screen that sends it
+ *   (SCR-04, SCR-07, SCR-06); the requester, the second approver and the acting persona are not
+ *   among them, because the adapter takes the acting persona from its own state rather than from
+ *   a caller. Closes with those types.
+ * - `reviewApprovalOutcome` takes the approval's identifier alone. SCR-05's outcome card sets
+ *   the plan's figures against the resulting ones, both sides computed by the adapter from the
+ *   records it holds — `getApprovalOutcome` returns them — so a caller supplies neither a figure
+ *   nor a comment (rule P-6). Closes if §2 gives the write a payload of its own.
+ * - `searchIdentifiers` is not among the families AAP 0.12.3 tabulates, but specification §5.1
+ *   requires the identifier search and rule P-2 leaves a screen no other route to the records it
+ *   searches. Its response is `SearchHit`, which AAP 0.12.2 types for exactly that read. Closes
+ *   when §9 names the path.
+ * - `decideApproval` carries no side-effect acknowledgement member. SCR-05's acknowledgement
+ *   gates the decision control in the interface (rule P-8), while the decision itself carries the
+ *   action and its comment, and the service refuses the call on grounds it reads from the
+ *   records: the acting persona's permission, POL-003, and the freshness of the source behind
+ *   the plan. Closes if §2 names a member.
+ * - AAP 0.2.2 says a policy denial creates no audit record, while AAP 0.8 says the policy
+ *   engine's denial appends a policy-actor event that the outbound ledger counts. The prose on
+ *   the members below asserts neither outcome for that event and describes only what a caller
+ *   observes — the approval left as it stood and no write-back created — so the conflict stays
+ *   visible for the adapter to settle rather than being settled silently here. Closes when
+ *   contracts §6 or §7.2 settles it.
  */
 
 import type {
@@ -87,9 +140,11 @@ import type {
   Answer,
   Approval,
   ApprovalId,
+  ApprovalOutcome,
   ApprovalStatus,
   Atlas,
   AuditEvent,
+  AuditEventId,
   AuditQuery,
   ChainReport,
   Decision,
@@ -104,6 +159,7 @@ import type {
   ExceptionQuery,
   ExceptionRow,
   ExitPackage,
+  ExportPayload,
   Levers,
   LedgerRow,
   ListQuery,
@@ -118,6 +174,7 @@ import type {
   PolicyException,
   PolicyId,
   PpapPackage,
+  RibbonTile,
   Scenario,
   ScenarioId,
   ScenarioSet,
@@ -126,9 +183,11 @@ import type {
   SimulationFlag,
   SourceCatalogue,
   SovereigntyStatus,
+  SuggestedQuestion,
   Timestamp,
   Topology,
   UserId,
+  WriteBack,
 } from '../types';
 import type { Result } from '../types/service';
 
@@ -312,6 +371,27 @@ export interface SiteIntelligenceService {
   getApproval(approvalId: ApprovalId): Promise<Result<Approval>>;
 
   /**
+   * Reads the outcome card's two measurements for one approval: the plan as it was approved, and
+   * the state the records reached once the change had run.
+   *
+   * SCR-05 sets the plan's figures against the resulting ones after the write-back tracker has
+   * stepped through the change (AAP 0.12.4), and AAP 0.2.2 makes a simulated write-back
+   * all-or-nothing: a change any of whose steps is pending or failed has not been applied, so the
+   * resulting side stands at the do-nothing position rather than part-way through. Both sides are
+   * measured from the exception's own solver case at the moment of the read, so a caller supplies
+   * neither a figure nor a comment (rule P-6), and the card labels the comparison where it is shown
+   * (rule P-1).
+   *
+   * contracts §9: `approvalOutcomePath` is derived because §9 is not readable in this run, and sits
+   * beside the outcome review AAP 0.12.3 does fix (see the derivation record at the head of this
+   * file). A `'not-found'` refusal names the approval or the option the records do not hold, a
+   * `'permission'` refusal names `exception.read` and the roles that hold it, and a `'validation'`
+   * refusal names an exception that carries no solver case — which the card shows as "Cannot
+   * compute" with that reason rather than as a partial figure.
+   */
+  getApprovalOutcome(approvalId: ApprovalId): Promise<Result<ApprovalOutcome>>;
+
+  /**
    * Puts a scenario forward for approval and appends the `approval request` audit event.
    *
    * contracts §9: `POST /approvals`. The request names the exception and the option, and the adapter
@@ -352,6 +432,27 @@ export interface SiteIntelligenceService {
    */
   reviewApprovalOutcome(approvalId: ApprovalId): Promise<Result<Approval>>;
 
+  /**
+   * Re-attempts one failed step of an approved change's simulated write-back, addressed by the
+   * reference that step writes, and lets the change complete.
+   *
+   * AAP 0.2.2's failure behaviour for a simulated write-back: the change stays all-or-nothing, the
+   * failure is recorded, and a retry is offered that never duplicates a success record. The retry
+   * therefore refuses a step that already succeeded rather than writing it again, and the steps the
+   * failure left untouched then run in their recorded order, so the change reaches the state the
+   * plan described. The step's reference is the key because a write-back names the record it writes
+   * rather than carrying an identifier of its own. A refusal leaves the change as it stood, and the
+   * `Problem` names the step, the approval's status or the stale source with its as-of time.
+   *
+   * contracts §9: `approvalWriteBackRetryPath` is derived in the shape of the decision AAP 0.12.3
+   * fixes, because §9 is not readable in this run (see the derivation record at the head of this
+   * file). A `'not-found'` refusal names a reference that answers no step of the approval; a
+   * `'validation'` one covers an approval that is not approved, a step that already succeeded, a
+   * record that moved under the reader and a stale or unavailable order book; a `'permission'` one
+   * names `approval.decide` and the roles that hold it.
+   */
+  retryWriteBack(approvalId: ApprovalId, writeBackId: string): Promise<Result<WriteBack>>;
+
   /* -------------------------------------------------------------------------------------------
    * Audit — specification SCR-05, platform-contracts.md §6
    * ------------------------------------------------------------------------------------------- */
@@ -365,6 +466,23 @@ export interface SiteIntelligenceService {
    * surface that shows the chain labels it `Simulated control` (rule P-4).
    */
   listAuditEvents(query: AuditQuery): Promise<Result<AuditEvent[]>>;
+
+  /**
+   * Reads one event of the chain, with the two payload halves the audit detail drawer shows.
+   *
+   * SCR-05's audit table opens an event in a detail drawer that shows its before and after values
+   * (AAP 0.12.4), so this read serves the record itself rather than a second rendering of the action
+   * that wrote it: the payloads are the event's own, which is what makes the drawer a reading of
+   * the chain a verification walks. The chain is not plant-scoped — a persona either holds
+   * `audit.read` or does not — so the read takes no scope, and an identifier the chain does not hold
+   * is refused as a `'not-found'` naming it rather than answered with an empty event.
+   *
+   * contracts §9: `auditEventPath` is derived as one event of the collection the transcribed paths
+   * fix, because §9 is not readable in this run (see the derivation record at the head of this
+   * file). A role without `audit.read` meets a `'permission'` refusal that names the permission and
+   * the roles that hold it.
+   */
+  getAuditEvent(auditEventId: AuditEventId): Promise<Result<AuditEvent>>;
 
   /**
    * Verifies the chain by recomputing every hash in sequence, and reports the positions at which it
@@ -389,6 +507,23 @@ export interface SiteIntelligenceService {
    * them under `Declared, not verified` (rule P-4). No model is connected in this run (rule P-1).
    */
   getModelCatalogue(): Promise<Result<ModelCatalogue>>;
+
+  /**
+   * Lists the questions the assistant panel offers, in the order the records hold them.
+   *
+   * SCR-06 fixes "suggested questions with scripted cited answers" as the screen's content
+   * (AAP 0.12.4), and each suggestion is answered by one of the six scripted builders when it is
+   * submitted to `askAssistant`. Only the identifier and the prompt cross the boundary: the
+   * answer's outline, the sentence template that fills it and the records it cites stay behind the
+   * adapter until a question is asked, so no figure and no sentence of an answer reaches the panel
+   * before the answer itself does (rule P-6).
+   *
+   * contracts §9: `assistantQuestionsPath` is derived beside the `/assistant/queries` path
+   * AAP 0.12.3 quotes, because §9 is not readable in this run (see the derivation record at the head
+   * of this file). A `'permission'` refusal names `evidence.read` and the roles that hold it, which
+   * is the refusal a question meets.
+   */
+  listSuggestedQuestions(): Promise<Result<SuggestedQuestion[]>>;
 
   /**
    * Puts a question to the evidence assistant and returns its answer with the citations behind it,
@@ -434,8 +569,14 @@ export interface SiteIntelligenceService {
    * contracts §9: the outbound-ledger read, which `getSovereigntyStatus` also carries. It is
    * separate so a caller refreshing the counts after a decision does not re-read the declared rows
    * beside them, and both reads compute the counts by the same rule (contracts §5).
+   *
+   * `query` carries the list parameters contracts §9 fixes: `limit` bounds the page, `cursor`
+   * continues from the position a previous page ended at, and `sort` names one of the row's own
+   * members as `field:dir`. Without a sort the rows keep the order the records are held in, and a
+   * cursor that names no position of the requested order is refused as a `'validation'` failure
+   * rather than restarting the page.
    */
-  getOutboundLedger(): Promise<Result<LedgerRow[]>>;
+  getOutboundLedger(query: ListQuery): Promise<Result<LedgerRow[]>>;
 
   /**
    * Reads the policy list: every policy the engine evaluates and every one the deployment only
@@ -444,8 +585,14 @@ export interface SiteIntelligenceService {
    * contracts §9: the policy list read. Each entry states whether the engine evaluates it, which is
    * how the screen distinguishes a policy it can show decisions for from one it can only show as
    * declared — POL-009 on customer-held keys is declared and never evaluated (rule P-4).
+   *
+   * `query` carries the list parameters contracts §9 fixes: `limit` bounds the page, `cursor`
+   * continues from the position a previous page ended at, and `sort` names one of the row's own
+   * members as `field:dir`. Without a sort the rows keep the order the records are held in, and a
+   * cursor that names no position of the requested order is refused as a `'validation'` failure
+   * rather than restarting the page.
    */
-  listPolicies(): Promise<Result<PolicyDetail[]>>;
+  listPolicies(query: ListQuery): Promise<Result<PolicyDetail[]>>;
 
   /**
    * Reads one policy: its display statement, whether the engine evaluates it, and the decisions it
@@ -512,8 +659,14 @@ export interface SiteIntelligenceService {
    * contracts §9: the evidence-pin list read. The per-node counts travel with the topology, so the
    * canvas badges a node without this call; the pin records themselves belong to the stage that
    * opens them, and this read exists for interface conformance (AAP 0.12.2, AAP 0.12.3).
+   *
+   * `query` carries the list parameters contracts §9 fixes: `limit` bounds the page, `cursor`
+   * continues from the position a previous page ended at, and `sort` names one of the row's own
+   * members as `field:dir`. Without a sort the rows keep the order the records are held in, and a
+   * cursor that names no position of the requested order is refused as a `'validation'` failure
+   * rather than restarting the page.
    */
-  listPins(): Promise<Result<EvidencePin[]>>;
+  listPins(query: ListQuery): Promise<Result<EvidencePin[]>>;
 
   /**
    * Records a review of one evidence pin's state and appends the audit event that review leaves
@@ -532,8 +685,14 @@ export interface SiteIntelligenceService {
    * contracts §9: the package list read, carried for interface conformance with the stage that shows
    * the package map (AAP 0.12.3). Readiness is the passed elements over the package's own element
    * count, handed to the shared whole-percent rule rather than typed anywhere (rule P-6).
+   *
+   * `query` carries the list parameters contracts §9 fixes: `limit` bounds the page, `cursor`
+   * continues from the position a previous page ended at, and `sort` names one of the row's own
+   * members as `field:dir`. Without a sort the rows keep the order the records are held in, and a
+   * cursor that names no position of the requested order is refused as a `'validation'` failure
+   * rather than restarting the page.
    */
-  listPackages(): Promise<Result<PpapPackage[]>>;
+  listPackages(query: ListQuery): Promise<Result<PpapPackage[]>>;
 
   /**
    * Reads one part approval package with its elements and its readiness.
@@ -583,6 +742,25 @@ export interface SiteIntelligenceService {
    * needs no second call, and a node absent from the map carries no badge rather than a zero.
    */
   getTopology(scope: Scope): Promise<Result<Topology>>;
+
+  /**
+   * Reads the six computed tiles of the FileMap canvas ribbon for the caller's selection.
+   *
+   * SCR-12 fixes the ribbon as six computed tiles above the canvas (AAP 0.12.4), and AAP 0.12.1's
+   * "Urgency" row fixes the module that builds them and the order they are reported in. Each tile's
+   * value is an aggregate's own output copied across or a count of the rows the same scope returns,
+   * so a caller supplies no figure, can add no seventh tile and cannot alter one (rule P-6). A tile
+   * travels as `RibbonTile` with its aggregate key and the provenance of its value, carries no
+   * caption and no label of its own, and is shown under `Simulated calculation` where it is
+   * rendered (rule P-1).
+   *
+   * contracts §9: `canvasRibbonPath` is derived as the ribbon's sub-resource of the topology path
+   * AAP 0.12.3 quotes exactly, because §9 is not readable in this run (see the derivation record at
+   * the head of this file). A `'permission'` refusal names `exception.read` and the roles that hold
+   * it, which is the refusal the canvas and the queue meet; a `'validation'` one names a record a
+   * tile's figure could not be resolved from.
+   */
+  getCanvasRibbon(scope: Scope): Promise<Result<RibbonTile[]>>;
 
   /* -------------------------------------------------------------------------------------------
    * Competitive atlas — specification SCR-13, AAP 0.12.3, rule P-5
@@ -648,8 +826,14 @@ export interface SiteIntelligenceService {
    * so the export leaves the application as a file rather than as a request (AAP 0.12.4 SCR-07).
    * The records it carries are read at call time, so an export reflects the state a reader is
    * looking at rather than a snapshot taken when the screen opened.
+   *
+   * The result is the download payload itself — the suggested file name, the media type and the
+   * pack's text — so a caller offers the file under the name and type the document declares
+   * rather than inventing either (AAP 0.12.1 "Exports" row). Both adapters compose it from their
+   * own reads through one shared builder, so the same state yields the same file whichever adapter
+   * is bound (AAP 0.12.3).
    */
-  exportEvidencePack(): Promise<Result<string>>;
+  exportEvidencePack(): Promise<Result<ExportPayload>>;
 
   /**
    * Builds the scenario comparison for one exception as CSV: one column per option and one row per
@@ -657,8 +841,12 @@ export interface SiteIntelligenceService {
    *
    * contracts §9: no HTTP path — the comparison is built in the browser from the same solver output
    * the matrix renders, so the file and the screen cannot disagree (AAP 0.12.4 SCR-04).
+   *
+   * The result carries the CSV's suggested file name and its media type beside the text, so the
+   * caller offers the download as the document declares it (AAP 0.12.1 "Exports" row), and both
+   * adapters compose it through the same builder from the scenario set each reads (AAP 0.12.3).
    */
-  exportScenarioComparison(exceptionId: ExceptionId): Promise<Result<string>>;
+  exportScenarioComparison(exceptionId: ExceptionId): Promise<Result<ExportPayload>>;
 
   /**
    * Builds the chokepoint brief for download from the current market-intelligence pack: the JSON
@@ -667,8 +855,13 @@ export interface SiteIntelligenceService {
    * contracts §9: no HTTP path — the brief is built in the browser, and every competitor figure in
    * it carries the market-intelligence provenance and its own label so the export cannot be read as
    * a first-party record (rules P-5, P-1).
+   *
+   * The result carries the brief's suggested file name and its JSON media type beside the text
+   * (AAP 0.12.1 "Exports" row). Both adapters compose it through the same builder from the atlas
+   * read, which publishes the pack's release label, so a client builds the same document without
+   * reaching the seeded records the label is defined beside (rule P-2, AAP 0.12.3).
    */
-  exportChokepointBrief(): Promise<Result<string>>;
+  exportChokepointBrief(): Promise<Result<ExportPayload>>;
 
   /* -------------------------------------------------------------------------------------------
    * Demonstration controls — AAP 0.6.2, AAP 0.12.1

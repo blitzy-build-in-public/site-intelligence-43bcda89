@@ -26,9 +26,15 @@
  * else from the response header, else it is the empty string; nothing here reads the clock or a
  * random source, so the same response yields the same failure on every run (AAP 0.2.1).
  *
- * It adds no latency and withholds nothing. Artificial delay is the mock adapter's duty, so loading
- * states stay observable (AAP 0.12.1), and redaction belongs to the service that holds the records:
- * this module sends a call and reports what came back, without sleeping, repeating or filtering.
+ * IT TAKES THE SAME TIME THE DEMONSTRATION ADAPTER TAKES. AAP 0.12.3 requires both adapters to share
+ * the observable behaviour that makes the swap invisible, and names the delay among it; AAP 0.12.1
+ * assigns the 150 to 400 ms band to the demonstration adapter, so a loading state is observable rather
+ * than skipped. Both hold here: every call waits that band, on the same ladder the demonstration
+ * adapter walks and from this module's own call counter, before the request is sent — so a screen cannot
+ * tell which adapter is bound from how long a read takes, and a deployment's own service adds its real
+ * latency on top of the wait. The delay is the only thing this module does besides sending a call and
+ * reporting what came back: it withholds nothing, because redaction belongs to the service that holds
+ * the records, and it repeats nothing.
  *
  * Shapes only (rule P-6): the only numerals in this file are protocol constants — the response
  * status codes its failure mapping reads and the one deadline it arms. They classify a transport
@@ -169,6 +175,64 @@ export interface RequestOptions<Q extends object> {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * Timing a call — AAP 0.12.3, AAP 0.12.1
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The shortest time a call takes, in milliseconds: the floor of the 150 to 400 ms band AAP 0.12.1
+ * assigns the demonstration adapter, so that a loading state is observable rather than skipped, and
+ * AAP 0.12.3 requires of both adapters, so that binding the other one is not observable in the
+ * interface.
+ *
+ * A protocol constant rather than a figure of the domain: it is the length of a call, it is never shown
+ * as a value and it describes no record (rule P-6).
+ */
+const LATENCY_FLOOR_MS = 150;
+
+/** The step the ladder advances by, in milliseconds. */
+const LATENCY_STEP_MS = 50;
+
+/** How many steps the ladder spans, so the band's ceiling is the floor plus five steps. */
+const LATENCY_STEPS = 6;
+
+/**
+ * How many calls this module has timed.
+ *
+ * The counter the ladder is derived from, held for the module rather than for a call: it starts at zero
+ * when the module is loaded and advances once per request, so the first six calls take each of the
+ * band's six values in turn and the seventh starts again. Two runs of the same calls therefore wait the
+ * same amounts, which is what keeps a run reproducible (AAP 0.18.2); a random draw would not.
+ */
+let callCount = 0;
+
+/**
+ * The wait one call takes, from the module's own counter alone.
+ *
+ * @returns The delay, in milliseconds, inside the band AAP 0.12.1 and AAP 0.12.3 fix.
+ */
+function latencyForCall(): number {
+  const delay = LATENCY_FLOOR_MS + (callCount % LATENCY_STEPS) * LATENCY_STEP_MS;
+  callCount += 1;
+
+  return delay;
+}
+
+/**
+ * Waits the given number of milliseconds.
+ *
+ * A local helper, so this module depends on nothing but the platform's timer: no clock is read, no
+ * environment value is consulted and no package supplies the delay (rules B-1, B-2).
+ *
+ * @param milliseconds - How long to wait; zero resolves on the next turn.
+ * @returns A promise that settles once the delay has passed.
+ */
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The deadline — rules P-6 and B-2
  * ------------------------------------------------------------------------------------------- */
 
@@ -232,7 +296,8 @@ function deadlineFailure(path: string, traceId: string, cause?: unknown): Proble
  *    something the service never asked for. An absent member is the one that sends no parameter, so
  *    a caller that omits a parameter asks for the whole selection and a caller that passes an empty
  *    value asks for what matches it.
- * 3. Send it: `GET` unless a method was given, a JSON content type only beside a body, a JSON accept
+ * 3. Wait the call's share of the 150 to 400 ms band both adapters apply (AAP 0.12.3), then send
+ *    it: `GET` unless a method was given, a JSON content type only beside a body, a JSON accept
  *    header always, the deadline's signal beside them, and no member that would identify a client
  *    or repeat a failed call.
  * 4. Read the answer as JSON. A 2xx body that is not the `{ data, meta }` envelope — `data` absent
@@ -287,6 +352,10 @@ export async function request<T, Q extends object = Record<string, never>>(
       traceId: '',
     });
   }
+
+  // The band both adapters apply (AAP 0.12.3), waited before the call is sent so a pending state is
+  // observable exactly as it is on the demonstration adapter (AAP 0.12.1).
+  await wait(latencyForCall());
 
   const query = options?.query;
   const target = query === undefined ? path : `${path}${serialiseQuery(query)}`;

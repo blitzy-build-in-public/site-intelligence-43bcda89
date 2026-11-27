@@ -79,10 +79,11 @@ import type {
   Freshness,
   OperationalException,
   OrderResult,
+  Provenance,
   Residency,
   Severity,
 } from './entities';
-import type { DailyClosingStockPoint } from './solver';
+import type { DailyClosingStockPoint, SolverResult } from './solver';
 
 /* ---------------------------------------------------------------------------------------------
  * A. Overview — specification SCR-01, AAP 0.12.2, contracts §5
@@ -643,4 +644,79 @@ export interface SearchHit {
 
   /** Where selecting the hit opens it. */
   target: SearchTarget;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * I. Payloads the port resolves beside the screen DTOs — SCR-05, SCR-06 and SCR-12
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One tile of the FileMap canvas ribbon: an aggregate key, the value computed for it, and the
+ * provenance of that value.
+ *
+ * Declared here rather than beside the module that builds it because the port resolves it: the canvas
+ * read answers `Result<RibbonTile[]>`, and the port imports `src/types` and nothing else (rule P-2),
+ * so the shape `src/domain/aggregation/urgency.ts` produces has to belong to the shared vocabulary.
+ * `id` is a stable aggregate key rather than a figure, so a consumer can recognise a tile across
+ * renders and reorder the ribbon without depending on its position.
+ *
+ * Fixing input: AAP 0.12.1's "Urgency" row, which fixes "the six ribbon tiles" beside the urgent
+ * ordering, and AAP 0.12.4's SCR-12 row, which fixes them as "computed". The tile carries no caption,
+ * no evidence reference and no simulation label (rule P-1): those belong to the component that renders
+ * it, which is also the only place that knows how the value is formatted (AAP 0.10).
+ */
+export interface RibbonTile {
+  /** The aggregate key the tile reports, such as `open-exceptions`. Never a value. */
+  readonly id: string;
+
+  /** The value the aggregate computed, copied from it unchanged. */
+  readonly value: number;
+
+  /** Where the value came from; every tile the aggregation builds is `'computed'` (rule P-5). */
+  readonly provenance: Provenance;
+}
+
+/**
+ * The outcome card's two measurements: the plan as approved, and the state the records reached.
+ *
+ * Declared here because the port resolves it: SCR-05's outcome card reads it through the service, and
+ * the port imports `src/types` alone (rule P-2). Both members are `solveSupplyDelay`'s own output and
+ * neither is a difference this module or a screen computes. The planned measurement is taken at the
+ * plan's own levers; the resulting measurement is taken at those levers when every write-back step
+ * succeeded and at the do-nothing levers otherwise, because AAP 0.2.2 makes a simulated write-back
+ * all-or-nothing — a change any of whose steps is pending or failed has not been applied, so the
+ * records stand where they stood before it. The card's label is applied where the figures are shown,
+ * never here (rule P-1).
+ *
+ * Fixing input: AAP 0.12.4's SCR-05 row ("an outcome card sets planned against resulting figures"),
+ * with the two sides computed under contracts §5's rules rather than stored (rule P-6).
+ */
+export interface ApprovalOutcome {
+  /** The plan as approved, measured at the option's own levers. */
+  planned: SolverResult;
+
+  /** The state the approval's write-backs left, measured on the same case. */
+  resulting: SolverResult;
+}
+
+/**
+ * One question the assistant panel offers, as the panel needs it.
+ *
+ * Declared here because the port resolves it: SCR-06's panel lists the suggestions through the
+ * service, and the port imports `src/types` alone (rule P-2).
+ *
+ * Only the identifier and the words: the answer outline, the sentence template and the records a
+ * question cites stay behind the seed loader and the builders, so no figure and no sentence of an
+ * answer reaches a screen before the answer itself does (rule P-6, AAP 0.8). Fixing input: AAP 0.12.4's
+ * SCR-06 row, which fixes "suggested questions with scripted cited answers" as the screen's content.
+ */
+export interface SuggestedQuestion {
+  /**
+   * The question's own record identifier, which the panel keys its list by and an answer's citations
+   * can name. The assistant query itself carries the prompt as text, not this identifier.
+   */
+  id: string;
+
+  /** The question as the panel offers it, in the record's own words. */
+  prompt: string;
 }

@@ -98,6 +98,7 @@ import type {
   Evidence,
   EvidencePin,
   EvidenceRuleId,
+  ListQuery,
   OperationalException,
   PackageId,
   Permission,
@@ -1278,6 +1279,243 @@ export async function getDocument(ctx: HandlerContext, id: DocumentId): Promise<
 
 
 /* ---------------------------------------------------------------------------------------------
+ * Ordering and paging the collection reads — contracts §9 list parameters, AAP 0.6.3 and AAP 0.12.3
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The pin members a caller may order the list by, spelled as `sort=field:dir` names them.
+ *
+ * The set is the record's own readable members — its identifier, the node it hangs on, its review
+ * state and the vendor it concerns — rather than a display concept, and an unknown member falls back
+ * to the default ordering rather than failing a read a screen can recover from.
+ */
+const PIN_SORT_FIELDS = ['id', 'nodeRef', 'state', 'vendorId'] as const;
+
+/** One member of `PIN_SORT_FIELDS`. */
+type PinSortField = (typeof PIN_SORT_FIELDS)[number];
+
+/**
+ * The package members a caller may order the list by, spelled as `sort=field:dir` names them: the
+ * identifier, the supplier and material the package covers, and the readiness figure its elements add
+ * up to. `elements` is not among them, because a list of elements is the package's payload rather than
+ * a value a package is ordered by.
+ */
+const PACKAGE_SORT_FIELDS = ['id', 'supplierId', 'materialId', 'readinessPercent'] as const;
+
+/** One member of `PACKAGE_SORT_FIELDS`. */
+type PackageSortField = (typeof PACKAGE_SORT_FIELDS)[number];
+
+/** Whether a string names a pin member the list may be ordered by. */
+function isPinSortField(value: string): value is PinSortField {
+  return PIN_SORT_FIELDS.some((field) => field === value);
+}
+
+/** Whether a string names a package member the list may be ordered by. */
+function isPackageSortField(value: string): value is PackageSortField {
+  return PACKAGE_SORT_FIELDS.some((field) => field === value);
+}
+
+/** One ordering: the member to order by and the direction to read it in. */
+interface SortOrder<TField extends string> {
+  /** The member ordered by. */
+  readonly field: TField;
+
+  /** Whether the order runs from the greatest value to the least. */
+  readonly descending: boolean;
+}
+
+/**
+ * The ordering a `sort=field:dir` parameter asks for, or `null` when it asks for none this read can
+ * honour — the default being the order the records the read was given hold.
+ *
+ * The parameter's form is contracts §9's: the member, a colon, then `asc` or `desc`. A member the
+ * family's vocabulary does not name, or a direction spelled in another form, yields that default
+ * rather than a failure: a read that can answer is worth more than a refusal over a presentation
+ * hint.
+ *
+ * @param isField - The family's own test for a member it can order by.
+ * @param sort - The parameter as the query carried it, or `undefined` when it carried none.
+ * @returns The ordering to apply, or `null` for the order the records hold.
+ */
+function sortOrderOf<TField extends string>(
+  isField: (value: string) => value is TField,
+  sort: string | undefined,
+): SortOrder<TField> | null {
+  if (sort === undefined) {
+    return null;
+  }
+
+  const [field, direction] = sort.split(':');
+
+  if (field === undefined || !isField(field)) {
+    return null;
+  }
+
+  if (direction === undefined || direction === 'asc') {
+    return { field, descending: false };
+  }
+
+  return direction === 'desc' ? { field, descending: true } : null;
+}
+
+/** Orders two strings by their own lexical order, which is ISO 8601's too for a single offset. */
+function compareText(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+
+  return left > right ? 1 : 0;
+}
+
+/**
+ * Orders two record values in the type they compare in: the readiness figure numerically, and every
+ * other member as the text it renders to.
+ *
+ * @param left - One record's value.
+ * @param right - The other's.
+ * @returns A negative number when `left` comes first and a positive one when `right` does.
+ */
+function compareValues(left: string | number, right: string | number): number {
+  if (typeof left === 'number' && typeof right === 'number') {
+    return left - right;
+  }
+
+  return compareText(String(left), String(right));
+}
+
+/**
+ * The value one sortable pin member holds on a record.
+ *
+ * A pin that concerns no vendor reads as an empty string, so an ordering by `vendorId` puts the
+ * pins that belong to no supplier's own evidence first in `asc` rather than dropping them.
+ *
+ * @param pin - The pin.
+ * @param field - The member to read.
+ * @returns The pin's value for that member.
+ */
+function pinValueOf(pin: EvidencePin, field: PinSortField): string {
+  return field === 'vendorId' ? (pin.vendorId ?? '') : pin[field];
+}
+
+/**
+ * The value one sortable package member holds on a record.
+ *
+ * `readinessPercent` is a figure and compares numerically; the other three members are the record's
+ * own strings.
+ *
+ * @param partPackage - The package.
+ * @param field - The member to read.
+ * @returns The package's value for that member.
+ */
+function packageValueOf(partPackage: PpapPackage, field: PackageSortField): string | number {
+  return field === 'readinessPercent' ? partPackage.readinessPercent : partPackage[field];
+}
+
+/**
+ * Orders two pins by one ordering, and by identifier where the ordered members are equal.
+ *
+ * @param left - One pin.
+ * @param right - The other.
+ * @param order - The ordering to apply.
+ * @returns A negative number when `left` comes first and a positive one when `right` does; the
+ *   identifier breaks every tie in the same direction, so no pair is unordered.
+ */
+function comparePins(left: EvidencePin, right: EvidencePin, order: SortOrder<PinSortField>): number {
+  const primary = compareValues(pinValueOf(left, order.field), pinValueOf(right, order.field));
+
+  if (primary !== 0) {
+    return order.descending ? -primary : primary;
+  }
+
+  return order.descending ? compareText(right.id, left.id) : compareText(left.id, right.id);
+}
+
+/**
+ * Orders two packages by one ordering, and by identifier where the ordered members are equal.
+ *
+ * @param left - One package.
+ * @param right - The other.
+ * @param order - The ordering to apply.
+ * @returns A negative number when `left` comes first and a positive one when `right` does; the
+ *   identifier breaks every tie in the same direction, so no pair is unordered.
+ */
+function comparePackages(
+  left: PpapPackage,
+  right: PpapPackage,
+  order: SortOrder<PackageSortField>,
+): number {
+  const primary = compareValues(
+    packageValueOf(left, order.field),
+    packageValueOf(right, order.field),
+  );
+
+  if (primary !== 0) {
+    return order.descending ? -primary : primary;
+  }
+
+  return order.descending ? compareText(right.id, left.id) : compareText(left.id, right.id);
+}
+
+/**
+ * The position in an ordered page from which a cursor continues.
+ *
+ * The cursor is opaque to a caller and holds the identifier of the last record the previous page
+ * returned, so the next page starts at the record that follows it in the requested order and a page
+ * boundary can neither repeat nor skip a record however the set has grown in between. A cursor that
+ * names no record of this read in the requested order — a malformed one, or one from an ordering the
+ * caller has since changed — is refused rather than silently restarted, because a page beginning
+ * again at the top would read as a truncated list.
+ *
+ * @param ordered - The records the read admits, already in the requested order.
+ * @param cursor - The position the previous page ended at, or `undefined` for the first page.
+ * @param keyOf - The record's own identity, which is what a cursor names.
+ * @param ctx - The call's context, whose state supplies the trace a refusal carries.
+ * @param family - How the read that refused is named, such as `pin`.
+ * @returns The index the page starts at.
+ * @throws Problem - A `'validation'` failure when the cursor names no record of the ordered page.
+ */
+function startIndexFor<TRow>(
+  ordered: readonly TRow[],
+  cursor: string | undefined,
+  keyOf: (row: TRow) => string,
+  ctx: HandlerContext,
+  family: string,
+): number {
+  if (cursor === undefined) {
+    return 0;
+  }
+
+  const found = ordered.findIndex((row) => keyOf(row) === cursor);
+
+  if (found < 0) {
+    throw validationProblem(
+      ctx,
+      `The ${family} cursor ${cursor} names no record of this read in the requested order.`,
+    );
+  }
+
+  return found + 1;
+}
+
+/**
+ * The greatest number of records a page may hold, or `null` when the query sets no boundary.
+ *
+ * A parameter that is absent, not an integer, or not positive asks for no page rather than for an
+ * empty one: contracts §9 leaves `limit` optional, and a caller that omits it wants the whole read.
+ * The bound is the parameter's alone, so no page size is fixed here (rule P-6).
+ *
+ * @param limit - The parameter as the query carried it.
+ * @returns The page's greatest length, or `null` for every remaining record.
+ */
+function limitOf(limit: number | undefined): number | null {
+  if (limit === undefined || !Number.isInteger(limit) || limit <= 0) {
+    return null;
+  }
+
+  return limit;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * Which pins a persona may see — AAP 0.2.1, contracts §7.1 `EvidencePin`
  * ------------------------------------------------------------------------------------------- */
 
@@ -1410,7 +1648,8 @@ function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin): boolean {
 }
 
 /**
- * Reads the evidence pins the acting persona may see, optionally narrowed to one node.
+ * Reads the evidence pins the acting persona may see, optionally narrowed to one node, and pages the
+ * result.
  *
  * The filter runs here, over the records the session holds, before any pin crosses the service
  * boundary: an external supplier engineer receives its own vendor's pins and no other, which is the
@@ -1419,24 +1658,38 @@ function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin): boolean {
  * records themselves belong to the stage that opens them, and this read exists for interface
  * conformance (AAP 0.12.2, AAP 0.12.3).
  *
+ * The list parameters are the ones contracts §9 fixes, applied to the pins the persona may see rather
+ * than to the whole set: `sort` as `member:dir` over the pin's own members, `limit` as the page's
+ * greatest length, and `cursor` as the identifier of the pin a previous page ended on. Without a
+ * `sort` the visible pins keep the order the records hold them in.
+ *
  * Each returned pin is a copy, so a caller that edited one could not reach the session's record.
  *
  * @param ctx - The call's context: the session's records and the persona the call acts as.
+ * @param query - The ordering and page position the read carries.
  * @param nodeId - The node to narrow the read to, when the caller names one.
- * @returns The pins this persona may see, in the order the records hold them.
+ * @returns One page of the pins this persona may see, in the requested order.
  * @throws Problem - A `'permission'` failure when the persona may not read evidence or the forbidden
- *   trigger is in effect.
+ *   trigger is in effect; a `'validation'` failure when the cursor names no record of the ordered page.
  */
 export async function listVisiblePins(
   ctx: HandlerContext,
+  query: ListQuery,
   nodeId?: string,
 ): Promise<EvidencePin[]> {
   assertEvidenceRead(ctx);
 
-  return ctx.state.records.evidencePins
+  const visible = ctx.state.records.evidencePins
     .filter((pin) => nodeId === undefined || pin.nodeRef === nodeId)
-    .filter((pin) => pinVisibleTo(ctx, pin))
-    .map((pin) => ({ ...pin }));
+    .filter((pin) => pinVisibleTo(ctx, pin));
+  const order = sortOrderOf(isPinSortField, query.sort);
+  const ordered =
+    order === null ? visible : [...visible].sort((left, right) => comparePins(left, right, order));
+  const start = startIndexFor(ordered, query.cursor, (pin) => pin.id, ctx, 'pin');
+  const limit = limitOf(query.limit);
+  const page = limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
+
+  return page.map((pin) => ({ ...pin }));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1576,6 +1829,48 @@ export async function getPackage(ctx: HandlerContext, id: PackageId): Promise<Pp
   assertEvidenceRead(ctx);
 
   return copyPackage(findPackage(ctx, id));
+}
+
+/**
+ * Reads the part approval packages, one page of them: each package's elements with the evidence rule
+ * that decided each state, and the readiness those elements add up to.
+ *
+ * Each record is read through `getPackage`, so one permission check and one copy rule serve the list
+ * and the detail rather than two (AAP 0.12.3). Readiness travels on the record — it is the package's
+ * own whole-percent figure and no percentage is computed here (rule P-6).
+ *
+ * The list parameters are the ones contracts §9 fixes: `sort` as `member:dir` over the package's own
+ * members, `limit` as the page's greatest length, and `cursor` as the identifier of the package a
+ * previous page ended on. Without a `sort` the packages keep the record set's order.
+ *
+ * Conformance-only: no S1-S3 screen calls this, and the package route renders the stage notice,
+ * because the package map belongs to stage S4 (AAP 0.12.3, AAP 0.14.2).
+ *
+ * @param ctx - The call's context: the session's records and the persona the call acts as.
+ * @param query - The ordering and page position the read carries.
+ * @returns One page of the packages, in the requested order.
+ * @throws Problem - A `'permission'` failure when the persona may not read evidence or the forbidden
+ *   trigger is in effect; a `'validation'` failure when the cursor names no record of the ordered page.
+ */
+export async function listPackages(
+  ctx: HandlerContext,
+  query: ListQuery,
+): Promise<PpapPackage[]> {
+  const packages: PpapPackage[] = [];
+
+  for (const record of ctx.state.records.ppapPackages) {
+    packages.push(await getPackage(ctx, record.id));
+  }
+
+  const order = sortOrderOf(isPackageSortField, query.sort);
+  const ordered =
+    order === null
+      ? packages
+      : [...packages].sort((left, right) => comparePackages(left, right, order));
+  const start = startIndexFor(ordered, query.cursor, (partPackage) => partPackage.id, ctx, 'package');
+  const limit = limitOf(query.limit);
+
+  return limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
 }
 
 /**

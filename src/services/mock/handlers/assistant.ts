@@ -128,6 +128,7 @@ import type {
   PolicyDecision,
   PolicyId,
   Problem,
+  SuggestedQuestion,
 } from '../../../types';
 import { answerQuestion, unscriptedAnswer } from '../assistant-script';
 import type { AssistantQuestion, SeedRecordSet } from '../seed-loader';
@@ -162,7 +163,7 @@ const ASSISTANT_QUESTION_ACTION: AuditAction = 'assistant question';
 const POLICY_BLOCK_ACTION: AuditAction = 'policy block';
 
 /* ---------------------------------------------------------------------------------------------
- * The input and the suggestion this handler publishes — AAP 0.12.1
+ * The input this handler publishes, and the suggestion it hands over — AAP 0.12.1
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -170,9 +171,10 @@ const POLICY_BLOCK_ACTION: AuditAction = 'policy block';
  *
  * Declared here rather than in `src/types` because the shared vocabulary holds no assistant-request
  * shape and inventing one there would put a handler's calling convention in the folder every screen
- * imports; `RibbonTile` in `src/domain/aggregation/urgency.ts` and `AuditWriteDraft` in `./audit.ts`
- * are the same arrangement. The members mirror what the port's `askAssistant` request carries, so the
- * adapter can hand its arguments straight through.
+ * imports; `AuditWriteDraft` in `./audit.ts` uses the same arrangement. The members mirror what the
+ * port's `askAssistant` request carries, so the adapter can hand its arguments straight through. The
+ * suggestion the panel lists is a different matter and travels as `SuggestedQuestion` from
+ * `src/types/screen-dto.ts`, because the port resolves that read (rule P-2).
  */
 export interface AssistantQueryInput {
   /**
@@ -210,21 +212,6 @@ export interface AssistantQueryInput {
    * stating "this question is about that document" reaches the model-boundary rule.
    */
   contextRefs?: readonly string[] | undefined;
-}
-
-/**
- * One question the assistant panel offers, as the panel needs it.
- *
- * Only the identifier and the words: the answer outline, the sentence template and the records a
- * question cites stay behind the seed loader and the builders, so no figure and no sentence of an
- * answer reaches a screen before the answer itself does (rule P-6, AAP 0.8).
- */
-export interface SuggestedQuestion {
-  /** The question's identifier, which `AssistantQueryInput.questionId` names it by. */
-  id: string;
-
-  /** The question as the panel offers it, in the record's own words. */
-  prompt: string;
 }
 
 /* ---------------------------------------------------------------------------------------------

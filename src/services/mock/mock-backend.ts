@@ -79,19 +79,20 @@
  * its cause, with the permission and the roles that hold it), B-1 (no request leaves for any host) and
  * B-2 (no configuration, no credential).
  *
- * HOW THE PORT'S `Scope` REACHES THE FAMILIES (AAP 0.2.1). Five port members take a scope. Three of them
- * narrow by both halves: `getOverview`, `listExceptions` and `getTopology` carry the selection into the
- * family that owns the read as one `ScopeFilterInput` — the single selected plant and the single selected
- * product, each absent when the top bar names none — which that family resolves once through
- * `resolveScope`, so a filtered queue, a filtered overview and a narrowed canvas describe one
- * population instead of three. `listApprovals` and `searchIdentifiers` apply the plant half here, on the
- * page the approval family returned and on the index this adapter built, because neither an approval nor
- * a search hit carries a product to narrow by. A selection naming no plant,
- * or more than one, states nothing a single-plant filter can express and resolves to the acting role's
- * whole scope: the shell's filter is one plant and one product (AAP 0.12.2 `Scope`, specification §5.1),
- * so a multi-plant selection can only come from a caller, and it is widened rather than refused. The
- * product half travels the same way and is passed through the resolver unchanged, because no role
- * narrows a product; a selection naming no product means "all products".
+ * HOW THE PORT'S `Scope` REACHES THE FAMILIES (AAP 0.2.1). Six port members take a scope. Four of
+ * them narrow by both halves: `getOverview`, `listExceptions`, `getTopology` and `getCanvasRibbon`
+ * carry the selection into the family that owns the read as one `ScopeFilterInput` — the single
+ * selected plant and the single selected product, each absent when the top bar names none — which
+ * that family resolves once through `resolveScope`, so a filtered queue, a filtered overview, a
+ * narrowed canvas and its ribbon describe one population instead of four. `listApprovals` and
+ * `searchIdentifiers` apply the plant half here, on the page the approval family returned and on the
+ * index this adapter built, because neither an approval nor a search hit carries a product to narrow
+ * by. A selection naming no plant, or more than one, states nothing a single-plant filter can express
+ * and resolves to the acting role's whole scope: the shell's filter is one plant and one product
+ * (AAP 0.12.2 `Scope`, specification §5.1), so a multi-plant selection can only come from a caller,
+ * and it is widened rather than refused. The product half travels the same way and is passed through
+ * the resolver unchanged, because no role narrows a product; a selection naming no product means
+ * "all products".
  * OPEN ITEM — `listApprovals` narrows the page the approval family returned, because the family's
  * read takes the bare list parameters. The status and the shell's plant selection therefore filter a
  * page rather than the population it was cut from, so a page may return fewer rows than its limit
@@ -127,9 +128,11 @@ import type {
   Answer,
   Approval,
   ApprovalId,
+  ApprovalOutcome,
   ApprovalStatus,
   Atlas,
   AuditEvent,
+  AuditEventId,
   AuditPayload,
   AuditQuery,
   ChainReport,
@@ -145,6 +148,7 @@ import type {
   ExceptionQuery,
   ExceptionRow,
   ExitPackage,
+  ExportPayload,
   LedgerRow,
   Levers,
   ListQuery,
@@ -163,6 +167,7 @@ import type {
   PpapPackage,
   Problem,
   Result,
+  RibbonTile,
   Role,
   Scenario,
   ScenarioId,
@@ -173,9 +178,11 @@ import type {
   SimulationFlag,
   SourceCatalogue,
   SovereigntyStatus,
+  SuggestedQuestion,
   Timestamp,
   Topology,
   UserId,
+  WriteBack,
 } from '../../types';
 import type { DemonstrationControls } from '../demonstration-controls';
 import type { SiteIntelligenceService } from '../site-intelligence-service';
@@ -440,9 +447,11 @@ const EVIDENCE_READ: Permission = 'evidence.read';
 const EVIDENCE_REVIEW: Permission = 'evidence.review';
 
 /**
- * The permission the declared deployment record is read under, and therefore the one the evidence
- * pack is exported under: the pack is composed from that record, so exporting it reveals what reading
- * it reveals.
+ * The permission the declared deployment record is read under.
+ *
+ * The governance screen's payload and the outbound ledger both require it, and the evidence pack is
+ * exported under it together with `AUDIT_READ`: the pack is composed from those two reads, so a persona
+ * that may not read the trail may not export a document that carries it (`exportEvidencePack`).
  */
 const SOVEREIGNTY_READ: Permission = 'sovereignty.read';
 
@@ -1148,6 +1157,24 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   }
 
   /**
+   * Reads the outcome card's planned and resulting measurements for one approval.
+   *
+   * Both are `solveSupplyDelay`'s output on the exception's own case — the plan taken at its option's
+   * levers, the records taken at the levers the change actually reached — so this member supplies
+   * nothing but the identifier and computes no difference itself (rule P-6). The all-or-nothing rule
+   * of AAP 0.2.2 is what decides the second side.
+   *
+   * @param approvalId - The approval whose outcome is measured.
+   * @returns The planned measurement and the resulting one.
+   * @throws Problem - A `'permission'` failure when the plans are not readable, a `'not-found'`
+   *   failure for an approval or an option the records do not hold, or a `'validation'` failure when
+   *   the exception carries no solver case.
+   */
+  async getApprovalOutcome(approvalId: ApprovalId): Promise<Result<ApprovalOutcome>> {
+    return this.dispatch((ctx) => approvals.getApprovalOutcome(ctx, approvalId));
+  }
+
+  /**
    * Puts a scenario forward for approval and appends the `approval request` audit event.
    *
    * The requester and the eligible approver roles are taken from the acting persona by the family,
@@ -1204,6 +1231,25 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
     return this.dispatch((ctx) => approvals.reviewApprovalOutcome(ctx, approvalId));
   }
 
+  /**
+   * Re-attempts one failed step of an approved change's write-back and lets the change complete.
+   *
+   * AAP 0.2.2's retry: the step is addressed by the reference it writes, a step that already
+   * succeeded is refused rather than written a second time, and the steps the failure left untouched
+   * run afterwards in their recorded order. A refusal leaves the change as it stood, and the order
+   * book's freshness still gates the write, because a retry writes where the first attempt did.
+   *
+   * @param approvalId - The approval whose step is retried.
+   * @param writeBackId - The reference of the step to re-attempt, as the tracker reports it.
+   * @returns The step, in the state the retry left it.
+   * @throws Problem - A `'permission'` failure when the role may not act on the plan, a `'not-found'`
+   *   failure for a reference that answers no step, or a `'validation'` failure when the approval is
+   *   not approved, the step already succeeded, the record moved or the order book is stale.
+   */
+  async retryWriteBack(approvalId: ApprovalId, writeBackId: string): Promise<Result<WriteBack>> {
+    return this.dispatch((ctx) => approvals.retryWriteBack(ctx, approvalId, writeBackId));
+  }
+
   /* -------------------------------------------------------------------------------------------
    * Audit — specification SCR-05, contracts §6
    * ----------------------------------------------------------------------------------------- */
@@ -1218,6 +1264,21 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    */
   async listAuditEvents(query: AuditQuery): Promise<Result<AuditEvent[]>> {
     return this.dispatchCollection((ctx) => audit.listAuditEvents(ctx, query));
+  }
+
+  /**
+   * Reads one event of the chain with the before and after payloads the detail drawer shows.
+   *
+   * The audit family owns the read and its `audit.read` gate. The chain is not plant-scoped, so no
+   * selection narrows this read and none is taken.
+   *
+   * @param auditEventId - The event to read, in the chain's own identifier form.
+   * @returns The event, as a copy of the record.
+   * @throws Problem - A `'permission'` failure when the role does not hold `audit.read`, or a
+   *   `'not-found'` failure naming an identifier the chain does not hold.
+   */
+  async getAuditEvent(auditEventId: AuditEventId): Promise<Result<AuditEvent>> {
+    return this.dispatch((ctx) => audit.getAuditEvent(ctx, auditEventId));
   }
 
   /**
@@ -1252,6 +1313,19 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    */
   async getModelCatalogue(): Promise<Result<ModelCatalogue>> {
     return this.dispatch((ctx) => assistant.listModels(ctx));
+  }
+
+  /**
+   * Lists the questions the assistant panel offers, in the order the records hold them.
+   *
+   * Only each question's identifier and prompt cross the boundary; the answer it is scripted to
+   * receive stays with the builders until the question is asked (rule P-6).
+   *
+   * @returns The suggested questions, in record order.
+   * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
+   */
+  async listSuggestedQuestions(): Promise<Result<SuggestedQuestion[]>> {
+    return this.dispatch((ctx) => assistant.listSuggestedQuestions(ctx));
   }
 
   /**
@@ -1307,23 +1381,33 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Reads the outbound ledger on its own: one row per endpoint, with its purpose, its declared state,
    * its last attempt and its allowed and blocked counts over the window.
    *
+   * The list parameters `query` carries are the ones contracts §9 fixes for every list read
+   * (AAP 0.6.3, AAP 0.12.3), applied by the governance family to the rows `computeLedger` produced.
+   *
+   * @param query - The ordering and page position the read carries.
    * @returns The ledger rows; none while the simulation's `empty` trigger empties the session's
    *   collections.
-   * @throws Problem - A `'permission'` failure when the role does not hold `sovereignty.read`.
+   * @throws Problem - A `'permission'` failure when the role does not hold `sovereignty.read`, and a
+   *   `'validation'` failure when the cursor names no endpoint of the requested order.
    */
-  async getOutboundLedger(): Promise<Result<LedgerRow[]>> {
-    return this.dispatchCollection((ctx) => governance.getOutboundLedger(ctx));
+  async getOutboundLedger(query: ListQuery): Promise<Result<LedgerRow[]>> {
+    return this.dispatchCollection((ctx) => governance.getOutboundLedger(ctx, query));
   }
 
   /**
    * Reads the policy list: every policy the engine evaluates and the one the deployment only declares.
    *
+   * The list parameters `query` carries are the ones contracts §9 fixes for every list read
+   * (AAP 0.6.3, AAP 0.12.3), applied by the governance family to the entries it builds.
+   *
+   * @param query - The ordering and page position the read carries.
    * @returns The policies, each stating whether the engine evaluates it and the decisions it
    *   recorded; none while the simulation's `empty` trigger empties the session's collections.
-   * @throws Problem - A `'permission'` failure when the role does not hold `policy.read`.
+   * @throws Problem - A `'permission'` failure when the role does not hold `policy.read`, and a
+   *   `'validation'` failure when the cursor names no policy of the requested order.
    */
-  async listPolicies(): Promise<Result<PolicyDetail[]>> {
-    return this.dispatchCollection((ctx) => governance.listPolicies(ctx));
+  async listPolicies(query: ListQuery): Promise<Result<PolicyDetail[]>> {
+    return this.dispatchCollection((ctx) => governance.listPolicies(ctx, query));
   }
 
   /**
@@ -1404,12 +1488,17 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Reads the evidence pins the calling persona may see: the external supplier engineer receives its
    * own vendor's pins and no other vendor's (AAP 0.6.2, AAP 0.12.3).
    *
+   * The list parameters `query` carries are the ones contracts §9 fixes for every list read
+   * (AAP 0.6.3, AAP 0.12.3), applied by the evidence family to the pins the persona may see.
+   *
+   * @param query - The ordering and page position the read carries, applied to the visible pins.
    * @returns The visible pins, each with its node and review state; none while the simulation's
    *   `empty` trigger empties the session's collections.
-   * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
+   * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`, and a
+   *   `'validation'` failure when the cursor names no pin of the requested order.
    */
-  async listPins(): Promise<Result<EvidencePin[]>> {
-    return this.dispatchCollection((ctx) => evidence.listVisiblePins(ctx));
+  async listPins(query: ListQuery): Promise<Result<EvidencePin[]>> {
+    return this.dispatchCollection((ctx) => evidence.listVisiblePins(ctx, query));
   }
 
   /**
@@ -1472,20 +1561,17 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * list and the detail rather than two (AAP 0.12.3). Readiness travels on the record: it is the
    * package's own whole-percent figure and no percentage is computed here (rule P-6).
    *
-   * @returns The packages, in the record set's order; none while the simulation's `empty` trigger
-   *   empties the session's collections.
-   * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
+   * The list parameters `query` carries are the ones contracts §9 fixes for every list read
+   * (AAP 0.6.3, AAP 0.12.3), applied by the evidence family.
+   *
+   * @param query - The ordering and page position the read carries.
+   * @returns The packages, in the record set's order unless the query names another; none while the
+   *   simulation's `empty` trigger empties the session's collections.
+   * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`, and a
+   *   `'validation'` failure when the cursor names no package of the requested order.
    */
-  async listPackages(): Promise<Result<PpapPackage[]>> {
-    return this.dispatchCollection(async (ctx) => {
-      const packages: PpapPackage[] = [];
-
-      for (const record of ctx.state.records.ppapPackages) {
-        packages.push(await evidence.getPackage(ctx, record.id));
-      }
-
-      return packages;
-    });
+  async listPackages(query: ListQuery): Promise<Result<PpapPackage[]>> {
+    return this.dispatchCollection((ctx) => evidence.listPackages(ctx, query));
   }
 
   /**
@@ -1577,6 +1663,24 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    */
   async getTopology(scope: Scope): Promise<Result<Topology>> {
     return this.dispatch((ctx) => topology.getTopology(ctx, selectionOf(scope)));
+  }
+
+  /**
+   * Reads the six computed tiles of the FileMap canvas ribbon for the shell's selection.
+   *
+   * The ribbon is the exception family's aggregation, not this adapter's arithmetic:
+   * `computeRibbonTiles` copies the overview's aggregate values across and counts the rows the same
+   * scope returns, so the only thing this member supplies is the scope. The shell's selection reaches
+   * the canvas family through `selectionOf`, exactly as `getOverview` and `getTopology` map it, so the
+   * ribbon, the overview and the canvas count the same records.
+   *
+   * @param scope - The shell's plant and product selection.
+   * @returns Six tiles, in the order the aggregation states them.
+   * @throws Problem - A `'permission'` failure when the role may not read the canvas, or a
+   *   `'validation'` failure when a record a tile's figure is drawn from does not resolve.
+   */
+  async getCanvasRibbon(scope: Scope): Promise<Result<RibbonTile[]>> {
+    return this.dispatch((ctx) => topology.getCanvasRibbon(ctx, selectionOf(scope)));
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -1674,17 +1778,23 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * ------------------------------------------------------------------------------------------- */
 
   /**
-   * Builds the evidence pack for download: the JSON text whose top level carries `"simulated": true`.
+   * Builds the evidence pack for download: the payload whose document carries `"simulated": true` at
+   * its top level, beside the file name and media type a browser offers it under.
    *
-   * The pack is composed from the declared deployment record and the chain, so exporting it is gated
-   * by the permission that record is read under. The export records itself: one `export` event is
-   * appended through the chain after the document is built, so the file describes the session as it
-   * stood when the reader asked for it (contracts §6, AAP 0.6.2).
+   * The pack is composed from the declared deployment record, the outbound ledger and the audit trail, so
+   * exporting it is gated by the two permissions those reads are gated by — `sovereignty.read` for the
+   * record and the ledger, `audit.read` for the trail and its verification. The API client composes the
+   * same document from those same reads, so this gate is what keeps the two adapters from disagreeing
+   * about who may export: a persona refused here meets the same refusal there (AAP 0.12.3). The export
+   * records itself: one `export` event is appended through the chain after the document is built, so the
+   * file describes the session as it stood when the reader asked for it (contracts §6, AAP 0.6.2).
    *
-   * @returns The pack's JSON text, built in the browser and offered as a file rather than sent.
-   * @throws Problem - A `'permission'` failure when the role does not hold `sovereignty.read`.
+   * @returns The payload: the suggested file name, the media type and the pack's JSON text, built in
+   *   the browser and offered as a file rather than sent.
+   * @throws Problem - A `'permission'` failure naming whichever of `sovereignty.read` and `audit.read`
+   *   the acting role does not hold.
    */
-  async exportEvidencePack(): Promise<Result<string>> {
+  async exportEvidencePack(): Promise<Result<ExportPayload>> {
     return this.dispatch(async (ctx) => {
       if (!hasPermission(ctx.actor.role, SOVEREIGNTY_READ, null, ctx.actor)) {
         throw permissionProblem(
@@ -1693,6 +1803,15 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
           `The evidence pack is composed from the declared deployment record, so exporting it ` +
             `requires the ${SOVEREIGNTY_READ} permission, which the acting role ` +
             `(${ctx.actor.role}) does not hold.`,
+        );
+      }
+
+      if (!hasPermission(ctx.actor.role, AUDIT_READ, null, ctx.actor)) {
+        throw permissionProblem(
+          ctx,
+          AUDIT_READ,
+          `The evidence pack carries the audit trail and its verification, so exporting it requires ` +
+            `the ${AUDIT_READ} permission, which the acting role (${ctx.actor.role}) does not hold.`,
         );
       }
 
@@ -1705,7 +1824,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
         after: { filename: pack.filename, mediaType: pack.mediaType },
       });
 
-      return pack.content;
+      return pack;
     });
   }
 
@@ -1714,13 +1833,14 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * The set is read through the scenario family, so a persona that may not read the exception's
    * options is refused here exactly as it is refused on the screen, and the file and the screen cannot
-   * disagree (rule P-6).
+   * disagree (rule P-6). The client builds the same comparison from its own scenario-set read, so the
+   * gate is the same one on both adapters (AAP 0.12.3).
    *
    * @param exceptionId - The exception whose options are compared.
-   * @returns The comparison as CSV text.
+   * @returns The payload: the suggested file name, the CSV media type and the comparison's text.
    * @throws Problem - The `Problem` the scenario-set read refuses the call with.
    */
-  async exportScenarioComparison(exceptionId: ExceptionId): Promise<Result<string>> {
+  async exportScenarioComparison(exceptionId: ExceptionId): Promise<Result<ExportPayload>> {
     return this.dispatch(async (ctx) => {
       const set = await scenarios.getScenarioSet(ctx, exceptionId);
       const comparison = buildScenarioComparisonCsv(set);
@@ -1732,23 +1852,25 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
         after: { filename: comparison.filename, mediaType: comparison.mediaType },
       });
 
-      return comparison.content;
+      return comparison;
     });
   }
 
   /**
-   * Builds the chokepoint brief for download: the JSON text whose top level carries
-   * `"simulated": true`.
+   * Builds the chokepoint brief for download: the payload whose document carries
+   * `"simulated": true` at its top level, beside the file name and media type a browser offers it
+   * under.
    *
    * The brief's gate is the atlas family's own, evaluated before the file is built, so the export is
-   * refused exactly where the picture is refused and the external supplier engineer reaches neither.
-   * The brief carries only market-intelligence records, each with its provenance and its label, so the
-   * file cannot be read as a first-party record (rules P-5, P-1).
+   * refused exactly where the picture is refused and the external supplier engineer reaches neither —
+   * and the API client, which composes the brief from its own atlas read, refuses the same persona for
+   * the same reason (AAP 0.12.3). The brief carries only market-intelligence records, each with its
+   * provenance and its label, so the file cannot be read as a first-party record (rules P-5, P-1).
    *
-   * @returns The brief's JSON text.
+   * @returns The payload: the suggested file name, the JSON media type and the brief's text.
    * @throws Problem - The `Problem` the atlas family refuses the call with.
    */
-  async exportChokepointBrief(): Promise<Result<string>> {
+  async exportChokepointBrief(): Promise<Result<ExportPayload>> {
     return this.dispatch(async (ctx) => {
       await atlas.buildChokepointBriefPayload(ctx);
 
@@ -1761,7 +1883,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
         after: { filename: brief.filename, mediaType: brief.mediaType },
       });
 
-      return brief.content;
+      return brief;
     });
   }
 
