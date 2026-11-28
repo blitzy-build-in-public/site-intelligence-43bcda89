@@ -10,8 +10,9 @@
  * opening from the trigger, by pointer and by keyboard, on the reference the tile was given; the
  * qualifier that appears only when the caller supplies one; the value routed through the module's
  * presentation rules when the caller names a `kind` — grouped and code-labelled by the money rule for
- * an amount, presented as whole hours by the duration rule for a duration, and the raw figure
- * otherwise; one control and no second; no elevation, since the token layer exposes no
+ * an amount, the nearest whole hour by the age rule, the value's own precision up to two decimals by
+ * the measured rule for an aggregate AAP §0.8 keeps unrounded, and the raw figure otherwise; one
+ * control and no second; no elevation, since the token layer exposes no
  * shadow; the 16 px step a ribbon tile takes, with the caller's caption still the card's level-2
  * heading; and both themes rendering the same three lines.
  *
@@ -35,7 +36,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEMO_CLOCK, SIM_LABELS } from '../types';
 import type { Evidence, Result, SimLabel } from '../types';
 import { MetricTile } from './metric-tile';
-import { formatHours } from './mono-value';
+import { formatHours, formatMeasuredHours } from './mono-value';
 import type { FigureFormat } from './mono-value';
 
 /**
@@ -370,7 +371,7 @@ describe('MetricTile', () => {
   });
 
   /*
-   * A duration reaches the one duration formatter, which presents the nearest whole hour as text in
+   * A duration reaches the age formatter, which presents the nearest whole hour as text in
    * the tile's own type step. AAP §0.5.3 fixes the mono face for money, identifiers, timestamps and
    * hashes only, so this figure carries neither of those utilities; the value is fractional on
    * purpose, because the raw aggregate is what must never reach the reader (rule P-6).
@@ -389,6 +390,29 @@ describe('MetricTile', () => {
     // The figure still starts the trigger's accessible name, and the label is still on the tile.
     expect(figure).toHaveAccessibleName(new RegExp(escapeForPattern(visibleFigure(figure))));
     expect(within(tileRegion()).getByText(SIM_LABEL)).toBeVisible();
+  });
+
+  /*
+   * A measured aggregate keeps what the domain computed, because AAP §0.8 fixes the median hours to
+   * an approved plan as the middle value of the qualifying history records, unrounded: a tile printing
+   * the nearest whole hour would state a figure of its own beside the evidence drawer that states the
+   * computed one. The expected text is the imported formatter's, never a typed reading (rule P-6), and
+   * the age rule's whole hour is asserted absent so the two duration rules cannot be swapped back.
+   */
+  it('keeps a measured aggregate’s own precision under the measured rule', () => {
+    renderTile(tileElement({ kind: 'measured-hours', value: FRACTIONAL_HOURS }));
+
+    const figure = evidenceTrigger();
+    const formatted = within(figure).getByText(formatMeasuredHours(FRACTIONAL_HOURS));
+
+    // The decimals the aggregate carries reach the reader; the nearest whole hour does not.
+    expect(within(figure).queryByText(formatHours(FRACTIONAL_HOURS))).toBeNull();
+    expect(within(figure).queryByText(String(FRACTIONAL_HOURS))).toBeNull();
+    expect(formatted).toBeVisible();
+    // No mono face and no tabular numerals: a duration is not one of the four values that take them.
+    expect(formatted.className).not.toMatch(/font-mono|tabular-nums/);
+    // The figure still starts the trigger's accessible name.
+    expect(figure).toHaveAccessibleName(new RegExp(escapeForPattern(visibleFigure(figure))));
   });
 
   it.each(THEMES)('renders its caption, figure and label under the %s theme', (theme) => {

@@ -111,12 +111,33 @@ const MAP_ZOOM_OUT = 'Zoom out';
 const MAP_VIEW_GROUP = 'Map view';
 
 /**
+ * The map region itself: the drawing's accessible name, `MAP_LENS_TEXT.title` of
+ * `src/features/scr-12-filemap-canvas/map-lens.tsx`, which the drawing names its own SVG with.
+ *
+ * The region is a focus stop in its own right and carries the description that states how it is panned,
+ * so the keyboard half of the pan is driven from it rather than from the page.
+ */
+const MAP_REGION = 'Network map';
+
+/**
+ * The control that returns the frame to its starting position, `MAP_CANVAS_TEXT.resetLabel` of
+ * `src/components/map-canvas.tsx`.
+ */
+const MAP_RESET_VIEW = 'Reset view';
+
+/**
  * How a drawn node of either lens names itself: each node is a `role="button"` stop whose
  * accessible name ends with its evidence-pin counts, which `MAP_CANVAS_TEXT.pinsPrefix` and the
  * graph lens's own wording both phrase that way. Matching on the pin summary rather than on the
  * glyphs lets the same locator find a node in whichever lens is in view.
  */
 const NETWORK_NODE_NAME = /evidence pins?/i;
+
+/**
+ * The evidence drawer's accessible name, taken from `src/components/evidence-drawer.tsx`'s own
+ * `EVIDENCE_DRAWER_TEXT.title`, which names the dialog through its heading.
+ */
+const EVIDENCE_DIALOG = 'Evidence';
 
 /**
  * The three paths this file names: the exception queue, the approvals inbox and the FileMap canvas,
@@ -446,12 +467,22 @@ async function visitApprovalDetail(page: Page): Promise<string> {
  * Drives the FileMap canvas as the one persona whose role reads everything the screen asks for, so
  * the map lens's controls are on screen rather than behind a permission card.
  *
- * Panning and zooming are the lens's own controls, because the surface offers no drag: the three
- * zoom levels are the zoom group's two buttons and the five view presets are the group of five that
- * reframe the projection from the whole world to one region and back. Both are driven, and then a
- * node of the drawn network is activated from the keyboard — the nodes are `role="button"` stops, so
- * `Enter` is the equivalent of the pointer press the hit areas overlap. The lens switch is used as
- * well, because the graph lens draws the same bundled topology through a second surface.
+ * PANNING AND ZOOMING ARE BOTH DRIVEN. AAP §0.9 makes this test the one that exercises "panning and
+ * zooming on the canvas", so a surface that could show neither would leave half of that proof
+ * unobserved. Zooming is the zoom group's two buttons, one step in and one step back; a preset is each
+ * of the five in the preset group, which reframes the drawing; and panning is a real pointer drag across
+ * the map body, the arrow keys over the map region once it holds focus, and the "Reset view" control
+ * that puts the frame back where it started. Every one of them is observed through the frame's own view
+ * box, so a control that reported itself pressed without moving the drawing fails here.
+ *
+ * A DRAG STARTS INSIDE THE FRAME'S OWN MARGIN. The drawing keeps a margin clear of every mark at the
+ * widest zoom level — which is what lets each of the five framings hold the whole network — so a press a
+ * few pixels inside the frame's corner starts on the map body rather than on a node's control, and the
+ * body is the surface a reader pans from.
+ *
+ * A node of the drawn network is then activated from the keyboard — the nodes are `role="button"` stops,
+ * so `Enter` is the equivalent of the pointer press the hit areas overlap — and the lens switch is used
+ * as well, because the graph lens draws the same bundled topology through a second surface.
  *
  * The map is drawn from the boundary file compiled into the bundle, so any pan or zoom that fetched
  * a tile from a tile server would be collected by the listener this test registered.
@@ -481,7 +512,7 @@ async function exerciseFileMapCanvas(page: Page): Promise<readonly string[]> {
 
   expect(
     presetCount,
-    `The map lens rendered no view preset, so the network cannot be panned across the five framings the specification fixes.`,
+    `The map lens rendered no view preset, so the network cannot be framed across the five views the specification fixes.`,
   ).toBeGreaterThan(0);
 
   for (let index = 0; index < presetCount; index += 1) {
@@ -492,6 +523,58 @@ async function exerciseFileMapCanvas(page: Page): Promise<readonly string[]> {
       `View preset ${index + 1} of ${presetCount} did not report itself pressed after it was activated.`,
     ).toHaveAttribute('aria-pressed', 'true');
   }
+
+  /*
+   * Panning, in both of its forms and then undone. The frame is read from the drawing's own view box
+   * after each step, because that is the one value a pan changes and nothing else in the lens does.
+   */
+  const map = page.getByRole('group', { name: MAP_REGION, exact: true });
+  const atRest = await map.getAttribute('viewBox');
+  const box = await map.boundingBox();
+
+  expect(
+    atRest,
+    `The map region at ${CANVAS_PATH} stated no view box, so the frame it draws cannot be observed.`,
+  ).not.toBeNull();
+  expect(
+    box,
+    `The map region at ${CANVAS_PATH} was not laid out, so there is no body to drag.`,
+  ).not.toBeNull();
+
+  if (box !== null) {
+    /* A press a few pixels inside the frame's corner lands on the map body, clear of every mark. */
+    const fromX = box.x + 12;
+    const fromY = box.y + 12;
+
+    await page.mouse.move(fromX, fromY);
+    await page.mouse.down();
+    await page.mouse.move(fromX + 120, fromY + 60, { steps: 8 });
+    await page.mouse.up();
+  }
+
+  const afterDrag = await map.getAttribute('viewBox');
+
+  expect(
+    afterDrag,
+    `Dragging the map body left its view box at ${String(atRest)}, so the surface does not pan with the pointer.`,
+  ).not.toBe(atRest);
+
+  await map.focus();
+  await page.keyboard.press('ArrowRight');
+
+  const afterArrow = await map.getAttribute('viewBox');
+
+  expect(
+    afterArrow,
+    `Pressing ArrowRight while the map region held focus left its view box at ${String(afterDrag)}, so the surface does not pan from the keyboard.`,
+  ).not.toBe(afterDrag);
+
+  await page.getByRole('button', { name: MAP_RESET_VIEW, exact: true }).click();
+
+  expect(
+    await map.getAttribute('viewBox'),
+    `"${MAP_RESET_VIEW}" did not return the frame to the view box it started from.`,
+  ).toBe(atRest);
 
   const nodes = page.getByRole('button', { name: NETWORK_NODE_NAME });
   const nodeCount = await nodes.count();
@@ -504,6 +587,19 @@ async function exerciseFileMapCanvas(page: Page): Promise<readonly string[]> {
   const firstNode = nodes.first();
   await firstNode.focus();
   await page.keyboard.press('Enter');
+
+  /*
+   * The node's own evidence opens in the evidence drawer, which is a modal dialog: it takes focus and
+   * the lens controls beside it are inert until it is dismissed. The sweep closes it here, as a reader
+   * would, before driving the lenses.
+   */
+  const nodeEvidence = page.getByRole('dialog', { name: EVIDENCE_DIALOG, exact: true });
+  await expect(
+    nodeEvidence,
+    `Activating a node on ${CANVAS_PATH} opened no evidence drawer, so the drawer the canvas offers could not be dismissed.`,
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(nodeEvidence).toHaveCount(0);
 
   const lenses = page.getByRole('group', { name: CANVAS_LENS_GROUP }).getByRole('button');
   const lensCount = await lenses.count();

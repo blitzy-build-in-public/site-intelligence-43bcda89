@@ -249,11 +249,15 @@ function OverviewRoute({
  * applies, so the queue opens on every record the acting role may see rather than on a filter of this file's
  * choosing.
  *
- * The entry stays the authority on the day. The screen seeds the day once and holds it while the reader is
- * on the page, so clearing it has to reach the entry too: `onDayCleared` replaces the entry with the same
- * path and no state, which stops a reload of that entry from restoring a narrowing the reader has ended.
- * The element carries no key, because the day the screen holds is its own state and a navigation that
- * states no day must not throw away the filters the reader chose beside a day they were given.
+ * The entry stays the authority on the day it states. The screen seeds that day from the arrival and holds
+ * it while it is mounted, so the narrowing a reader made on another screen lasts as long as the screen they
+ * are reading and no longer, and the arrival is a narrowing of the whole queue rather than an addition to
+ * it: the queue clears the filters the arrival does not state, so the count the series row showed and the
+ * queue the reader opens agree (T-01).
+ * Clearing the day has to reach the entry too: `onDayCleared` replaces the entry with the same path and no
+ * state, which stops a reload of that entry from restoring a narrowing the reader has ended. The element
+ * carries no key, because the day the screen holds is its own and a navigation that states no day must not
+ * throw away the filters the reader chose.
  */
 function ExceptionQueueRoute({
   Screen,

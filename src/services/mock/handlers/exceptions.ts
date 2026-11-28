@@ -213,8 +213,10 @@ import type {
 } from '../../../types';
 
 import {
+  admitsPlant,
   baselineViewFor,
   computeExceptionRows,
+  plantsTouchedBy,
   resolveAffectedLines,
 } from '../../../domain/aggregation/exceptions';
 import type { BaselineSolve } from '../../../domain/aggregation/exceptions';
@@ -475,26 +477,6 @@ function requireWork(ctx: HandlerContext, exception: OperationalException): void
  */
 function scopeOf(ctx: HandlerContext, selection: ScopeFilterInput): Scope {
   return resolveScope(selection, ctx.actor.role);
-}
-
-/**
- * Says whether an exception is one a resolved scope admits.
- *
- * The rule `computeExceptionRows` applies, restated because this module also has to apply it to a
- * single record for the detail read: the exception is in scope when the plant it lands on, or any plant
- * it also affects, is one the selection names. Nothing is widened when `scope.plants` is empty — that
- * answer means nothing is in scope, never "all plants".
- *
- * @param exception - The exception to place.
- * @param scope - The resolved scope.
- * @returns `true` when the exception or a plant it also affects is inside the selection.
- */
-function landsInScope(exception: OperationalException, scope: Scope): boolean {
-  if (scope.plants.includes(exception.plantId)) {
-    return true;
-  }
-
-  return exception.alsoAffectsPlantIds.some((plantId) => scope.plants.includes(plantId));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -759,9 +741,7 @@ function admitsQuery(
     return true;
   }
 
-  return (
-    exception.plantId === query.plantId || exception.alsoAffectsPlantIds.includes(query.plantId)
-  );
+  return plantsTouchedBy(exception).includes(query.plantId);
 }
 
 /**
@@ -990,7 +970,9 @@ function pageOf(
  * one the record set does not hold at all, and the one it holds outside the acting role's plant scope.
  * The second is a record this read does not cover rather than a permission the role lacks, which is why
  * it does not produce a `'permission'` failure — `requireRead` has already established what the role may
- * read.
+ * read. Which plants a record reaches is `admitsPlant`'s answer, the one predicate the queue rows, the
+ * overview's population and the evidence drawer are all narrowed by, so this read covers exactly the
+ * records those surfaces show (AAP 0.2.1).
  *
  * @param ctx - The call's context, whose records and persona are read.
  * @param id - The identifier the call asked for.
@@ -1006,7 +988,7 @@ function visibleException(ctx: HandlerContext, id: ExceptionId): OperationalExce
 
   const scope = resolveScope({}, ctx.actor.role);
 
-  if (!landsInScope(exception, scope)) {
+  if (!admitsPlant(exception, scope)) {
     throw notFoundProblem(
       ctx,
       `Exception ${id} is outside the acting role's plant scope (${scope.plants.join(', ')}), so it is ` +

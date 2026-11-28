@@ -57,7 +57,7 @@
  */
 import type { JSX } from 'react';
 
-import { Card } from '../../components/card';
+import { Card, INSET_SURFACE_CLASSES } from '../../components/card';
 import { MonoValue } from '../../components/mono-value';
 import { StatusIndicator } from '../../components/status-indicator';
 import { SIM_LABELS } from '../../types';
@@ -157,15 +157,17 @@ const EMPTY_CLASSES = 'min-w-0 text-13 break-words text-text-secondary';
 const ALERT_LIST_CLASSES = 'flex min-w-0 flex-col gap-2 xl:flex-row xl:items-stretch';
 
 /**
- * One alert: the second raised surface inside the card, at the card radius, in the body type step.
+ * One alert: the inset box `src/components/card.tsx` names as the third surface role, in the body
+ * type step. The box itself — card radius, decorative hairline, second raised surface and its one
+ * padding — is `INSET_SURFACE_CLASSES`, so every alert in the band and every notice elsewhere in the
+ * product wear one surface; the stacking, the type step and the equal share are this strip's own.
  *
  * The equal-share utilities are scoped to the row layout on purpose. In a column flex container
  * `flex-grow` would divide the *height* between the alerts and squeeze a longer note into a shorter
  * box, so each alert keeps its own height while the band is stacked and shares the row equally from
  * 1280 px, where `min-w-0` is what lets the note wrap instead of pushing its neighbours aside.
  */
-const ALERT_CLASSES =
-  'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-2 px-3 py-2 text-13 xl:flex-1 xl:basis-0';
+const ALERT_CLASSES = `flex min-w-0 flex-col gap-1 text-13 xl:flex-1 xl:basis-0 ${INSET_SURFACE_CLASSES}`;
 
 /** An alert's first line: the crossing's identity, its name and its label, wrapping as one phrase. */
 const ALERT_HEADING_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2 text-text-primary';

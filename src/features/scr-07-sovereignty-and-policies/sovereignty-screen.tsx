@@ -100,7 +100,7 @@ import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router';
 
-import { Card } from '../../components/card';
+import { Card, INSET_SURFACE_CLASSES } from '../../components/card';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
 import { EvidenceRef } from '../../components/evidence-drawer';
@@ -122,6 +122,7 @@ import {
   useDemonstration,
   useService,
 } from '../../services/service-provider';
+import { WRITE_READS } from '../../services/write-reads';
 import { APPROVAL_GATE_SOURCE, LEDGER_WINDOW_DAYS, SIM_LABELS } from '../../types';
 import type {
   ActiveUser,
@@ -453,10 +454,12 @@ const NO_VALUE_MARKER = '—';
 /**
  * The region an export refusal is reported in. It is a live region, so a failure is announced when it
  * arrives rather than only when a reader next walks the page (rule B-3); it states that no file was
- * offered and carries the service's own message beside that (rule P-8).
+ * offered and carries the service's own message beside that (rule P-8). The box — card radius,
+ * decorative hairline, second raised surface and its one padding — is `INSET_SURFACE_CLASSES` from
+ * `src/components/card.tsx`, the third surface role, so this notice wears the surface every other
+ * notice in the product wears; only the stack belongs to this screen.
  */
-const NOTICE_CLASSES =
-  'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-2 px-3 py-2';
+const NOTICE_CLASSES = `flex min-w-0 flex-col gap-1 ${INSET_SURFACE_CLASSES}`;
 
 /* ---------------------------------------------------------------------------------------------
  * The denial the forbidden card explains
@@ -1142,6 +1145,11 @@ export function SovereigntyScreen(_props: SovereigntyScreenProps): ReactElement 
    * a file that does not exist; a payload that arrived is offered exactly as it was returned; and a page
    * with no object-URL factory to offer it with says so, rather than leaving the reader answered by
    * nothing (rule P-8).
+   *
+   * The recording is why the export invalidates: the pack appends an `export` event to the chain, so the
+   * trail behind this screen is stale the moment the file is offered, and the reads it moved are
+   * `WRITE_READS.exportEvidencePack` — the one write-reads map in `src/services/write-reads.ts`, which
+   * the cache's own write channel reads too (AAP §0.6.2, contracts §6).
    */
   const handleExport = (): void => {
     setIsExporting(true);
@@ -1150,6 +1158,10 @@ export function SovereigntyScreen(_props: SovereigntyScreenProps): ReactElement 
     void service
       .exportEvidencePack()
       .then((exported) => {
+        for (const read of WRITE_READS.exportEvidencePack) {
+          void queryClient.invalidateQueries({ queryKey: [read] });
+        }
+
         if (!offerExportFile(exported.data)) {
           setExportFailure(SOVEREIGNTY_SCREEN_TEXT.downloadUnavailable);
         }

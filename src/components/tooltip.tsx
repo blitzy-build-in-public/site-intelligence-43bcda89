@@ -321,8 +321,19 @@ function placedHintStyles(geometry: HintGeometry): CSSProperties {
   return geometry.maxWidth === null ? box : { ...box, maxWidth: `${geometry.maxWidth}px` };
 }
 
-/** The two flavours of action the screens need: the one that commits, and the one beside it. */
-type ActionButtonVariant = 'primary' | 'secondary';
+/**
+ * The three appearances the screens need: the one that commits, the one beside it, and the one whose
+ * state is on.
+ *
+ * `selected` is not a third action — it is the marking a control that commits nothing wears while it
+ * is the option in force: the lens being drawn, the filter narrowed to, the series in view. It exists
+ * because the filled action pair belongs to the screen's one primary action, and a toggle painted
+ * with it puts three filled controls on a screen where the reader is owed one. It reuses the marking
+ * the shell's own navigation gives the current route — accent boundary, first raised surface, primary
+ * text and the heavier weight — so a control that is on looks the same wherever it is on, and every
+ * value is a role token the theme files already measure.
+ */
+type ActionButtonVariant = 'primary' | 'secondary' | 'selected';
 
 /**
  * Everything an action carries regardless of whether it can act.
@@ -335,8 +346,21 @@ interface ActionButtonBaseProps {
   readonly children: ReactNode;
   /** What activating the control does. Never called while the control is disabled. */
   readonly onClick?: () => void;
-  /** `'primary'` for the one action a screen exists to take; `'secondary'` otherwise. */
+  /**
+   * `'primary'` for the one action a screen exists to take, `'selected'` for a control whose state is
+   * on, and `'secondary'` otherwise.
+   */
   readonly variant?: ActionButtonVariant;
+  /**
+   * The state of a control that is one of a set of options — the lens being drawn, the filter
+   * narrowed to, the series in view — rendered as `aria-pressed`.
+   *
+   * It is the control's own half of that answer: the visible marking is the `selected` variant, and
+   * the word is the caption the calling screen states beside it. A control that commits an action
+   * carries neither, so the attribute is absent unless the caller declares the control a toggle
+   * (rule B-3: a control's state reaches assistive technology, not only the eye).
+   */
+  readonly pressed?: boolean;
   /** Extra layout classes from the calling screen. Never a colour or a shadow. */
   readonly className?: string;
   /**
@@ -451,6 +475,26 @@ export const PRIMARY_STATE_CLASSES = [
 ].join(' ');
 
 /**
+ * The marking of a control whose state is on, and its single owner.
+ *
+ * A control that commits nothing — the lens being drawn, the class narrowed to, the series in view —
+ * wears this while it is the option in force and the secondary appearance the moment another option
+ * takes it: the accent boundary and the first raised surface the shell's current navigation entry is
+ * painted with, the primary text role, and the heavier weight, so the state is a shape and a weight
+ * as well as a hue (rule B-3). The filled action pair is deliberately absent, because it belongs to
+ * the one action a screen exists to take and a selection painted with it competes with that action
+ * rather than describing state.
+ *
+ * It is exported for the same reason the two lists above are: a chip that states its own choice
+ * through `aria-pressed` composes the plain button primitive with this list, and both it and
+ * `ActionButton`'s `selected` variant must read one definition of what a chosen control looks like.
+ */
+export const SELECTED_CONTROL_CLASSES = [
+  'border-accent bg-surface-1 font-semibold text-text-primary',
+  'hover:bg-surface-2 active:bg-ground',
+].join(' ');
+
+/**
  * The visible difference between an action, an action under the pointer, and a disabled one.
  *
  * {@link CONTROL_STRUCTURE_CLASSES} supplies what every variant shares, so a variant states only
@@ -488,6 +532,15 @@ const BUTTON_VARIANT_CLASSES = {
   secondary: [
     SECONDARY_CONTROL_CLASSES,
     'aria-disabled:bg-surface-1 aria-disabled:text-text-secondary aria-disabled:cursor-not-allowed',
+    'aria-disabled:hover:border-control-boundary aria-disabled:hover:bg-surface-1',
+    'aria-disabled:hover:text-text-secondary',
+    'aria-disabled:active:border-control-boundary aria-disabled:active:bg-surface-1',
+    'aria-disabled:active:text-text-secondary',
+  ].join(' '),
+  selected: [
+    SELECTED_CONTROL_CLASSES,
+    'aria-disabled:border-control-boundary aria-disabled:bg-surface-1',
+    'aria-disabled:font-normal aria-disabled:text-text-secondary aria-disabled:cursor-not-allowed',
     'aria-disabled:hover:border-control-boundary aria-disabled:hover:bg-surface-1',
     'aria-disabled:hover:text-text-secondary',
     'aria-disabled:active:border-control-boundary aria-disabled:active:bg-surface-1',
@@ -787,6 +840,7 @@ export function ActionButton(props: ActionButtonProps): ReactElement {
         isDisabled ? 'w-full' : props.className,
       )}
       aria-disabled={isDisabled ? true : undefined}
+      aria-pressed={props.pressed}
       onClick={handleClick}
       onBlur={releaseRefusal}
     >

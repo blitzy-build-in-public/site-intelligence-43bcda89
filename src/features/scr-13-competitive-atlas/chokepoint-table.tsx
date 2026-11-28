@@ -31,6 +31,16 @@
  * separately. Both competitor columns read that one list in the record's own order, and the buffer
  * column repeats the competitor beside each day count so no figure is left unattributed.
  *
+ * ONE CATEGORY, ONE COLOUR, IN THE TABLE AS ON THE DRAWINGS. Every competitor line opens with a swatch
+ * in the `--color-competitor-*` role specification §4.2 assigns that competitor, resolved from the
+ * identifier through `competitorSlotOf` and `CHART_TONE_CLASSES` in
+ * `src/components/horizontal-bar-chart.tsx` — the same lookup the radar polygon, the network mark and
+ * the legend swatch of that competitor read — so the table cannot show a competitor in a colour the
+ * chart above it shows for someone else, and a re-pointed role reaches all of them. The swatch is
+ * `aria-hidden`: the identifier beside it is what names the competitor, so the colour adds nothing a
+ * screen reader has to hear (rule B-3), and an identifier the mapping cannot place renders its line
+ * without a swatch rather than in another competitor's hue.
+ *
  * THE PACK'S COMPANY NAME IS PRINTED BESIDE THE IDENTIFIER, AND IT COMES FROM THE CALLER'S OWN
  * RECORDS. A `Chokepoint` identifies a competitor and carries no company name, and a name written
  * inside this module would be one it invented (rule P-7). The calling screen holds those names —
@@ -82,6 +92,7 @@ import type { JSX } from 'react';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
 import { EvidenceRef } from '../../components/evidence-drawer';
+import { CHART_TONE_CLASSES, competitorSlotOf } from '../../components/horizontal-bar-chart';
 import { MonoValue } from '../../components/mono-value';
 import { StatusIndicator } from '../../components/status-indicator';
 import { COMPETITOR_NAME_TAG, SIM_LABELS } from '../../types';
@@ -209,10 +220,32 @@ const COMPETITOR_TAG_CLASSES =
   'rounded-control border border-hairline px-1 text-12 text-text-caption';
 
 /**
- * The contention note: body text in the primary role the table cell already sets, wrapping inside
- * the column instead of widening the table.
+ * The category swatch a competitor's line opens with: a 12 px mark on the 4 px grid, at the 2 px
+ * control radius `./legend.tsx` draws its own swatches at, so one category's swatch is one shape
+ * wherever it appears.
+ *
+ * The outline is the inherited foreground rather than a role of its own, for the reason the selector
+ * control's `CONTROL_TAG_CLASSES` in `./competitive-atlas-screen.tsx` states: a filled control's
+ * foreground is the one value that stays legible on whichever surface the control paints, and the
+ * same value separates this mark from the table's own surface. The mark is decorative — `aria-hidden`
+ * is set at the call site — because the identifier printed next to it is what names the competitor,
+ * and the colour is what a reader who can see the chart uses to match this line to that chart's mark
+ * (rule B-3).
  */
-const NOTE_CLASSES = 'block break-words';
+const COMPETITOR_SWATCH_CLASSES =
+  'inline-block size-3 shrink-0 rounded-control border border-current';
+
+/**
+ * The contention note: a sentence of body text in the primary role the table cell already sets,
+ * capped at the 256 px column width and clamped to two visible lines, with `break-words` so a long
+ * unbroken token still breaks inside that cap instead of overflowing it. The note is prose rather
+ * than a list, so the clamp is what keeps the row's height bounded at every width: a 390 px phone
+ * viewport no longer holds one row taller than the screen it sits in, which left a reader panning
+ * sideways through a row that already filled the viewport. The clamp is visual only — the whole
+ * sentence stays in the document, so the accessibility tree and any copy of the row carry the full
+ * text rather than the visible fragment, and no `title` repeats it back to assistive technology.
+ */
+const NOTE_CLASSES = 'max-w-64 line-clamp-2 break-words';
 
 /** One competitor's buffer at a crossing: both halves of the pair the record's own map holds. */
 interface CompetitorBuffer {
@@ -245,6 +278,15 @@ interface CompetitorCellsProps {
 interface BufferDaysCellProps extends CompetitorCellsProps {
   /** The identifier of the crossing the row is about, which is the record behind each day count. */
   readonly chokepointId: string;
+}
+
+/**
+ * Props of the category swatch a competitor's line opens with: the competitor the line names, whose
+ * identifier selects the `--color-competitor-*` role the swatch is painted in.
+ */
+interface CompetitorSwatchProps {
+  /** The competitor the line names, as the record identifies it. */
+  readonly competitorId: CompetitorId;
 }
 
 /**
@@ -287,9 +329,42 @@ function competitorNameLine(
 }
 
 /**
+ * The swatch one competitor's line opens with, in the hue specification §4.2 gives that competitor.
+ *
+ * The hue is resolved from the identifier and from nothing else, through the one chart tone table
+ * `src/components/horizontal-bar-chart.tsx` exports, so this line, the radar polygon for the same
+ * competitor and the legend swatch beside it are one role token rather than three copies of a colour.
+ * A competitor the mapping cannot place draws no swatch at all: a competitor is never painted in the
+ * hue of a competitor whose ordinal its identifier does not state, and nothing here falls back to the
+ * accent role, which §4.1 reserves for the client's own first-party series (rule P-5).
+ *
+ * @param props The competitor the line names.
+ * @returns The swatch, or `null` where the identifier names no competitor slot.
+ */
+function CompetitorSwatch({ competitorId }: CompetitorSwatchProps): JSX.Element | null {
+  const slot = competitorSlotOf(competitorId);
+
+  if (slot === null) {
+    return null;
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`${COMPETITOR_SWATCH_CLASSES} ${CHART_TONE_CLASSES[`competitor-${slot}`].swatch}`}
+    />
+  );
+}
+
+/**
  * The competitor lines of one row: each competitor's identifier in the mono face, the company name
  * the caller resolves for it, then the competitor-name tag that rule P-5 requires on every
  * competitor element.
+ *
+ * Each line opens with the competitor's own category swatch, so the hue the radar and the network view
+ * draw that competitor in is readable in the table too, and it is the same role token rather than a
+ * second colour decided here. The swatch is `aria-hidden` and the identifier beside it is the
+ * accessible text, so the line announces what it always announced.
  *
  * The tag is the imported constant, never text typed here, so the fixed string keeps the one owner
  * the types layer gives it, and it follows the name so no competitor name appears without it. A space
@@ -305,6 +380,7 @@ function CompetitorCell({ buffers, competitorNameOf }: CompetitorCellsProps): JS
     <ul className={CELL_LIST_CLASSES}>
       {buffers.map((buffer) => (
         <li key={buffer.competitorId} className={COMPETITOR_ENTRY_CLASSES}>
+          <CompetitorSwatch competitorId={buffer.competitorId} />
           <MonoValue value={buffer.competitorId} kind="id" />{' '}
           {competitorNameLine(buffer.competitorId, competitorNameOf)}
           <span className={COMPETITOR_TAG_CLASSES}>{COMPETITOR_NAME_TAG}</span>
@@ -323,8 +399,9 @@ function CompetitorCell({ buffers, competitorNameOf }: CompetitorCellsProps): JS
  * blending rule P-5 forbids in its plainest form. Each day count is the trigger that opens the
  * crossing's own record behind it (AAP 0.2.1 F12), so the line reads `<competitor> <name> <days>`
  * whether it is seen or heard and the figure is never a control that opens nothing (rule P-8). The
- * number itself is printed exactly as the record states it: no rounding, no unit conversion, no total
- * and no ordering.
+ * line also opens with the competitor's own category swatch, so the day count carries the same hue the
+ * competitor is drawn in above the table. The number itself is printed exactly as the record states
+ * it: no rounding, no unit conversion, no total and no ordering.
  */
 function BufferDaysCell({
   chokepointId,
@@ -339,6 +416,7 @@ function BufferDaysCell({
     <ul className={END_ALIGNED_LIST_CLASSES}>
       {buffers.map((buffer) => (
         <li key={buffer.competitorId} className={COMPETITOR_ENTRY_CLASSES}>
+          <CompetitorSwatch competitorId={buffer.competitorId} />
           <MonoValue value={buffer.competitorId} kind="id" />{' '}
           {competitorNameLine(buffer.competitorId, competitorNameOf)}
           <EvidenceRef ref={chokepointId}>{buffer.bufferDays}</EvidenceRef>

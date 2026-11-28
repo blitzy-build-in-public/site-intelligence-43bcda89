@@ -81,10 +81,11 @@
  * `src/domain/aggregation/overview.ts` groups the very rows this module returns, so the grouping has
  * one home beside the tiles that carry it.
  *
- * The members a row does not carry. `ExceptionRow` has no `alsoAffectsPlantIds`, no `confidence`, no
- * `missingInputs`, no `whatChanged` and no evidence reference, so a consumer reads those from the
+ * The members a row does not carry. `ExceptionRow` carries the plants the exception reaches, because the
+ * Plant column discloses them beside the plant the row is recorded at, and it carries no `confidence`,
+ * no `missingInputs`, no `whatChanged` and no evidence reference, so a consumer reads those from the
  * exception record through the service rather than from the row: adding them here would put record
- * content on a projection of twelve fixed members (AAP 0.12.2).
+ * content beyond the twelve fixed members on a projection of those members (AAP 0.12.2).
  *
  * AN UNPRICEABLE LINE IS A TYPED REFUSAL. A line whose product has no record in the bundle cannot be
  * valued, and the aggregate refuses rather than reporting a figure it could not compute. The refusal is
@@ -671,6 +672,36 @@ export function revenueOfAffectedLines(
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * Lists every plant one exception touches: the plant the disruption lands on, then the plants it
+ * reaches, in the record's own order and without repeating one.
+ *
+ * This is the record's own answer to "which plants does this exception concern", and it is the list
+ * every admission rule is applied to, so no surface can narrow an exception by a different set:
+ * `admitsPlant` below reads it for a resolved scope, `src/domain/aggregation/overview.ts` reads it
+ * through that function for the by-plant grouping, and the evidence family
+ * (`src/services/mock/handlers/evidence.ts`) reads it to decide whether a record lies inside the
+ * persona's plant scope. One list, one admission, so a figure cannot be shown where its evidence is
+ * refused (AAP 0.2.1; principle PR-6).
+ *
+ * `alsoAffectsPlantIds` is the members the queue's plant filter matches (`ExceptionQuery.plantId`)
+ * and the plants the by-plant table reports a row for, so the same set describes both.
+ *
+ * @param exception The exception to place.
+ * @returns The plants the exception touches, the one it lands on first; a fresh array every call.
+ */
+export function plantsTouchedBy(exception: OperationalException): PlantId[] {
+  const plants: PlantId[] = [exception.plantId];
+
+  for (const plantId of exception.alsoAffectsPlantIds) {
+    if (!plants.includes(plantId)) {
+      plants.push(plantId);
+    }
+  }
+
+  return plants;
+}
+
+/**
  * Says whether one exception falls inside the resolved scope's plant selection.
  *
  * AAP 0.2.1's scope is the one `./scope`'s `resolveScope` resolved, and this module never re-derives
@@ -678,6 +709,13 @@ export function revenueOfAffectedLines(
  * selection names — the `alsoAffectsPlantIds` member is exactly the set the queue's plant filter
  * matches, so an exception that reaches a plant in scope is not hidden from the planner watching that
  * plant.
+ *
+ * Exported because plant admission is one rule with one owner. `computeExceptionRows` below applies
+ * it to the queue, `src/domain/aggregation/overview.ts` applies it to the population its tiles and
+ * by-plant rows describe, the exception detail read applies it to a single record
+ * (`src/services/mock/handlers/exceptions.ts`), and the evidence family applies the same plants
+ * through `plantsTouchedBy` — so a narrowed queue, a narrowed overview and the evidence behind either
+ * of them describe one population rather than three (AAP 0.2.1).
  *
  * A resolved `plants` member is never read as "all plants": `resolveScope` states that an empty array
  * means nothing is in scope, and reading it that way here is what makes a selection outside the
@@ -688,12 +726,8 @@ export function revenueOfAffectedLines(
  *   plant scope.
  * @returns `true` when the exception or a plant it also affects is in the selection.
  */
-function isInScope(exception: OperationalException, scope: Scope): boolean {
-  if (scope.plants.includes(exception.plantId)) {
-    return true;
-  }
-
-  return exception.alsoAffectsPlantIds.some((plantId) => scope.plants.includes(plantId));
+export function admitsPlant(exception: OperationalException, scope: Scope): boolean {
+  return plantsTouchedBy(exception).some((plantId) => scope.plants.includes(plantId));
 }
 
 /**
@@ -846,7 +880,7 @@ export interface AdmittedException {
  * Lists the exceptions the resolved scope admits, with the lines and the products admission derived.
  *
  * THE ADMISSION RULE, STATED ONCE. An exception is admitted when it is in the scope's plant selection —
- * it lands on a selected plant or reaches one, which is `isInScope` — and, where a product is selected,
+ * it lands on a selected plant or reaches one, which is `admitsPlant` — and, where a product is selected,
  * when its affected lines name one of the selected products (`admitsProducts` over
  * `productIdsOf(lines)`). The lines are derived first because the product selection reads them, so an
  * exception admitted for a product is one whose lines were resolved either way.
@@ -874,7 +908,7 @@ export function admittedExceptions(
   const admitted: AdmittedException[] = [];
 
   for (const exception of records.exceptions) {
-    if (!isInScope(exception, scope)) {
+    if (!admitsPlant(exception, scope)) {
       continue;
     }
 
@@ -896,12 +930,15 @@ export function admittedExceptions(
  * Projects every exception the resolved scope admits onto one queue row — specification SCR-02;
  * AAP 0.12.1 exception aggregates; AAP 0.12.2's `ExceptionRow`.
  *
- * One row per entry `admittedExceptions` returns, carrying exactly the twelve members the queue's
- * columns fix: the identifier, type, title, the products the exception names, the plant, the severity,
- * the revenue at risk, the days to impact, the status, the owner, the age in hours and the freshness of
- * the read. The revenue is the one the module's revenue rule computes — `sumRevenue` over the affected
- * lines admission already resolved — and nothing on the row is a record's stored total, because no
- * record stores one.
+ * One row per entry `admittedExceptions` returns, carrying exactly what the queue's columns fix: the
+ * identifier, type, title, the products the exception names, the plant the exception is recorded at, the
+ * further plants it reaches, the severity, the revenue at risk, the days to impact, the status, the
+ * owner, the age in hours and the freshness of the read. The revenue is the one the module's revenue
+ * rule computes — `sumRevenue` over the affected lines admission already resolved — and nothing on the
+ * row is a record's stored total, because no record stores one. The reached plants are the record's own
+ * list, copied rather than shared, and they fill no column of their own: the Plant cell discloses them
+ * beside the plant the row is recorded at, so the set the queue's plant filter matches and the set the
+ * table shows are one set.
  *
  * The population is `admittedExceptions`'s, not a second filter of this function's: the plant selection
  * and the product selection are stated once, there, so a row cannot be admitted by one rule and counted
@@ -936,6 +973,7 @@ export function computeExceptionRows(
     title: entry.exception.title,
     productIds: entry.productIds,
     plantId: entry.exception.plantId,
+    alsoAffectsPlantIds: [...entry.exception.alsoAffectsPlantIds],
     severity: entry.exception.severity,
     revenueAtRiskEur: sumRevenue(entry.baseline.products, entry.exception.id, entry.lines),
     daysToImpact: entry.exception.daysToImpact,

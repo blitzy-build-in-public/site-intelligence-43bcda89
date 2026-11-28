@@ -7,7 +7,9 @@
  * cell's own evidence, the same for a cluster's own evidence, the group index and series id reported to
  * `onActivate`, a zero value that keeps its label on screen, a series shorter than the group list that
  * draws no invented mark, the focus ring the surface holds in state, the accent ring every mark reveals
- * under a hover or a press, the tone each series is painted in, an axis whose ticks follow the caller's
+ * under a hover or a press, the read-out a mark answers with on focus and on pointer entry — a bar's
+ * cluster, series and value, and a cluster label's every series — the tone each series is painted in, a legend with one row per series the surface
+ * draws a mark for and none for a series it does not, an axis whose ticks follow the caller's
  * maximum rather than the largest bar, a market-intelligence series compared beside a first-party one
  * with no figure summing the two, the drawer showing the activated cell's own record rather than one
  * shared reference, and both themes of specification §4.1 rendering the same controls.
@@ -26,16 +28,17 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Evidence, Meta, Result, SimLabel } from '../types';
-import { SIM_LABELS } from '../types';
+import { COMPETITOR_NAME_TAG, SIM_LABELS } from '../types';
 import { EVIDENCE_DRAWER_TEXT } from './evidence-drawer';
 import { GROUPED_BAR_CHART_TEXT, GroupedBarChart } from './grouped-bar-chart';
 import type { BarGroup, BarSeries, GroupedBarChartProps } from './grouped-bar-chart';
+import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 
 /**
  * The one port member the surface reaches, replaced before the component module is imported so the real
@@ -264,6 +267,17 @@ function tickLabels(container: HTMLElement): readonly string[] {
 /** The `y` a drawn `<text>` is baselined at, or NaN when it declares none. */
 function baselineOf(node: Element): number {
   return Number(node.getAttribute('y'));
+}
+
+/** The rows of the legend the surface prints, in the order it drew them. */
+function legendRows(container: HTMLElement): readonly HTMLElement[] {
+  const list = container.querySelector('ul');
+
+  if (list === null) {
+    throw new Error('the surface printed no legend');
+  }
+
+  return within(list).getAllByRole('listitem');
 }
 
 /** The one `<text>` element painting a given string, so a case can assert where it sits. */
@@ -537,6 +551,50 @@ describe('GroupedBarChart', () => {
     ).not.toBeNull();
   });
 
+  it('prints a legend with one row per drawn series, each swatch in the role its bars take', () => {
+    const { container } = renderChart(chart());
+    const rows = legendRows(container);
+
+    /* One row per series, in the order the caller listed them, and each row's words are its own name. */
+    expect(rows.map((row) => row.textContent)).toEqual(SERIES.map((entry) => entry.label));
+
+    /* Every swatch comes from the one tone table the bars resolve their fill from, so a reader keying
+       a colour to a series reads the same role token the plot paints (AAP §0.5.3). */
+    SERIES.forEach((entry, index) => {
+      const swatch = rows[index]?.querySelector('[aria-hidden="true"]');
+
+      expect(swatch?.getAttribute('class')).toContain(CHART_TONE_CLASSES[entry.tone].swatch);
+    });
+  });
+
+  it('prints no legend row for a series that draws no mark', () => {
+    const undrawn: BarSeries = {
+      id: 'plan-empty',
+      label: 'Plan empty',
+      tone: 'review',
+      values: [],
+    };
+
+    const { container } = renderChart(
+      <GroupedBarChart groups={GROUPS} series={[SERIES[0], undrawn]} max={AXIS_MAX} />,
+    );
+
+    /* The legend describes the drawing: a series with no cell has no bar to key, so it gets no row. */
+    expect(legendRows(container).map((row) => row.textContent)).toEqual([SERIES[0].label]);
+  });
+
+  it('tags a market-intelligence row with the labels rule P-5 fixes', () => {
+    const { container } = renderChart(
+      <GroupedBarChart groups={GROUPS} series={[COMPETITOR_SERIES]} max={AXIS_MAX} />,
+    );
+    const [row] = legendRows(container);
+    const text = row?.textContent ?? '';
+
+    expect(text).toContain(COMPETITOR_SERIES.label);
+    expect(text).toContain(COMPETITOR_NAME_TAG);
+    expect(text).toContain(simLabelAt(5));
+  });
+
   it('compares a competitor series beside a first-party one and paints no combined total', () => {
     const firstParty = SERIES[0];
 
@@ -645,3 +703,105 @@ describe('GroupedBarChart', () => {
     }
   });
 });
+
+/* ---------------------------------------------------------------------------------------------
+ * The read-out a mark answers with
+ * ------------------------------------------------------------------------------------------- */
+
+/** The class utilities of one element, split so a variant cannot be mistaken for the state itself. */
+function utilitiesOf(element: Element | null | undefined): readonly string[] {
+  return (element?.getAttribute('class') ?? '').split(' ');
+}
+
+/** One cluster label control by the group it names, since a cluster's own label is not a cell's name. */
+function clusterControlFor(groupLabel: string): HTMLElement {
+  const control = clusterControls().find((candidate) =>
+    (candidate.getAttribute('aria-label') ?? '').startsWith(groupLabel),
+  );
+
+  if (control === undefined) {
+    throw new Error(`no cluster label names ${groupLabel}`);
+  }
+
+  return control;
+}
+
+describe('the read-out a mark answers with', () => {
+  it('names the cluster, the series and the formatted value on keyboard focus, and clears on blur', () => {
+    renderChart(chart());
+
+    const cell = cellControl('Order alpha, Plan one: four');
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    fireEvent.focus(cell);
+
+    /* The read-out prints the caller's own strings: no figure is formatted here (rule P-6). */
+    const readout = screen.getByRole('tooltip');
+    expect(within(readout).getByText(GROUPS[0].label)).toBeInTheDocument();
+    expect(within(readout).getByText(SERIES[0].label)).toBeInTheDocument();
+    expect(within(readout).getByText('four')).toBeInTheDocument();
+
+    fireEvent.blur(cell);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('answers a pointer that enters a bar, and reveals that slot’s ring on that slot alone', () => {
+    renderChart(chart());
+
+    const cell = cellControl('Order beta, Plan two: three');
+    const other = cellControl('Order alpha, Plan one: four');
+
+    /* At rest every pointer ring is invisible, whatever hover variants it also carries. */
+    expect(utilitiesOf(cell.querySelector(POINTER_RING_SELECTOR))).toContain('opacity-0');
+
+    fireEvent.pointerOver(cell);
+
+    expect(within(screen.getByRole('tooltip')).getByText('three')).toBeInTheDocument();
+    expect(utilitiesOf(cell.querySelector(POINTER_RING_SELECTOR))).toContain('opacity-100');
+    expect(utilitiesOf(cell.querySelector(POINTER_RING_SELECTOR))).not.toContain('opacity-0');
+    expect(utilitiesOf(other.querySelector(POINTER_RING_SELECTOR))).toContain('opacity-0');
+
+    fireEvent.pointerOut(cell);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(utilitiesOf(cell.querySelector(POINTER_RING_SELECTOR))).toContain('opacity-0');
+  });
+
+  it('reads a cluster’s own label out as every series in that cluster', () => {
+    renderChart(chart());
+
+    fireEvent.pointerOver(clusterControlFor('Order alpha'));
+
+    const readout = screen.getByRole('tooltip');
+
+    expect(within(readout).getByText(GROUPS[0].label)).toBeInTheDocument();
+    expect(within(readout).getByText(SERIES[0].label)).toBeInTheDocument();
+    expect(within(readout).getByText(SERIES[1].label)).toBeInTheDocument();
+    expect(within(readout).getByText('four')).toBeInTheDocument();
+    expect(within(readout).getByText('six')).toBeInTheDocument();
+  });
+
+  it('keeps the cluster’s activation, its drawer and the focus it returns to', async () => {
+    const user = userEvent.setup();
+    renderChart(chart());
+
+    const cluster = clusterControlFor('Order alpha');
+
+    await user.click(cluster);
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /close/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    /* Closing returns focus to the control that opened the drawer, as it did before the read-out. */
+    await waitFor(() => {
+      expect(document.activeElement).toBe(cluster);
+    });
+  });
+});
+

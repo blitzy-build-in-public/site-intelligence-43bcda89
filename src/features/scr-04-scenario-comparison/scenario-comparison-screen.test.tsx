@@ -32,8 +32,13 @@
  *    screen composes no document of its own (rule P-2, rule P-6).
  * 7. THE WRITE-BACK PREVIEW. The selected option's steps appear in the record's order and each carries
  *    `Simulated write-back` on its own row (rule P-1).
- * 8. THE TABLE VIEW. The units-late chart's frame reveals the same rows its bars draw, once round trip
- *    (success criterion 9). The frame's own contract belongs to `src/components/chart-frame.test.tsx`.
+ * 8. THE CHART, ITS CAPTION AND ITS KEY. The units-late chart's frame reveals the same rows its bars
+ *    draw, once round trip (success criterion 9); its description names only the options that draw a
+ *    bar and states why every other option draws none, from that option's own record; and each matrix
+ *    column whose option the chart draws a bar for repeats that bar's colour as a swatch beside the
+ *    name, so a column can be keyed to a series without reading the plot, while a column whose option
+ *    draws none carries no swatch — exactly as it gets no legend row. The frame's own contract belongs
+ *    to `src/components/chart-frame.test.tsx`.
  * 9. ALL SEVEN STATES. Every member of `ScreenState` is reached through the read's own settled facts —
  *    none needs the boundary mocked — and each renders its own evidence: the busy region, the fixed
  *    empty sentence, the stale banner naming the source and its as-of time with the body still drawn,
@@ -87,6 +92,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT, writeBackStepRef } from '../../components/evidence-drawer';
 import { formatMoney } from '../../components/mono-value';
+import { GROUPED_BAR_CHART_TEXT } from '../../components/grouped-bar-chart';
 import { runOutReading } from '../../components/run-out-reading';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { MEANING_COLOUR_CLASSES, STATUS_LABEL_CLASS } from '../../components/status-indicator';
@@ -209,6 +215,9 @@ const FAILED_ID: ScenarioId = 'scn-gamma';
 
 /** The option the set held back, listed with the constraint that blocked it. */
 const SET_ASIDE_ID: ScenarioId = 'scn-delta';
+
+/** A fourth option: the one whose measurement produced no per-order result, so no bar is drawn for it. */
+const UNDRAWN_ID: ScenarioId = 'scn-epsilon';
 
 /** The route the shell mounts the comparison on. */
 const COMPARISON_ROUTE = `/exceptions/${EXCEPTION_ID}/scenarios`;
@@ -556,6 +565,29 @@ const FAILED_SCENARIO: Scenario = scenarioOf({
 });
 
 /**
+ * The option that carries no per-order result at all: the state a case whose constraint check failed
+ * before any order was measured arrives in, which is how the seeded `SCN-1184-D` reaches the screen.
+ *
+ * Its levers breach the same bounds as {@link FAILED_SCENARIO}, so its column reports the same reason,
+ * but it holds no `orders`, so the chart can draw no bar for it — the mismatch between a caption that
+ * named it and a figure with three bars is exactly what the chart's description now has to state.
+ */
+const UNDRAWN_SCENARIO: Scenario = scenarioOf({
+  id: UNDRAWN_ID,
+  name: 'Option Delta',
+  origin: 'sandbox',
+  levers: FAILED_LEVERS,
+  unitsLate: 0,
+  maxDaysLate: 0,
+  ordersOnTime: 0,
+  addedCostEur: 0,
+  lineIdleDays: 0,
+  constraintCheck: 'fail',
+  constraintMessages: CONSTRAINT_MESSAGES,
+  confidence: FAILED_CONFIDENCE,
+});
+
+/**
  * One option set, exactly as the port answers with it.
  *
  * `recommendedId` is a lookup the screen performs and never compares, so the case states which option
@@ -883,6 +915,30 @@ function matrixTable(): HTMLElement {
   return screen.getByRole('table', { name: COMPARISON_MATRIX_TEXT.caption });
 }
 
+/**
+ * The sentence the units-late chart's frame prints under its caption.
+ *
+ * It is read from inside that figure rather than from the document, so no notice the screen states
+ * elsewhere can be mistaken for the chart's own description.
+ */
+function chartDescription(): string {
+  const figure = screen.getByText(SCENARIO_COMPARISON_TEXT.chartTitle).closest('figure');
+
+  if (figure === null) {
+    throw new Error('the units-late chart rendered outside a figure');
+  }
+
+  const description = Array.from(figure.querySelectorAll('span')).find((node) =>
+    (node.textContent ?? '').startsWith(SCENARIO_COMPARISON_TEXT.chartSeriesIntro),
+  );
+
+  if (description === undefined) {
+    throw new Error('the chart frame printed no description');
+  }
+
+  return description.textContent ?? '';
+}
+
 /** The nine measure rows' header cells, in drawn order. */
 function measureHeaders(): HTMLElement[] {
   return within(matrixTable()).getAllByRole('rowheader');
@@ -919,9 +975,72 @@ function columnOf(scenarioId: ScenarioId): HTMLElement {
 }
 
 /**
- * The one column the set recommends, marked structurally through `aria-current` rather than by a
- * colour, so the mark survives a greyscale rendering and reaches a screen reader (rule B-3).
+ * The colour role an element is painted in, read from the utility it carries: the `fill-` utility of a
+ * mark or the `bg-` utility of a swatch, with the prefix removed.
+ *
+ * It is how a case compares a header's swatch with the bar it keys without restating the tone table:
+ * both are reduced to the role they name, and two elements that name the same role are the same colour
+ * in either theme (AAP §0.5.3).
  */
+function roleOf(element: Element | null): string {
+  const painted = (element?.getAttribute('class') ?? '')
+    .split(' ')
+    .find((utility) => utility.startsWith('fill-') || utility.startsWith('bg-'));
+
+  if (painted === undefined) {
+    throw new Error('the element names no colour role');
+  }
+
+  return painted.slice(painted.indexOf('-') + 1);
+}
+
+/** The bar the chart drew for one option in one order, which is the mark its column's swatch keys. */
+function barOf(scenarioName: string, orderId: string): Element {
+  const cell = screen.getByRole('button', {
+    name: new RegExp(`^${orderId}, ${scenarioName}: `, 'u'),
+  });
+  const bar = Array.from(cell.querySelectorAll('rect')).find((rect) => {
+    const utilities = (rect.getAttribute('class') ?? '').split(' ');
+
+    /* The mark's own slot is painted `fill-none` and carries no colour role; the bar is the rect that
+       names a fill role. */
+    return utilities.some((utility) => utility.startsWith('fill-') && utility !== 'fill-none');
+  });
+
+  if (bar === undefined) {
+    throw new Error(`the chart drew no bar for ${scenarioName}`);
+  }
+
+  return bar;
+}
+
+/**
+ * The swatch one column header repeats its option's colour with, or `undefined` when the column carries
+ * none.
+ *
+ * Every decorative mark inside the header carries `aria-hidden`, so the swatch is told apart from a
+ * status icon by being the one that names a background role.
+ */
+function findHeaderSwatch(scenarioId: ScenarioId): Element | undefined {
+  const decorative = Array.from(columnOf(scenarioId).querySelectorAll('[aria-hidden="true"]'));
+
+  return decorative.find((node) =>
+    (node.getAttribute('class') ?? '')
+      .split(' ')
+      .some((utility) => utility.startsWith('bg-')),
+  );
+}
+
+/** The swatch one column header repeats its option's colour with, which the column must carry. */
+function headerSwatchOf(scenarioId: ScenarioId): Element {
+  const swatch = findHeaderSwatch(scenarioId);
+
+  if (swatch === undefined) {
+    throw new Error(`the column for ${scenarioId} carries no colour swatch`);
+  }
+
+  return swatch;
+}
 function recommendedColumn(): HTMLElement {
   const marked = within(matrixTable())
     .getAllByRole('columnheader')
@@ -1188,6 +1307,59 @@ describe('ScenarioComparisonScreen', () => {
     /* The option whose constraint check failed states nothing measured in this row either, exactly as
        its sibling measure rows do (AAP §0.8). */
     expect(cells[2]?.textContent).toBe(CANNOT_COMPUTE_LABEL);
+  });
+
+  it('repeats each drawn option’s bar colour as a swatch, and draws none for an option with no bar', async () => {
+    stub.service.getScenarioSet.mockResolvedValue(
+      ok(
+        setOf(
+          [SOLVER_SCENARIO, SEEDED_SCENARIO, FAILED_SCENARIO, UNDRAWN_SCENARIO],
+          RECOMMENDED_ID,
+        ),
+      ),
+    );
+
+    renderScreen();
+    await awaitMatrix();
+
+    const [firstOrder] = SOLVER_ORDERS;
+
+    if (firstOrder === undefined) {
+      throw new Error('the fixture measures no order');
+    }
+
+    /* Each header of an option the chart draws a bar for repeats the role its bars are painted in, so a
+       reader can key a column to a series without reading the plot, and both resolve one role token
+       rather than two (AAP §0.5.3). */
+    for (const option of [SOLVER_SCENARIO, SEEDED_SCENARIO, FAILED_SCENARIO]) {
+      expect(roleOf(headerSwatchOf(option.id))).toBe(
+        roleOf(barOf(option.name, firstOrder.orderId)),
+      );
+    }
+
+    /* The option the chart draws no bar for has no colour in the plot, so its column carries no swatch —
+       the same absence that gives it no legend row. A swatch here would key a colour to a mark that does
+       not exist, and the tone its position in the set resolves to would read as a verdict the record
+       never states (rules B-3, P-6). */
+    expect(findHeaderSwatch(UNDRAWN_SCENARIO.id)).toBeUndefined();
+
+    /* Nothing else about that header changed: its name on the select control, its own identifier and its
+       §5.3 label are all still there, and it carries no recommendation mark. */
+    const undrawn = columnOf(UNDRAWN_SCENARIO.id);
+
+    expect(within(undrawn).getByRole('button', { name: UNDRAWN_SCENARIO.name })).toBeVisible();
+    expect(within(undrawn).getByText(UNDRAWN_SCENARIO.id)).toBeVisible();
+    expect(within(undrawn).getByText(CALCULATED_LABEL)).toBeVisible();
+    expect(undrawn).not.toHaveAttribute('aria-current');
+
+    /* The recommended header's own words, its identifier, its §5.3 labels and its select control are
+       untouched. */
+    const recommended = columnOf(RECOMMENDED_ID);
+
+    expect(within(recommended).getByRole('button', { name: SOLVER_SCENARIO.name })).toBeVisible();
+    expect(within(recommended).getByText(RECOMMENDED_ID)).toBeVisible();
+    expect(within(recommended).getByText(CALCULATED_LABEL)).toBeVisible();
+    expect(within(recommended).getByText(RECOMMENDATION_LABEL)).toBeVisible();
   });
 
   it('states each option’s confidence level as a status, beside the record’s own reason', async () => {
@@ -1698,6 +1870,76 @@ describe('ScenarioComparisonScreen', () => {
     expect(
       screen.queryByRole('table', { name: SCENARIO_COMPARISON_TEXT.chartTableCaption }),
     ).not.toBeInTheDocument();
+  });
+
+  it('names only the options that draw a bar in its caption, and states why the others draw none', async () => {
+    stub.service.getScenarioSet.mockResolvedValue(
+      ok(setOf([SOLVER_SCENARIO, UNDRAWN_SCENARIO], RECOMMENDED_ID)),
+    );
+
+    renderScreen();
+    await awaitMatrix();
+
+    const text = chartDescription();
+    const listStart =
+      text.indexOf(SCENARIO_COMPARISON_TEXT.chartSeriesIntro) +
+      SCENARIO_COMPARISON_TEXT.chartSeriesIntro.length;
+    const listEnd = text.indexOf('.', listStart);
+
+    /* The drawn list names the option that draws bars, and it stops there: an option with no per-order
+       result is never offered as a bar that does not exist. */
+    expect(
+      text
+        .slice(listStart, listEnd)
+        .split(SCENARIO_COMPARISON_TEXT.chartSeriesSeparator)
+        .map((name) => name.trim()),
+    ).toEqual([SOLVER_SCENARIO.name]);
+
+    /* The omission is explained from the record: the state the matrix gives that column, then the
+       messages its own constraint check reported (rules P-6, P-1). */
+    expect(text).toContain(`${SCENARIO_COMPARISON_TEXT.chartOmittedIntro} ${UNDRAWN_SCENARIO.name}`);
+    expect(text).toContain(CANNOT_COMPUTE_LABEL);
+
+    for (const message of CONSTRAINT_MESSAGES) {
+      expect(text).toContain(message);
+    }
+  });
+
+  it('states no omission when every option in the set draws a bar', async () => {
+    renderScreen();
+    await awaitMatrix();
+
+    const text = chartDescription();
+
+    expect(text).toContain(SOLVER_SCENARIO.name);
+    expect(text).toContain(SEEDED_SCENARIO.name);
+    expect(text).not.toContain(SCENARIO_COMPARISON_TEXT.chartOmittedIntro);
+    expect(text).not.toContain(CANNOT_COMPUTE_LABEL);
+  });
+
+  it('draws the chart from the orders the first measured option carries, even when the set opens with one that cannot compute', async () => {
+    stub.service.getScenarioSet.mockResolvedValue(
+      ok(setOf([UNDRAWN_SCENARIO, SOLVER_SCENARIO], RECOMMENDED_ID)),
+    );
+
+    renderScreen();
+    await awaitMatrix();
+
+    /* The axis is the case's own order list, taken from the option that measured one: the failed
+       option's empty list must not empty the figure every comparable option is drawn in. */
+    const chart = screen.getByRole('group', { name: COMPARISON_MATRIX_TEXT.rows.unitsLate });
+    const clusterLabels = within(chart)
+      .getAllByRole('button')
+      .filter((control) =>
+        (control.getAttribute('aria-label') ?? '').endsWith(
+          GROUPED_BAR_CHART_TEXT.groupActivationSuffix,
+        ),
+      );
+
+    expect(clusterLabels).toHaveLength(SOLVER_ORDERS.length);
+    expect(
+      within(chart).getAllByRole('button', { name: new RegExp(`${SOLVER_SCENARIO.name}: `, 'u') }),
+    ).toHaveLength(SOLVER_ORDERS.length);
   });
 
 

@@ -48,7 +48,9 @@
  *
  * RULES THIS MODULE IS BUILT TO SATISFY.
  * - P-2: the port through `useService()` is the only data path; the cache is written only by the
- *   invalidation below, and no second source of records exists in this folder.
+ *   invalidation below — which names its reads from the one write-reads map in
+ *   `src/services/write-reads.ts` rather than keeping a list of its own — and no second source of
+ *   records exists in this folder.
  * - P-1: no model is presented as connected. The selector prints the boundary each catalogue entry
  *   declares, the answer carries `Simulated calculation` through `AssistantAnswer`, and no sentence here
  *   claims an answer is a production result. The persistent `Simulated data` badge belongs to the shell.
@@ -85,7 +87,7 @@ import { StateBoundary } from '../../components/state-boundary';
 import type { StateBoundaryForbidden, StateBoundaryStale } from '../../components/state-boundary';
 import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
-import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
+import { WRITE_READS } from '../../services/write-reads';
 import { useService } from '../../services/service-provider';
 import type {
   Answer,
@@ -595,17 +597,16 @@ interface AskedQuestion {
 }
 
 /**
- * The port members a question moves, and therefore the cached reads a question invalidates.
+ * Whether a failure is the model-boundary block, which records its refusal even though it answers nothing.
  *
- * A question appends an audit event and cites evidence, so both reads go back through the port rather
- * than serving the payload they cached before it (AAP §0.6.2). The names are typed against
- * `SiteIntelligenceService`, so a renamed member makes this list fail to compile instead of silently
- * invalidating nothing.
+ * A POL-007 block rejects with a `Problem` carrying the rule, the alternative it permits and the
+ * `auditEventId` of the policy-actor event it appended before refusing (AAP §0.12.3, contracts §6). That
+ * identifier is what tells the block from every other refusal this panel can meet — a permission the
+ * matrix denies, an unscripted question, a validation — none of which appends anything.
  */
-const READS_AN_ANSWER_TOUCHES = [
-  'getEvidence',
-  'listAuditEvents',
-] as const satisfies readonly (keyof SiteIntelligenceService)[];
+function isBlockedQuestion(thrown: unknown): thrown is Problem {
+  return isProblem(thrown) && thrown.auditEventId !== undefined;
+}
 
 /**
  * The model the denying policy permits, resolved from the catalogue the selector was offered.
@@ -678,9 +679,11 @@ export interface AssistantPanelProps {
  * SCR-06's data-connected panel.
  *
  * Three calls, all through the port: `listSuggestedQuestions` and `getModelCatalogue` as reads keyed by
- * the method's own name, and `askAssistant` as one mutation whose success invalidates the reads it
- * touched. The chosen model, the reader's draft and the last question asked are the only state this
- * component owns; nothing it renders is derived from a figure, formatted here or read from a clock.
+ * the method's own name, and `askAssistant` as one mutation that invalidates the reads
+ * `WRITE_READS.askAssistant` names once it settles — on an answer, and on a POL-007 block too, because a
+ * block records its refusal even though it answers nothing. The chosen model, the reader's draft and the
+ * last question asked are the only state this component owns; nothing it renders is derived from a
+ * figure, formatted here or read from a clock.
  *
  * The settled facts decide the panel's state in one place ({@link deriveScreenState}) and the body
  * renders it, which is why a policy block replaces neither the questions nor the composer: a refused
@@ -700,6 +703,20 @@ export function AssistantPanel({
   const [typedDraft, setTypedDraft] = useState<string | null>(null);
   const [chosenModelId, setChosenModelId] = useState<string | null>(null);
   const [lastAsked, setLastAsked] = useState<AskedQuestion | null>(null);
+
+  /**
+   * Marks the reads a question moved for re-reading through the port.
+   *
+   * The row is `WRITE_READS.askAssistant`, the one write-reads map in `src/services/write-reads.ts`, so
+   * the reads this panel refreshes are the reads the cache's own invalidation names: the evidence a
+   * citation resolves to, the trail the question appended to, and the sovereignty payload whose ledger
+   * counts a block against the endpoint it names (AAP §0.6.2, AAP §0.12.3).
+   */
+  const invalidateQuestionReads = (): void => {
+    for (const read of WRITE_READS.askAssistant) {
+      void queryClient.invalidateQueries({ queryKey: [read] });
+    }
+  };
 
   /* Retries are off on purpose: a refusal the matrix produces fails the same way however often it is
      repeated, and the boundary offers the reader an explicit retry for the case where repeating the
@@ -727,8 +744,14 @@ export function AssistantPanel({
         contextRefs: [],
       }),
     onSuccess: () => {
-      for (const read of READS_AN_ANSWER_TOUCHES) {
-        void queryClient.invalidateQueries({ queryKey: [read] });
+      invalidateQuestionReads();
+    },
+    onError: (error: unknown) => {
+      /* A block answers nothing but records its refusal, so the reads it moved are re-read here as well:
+         the trail gained the policy-actor event and the sovereignty ledger counts it against the
+         endpoint the event names (AAP §0.12.3, AAP §0.6.2). */
+      if (isBlockedQuestion(error)) {
+        invalidateQuestionReads();
       }
     },
   });

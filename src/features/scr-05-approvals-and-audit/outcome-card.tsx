@@ -25,12 +25,15 @@
  *
  * EVERY FIGURE HERE OPENS ITS EVIDENCE (rule P-6, principle PR-6). The payload carries the record
  * the comparison is about — `ApprovalOutcome.evidenceRef`, the approval whose plan was measured and
- * whose simulated write-backs produced the resulting reading — so every reading in both tables is
- * rendered through `EvidenceRef` and the drawer resolves to that record. One reference covers the
- * card because the card's figures are one measurement pair of one approval; a reference per cell
- * would name the same record over and over. The caption an absent reading prints is not a figure and
- * stays plain text, and the card composes no reference of its own, which is the fabricated figure
- * rule P-6 exists to prevent.
+ * whose simulated write-backs produced the resulting reading — and every reading in both tables is
+ * rendered through `EvidenceRef`. A reading's reference names the figure as well as the record: the
+ * record's own reference, then the column the reading stands in and the `SolverResult` member it
+ * reports (`<approval id>#planned.unitsLate`), or, in the closing-stock table, the column and the date
+ * whose close it states (`<approval id>#resulting.dailyClosingStock/<date>`). That is the grammar the
+ * evidence read resolves, so two figures of one approval open two drawers that each state what was
+ * clicked (AAP 0.12.2's `Evidence.value`). The caption an absent reading prints is not a figure and
+ * stays plain text, and the card invents no figure of its own, which is the fabricated figure rule P-6
+ * exists to prevent.
  *
  * WHY NO HEADLINE TILE. `./metric-tile.tsx` is the component for a single computed figure. This card
  * has seven measures and the stock series, and headlining one of them would invent a ranking the
@@ -313,12 +316,76 @@ const NOT_APPLICABLE_CLASSES = 'text-12 text-text-caption';
 const LABEL_CLASSES = 'text-13';
 
 /**
+ * The separator the evidence read's reference grammar puts between a record and the figure inside it.
+ *
+ * A reading cell names its own figure, so the two halves of that grammar are spelled here and used
+ * through {@link figureRef}: the record's reference, `#`, the column and `.${measure}`.
+ */
+const FRAGMENT_SEPARATOR = '#';
+
+/** The separator the same grammar puts between a column and the measure read in it. */
+const MEASURE_SEPARATOR = '.';
+
+/** The column of the plan as approved, which is the first of the card's two value columns. */
+const PLANNED_COLUMN = 'planned';
+
+/** The column of the state the write-backs left, which is the card's second value column. */
+const RESULTING_COLUMN = 'resulting';
+
+/** The two columns a compared reading stands in, which are also the grammar's own column names. */
+type OutcomeColumn = typeof PLANNED_COLUMN | typeof RESULTING_COLUMN;
+
+/**
+ * The `SolverResult` member the closing-stock series is held under, which is the name the evidence
+ * read's grammar addresses that series by, and the separator before the date a single reading states.
+ */
+const STOCK_SERIES_MEMBER = 'dailyClosingStock';
+
+/** The separator the grammar puts between that series member and the date a reading belongs to. */
+const SERIES_SEPARATOR = '/';
+
+/**
+ * The reference one compared figure carries, composed from the record's own reference and the cell's
+ * own column and measure.
+ *
+ * The evidence read resolves `<record ref>#<column>.<member>` to the figure the cell printed, so the
+ * drawer states the measure and the number that was clicked instead of the whole record (AAP
+ * 0.12.2's `Evidence.value`). Nothing is invented here beyond the positions the grammar fixes: the
+ * record reference and the member both come from the read.
+ *
+ * @param evidenceRef - The record's own reference, which the service supplied.
+ * @param column - The card column the reading stands in.
+ * @param key - The `SolverResult` member the row reports.
+ * @returns The reference the cell's evidence trigger carries.
+ */
+function figureRef(evidenceRef: string, column: OutcomeColumn, key: OutcomeMeasureKey): string {
+  return `${evidenceRef}${FRAGMENT_SEPARATOR}${column}${MEASURE_SEPARATOR}${key}`;
+}
+
+/**
+ * The reference one closing-stock reading carries, composed the same way from the record's own
+ * reference, the cell's column and the date whose close it states.
+ *
+ * The series prints one row per date, so the date is part of what the figure is: without it the drawer
+ * could state a number from a row the reader did not click.
+ *
+ * @param evidenceRef - The record's own reference, which the service supplied.
+ * @param column - The card column the reading stands in.
+ * @param date - The date whose close the reading states, as the record spells it.
+ * @returns The reference the cell's evidence trigger carries.
+ */
+function stockFigureRef(evidenceRef: string, column: OutcomeColumn, date: IsoDate): string {
+  return `${evidenceRef}${FRAGMENT_SEPARATOR}${column}${MEASURE_SEPARATOR}${STOCK_SERIES_MEMBER}${SERIES_SEPARATOR}${date}`;
+}
+
+/**
  * Renders one reading of one record inside the control that opens its evidence: the record's amount
  * through the one formatter, its count as the number the record holds.
  *
- * A record that carries no reading prints the absence caption instead, deliberately outside the
- * trigger — the caption states that there is no figure, so a control offering the evidence behind it
- * would offer evidence for nothing.
+ * The reference it is handed is the one the payload supplied, or the one {@link figureRef} composed
+ * for the figure this cell prints. A record that carries no reading prints the absence caption
+ * instead, deliberately outside the trigger — the caption states that there is no figure, so a
+ * control offering the evidence behind it would offer evidence for nothing.
  */
 function renderReading(
   value: number | undefined,
@@ -345,8 +412,8 @@ const rowKeyOf = (row: OutcomeRow): string => row.key;
  *
  * No column declares `sortable`, so `DataTable` renders no sort control and the rows stay in the
  * order {@link MEASURES} states — the comparison's own reading order rather than a ranking this card
- * would have to judge. The evidence reference is built in because every reading cell carries it and
- * the label column never does.
+ * would have to judge. Each value column composes the figure's own reference from the record's, by
+ * {@link figureRef}, and the label column carries no reference at all.
  */
 function buildMeasureColumns(evidenceRef: string): readonly TableColumn<OutcomeRow>[] {
   return [
@@ -356,16 +423,24 @@ function buildMeasureColumns(evidenceRef: string): readonly TableColumn<OutcomeR
       render: (row) => row.label,
     },
     {
-      id: 'planned',
+      id: PLANNED_COLUMN,
       header: OUTCOME_CARD_TEXT.plannedHeader,
       align: 'end',
-      render: (row) => renderReading(row.planned, row.format, evidenceRef),
+      render: (row) => {
+        const ref = figureRef(evidenceRef, PLANNED_COLUMN, row.key);
+
+        return renderReading(row.planned, row.format, ref);
+      },
     },
     {
-      id: 'resulting',
+      id: RESULTING_COLUMN,
       header: OUTCOME_CARD_TEXT.resultingHeader,
       align: 'end',
-      render: (row) => renderReading(row.resulting, row.format, evidenceRef),
+      render: (row) => {
+        const ref = figureRef(evidenceRef, RESULTING_COLUMN, row.key);
+
+        return renderReading(row.resulting, row.format, ref);
+      },
     },
   ];
 }
@@ -490,10 +565,11 @@ const stockRowKeyOf = (row: OutcomeStockRow): string => row.key;
  * The stock table's three columns: the date whose close the readings belong to, then the two records'
  * readings at that close, right-aligned so digits line up down each column.
  *
- * The date cell is plain text — a date is not a figure and has no evidence behind it of its own,
- * while each reading opens the record the comparison is about. No column declares `sortable`, so the
- * rows keep the order {@link buildStockRows} puts them in rather than a chronological order this card
- * would impose on the two solves.
+ * The date cell is plain text — a date is not a figure and has no evidence behind it of its own — while
+ * each reading opens the figure it printed: its own column and date, composed by {@link stockFigureRef},
+ * so a reader who opens one close is told which date's close and which solve they are looking at. No
+ * column declares `sortable`, so the rows keep the order {@link buildStockRows} puts them in rather than
+ * a chronological order this card would impose on the two solves.
  */
 function buildStockColumns(evidenceRef: string): readonly TableColumn<OutcomeStockRow>[] {
   return [
@@ -503,16 +579,22 @@ function buildStockColumns(evidenceRef: string): readonly TableColumn<OutcomeSto
       render: (row) => row.date,
     },
     {
-      id: 'planned',
+      id: PLANNED_COLUMN,
       header: OUTCOME_CARD_TEXT.plannedHeader,
       align: 'end',
-      render: (row) => renderReading(row.planned, 'count', evidenceRef),
+      render: (row) =>
+        renderReading(row.planned, 'count', stockFigureRef(evidenceRef, PLANNED_COLUMN, row.date)),
     },
     {
-      id: 'resulting',
+      id: RESULTING_COLUMN,
       header: OUTCOME_CARD_TEXT.resultingHeader,
       align: 'end',
-      render: (row) => renderReading(row.resulting, 'count', evidenceRef),
+      render: (row) =>
+        renderReading(
+          row.resulting,
+          'count',
+          stockFigureRef(evidenceRef, RESULTING_COLUMN, row.date),
+        ),
     },
   ];
 }
@@ -556,11 +638,12 @@ export interface OutcomeCardProps {
   readonly resulting: ApprovalOutcome['resulting'];
 
   /**
-   * The record this comparison is about, and the reference every reading on the card opens.
+   * The record this comparison is about: the reference every reading on the card is composed from.
    *
-   * Typed through the declared `ApprovalOutcome` member it is and passed straight to `EvidenceRef`,
-   * so the drawer resolves the approval whose plan was measured and whose write-backs produced the
-   * resulting reading, rather than a reference this card composes (rule P-6, AAP §0.2.1's F12).
+   * Typed through the declared `ApprovalOutcome` member it is, and handed to `EvidenceRef` through
+   * {@link figureRef} for a compared measure and {@link stockFigureRef} for a closing-stock reading, so
+   * the drawer states the measure, the column and the number that were clicked rather than the record
+   * alone (rule P-6, AAP §0.2.1's F12).
    */
   readonly evidenceRef: ApprovalOutcome['evidenceRef'];
 }

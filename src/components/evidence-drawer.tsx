@@ -43,12 +43,15 @@
  * user hears both what the figure is and what activating it does (SC 2.5.3, label in name). The
  * drawer is a `role="dialog"` region named by its own heading, focus moves into it when it opens,
  * `Tab` and `Shift+Tab` cycle inside it, `Escape` closes it, and focus returns to the element that
- * opened it — the triggering figure — when it unmounts. It claims `aria-modal` in the overlay form
- * only: from 1280 px the panel is docked beside a page that stays readable and operable, and the
- * claim there would tell assistive technology the rest of the page is inert when it is not (AAP
- * §0.12.4). Both controls keep the 24x24 px minimum target and the 2 px focus ring the token layer
- * fixes, and the only transition in the file is a colour change carried by `motion-safe:`, so
- * nothing here ignores `prefers-reduced-motion`.
+ * opened it — the triggering figure — when it unmounts. Because `Tab` cycles inside the panel in both
+ * presentations, the drawer is a modal dialog in both, and it says so in both: it carries
+ * `aria-modal="true"` and the rest of the page is marked `inert` for as long as it is mounted
+ * ({@link reserveInertBackground}). The page beside a docked drawer therefore stays visible — the
+ * column the panel occupies is still reserved, so the page narrows rather than being covered — while
+ * being unreachable from the keyboard and from a screen reader until the drawer closes, and `Escape`
+ * and the close control both release it (AAP §0.12.4). Both controls keep the 24x24 px minimum target
+ * and the 2 px focus ring the token layer fixes, and the only transition in the file is a colour
+ * change carried by `motion-safe:`, so nothing here ignores `prefers-reduced-motion`.
  *
  * THE DRAWER IS RENDERED THROUGH A PORTAL, and that is a markup decision rather than a stylistic
  * one: a figure sits inside a table cell, beside a chart or in the middle of a sentence, and a
@@ -71,8 +74,7 @@
  * chooses no label of its own and holds no provenance-to-label map: the record's typed `SimLabel` is
  * the stronger source and cannot disagree with the figure it belongs to.
  *
- * WHAT IT DOES NOT DO. It states no security property of the workspace — no sentence claims
- * that anything is confined, uncopyable or resistant to alteration (rule P-4); it reports a
+ * WHAT IT DOES NOT DO. It states no security property of the workspace (rule P-4): it reports a
  * provenance and a freshness and nothing more. It blends nothing (rule P-5): the provenance is shown
  * as the record states it, so a market-intelligence reading is named as one rather than presented as
  * a first-party figure. It fetches nothing and reads no configuration (rules B-1, B-2) — the icons
@@ -92,7 +94,15 @@ import { createPortal } from 'react-dom';
 
 import { useService } from '../services/service-provider';
 import { SOURCE_LABELS } from '../types';
-import type { ConfidenceLevel, Evidence, Freshness, Problem, ScreenState, WriteBack } from '../types';
+import type {
+  ConfidenceLevel,
+  Evidence,
+  Freshness,
+  Problem,
+  ScreenState,
+  WriteBack,
+} from '../types';
+import { INSET_SURFACE_CLASSES } from './card';
 import { freshnessMeaning } from './freshness-pill';
 import { MonoValue } from './mono-value';
 import { Panel } from './panel';
@@ -271,9 +281,21 @@ const TRIGGER_CLASSES = [
 const TRIGGER_ICON_CLASSES = 'size-3 shrink-0';
 
 /**
+ * The attribute the drawer's portal host carries, so the background mark can tell a drawer's own
+ * container from the page it covers.
+ *
+ * The host is a sibling of the page under `document.body`, so {@link reserveInertBackground} has to
+ * skip it by something it can read there: an element that carries this attribute is a drawer, not the
+ * page, and two docked drawers open at once must not mark one another inert.
+ */
+const DRAWER_HOST_ATTRIBUTE = 'data-evidence-drawer-host';
+
+/**
  * The portal host. It covers the viewport so the dialog can dock against one of its edges, and it
- * takes no pointer events of its own: the dialog re-enables them, which is what leaves the page
- * beside a docked drawer readable and operable from 1280 px up.
+ * takes no pointer events of its own: the dialog re-enables them, so the host itself never takes a
+ * press meant for the surface underneath it. It carries {@link DRAWER_HOST_ATTRIBUTE} so that the
+ * background mark skips it rather than taking the drawer out with the page (see
+ * {@link reserveInertBackground}).
  */
 const CONTAINER_CLASSES = 'pointer-events-none fixed inset-0 z-40';
 
@@ -283,7 +305,7 @@ const CONTAINER_CLASSES = 'pointer-events-none fixed inset-0 z-40';
  * Below the `xl` breakpoint it is the overlay the plan requires: it takes the whole viewport, so
  * there is no sliver of page beside it competing for attention. From 1280 px up it is docked —
  * 420 px wide against the inline end of the viewport, which is the width AAP §0.12.4 fixes — and the
- * page beside it stays readable. The surface is the first raised surface inside the decorative
+ * page beside it stays visible. The surface is the first raised surface inside the decorative
  * hairline at the panel radius, with no elevation: the token layer clears Tailwind's shadow
  * namespace, so no shadow utility exists to add (specification §4.3, rule B-3).
  *
@@ -295,7 +317,7 @@ const CONTAINER_CLASSES = 'pointer-events-none fixed inset-0 z-40';
  * same unit: these variants resolve against Tailwind's `80rem` for `xl`, and that query states
  * `80rem` for the same reason rather than a pixel width that would disagree with them whenever the
  * browser's default font size is not 16 px. This class list shapes the panel; that query tells the
- * dialog which shape it is in, so the modality claim follows the presentation rather than the
+ * dialog which shape it is in, so the column reserved for it follows the presentation rather than the
  * stylesheet.
  *
  * The 420 px is stated once more, in `--evidence-drawer-dock-width` at the top of `@layer base` in
@@ -374,12 +396,14 @@ const CONFIDENCE_MEANINGS = {
 } as const satisfies Record<ConfidenceLevel, StatusMeaning>;
 
 /**
- * A notice on the second raised surface, inside the decorative hairline at the card radius, as the
- * freshness pill and the state boundary paint their own. Every value is a role token, so both themes
- * resolve the pairing the specification measured, and no elevation utility exists to add.
+ * A notice on the inset box `./card.tsx` names as the third surface role: the one the state boundary
+ * reports a state on, stacked so the notice's sentence and its control sit one 4 px step apart. The
+ * box itself — card radius, decorative hairline, second raised surface and its one padding — is
+ * `INSET_SURFACE_CLASSES`, so the two shared notices wear one surface instead of two hand-rolled
+ * ones. Every value stays a role token, so both themes resolve the pairing the specification
+ * measured, and no elevation utility exists to add.
  */
-const NOTICE_CLASSES =
-  'flex min-w-0 flex-col gap-2 rounded-card border border-hairline bg-surface-2 px-2 py-2';
+const NOTICE_CLASSES = `flex min-w-0 flex-col gap-2 ${INSET_SURFACE_CLASSES}`;
 
 /* ---------------------------------------------------------------------------------------------
  * The reference: the wrapper a figure reaches a screen through
@@ -473,21 +497,20 @@ export function EvidenceRef({ ref, children, className }: EvidenceRefProps): Rea
  * in `px`. Tailwind 4 defines `xl` as `80rem`, which is 1280 px only while the browser's default font
  * size is 16 px: a query stated in `px` would keep matching at that fixed pixel width after the `xl:`
  * classes had stopped applying, so a reader whose default font size is larger would get a panel
- * covering the viewport while the dialog had already dropped its modality claim. Stating both sides
- * of the breakpoint in `rem` keeps them font-relative, so the styling and the claim cannot disagree
- * at any default font size.
+ * covering the viewport while the dialog had already docked. Stating both sides of the breakpoint in
+ * `rem` keeps them font-relative, so the shape the class list applies and the shape this query reports
+ * cannot disagree at any default font size.
  */
 const DOCKED_QUERY = '(min-width: 80rem)';
 
 /**
  * Whether the viewport currently calls for the docked presentation, read synchronously.
  *
- * Read during the first render rather than after it, so the dialog's modality claim is right on the
- * frame it appears and never flips once an effect has run. An environment with no `matchMedia` at
- * all — the jsdom test environment, which implements no media query, and any pass without a DOM —
- * answers `false` and therefore gets the overlay presentation: a modal claim is accurate while the
- * panel covers the viewport, and it is the safe default for an environment that cannot report a
- * width.
+ * Read during the first render rather than after it, so the panel's shape is right on the frame it
+ * appears and never flips once an effect has run. An environment with no `matchMedia` at all — the
+ * jsdom test environment, which implements no media query, and any pass without a DOM — answers
+ * `false` and therefore gets the overlay presentation, which is the shape to assume for a viewport
+ * that cannot report its width.
  */
 function matchesDockedQuery(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -502,9 +525,10 @@ function matchesDockedQuery(): boolean {
  *
  * The state starts from a synchronous read of the same query, and the effect subscribes to the
  * query's `change` event, so a resize across the docked breakpoint moves the drawer between its docked
- * and overlay forms without a remount and the modality claim follows it. The effect also re-reads the
- * query once on mount, because the subscription only reports changes that happen after it exists. The
- * listener is removed when the drawer unmounts, so nothing stays registered after it closes.
+ * and overlay forms without a remount, and the column reserved for it follows. The effect also
+ * re-reads the query once on mount, because the subscription only reports changes that happen after it
+ * exists. The listener is removed when the drawer unmounts, so nothing stays registered after it
+ * closes.
  */
 function useDockedPresentation(): boolean {
   const [isDocked, setIsDocked] = useState(matchesDockedQuery);
@@ -547,11 +571,13 @@ const DOCKED_COLUMN_ATTRIBUTE = 'data-evidence-docked';
 /**
  * The drawers that currently hold the docked column, one entry per mounted docked drawer.
  *
- * A count rather than a flag, because the docked drawer is not modal: two figures may be open at
- * once, each `EvidenceRef` mounting its own drawer, and a flag — or a last-writer-wins attribute —
- * would let the first drawer to close release a column the second still occupies, sliding the page
- * back underneath a panel that is still open. The owners are opaque symbols because nothing needs to
- * name a drawer; only whether the set is empty matters.
+ * A count rather than a flag, because two figures may be open at once, each `EvidenceRef` mounting
+ * its own drawer, and a flag — or a last-writer-wins attribute — would let the first drawer to close
+ * release a column the second still occupies, sliding the page back underneath a panel that is still
+ * open. The owners are opaque symbols because nothing needs to name a drawer; only whether the set is
+ * empty matters. {@link reserveInertBackground} counts its own owners for the same reason, and skips
+ * every drawer's host, so the two drawers a reader may hold open together do not mark one another
+ * inert.
  */
 const dockedColumnOwners = new Set<symbol>();
 
@@ -583,6 +609,81 @@ function reserveDockedColumn(): () => void {
     if (dockedColumnOwners.size === 0) {
       document.documentElement.removeAttribute(DOCKED_COLUMN_ATTRIBUTE);
     }
+  };
+}
+
+/**
+ * The attribute the page behind the dialog carries while a drawer is open.
+ *
+ * `inert` rather than `aria-hidden`: the dialog is modal because `Tab` cycles inside it in both
+ * presentations (see {@link trapTab}), and a page told only to be hidden from assistive technology
+ * would still be in the keyboard order, while a page that was only skipped by `Tab` would still be
+ * reachable by a screen reader's own navigation. This one mark is what makes both agree with the
+ * dialog (rule B-3).
+ */
+const INERT_ATTRIBUTE = 'inert';
+
+/**
+ * The drawers that currently hold the page behind them inert, one entry per mounted drawer.
+ *
+ * A count for the same reason {@link reserveDockedColumn} keeps one: two figures may be open at once,
+ * and the page carries the mark until the last drawer open closes it.
+ */
+const inertBackgroundOwners = new Set<symbol>();
+
+/**
+ * The elements this module itself marked inert, so a release takes back its own marks and leaves an
+ * element that was already inert when a drawer opened exactly as it found it.
+ */
+const inertedElements = new Set<Element>();
+
+/**
+ * Marks the page behind the drawer inert for the caller and answers the release that gives it back.
+ *
+ * The drawer is a modal dialog in both of its presentations, so the page it sits beside is unreachable
+ * from the keyboard and from assistive technology while it is open, however visible the reserved
+ * column leaves that page. There is no element inside the portal to hang the mark on — the page
+ * belongs to the shell, and a component in this folder may not render into it (see the module note) —
+ * so the mark goes on the children of `document.body` instead.
+ *
+ * A child is skipped when it carries {@link DRAWER_HOST_ATTRIBUTE}, because that is another drawer's
+ * own portal host rather than page content, and when it is already inert, so that the release never
+ * takes away a mark this code did not set. Each call takes its own ownership, so the mark stays on the
+ * page until the last drawer open releases it, and an environment with no document to mark is given a
+ * release that does nothing.
+ *
+ * @returns The release for this ownership; call it once, from the effect's cleanup.
+ */
+function reserveInertBackground(): () => void {
+  if (typeof document === 'undefined') {
+    return () => undefined;
+  }
+
+  const owner = Symbol('evidence-drawer');
+
+  inertBackgroundOwners.add(owner);
+
+  for (const child of Array.from(document.body.children)) {
+    if (child.hasAttribute(DRAWER_HOST_ATTRIBUTE) || child.hasAttribute(INERT_ATTRIBUTE)) {
+      continue;
+    }
+
+    child.setAttribute(INERT_ATTRIBUTE, '');
+    inertedElements.add(child);
+  }
+
+  return () => {
+    inertBackgroundOwners.delete(owner);
+
+    if (inertBackgroundOwners.size > 0) {
+      return;
+    }
+
+    for (const element of inertedElements) {
+      element.removeAttribute(INERT_ATTRIBUTE);
+    }
+
+    inertedElements.clear();
   };
 }
 
@@ -621,21 +722,24 @@ export interface EvidenceDrawerProps {
 /**
  * The evidence behind one figure, in whichever of its two presentations the viewport calls for.
  *
- * The dialog is portalled into `document.body` (see the module note) and named by its own heading.
- * Below 1280 px it covers the viewport and claims `aria-modal`, so assistive technology treats the
- * page behind it as inert while it is open. From 1280 px it docks at 420 px against the inline end
- * (AAP §0.12.4) and claims no modality at all — the attribute is absent rather than `"false"`, so no
- * form of the claim reaches a reader — because the page beside it stays readable and operable.
- * {@link useDockedPresentation} is what tells the two apart, and while it reports a docked drawer the
- * column that drawer occupies is reserved on the document element ({@link reserveDockedColumn}), so
- * the page narrows into the remaining width instead of running on underneath the panel.
+ * The dialog is portalled into `document.body` (see the module note) and named by its own heading. It
+ * is a modal dialog in both presentations, because the keyboard contract below cycles `Tab` inside it
+ * in both: it carries `aria-modal="true"` always, and the page around it is marked inert for as long
+ * as it is mounted ({@link reserveInertBackground}). Below 1280 px it covers the viewport. From
+ * 1280 px it docks at 420 px against the inline end (AAP §0.12.4) and the page beside it stays
+ * visible, because the column that drawer occupies is reserved on the document element
+ * ({@link reserveDockedColumn}), so the page narrows into the remaining width instead of running on
+ * underneath the panel — visible, and yet not reachable while the drawer is open, which is what
+ * `Escape` and the close control release. {@link useDockedPresentation} tells the two shapes apart and
+ * decides nothing but the shape.
  *
- * FOCUS — the effect that moves focus. On mount it records the element that had focus, moves focus
- * to the dialog itself (not to its first control, so a screen reader announces the dialog's name and
- * role before its contents), and on unmount it returns focus to the element it recorded. `Tab`
- * cycling and `Escape` are handled by the dialog's own `onKeyDown`: no listener is registered on the
- * document, so nothing outside the drawer changes behaviour while it is open, and nothing remains
- * registered after it closes.
+ * FOCUS — the effect that moves focus and holds the page behind the dialog inert. On mount it records
+ * the element that had focus, moves focus to the dialog itself (not to its first control, so a screen
+ * reader announces the dialog's name and role before its contents), and then marks the page inert; on
+ * unmount it releases that mark and returns focus to the element it recorded, in that order, because
+ * an inert element cannot take focus. `Tab` cycling and `Escape` are handled by the dialog's own
+ * `onKeyDown`: no listener is registered on the document, so nothing outside the drawer changes
+ * behaviour while it is open, and nothing remains registered after it closes.
  *
  * DATA — `useQuery`, keyed by the port method's name and the reference, read through `useService()`.
  * The read is wrapped in `StateBoundary` so the pending call renders the shared skeleton and a
@@ -659,11 +763,22 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
     queryFn: () => service.getEvidence(evidenceRef),
   });
 
+  /* The drawer is modal in both presentations, so the page behind it is marked inert for as long as it
+     is mounted — and it is mounted only while it is open, because the component that owns the open
+     flag unmounts it. The mark is taken after focus has moved inside the dialog and released before
+     focus goes back to the figure that opened it, because an inert element cannot take focus: the
+     other order would leave a keyboard user on `<body>` at the top of the page. The mark is
+     ref-counted by {@link reserveInertBackground} and skips every drawer's own portal host, so the two
+     drawers a reader may have open at once do not mark one another inert. */
   useEffect(() => {
     const previouslyFocused = document.activeElement;
     dialogRef.current?.focus();
 
+    const releaseInertBackground = reserveInertBackground();
+
     return () => {
+      releaseInertBackground();
+
       /* An SVGElement is accepted as well as an HTMLElement, because a chart's mark is an `<g
          role="button" tabindex="0">` — the element that opened the drawer in a line, grouped-bar or
          radar surface — and a guard against `HTMLElement` alone left those marks' readers on `<body>`
@@ -750,13 +865,17 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
     }
   }
 
+  /* The host carries {@link DRAWER_HOST_ATTRIBUTE}, the one mark that tells
+     {@link reserveInertBackground} this container is a drawer rather than the page it covers: the two
+     are siblings under `document.body`, so with two docked drawers open at once each has to leave the
+     other's dialog reachable while it marks the page inert. */
   return createPortal(
-    <div className={CONTAINER_CLASSES}>
+    <div className={CONTAINER_CLASSES} {...{ [DRAWER_HOST_ATTRIBUTE]: '' }}>
       <div
         ref={dialogRef}
         id={id}
         role="dialog"
-        aria-modal={isDocked ? undefined : 'true'}
+        aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
@@ -1186,13 +1305,13 @@ function focusableElements(dialog: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Keeps `Tab` and `Shift+Tab` inside the dialog, so an overlay cannot be tabbed out of into the page
- * assistive technology has been told is inert, and a reader stays with the panel they opened.
+ * Keeps `Tab` and `Shift+Tab` inside the dialog, in both presentations, so a drawer cannot be tabbed
+ * out of into the page marked inert behind it, and a reader stays with the panel they opened.
  *
- * The docked presentation keeps the same cycle, and that is not a keyboard trap (WCAG 2.1.2):
- * `Escape` closes the drawer and the close control is always one stop away, so focus is releasable
- * from the keyboard in both forms. What has to follow the presentation is the modality claim, never
- * the cycle.
+ * That is not a keyboard trap (WCAG 2.1.2): `Escape` closes the drawer and the close control is always
+ * one stop away, so focus is releasable from the keyboard whether the panel is docked or an overlay.
+ * The cycle is what makes the drawer modal, so it is the same in both forms and nothing about it
+ * follows the breakpoint.
  *
  * The handler is bound to the dialog element rather than to the document, so nothing outside the
  * drawer changes behaviour while it is open and no listener survives it. Focus that sits on the

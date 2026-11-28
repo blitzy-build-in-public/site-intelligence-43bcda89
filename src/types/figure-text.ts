@@ -1,6 +1,6 @@
 /**
- * The text two layers of the application render one record with: the interface's one money formatter
- * and the run-out reading AAP §0.8 fixes.
+ * The text two layers of the application render one record with: the interface's one money formatter,
+ * the grouped-number rule a quantity is written with, and the run-out reading AAP §0.8 fixes.
  *
  * WHY THE RENDERINGS SIT IN THIS FOLDER RATHER THAN IN `src/components`. The comparison matrix states
  * every measure of an option and the comparison CSV states the same measures of the same option, and
@@ -91,6 +91,52 @@ const MONEY_FORMAT = new Intl.NumberFormat('de-DE', {
 export function formatMoney(value: number | string): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return MONEY_FORMAT.format(value);
+  }
+
+  return String(value);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The grouped number — one quantity, one formatter, for the screen and the service alike
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The rule a number that carries no unit is written with: the `de-DE` grouping locale AAP §0.8 names
+ * for the one locale the inputs fix, and at most the two decimals `Money` carries.
+ *
+ * One pattern serves the two surfaces that state a quantity, because they need the same thing and a
+ * second configuration with the same options would be a second rule to keep in step:
+ * `src/features/scr-04-scenario-comparison/scenario-sandbox.tsx` echoes the lever values a
+ * measurement was taken at, and `src/services/mock/handlers/scenarios.ts` composes the column name of
+ * a position no record names from the same two numbers. The handler's composer is a service module
+ * that may not import `src/components`, which is why the rule lives here rather than beside the
+ * component that prints it.
+ *
+ * Grouping is what keeps a refused position legible: a lever far outside its bound stringifies as
+ * `1e+30`, a form no surface of the interface prints, and the reader has to be able to read the value
+ * the constraint message beside it reports the breach of (AAP §0.12.2, rule P-6).
+ */
+const QUANTITY_FORMAT = new Intl.NumberFormat('de-DE', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Formats one quantity — a count, a lever value, a number that carries no unit — or hands back the
+ * input's own text when it has no formatted form.
+ *
+ * The contract is {@link formatMoney}'s: only a finite number is formatted, a string is returned
+ * untouched rather than parsed, and a value with no formatted form keeps the raw input in the text as
+ * the marker of the defect. The width is a ceiling on the text and not an arithmetic step on the value:
+ * a fraction the reader typed is kept up to two decimals and the number itself is untouched, so
+ * nothing here rounds, re-scales or substitutes a value (rule P-6).
+ *
+ * @param value - The quantity exactly as the record or the reader states it.
+ * @returns The grouped number to at most two decimals, or the input as text.
+ */
+export function formatQuantity(value: number | string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return QUANTITY_FORMAT.format(value);
   }
 
   return String(value);

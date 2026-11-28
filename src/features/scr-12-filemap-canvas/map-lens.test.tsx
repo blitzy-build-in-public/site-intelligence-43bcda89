@@ -10,17 +10,20 @@
  * family and its evidence-pin summary per state, so no marker asks a reader to tell a hue apart (rule
  * B-3); activation reports the node to the screen that owns the selection and the ring the drawing
  * paints follows that prop only, never a selection the lens kept for itself; the "View as table" view
- * prints one row per node with the payload's own labels, neighbours and counts, and switching back
- * restores the drawing; nothing asks any origin for anything while all of that happens (rule B-1, the
- * component-level half of T-20); the atlas overlay's chokepoint halos appear only when the payload is
- * supplied and always under the fixed market-intelligence label imported from `src/types` (rules P-1,
- * P-5); the frame states its simulation label inside the figure it owns, so the pin counts are
- * labelled without a page-level badge; and the evidence drawer opens for a node whose record the
- * screen resolved and for no other. Every one of those holds under both themes.
+ * prints one row per mark the drawing paints — a node with the payload's own label, family, neighbours
+ * and counts, an overlay mark with its own family, its network and the label of the family its figures
+ * belong to — and switching back restores the drawing; nothing asks any origin for anything while all of
+ * that happens (rule B-1, the component-level half of T-20); the atlas overlay's chokepoint halos appear
+ * only when the payload is supplied and always under the fixed market-intelligence label imported from
+ * `src/types` (rules P-1, P-5); the frame states its simulation label inside the figure it owns, so the
+ * pin counts are labelled without a page-level badge; and the evidence drawer opens for a node whose
+ * record the screen resolved and for no other. Every one of those holds under both themes.
  *
  * THE FIXTURES ARE BUILT HERE AND BORROW NO RECORD. A topology of two nodes per family, one lane chain
  * and pin counts that between them cover all six `PinState` members, plus one market-intelligence atlas
- * of a single competitor network whose lane names one crossing. No seed module, no `src/services/mock`
+ * of a single competitor network whose lane names one crossing, and a second atlas of a network whose
+ * identifier names no competitor role and a crossing no lane anchors, from which the drawing paints
+ * nothing and the table therefore states nothing. No seed module, no `src/services/mock`
  * and nothing from `tests/fixtures` is imported (rule P-2; rule P-6 keeps the seed file's expected
  * results as fixtures for the domain, not for a component). Every identifier is neutral apart from the
  * competitor's, which states the contracts' `CMP-nn` ordinal because `map-canvas.tsx` resolves the hue a
@@ -42,11 +45,14 @@
  * - B-3: every interaction is driven from the keyboard through `@testing-library/user-event`, the table
  *   view is proven rather than assumed, and no assertion compares a colour value — the selection ring
  *   is found by the role utilities the drawing composes.
- * - P-1: every simulation label this suite names is read from `SIM_LABELS` — the frame's own label and
- *   the market-intelligence label — so no label string is spelled here at all.
+ * - P-1: every simulation label this suite names is read from `SIM_LABELS` — the frame's own label, the
+ *   first-party label a node's row carries and the market-intelligence label an overlay mark's row
+ *   carries — and the competitor name tag from `src/types`, so no label or tag is spelled here at all.
  * - P-2: no seed record, no adapter and no HTTP client is imported; the provider is mocked.
- * - P-5: the market-intelligence label is read from `SIM_LABELS`, and the case that supplies an atlas
- *   proves no competitor value reaches the table view.
+ * - P-5: the market-intelligence label is read from `SIM_LABELS`; the overlay's marks are asserted to
+ *   take rows of their own, each labelled market intelligence and each competitor named with the
+ *   imported tag, and the client's own rows are asserted to carry the first-party label and never the
+ *   market-intelligence one — the two families are tabulated side by side and never blended.
  * - P-6: every expectation is derived from the inline payload — a label, a count or a lane the fixture
  *   states — and no figure is typed into a case.
  * - P-8: the ends of the zoom range are asserted through the stated reason the disabled control carries.
@@ -59,6 +65,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   Atlas,
+  AtlasSite,
   Chokepoint,
   Evidence,
   PinCounts,
@@ -67,14 +74,16 @@ import type {
   TopologyNode,
   TopologyNodeKind,
 } from '../../types';
-import { SIM_LABELS } from '../../types';
+import { COMPETITOR_NAME_TAG, SIM_LABELS } from '../../types';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
 import {
   MAP_CANVAS_TEXT,
   MAP_VIEW_PRESETS,
   MAP_VIEW_PRESET_LABELS,
   MAP_ZOOM_LEVELS,
+  overlayMarksOf,
 } from '../../components/map-canvas';
+import type { MapOverlayMark } from '../../components/map-canvas';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
 import { MAP_LENS_TEXT, MapLens } from './map-lens';
 import type { MapLensProps } from './map-lens';
@@ -345,6 +354,92 @@ const ATLAS: Atlas = {
 
 /** The market-intelligence label, read from its single owner so this suite never retypes it (P-1). */
 const MARKET_INTELLIGENCE_LABEL = SIM_LABELS[5];
+
+/**
+ * The label a node's row carries, read from the same fixed list for the same reason (rule P-1): a node of
+ * the topology is a seeded first-party record, so its row states that family rather than a competitor's.
+ */
+const SIMULATED_DATA_LABEL = SIM_LABELS[0];
+
+/**
+ * Every mark the drawing paints from the atlas fixture, taken from the drawing's own enumeration.
+ *
+ * The table is asserted against this rather than against a count written here, because the property under
+ * test is that the two representations of one payload agree: a crossing the drawing cannot place and a
+ * network it cannot paint leave both lists together (success criterion 9).
+ */
+const OVERLAY_MARKS: readonly MapOverlayMark[] = overlayMarksOf(ATLAS);
+
+/**
+ * The family word the table prints for each kind of overlay mark, read from the lens's own text object so
+ * a reworded cell fails here rather than passing silently.
+ */
+const OVERLAY_FAMILY_OF_KIND = {
+  chokepoint: MAP_LENS_TEXT.chokepointFamily,
+  'competitor-site': MAP_LENS_TEXT.competitorSiteFamily,
+} as const;
+
+/**
+ * The network cell an overlay mark's row prints: the payload's own name for the competitor followed by the
+ * imported name tag, or the sentence a crossing's row carries instead, because a crossing belongs to no
+ * single network (rule P-5).
+ *
+ * @param mark The mark the drawing paints.
+ * @returns The cell text.
+ */
+function networkCellOfMark(mark: MapOverlayMark): string {
+  return mark.network === null
+    ? MAP_LENS_TEXT.sharedNetwork
+    : `${mark.network.label} ${COMPETITOR_NAME_TAG}`;
+}
+
+/**
+ * A crossing no competitor lane names.
+ *
+ * The shared `Chokepoint` shape states no coordinate of its own, so a crossing no lane anchors has
+ * nowhere to be painted; the drawing leaves it out and the chokepoint table beside the drawing is what
+ * reports it.
+ */
+const UNPAINTED_CROSSING: Chokepoint = {
+  id: 'crossing-unnamed',
+  label: 'A crossing no lane names',
+  overlap: 33,
+  competitorBufferDays: { 'CMP-01': 5 },
+  contentionNote: 'The note the pack states for the crossing no competitor lane names.',
+  provenance: 'market_intelligence',
+};
+
+/** One site of a network the drawing cannot paint, because its identifier names no competitor role. */
+const UNPAINTED_SITE: AtlasSite = {
+  id: 'site-unpainted',
+  competitorId: 'competitor-with-no-slot',
+  label: 'Harbour Works site',
+  latitude: 51.92,
+  longitude: 4.48,
+};
+
+/**
+ * The atlas payload the drawing paints nothing from: one network whose identifier states no competitor
+ * slot, and one crossing no lane of it names.
+ *
+ * Specification §4.2 gives three competitor roles and no fourth, so the drawing leaves a network that
+ * names none of them unpainted, and it places a crossing only where a lane anchors it. Both marks
+ * therefore exist in the payload and in neither representation of it.
+ */
+const UNPAINTED_ATLAS: Atlas = {
+  ...ATLAS,
+  competitors: [
+    {
+      competitorId: 'competitor-with-no-slot',
+      label: 'A network whose identifier names no competitor role',
+      provenance: 'market_intelligence',
+      productClasses: ['product-one'],
+      sites: [UNPAINTED_SITE],
+      lanes: [],
+    },
+  ],
+  chokepoints: [UNPAINTED_CROSSING],
+};
 
 /** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
 const THEMES = ['command', 'paper'] as const;
@@ -745,18 +840,21 @@ describe('MapLens', () => {
         .getAllByRole('columnheader')
         .map((header) => header.textContent),
     ).toStrictEqual([
-      MAP_LENS_TEXT.nodeColumn,
+      MAP_LENS_TEXT.markColumn,
       MAP_LENS_TEXT.familyColumn,
+      MAP_LENS_TEXT.networkColumn,
       MAP_LENS_TEXT.connectionsColumn,
       MAP_CANVAS_TEXT.pinsPrefix,
+      MAP_LENS_TEXT.sourceColumn,
     ]);
 
     const bodyRows = within(table).getAllByRole('row').slice(1);
 
     expect(bodyRows).toHaveLength(NODES.length);
 
-    /* Cell by cell rather than by row count: the node's own label, its family, the neighbours the
-       payload's lanes state and the payload's own counts per state. */
+    /* Cell by cell rather than by row count: the node's own label, its family, the network it belongs to,
+       the neighbours the payload's lanes state, the payload's own counts per state and the label of the
+       family its figures belong to. No overlay is supplied here, so no overlay mark reaches the table. */
     NODES.forEach((node, position) => {
       const row = bodyRows[position];
 
@@ -773,8 +871,10 @@ describe('MapLens', () => {
       ).toStrictEqual([
         node.label,
         FAMILY_OF_KIND[node.kind],
+        MAP_LENS_TEXT.ownNetwork,
         connectionsCellOf(node.id),
         pinsCellOf(TOPOLOGY.pinsByNode[node.id]),
+        SIMULATED_DATA_LABEL,
       ]);
     });
 
@@ -871,7 +971,7 @@ describe('MapLens', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps the market-intelligence overlay out of the table view it frames', async () => {
+  it('tables one row per mark the map draws, each labelled with the family its figures belong to', async () => {
     const user = userEvent.setup();
     renderLens({ atlas: ATLAS });
 
@@ -879,19 +979,90 @@ describe('MapLens', () => {
     await user.keyboard('{Enter}');
 
     const table = screen.getByRole('table', { name: MAP_LENS_TEXT.tableCaption });
+    const bodyRows = within(table).getAllByRole('row').slice(1);
 
-    /* The table states the client's own nodes and nothing else: a competitor row beside a first-party
-       one would invite exactly the blended reading rule P-5 forbids. */
-    expect(within(table).getAllByRole('row').slice(1)).toHaveLength(NODES.length);
-    expect(within(table).queryByText(CROSSING.label)).not.toBeInTheDocument();
+    /* One row per node the payload holds and one per mark the drawing paints over them, counted from the
+       drawing's own enumeration rather than from a number written here (success criterion 9). */
+    expect(OVERLAY_MARKS.length).toBeGreaterThan(0);
+    expect(bodyRows).toHaveLength(NODES.length + OVERLAY_MARKS.length);
 
-    for (const network of ATLAS.competitors) {
-      expect(within(table).queryByText(network.label)).not.toBeInTheDocument();
+    /* The client's own rows come first, in family order, and each states the first-party family its
+       figures belong to. */
+    NODES.forEach((node, position) => {
+      const row = bodyRows[position];
 
-      for (const site of network.sites) {
-        expect(within(table).queryByText(site.label)).not.toBeInTheDocument();
+      expect(row).toBeDefined();
+
+      if (row === undefined) {
+        return;
       }
-    }
+
+      expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toStrictEqual([
+        node.label,
+        FAMILY_OF_KIND[node.kind],
+        MAP_LENS_TEXT.ownNetwork,
+        connectionsCellOf(node.id),
+        pinsCellOf(TOPOLOGY.pinsByNode[node.id]),
+        SIMULATED_DATA_LABEL,
+      ]);
+
+      expect(within(row).queryByText(MARKET_INTELLIGENCE_LABEL)).toBeNull();
+    });
+
+    /* Every mark the overlay paints then takes its own row, in the drawing's order and with the family it
+       belongs to stated rather than inferred: a crossing and a competitor's site are both market
+       intelligence, and neither carries a client lane or an evidence pin. */
+    OVERLAY_MARKS.forEach((mark, offset) => {
+      const row = bodyRows[NODES.length + offset];
+
+      expect(row).toBeDefined();
+
+      if (row === undefined) {
+        return;
+      }
+
+      expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toStrictEqual([
+        mark.label,
+        OVERLAY_FAMILY_OF_KIND[mark.kind],
+        networkCellOfMark(mark),
+        MAP_LENS_TEXT.noOverlayConnections,
+        MAP_CANVAS_TEXT.noPins,
+        MARKET_INTELLIGENCE_LABEL,
+      ]);
+
+      expect(within(row).getByText(MARKET_INTELLIGENCE_LABEL)).toBeInTheDocument();
+      expect(within(row).queryByText(SIMULATED_DATA_LABEL)).toBeNull();
+    });
+
+    /* The crossing's row names no single network, and each competitor's site carries the imported name tag
+       beside its network's own name (rule P-5). */
+    expect(
+      within(table).getByText(CROSSING.label).closest('tr')?.textContent,
+    ).toContain(MAP_LENS_TEXT.sharedNetwork);
+
+    const tagged = OVERLAY_MARKS.filter((mark) => mark.network !== null);
+
+    expect(tagged.length).toBeGreaterThan(0);
+    expect(within(table).getAllByText(COMPETITOR_NAME_TAG)).toHaveLength(tagged.length);
+  });
+
+  it('tables no row for a crossing or a network the map leaves out', async () => {
+    const user = userEvent.setup();
+    renderLens({ atlas: UNPAINTED_ATLAS });
+
+    screen.getByRole('button', { name: toggleName(VIEW_AS_TABLE_LABELS.showTable) }).focus();
+    await user.keyboard('{Enter}');
+
+    const table = screen.getByRole('table', { name: MAP_LENS_TEXT.tableCaption });
+
+    /* The drawing paints nothing from this payload — no lane anchors its crossing and no competitor slot
+       names its network — so the table has no mark of the overlay's to state either: a row for a mark the
+       drawing never painted would be the mirror image of the omission this case exists for. */
+    expect(overlayMarksOf(UNPAINTED_ATLAS)).toStrictEqual([]);
+    expect(within(table).getAllByRole('row').slice(1)).toHaveLength(NODES.length);
+    expect(within(table).queryByText(UNPAINTED_CROSSING.label)).toBeNull();
+    expect(within(table).queryByText(UNPAINTED_SITE.label)).toBeNull();
+    expect(within(table).queryByText(MARKET_INTELLIGENCE_LABEL)).toBeNull();
   });
 
   it('labels the frame it owns, so the pin counts are labelled without a page-level badge', () => {
@@ -987,7 +1158,7 @@ describe('MapLens', () => {
 
       expect(
         within(screen.getByRole('table', { name: MAP_LENS_TEXT.tableCaption })).getAllByRole('row'),
-      ).toHaveLength(NODES.length + 1);
+      ).toHaveLength(NODES.length + OVERLAY_MARKS.length + 1);
 
       rendered.unmount();
     }

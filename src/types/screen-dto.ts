@@ -214,6 +214,17 @@ export interface ExceptionRow {
   /** The plant the disruption lands on. */
   plantId: PlantId;
 
+  /**
+   * The further plants the exception reaches, in the record's own order.
+   *
+   * The record's own secondary plants rather than a computed value, so the queue's plant filter —
+   * which matches `ExceptionQuery.plantId` on the plant an exception names or on one it also affects
+   * — and the Plant column, which discloses them beside the plant the row is recorded at, describe
+   * the same set. It feeds that column's disclosure exactly as `productIds` feeds the Products
+   * column: the twelve specified columns and their order are untouched.
+   */
+  alsoAffectsPlantIds: PlantId[];
+
   /** How urgently the exception needs a response, the queue's default first sort key. */
   severity: Severity;
 
@@ -702,15 +713,17 @@ export interface ApprovalOutcome {
    * The record this comparison is about: the approval whose plan was measured and whose simulated
    * write-backs produced the resulting reading.
    *
-   * It is the reference `getEvidence` resolves, and the same `APR-` reference the approvals inbox
-   * wraps its own amounts in, so either column of the card opens the drawer on the record the
-   * comparison belongs to (AAP 0.2.1's F12, principle PR-6). It is deliberately not a reference to
-   * the option the plan names: an option a set computes in this session has no stored record for the
-   * evidence read to resolve — that read searches the seeded scenario sets and nothing else — so an
-   * option reference would open the drawer's not-found region instead of its four sections.
+   * It is the record reference `getEvidence` resolves, and the base every figure of the comparison is
+   * addressed from: the outcome card appends `#<column>.<member>` to it for the reading it prints, and
+   * the approvals inbox appends `#<member>` to the approval's own reference for its two amounts, so
+   * the drawer states the figure that was clicked rather than the record (AAP 0.2.1's F12, principle
+   * PR-6, AAP 0.12.2's `Evidence.value`). It is deliberately not a reference to the option the plan
+   * names: an option a set computes in this session has no stored record for the evidence read to
+   * resolve — that read searches the seeded scenario sets and nothing else — so an option reference
+   * would open the drawer's not-found region instead of its four sections.
    *
-   * Fixing input: AAP 0.2.1's F12 and AAP 0.12.4's SCR-05 row, with rule P-6 fixing that no screen
-   * composes a reference of its own for a figure the service measured.
+   * Fixing input: AAP 0.2.1's F12 and AAP 0.12.4's SCR-05 row, with rule P-6 fixing that the parts a
+   * screen composes here are the grammar's own positions and the values the service supplied.
    */
   readonly evidenceRef: string;
 }

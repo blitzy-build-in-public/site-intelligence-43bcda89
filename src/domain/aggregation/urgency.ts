@@ -60,8 +60,16 @@
  * `critical-exceptions` counting the admitted exceptions the exception aggregate derived whose severity
  * is `'critical'`, `revenue-at-risk`, `customer-orders-at-risk` and
  * `median-hours-to-approved-plan` reading the `Overview` member each names, and `plants-in-scope`
- * reading the length of `byPlant`. A consumer may reorder the six, but may not supply a number of its
- * own, add a seventh tile or add a member to `Overview`: the set is closed.
+ * counting the plants the resolved scope names. A consumer may reorder the six, but may not supply a
+ * number of its own, add a seventh tile or add a member to `Overview`: the set is closed.
+ *
+ * Why the last tile counts the scope and not the by-plant rows. An exception the scope admits by
+ * reaching one of its plants is recorded at another plant, and the by-plant grouping reports a row for
+ * every plant an admitted exception is recorded at so that its rows partition the tiles exactly
+ * (`src/domain/aggregation/overview.ts`). Those rows therefore cover more plants than the selection
+ * names, and a tile labelled "plants in scope" would state the wrong number if it counted them. The
+ * resolved `Scope` is the answer to "which plants is this reader looking at", and it is the same scope
+ * every list and every aggregate is computed over (AAP 0.2.1).
  *
  * The two compared measures. `ExceptionRow.daysToImpact` and `ExceptionRow.revenueAtRiskEur` are
  * required numbers in `src/types/screen-dto.ts`, so no guard for an absent value is needed to satisfy
@@ -299,11 +307,14 @@ export function countAtHeadOfUrgency(
  * @param overview The overview aggregate the caller already computed, read and not modified.
  * @param criticalExceptions How many admitted exceptions sit at the head of the urgency ordering, as
  *   `countAtHeadOfUrgency` derives it for the same records and scope.
+ * @param scope The resolved scope both reads were computed over, whose plants member is the selection
+ *   intersected with the acting role's plant scope. Only its plant count is read.
  * @returns Six fresh tile objects, in the stated order.
  */
 export function computeRibbonTiles(
   overview: Overview,
   criticalExceptions: number,
+  scope: Scope,
 ): RibbonTile[] {
   return [
     {
@@ -333,7 +344,7 @@ export function computeRibbonTiles(
     },
     {
       id: 'plants-in-scope',
-      value: overview.byPlant.length,
+      value: scope.plants.length,
       provenance: 'computed',
     },
   ];

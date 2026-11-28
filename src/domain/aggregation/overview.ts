@@ -25,9 +25,9 @@
  * it carries and measure how long an approved plan takes. The readiness share reads the material
  * master the bundle carries and reports how much of what the scope reaches a second supplier can
  * cover. The changed-since list reports the activity the records themselves date. The by-plant rows
- * are the tiles split across the plants in scope, and the fourteen-day series is the flow behind the
- * open count. Each is computed from the records handed in, and each returned collection is freshly
- * built.
+ * are the tiles split across the plants the selection names and the plants the admitted exceptions are
+ * recorded at, and the fourteen-day series is the flow behind the open count. Each is computed from the
+ * records handed in, and each returned collection is freshly built.
  *
  * ONE RULE THE SERIES AND THE QUEUE SHARE IS EXPORTED ON ITS OWN. `openedOrResolvedOn(exception,
  * history, day)` states when an exception is one of the entries the fourteen-day series counts on a
@@ -99,11 +99,15 @@
  * module's bundle — is the order book the affected-line derivation reads. `src/types` declares no
  * separate order type, and none is declared here.
  *
- * The plant a reached exception is grouped under. The queue admits an exception that lands on a plant
- * in scope *or* reaches one through `alsoAffectsPlantIds`, and the by-plant rows must add up to the
- * tiles, so each admitted exception is grouped under exactly one plant: the one it lands on when that
- * plant is in scope, otherwise the first plant in scope that it reaches, in the record's own order. No
- * exception is counted twice and none the queue admits is missing here (AAP 0.2.1).
+ * The plant an exception is counted at, which is the plant it is recorded at. The queue admits an
+ * exception that lands on a plant in scope *or* reaches one through `alsoAffectsPlantIds`, and the
+ * by-plant rows must add up to the tiles, so each admitted exception is counted at exactly one plant:
+ * the record's own `plantId`, which is the plant the queue's row carries. Nothing is folded into an
+ * in-scope plant, so a plant's figure is the same whatever the selection is — an exception recorded at
+ * one plant that reaches another is the recorded plant's on both surfaces, and the selection decides
+ * only which exceptions are counted, never where they are counted. The rows therefore cover every
+ * plant the selection names and every plant an admitted open exception is recorded at, and no
+ * exception is counted twice or left out of them (AAP 0.2.1).
  *
  * The median's two conventions. AAP 0.8 fixes "the middle value of the qualifying history records" and
  * states no even-count case, so an even number of qualifying plans takes the arithmetic mean of the two
@@ -148,9 +152,11 @@ import type { ExceptionAggregateInput } from './exceptions';
 import { calendarDateOf, isWorkingDay, shiftIsoDate } from '../solver/calendar';
 import { halfUp2, wholePercent } from '../solver/rounding';
 // The queue's row-admission predicates are stated once, in `./exceptions`, and imported here: the
-// exception queue and this overview read one pair of predicates, so a change to product admission
-// cannot leave a narrowed queue and a narrowed overview describing different populations (AAP 0.2.1).
+// exception queue and this overview admit a record by one plant predicate and one product predicate,
+// so a change to either cannot leave a narrowed queue and a narrowed overview describing different
+// populations (AAP 0.2.1).
 import {
+  admitsPlant,
   admitsProducts,
   baselineViewFor,
   productIdsOf,
@@ -448,20 +454,22 @@ function medianOf(durations: readonly number[]): number {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One exception the resolved scope admits, with the plant it is grouped under, the affected lines
- * derived for it and the revenue those lines place at risk.
+ * One exception the resolved scope admits, with the plant it is counted at, the affected lines derived
+ * for it and the revenue those lines place at risk.
  *
- * The exception and its plant sit on one entry so that admission and grouping are the same decision:
- * `assignedPlantOf` answers the plant an exception is counted under, and an exception with no answer is
- * one the scope does not admit. No exception is counted twice, and none the queue would show is missing
- * from the overview. The lines and their amount travel with it because both are computed once, where
- * they are first in hand, and every tile and row that needs them reads them here (AAP 0.2.1).
+ * The pair keeps the two decisions apart. Whether the exception is in the population is the scope's
+ * answer, through `admitsPlant`; where it is counted is the record's own answer, its `plantId`. Reading
+ * the plant from the record rather than from the selection is what makes one attribution serve both
+ * surfaces: the queue's row and the by-plant row of this aggregate name the same plant for the same
+ * exception, so no exception is counted twice and none the queue would show is missing here. The lines
+ * and their amount travel with it because both are computed once, where they are first in hand, and
+ * every tile and row that needs them reads them here (AAP 0.2.1).
  */
 interface ScopedException {
   /** The exception record itself, read and never modified. */
   readonly exception: OperationalException;
 
-  /** The plant in scope this exception is grouped under, and the row it contributes to. */
+  /** The plant the record states it is at, and the one row this exception contributes to. */
   readonly plantId: PlantId;
 
   /** The affected lines `resolveAffectedLines` derived for it. */
@@ -477,48 +485,27 @@ interface ScopedException {
 }
 
 /**
- * Answers which plant in scope an exception is counted under.
+ * Collects the exceptions the resolved scope admits, each with the plant it is counted at.
  *
- * The exception lands on the plant it names, when that plant is in scope; otherwise it is counted under
- * the first plant it reaches through `alsoAffectsPlantIds`, in the record's own order. An answer of
- * `null` means the resolved scope admits no plant the exception touches, which is the queue's own
- * admission test read the other way round: `src/domain/aggregation/exceptions.ts` admits an exception
- * whose landing plant or any reached plant is selected, and this function names that same plant so the
- * grouping can be built from one decision (AAP 0.2.1).
+ * The two filters are the queue's own: the plant selection, applied through `admitsPlant`, and the
+ * product selection, applied through `admitsProducts` over the products the exception's affected lines
+ * name. Both predicates and `productIdsOf` are imported from `./exceptions`, where they are stated
+ * once: the queue and the overview admit by one pair of rules, so a change to plant or product
+ * admission cannot leave the two describing different populations. Both modules also read the one
+ * `Scope` that `./scope` resolved (AAP 0.2.1).
+ *
+ * The plant an admitted exception is attributed to is the record's own `plantId`, which is the plant
+ * the queue's row carries. The selection decides only which exceptions are in the population, never
+ * which plant one of them is counted at, so an exception is counted at the same plant on both surfaces
+ * whatever the selection is.
  *
  * A resolved `plants` member is never read as "all plants": `resolveScope` states that an empty array
- * means nothing is in scope, so a selection outside the acting role's scope yields no rows rather than
- * another plant's records.
+ * means nothing is in scope and `admitsPlant` reads it that way, so a selection outside the acting
+ * role's scope yields no entries rather than another plant's records.
  *
- * @param exception The exception to place.
- * @param scope The resolved scope, whose plants member is the selection intersected with the role's
- *   plant scope.
- * @returns The plant the exception is grouped under, or `null` when the scope admits none it touches.
- */
-function assignedPlantOf(exception: OperationalException, scope: Scope): PlantId | null {
-  if (scope.plants.includes(exception.plantId)) {
-    return exception.plantId;
-  }
-
-  for (const plantId of exception.alsoAffectsPlantIds) {
-    if (scope.plants.includes(plantId)) {
-      return plantId;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Collects the exceptions the resolved scope admits, each with the plant it is grouped under, the
- * affected lines derived for it and the revenue those lines were valued at.
- *
- * The two filters are the queue's own: the plant selection, applied through `assignedPlantOf`, and the
- * product selection, applied through `admitsProducts` over the products the exception's affected lines
- * name. Both that predicate and `productIdsOf` are imported from `./exceptions`, where they are stated
- * once: the queue and the overview read one pair, so a change to product admission cannot leave the two
- * describing different populations. Both modules also read the one `Scope` that `./scope` resolved
- * (AAP 0.2.1).
+ * The affected lines and the revenue they place at risk are derived and valued once here, where the
+ * lines are first in hand, and every tile and row that needs them reads them from the entry rather than
+ * computing them again (AAP 0.18.2).
  *
  * The affected lines are derived once per admitted exception and valued once, where they are in hand,
  * which is why the customer-order count, the revenue tile and the by-plant rows all read one entry and
@@ -538,9 +525,7 @@ function scopedExceptions(records: OverviewInput, scope: Scope): ScopedException
   const scoped: ScopedException[] = [];
 
   for (const exception of records.exceptions) {
-    const plantId = assignedPlantOf(exception, scope);
-
-    if (plantId === null) {
+    if (!admitsPlant(exception, scope)) {
       continue;
     }
 
@@ -553,7 +538,7 @@ function scopedExceptions(records: OverviewInput, scope: Scope): ScopedException
 
     scoped.push({
       exception,
-      plantId,
+      plantId: exception.plantId,
       lines,
       revenue: revenueOfAffectedLines(exception, baseline, lines),
     });
@@ -785,20 +770,80 @@ function medianHoursToApprovedPlan(
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Groups the open exceptions across the plants in scope, one row per plant.
+ * Names the plants the by-plant rows cover, in the order the table states them.
+ *
+ * The set is the selection's own plants together with the plant each admitted open exception is
+ * recorded at. The order is `records.plants`' — the canonical plant order the records state — so two
+ * calls with the same records return the same sequence; a plant no plant record holds follows those
+ * that do, in the order it is first named, the selection first and then the admitted exceptions in
+ * their own order.
+ *
+ * @param records The record bundle: the plant records that state the canonical order.
+ * @param scope The resolved scope, whose plants member is one half of the set.
+ * @param open The open exceptions the scope admits, whose recorded plants are the other half.
+ * @returns The plant identifiers the rows cover, each once, in the stated order.
+ */
+function plantRowOrder(
+  records: OverviewInput,
+  scope: Scope,
+  open: readonly ScopedException[],
+): PlantId[] {
+  const wanted = new Set<PlantId>(scope.plants);
+
+  for (const entry of open) {
+    wanted.add(entry.plantId);
+  }
+
+  const order: PlantId[] = [];
+  const placed = new Set<PlantId>();
+
+  for (const plant of records.plants) {
+    if (wanted.has(plant.id) && !placed.has(plant.id)) {
+      order.push(plant.id);
+      placed.add(plant.id);
+    }
+  }
+
+  for (const plantId of scope.plants) {
+    if (!placed.has(plantId)) {
+      order.push(plantId);
+      placed.add(plantId);
+    }
+  }
+
+  for (const entry of open) {
+    if (!placed.has(entry.plantId)) {
+      order.push(entry.plantId);
+      placed.add(entry.plantId);
+    }
+  }
+
+  return order;
+}
+
+/**
+ * Groups the open exceptions by the plant each is recorded at, one row per plant the read reports.
  *
  * The rows are the tiles split by plant: the open count and the revenue at risk of the exceptions
- * grouped under each plant, so the rows add up to the tiles exactly. Each exception's amount is the one
- * `scopedExceptions` valued where its lines were derived, so nothing is valued again here. The order is
- * the scope's own, which `resolveScope` returns in the canonical plant order `PLT-RGB`, `PLT-BRN`,
- * `PLT-QRO`, `PLT-RAK`, never the caller's click order — so the table reads the same way twice. A plant
- * in scope with nothing open still gets its row, with a count and an amount of zero, because a plant a
- * planner can see and that has no exception is a reading in its own right.
+ * recorded at each plant, so the rows partition the admitted open exceptions and add up to the tiles
+ * exactly. Each exception's amount is the one `scopedExceptions` valued where its lines were derived, so
+ * nothing is valued again here. A row is emitted for every plant the resolved scope names — a plant in
+ * scope with nothing open keeps its row, with a count and an amount of zero, because a plant a planner
+ * can see and that has no exception is a reading in its own right — and for every plant an admitted open
+ * exception is recorded at. The second half is what gives an exception recorded outside the selection its
+ * own row instead of folding it into an in-scope one, and it is the queue's own attribution read here, so
+ * the two surfaces group the same rows the same way (AAP 0.2.1).
  *
- * @param records The record bundle: the plant names the rows are labelled with.
- * @param scope The resolved scope, which fixes the rows and their order.
+ * The order is the canonical plant order `records.plants` states — `PLT-RGB`, `PLT-BRN`, `PLT-QRO`,
+ * `PLT-RAK` — never the selection's or the caller's own order, so the table reads the same way twice
+ * whatever the selection is. {@link plantRowOrder} states it and the set it orders.
+ *
+ * @param records The record bundle: the plant records that fix the order and label the rows.
+ * @param scope The resolved scope, whose plants member fixes the rows a selection names.
  * @param open The open exceptions the scope admits, each with the revenue its lines were valued at.
- * @returns A fresh row per plant in scope, in canonical plant order.
+ * @returns A fresh row per plant the selection names or an admitted open exception is recorded at.
+ * @throws Error when an affected line names a product the baseline carries no price for, as
+ *   `totalRevenue` does.
  */
 function plantRows(
   records: OverviewInput,
@@ -815,7 +860,7 @@ function plantRows(
 
   const rows: PlantRiskRow[] = [];
 
-  for (const plantId of scope.plants) {
+  for (const plantId of plantRowOrder(records, scope, open)) {
     rows.push({
       plantId,
       plantName: plantNameOf(records.plants, plantId),
@@ -1151,8 +1196,9 @@ function groupHistoryByException(
  * - `alternateSourceReadinessPercent` reports the share of the in-scope materials a second supplier can
  *   cover, rounded half up through `wholePercent`.
  * - `changedSinceLastVisit` lists the activity and the decisions of the window the module header fixes.
- * - `byPlant` splits the open exceptions across the plants in scope, in canonical plant order, so the
- *   rows add up to the tiles.
+ * - `byPlant` groups the open exceptions by the plant each is recorded at, over the plants the
+ *   selection names and the plants those exceptions are recorded at, in canonical plant order, so the
+ *   rows add up to the tiles and a plant's figure is the same whatever the selection is.
  * - `openResolvedSeries` reports the fourteen days ending on the as-of date.
  *
  * Every figure reaches a screen as a computed one and carries `Simulated calculation` there (rule P-1);

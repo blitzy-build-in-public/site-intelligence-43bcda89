@@ -104,12 +104,12 @@ import * as scenarios from './handlers/scenarios';
 import * as topology from './handlers/topology';
 import { createMockState, restoreSeed, runExclusive } from './mock-state';
 import type { HandlerContext, MockState } from './mock-state';
-import type { SeedRecordSet } from './seed-loader';
 import {
   clearSimulationFlags,
   emptiesLists,
   freshnessFor,
   holdsReads,
+  isSimulationOn,
   refusesCollectionReads,
   setSimulationFlag,
   tamperAuditEvent,
@@ -212,9 +212,10 @@ function permissionsOf(role: Role): Permission[] {
  * The port carries no acting user, so this is where the demonstration's identity is decided from the
  * record the role switcher selected: every read and write of this adapter is evaluated against the
  * result, so a caller cannot pass a wider identity than the session holds. A session whose active
- * identifier matches no seeded persona is a broken state rather than a caller's mistake — the reset and
- * the bootstrap both install a persona from the same record set — so it fails loudly instead of
- * answering every call as an identity that does not exist.
+ * identifier matches no seeded persona is a broken state rather than a caller's mistake — the
+ * bootstrap installs one from that record set, a role switch replaces it only with another record of
+ * it, and a reset keeps whatever the two left in place — so it fails loudly instead of answering
+ * every call as an identity that does not exist.
  *
  * @param state - The session whose active persona is resolved. Not modified.
  * @returns The persona, with the plant scope and permissions its role holds.
@@ -226,8 +227,8 @@ function actorOf(state: MockState): ActiveUser {
   if (record === undefined) {
     throw new Error(
       `The session acts as ${state.activeUserId}, which the seeded record set does not carry. ` +
-        'Every start and every demonstration reset installs the acting persona from that set, so the ' +
-        'session must name one of its user records.',
+        'The bootstrap installs the acting persona from that set and a role switch may select only ' +
+        'another record of it, so the session must name one of its user records.',
     );
   }
 
@@ -490,33 +491,48 @@ const TAMPER_FLAG: SimulationFlag = 'tampered-audit';
  * The route each search hit of a recorded kind opens, as specification §5.2 and AAP 0.12.4 fix them.
  *
  * A hit whose record has a screen opens that screen by its identifier; a record the workspace shows
- * only through the evidence drawer opens by its reference instead, which is why only three families
- * carry a route and the rest carry one of these prefixes.
+ * only through the evidence drawer opens by its reference instead, which is why only the four families
+ * with a screen of their own carry a route and the rest carry one of these prefixes.
  *
  * The queue's prefix is the shared declaration in `src/types/routes.ts`, so a search hit that opens an
  * exception follows the same one path the navigation entry, the stage-notice page and the screens build.
+ * The comparison screen hangs one segment beneath an exception's own address (SCR-04), so a solver
+ * case's hit opens the exception it measures rather than a bare navigation.
  */
 const EXCEPTION_ROUTE = `${EXCEPTION_QUEUE_PATH}/`;
 const APPROVAL_ROUTE = '/approvals/';
 const POLICY_ROUTE = '/admin/policies/';
+const SCENARIOS_SEGMENT = '/scenarios';
 
 /**
  * The record kind each family of search hits is grouped under (specification §5.1).
  *
  * These words are record content: `SearchHit.entityType` is an open string because the search groups
  * its hits by the record kinds the seed publishes, and no seeded module carries the kind word itself.
- * They are therefore stated once here, beside the families that produce them.
+ * They are therefore stated once here, beside the families that produce them, in the order the index
+ * states its families.
  */
 const EXCEPTION_KIND = 'Exception';
-const APPROVAL_KIND = 'Approval';
-const POLICY_KIND = 'Policy';
 const CUSTOMER_ORDER_KIND = 'Customer order';
 const PURCHASE_ORDER_KIND = 'Purchase order';
+const APPROVAL_KIND = 'Approval';
 const SCENARIO_KIND = 'Scenario';
+const SOLVER_CASE_KIND = 'Solver case';
+const PLANT_KIND = 'Plant';
+const SUPPLIER_KIND = 'Supplier';
+const ORIGIN_KIND = 'Origin';
+const CUSTOMER_KIND = 'Customer';
+const MATERIAL_KIND = 'Material';
+const PRODUCT_KIND = 'Product';
+const LINE_KIND = 'Line';
 const DOCUMENT_KIND = 'Document';
 const PACKAGE_KIND = 'Part approval package';
-const AUDIT_EVENT_KIND = 'Audit event';
 const PIN_KIND = 'Evidence pin';
+const AUDIT_EVENT_KIND = 'Audit event';
+const POLICY_KIND = 'Policy';
+const COMPETITOR_KIND = 'Competitor';
+const COMPETITOR_SITE_KIND = 'Competitor site';
+const CHOKEPOINT_KIND = 'Chokepoint';
 
 /* ---------------------------------------------------------------------------------------------
  * The scope a read is narrowed by — AAP 0.2.1, AAP 0.12.2 `Scope`, specification §5.1
@@ -584,6 +600,19 @@ function selectionOf(scope: Scope): ScopeFilterInput {
  * --------------------------------------------------------------------------------------------- */
 
 /**
+ * The greatest number of hits one identifier search returns — the bound the search keeps for itself.
+ *
+ * The index holds the audit trail, which grows with every audited write for as long as the session is
+ * open, so an unbounded answer would hand a reader one record per write the session made from a single
+ * character typed into the field. A search that answers as much as its caller's input can make it answer
+ * is the resource-allocation shape CWE-770 describes, and a list of hundreds of grouped options is no
+ * use to a reader either. The bound is applied to the matches the plant filter leaves, in the index's
+ * documented family order, so the first hits — and with them the families a reader is most likely to be
+ * reaching for — are the ones kept.
+ */
+export const SEARCH_HIT_LIMIT = 25;
+
+/**
  * One record the identifier search may return, before the term is matched against it.
  *
  * The candidate carries where the record opens rather than a rendered hit, so the term and the scope
@@ -599,8 +628,16 @@ interface SearchCandidate {
   /** Where selecting the hit opens it. */
   readonly target: SearchTarget;
 
-  /** The plant the record belongs to, absent for a record that names none. */
-  readonly plantId?: PlantId;
+  /**
+   * The plants the record is narrowed by, absent for a record the workspace does not plant-scope.
+   *
+   * A record is admitted when this member is absent or when it names a plant the call's scope resolves
+   * to. The reach is a list rather than one plant because the exception family's own reads admit an
+   * exception through the plants it also affects: `isInScope` in `src/domain/aggregation/exceptions.ts`
+   * and the detail read's `landsInScope` both admit a record whose `plantId` is in scope or whose
+   * `alsoAffectsPlantIds` intersects it, so the index has to apply the same rule.
+   */
+  readonly plants?: readonly PlantId[];
 }
 
 /**
@@ -624,89 +661,239 @@ function drawerTarget(ref: string): SearchTarget {
 }
 
 /**
- * Builds one search candidate, with its plant member present only when the record names a plant.
+ * Builds one search candidate, with its plant reach present only when the record is plant-scoped.
  *
- * The conditional spread is what `exactOptionalPropertyTypes` needs: an absent plant and a plant
+ * The conditional spread is what `exactOptionalPropertyTypes` needs: an absent reach and a reach
  * holding `undefined` are different types, and only the former means "not plant-scoped".
+ *
+ * An empty reach is written as no reach at all, because an empty one would admit nothing: the records
+ * place no plant for a node they reach nowhere — a supplier no material or order serves, a customer
+ * whose orders ship from no plant — and the evidence read releases such a node to every persona that
+ * holds `evidence.read` (its `assertNodeReach` returns when the node reaches no plant). Indexing it as a
+ * reach that intersects no selection would offer a record in the index that the drawer behind it refuses,
+ * which is the disagreement this index exists to prevent.
  *
  * @param ref - The record's identifier.
  * @param entityType - The record kind the hit is grouped under.
  * @param target - Where the hit opens.
- * @param plantId - The plant the record belongs to, when it names one.
+ * @param plants - The plants the record is narrowed by, when the workspace plant-scopes it.
  * @returns The candidate.
  */
 function searchCandidate(
   ref: string,
   entityType: string,
   target: SearchTarget,
-  plantId?: PlantId,
+  plants?: readonly PlantId[],
 ): SearchCandidate {
-  return plantId === undefined ? { ref, entityType, target } : { ref, entityType, target, plantId };
+  return plants === undefined || plants.length === 0
+    ? { ref, entityType, target }
+    : { ref, entityType, target, plants };
 }
 
 /**
- * The plant of the exception a record answers.
+ * The plants one exception's records are narrowed by, as the exception family's own reads narrow it.
  *
- * An approval and a scenario name the exception they belong to rather than a plant, so their plant is
- * read from that exception. A record naming an exception the set does not hold has no plant here, and
- * the caller leaves that record out of the index: a hit that names no plant would be offered to every
- * role, which is a scope filter failing open.
+ * The plant the disruption lands on comes first, then the plants the record also affects, which is the
+ * order `isInScope` reads them in: an exception laid on one plant and reaching another is in scope for
+ * both, so a persona scoped to the affected plant alone finds it as the queue lists it.
  *
- * @param records - The session's record set.
- * @param exceptionId - The exception the record names.
- * @returns The exception's plant, or `undefined` when the set holds no such exception.
+ * @param exception - The exception whose reach is resolved.
+ * @returns The plants the exception is in scope for.
  */
-function plantOfException(records: SeedRecordSet, exceptionId: ExceptionId): PlantId | undefined {
-  return records.exceptions.find((candidate) => candidate.id === exceptionId)?.plantId;
+function exceptionReach(exception: OperationalException): PlantId[] {
+  return [exception.plantId, ...exception.alsoAffectsPlantIds];
+}
+
+/**
+ * The one plant a record of the exception's own families is placed at by the read that opens it.
+ *
+ * An approval and a scenario are read as records of the plant the exception lands on: the approval
+ * detail read places a record by the matrix's answer over `exception.plantId`
+ * (`handlers/approvals.ts`'s `landsInScope`), and the evidence drawer gives a scenario the same single
+ * subject (`handlers/evidence.ts`'s `subjectOf`). The exception's own screen and the comparison screen
+ * admit through {@link exceptionReach} instead, so each family is indexed by the reach of the read its
+ * hit actually opens rather than by one reach applied to all of them: an index built on the wider reach
+ * would offer a persona an approval or a scenario whose read then refuses it, which is the disagreement
+ * between the index and the reads this index exists to prevent.
+ *
+ * @param exception - The exception whose landing plant places the record.
+ * @returns The one plant the record is placed at.
+ */
+function exceptionLanding(exception: OperationalException): PlantId[] {
+  return [exception.plantId];
+}
+
+/**
+ * The candidates one session's identifier index holds, with the state they were built from.
+ *
+ * The revision and the persona together decide whether the list may be reused: the candidates name a
+ * record and where it opens, and both depend on the session's records and on the permissions and reach
+ * of the persona the call acts as.
+ */
+interface IndexedCandidates {
+  /** The session's revision, as {@link indexRevision} reads it, when the candidates were built. */
+  readonly revision: string;
+
+  /** The persona the candidates were built for, whose permissions decided the families. */
+  readonly actorId: UserId;
+
+  /** The candidates, in the index's documented family order. */
+  readonly candidates: readonly SearchCandidate[];
+}
+
+/**
+ * The candidate index last built for each session, keyed by that session's state.
+ *
+ * Keyed by the state rather than held on it, so the session's own state carries no derived cache and a
+ * discarded session's index goes with it. One entry per session is all a session can use, because the
+ * only other thing the index depends on — the persona — is part of the entry rather than a second key,
+ * and a role switch therefore replaces the entry instead of adding one.
+ */
+const INDEX_CACHE = new WeakMap<MockState, IndexedCandidates>();
+
+/**
+ * The session's revision, as the identifier index reads it: one string of the things that move when a
+ * record the index places changes.
+ *
+ * The audited-event count leads it because it is the session's write counter: every audited write
+ * appends exactly one event through the single append path in `handlers/audit.ts`, so a role switch that
+ * changes the vendors the records attribute to a persona, an assignment that moves an exception's owner,
+ * a decision that resolves one and a review that moves a pin each move this number, whether or not the
+ * record family they touch also grew. The six collection lengths that follow are the seeded sets the
+ * index walks, so a write that adds or removes one of those records invalidates the index even where it
+ * appends no event, and the last member is the forbidden trigger, because `mayReachPack` withholds the
+ * market-intelligence families from a session the trigger is set on.
+ *
+ * NOTHING THE CALL'S `Scope` NARROWS MAY ENTER THIS REVISION, and nothing it narrows may be cached
+ * either: a `Scope` is the caller's own argument, so two calls with different selections share one
+ * session revision by design and are narrowed from the same candidates afterwards. Caching a narrowed
+ * answer would serve one selection's records to another selection's reader.
+ *
+ * @param state - The session whose revision is read. Not modified.
+ * @returns The revision string, equal for two reads of a session that nothing has changed.
+ */
+function indexRevision(state: MockState): string {
+  const records = state.records;
+
+  return [
+    state.auditEvents.length,
+    records.approvals.length,
+    records.exceptionScenarios.length,
+    records.exceptions.length,
+    records.documents.length,
+    records.evidencePins.length,
+    records.policies.length,
+    isSimulationOn(state, 'forbidden') ? 'forbidden' : 'readable',
+  ].join('|');
 }
 
 /**
  * Every record the acting persona's search may return, in the order the families are grouped.
  *
- * A family is included only when the persona holds the permission its read requires, so the search
- * cannot become a way round a forbidden read. Records that name a plant are returned as plant-scoped
- * candidates and are narrowed by the shell's selection afterwards; the rest name none. An approval or a
- * scenario whose exception the records do not hold is left out rather than indexed as a record naming
- * no plant, so the search fails closed on a subject it cannot place.
+ * The families, their gates and their reach are stated in {@link buildSearchCandidates}, which builds
+ * the list; this function decides whether it has to be built at all. The index is one read's index
+ * rather than one per term, so a reader typing a term one character at a time narrows the same list
+ * instead of rebuilding it per keystroke, and the list is thrown away the moment
+ * {@link indexRevision} reports that the session has moved.
  *
- * @param state - The session whose records are indexed. Not modified.
- * @param actor - The persona the call acts as, whose permissions decide the families.
- * @returns The candidates, grouped by family in the order they were added.
+ * @param ctx - The call's context: the session whose records are indexed, and the persona whose reach
+ *   decides the families.
+ * @returns The candidates, from the cache when the session and the persona are unchanged.
  */
-function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandidate[] {
-  const records = state.records;
+function searchableCandidates(ctx: HandlerContext): readonly SearchCandidate[] {
+  const revision = indexRevision(ctx.state);
+  const cached = INDEX_CACHE.get(ctx.state);
+
+  if (cached !== undefined && cached.revision === revision && cached.actorId === ctx.actor.id) {
+    return cached.candidates;
+  }
+
+  const candidates = buildSearchCandidates(ctx);
+
+  INDEX_CACHE.set(ctx.state, { revision, actorId: ctx.actor.id, candidates });
+
+  return candidates;
+}
+
+/**
+ * Builds every record the acting persona's search may return, in the order the families are grouped.
+ *
+ * A family is included only when the persona may read it, so the search cannot become a way round a
+ * forbidden read, and each family's gate is the read's own: the permission the family's list or detail
+ * read evaluates, and — for the records a read narrows by content rather than by scope — that read's own
+ * predicate, so a hit and the record behind it are released by one rule (`mayReadDocumentBody` for a
+ * document, `pinVisibleTo` for a pin, `mayReachPack` for the simulated market-intelligence pack).
+ *
+ * The families are indexed in this order, and the order is kept because it is the order the answer's
+ * groups first appear in and the order a bounded answer's first hits are taken from:
+ *
+ * 1. `exception.read` — exception (its own screen), customer order, purchase order, approval (its own
+ *    screen), scenario, solver case (the exception's comparison screen). An approval, a scenario and a
+ *    solver case name the exception they belong to rather than a plant, so each is narrowed by the
+ *    reach of the read its own hit opens: the exception and the solver case by
+ *    {@link exceptionReach}, because the investigation screen and the comparison screen admit a record
+ *    through the plants it also affects, and the approval and the scenario by
+ *    {@link exceptionLanding}, because the approval detail read and the evidence drawer place them at
+ *    the plant the exception lands on. A record naming an exception the set does not hold is left out
+ *    rather than indexed as one the workspace does not plant-scope, so the search fails closed on a
+ *    subject it cannot place.
+ * 2. `evidence.read` — plant, supplier, origin, customer, material, product, line, document, part
+ *    approval package, evidence pin. A supplier, an origin and a customer are narrowed by the plants the
+ *    records place that node in, which is the reach the pin filter applies to the same node; a plant is
+ *    its own reach; a line is its plant's; a material and a product are not plant-scoped, because the
+ *    drawer gives neither a plant subject (AAP 0.12.2, F12).
+ * 3. `audit.read` — audit event.
+ * 4. `policy.read` — policy.
+ * 5. `competitive.read` — competitor network, competitor site, shared chokepoint, withheld as the whole
+ *    read is while the forbidden trigger is in effect.
+ *
+ * @param ctx - The call's context: the session whose records are indexed, and the persona whose reach
+ *   decides the families.
+ * @returns The candidates, grouped by family in the order above.
+ */
+function buildSearchCandidates(ctx: HandlerContext): SearchCandidate[] {
+  const records = ctx.state.records;
   const candidates: SearchCandidate[] = [];
   const holds = (permission: Permission): boolean =>
-    hasPermission(actor.role, permission, null, actor);
+    hasPermission(ctx.actor.role, permission, null, ctx.actor);
 
   if (holds(EXCEPTION_READ)) {
+    /*
+     * One lookup of the exception set, built here, serves every family that reaches a plant through its
+     * exception: a linear scan per approval, per scenario and per solver case would walk the whole set
+     * once per record.
+     */
+    const exceptionById = new Map<ExceptionId, OperationalException>(
+      records.exceptions.map((exception) => [exception.id, exception]),
+    );
+
     for (const exception of records.exceptions) {
       candidates.push(
         searchCandidate(
           exception.id,
           EXCEPTION_KIND,
           routeTarget(`${EXCEPTION_ROUTE}${exception.id}`),
-          exception.plantId,
+          exceptionReach(exception),
         ),
       );
     }
 
     for (const order of records.customerOrders) {
       candidates.push(
-        searchCandidate(order.id, CUSTOMER_ORDER_KIND, drawerTarget(order.id), order.plantId),
+        searchCandidate(order.id, CUSTOMER_ORDER_KIND, drawerTarget(order.id), [order.plantId]),
       );
     }
 
     for (const order of records.purchaseOrders) {
       candidates.push(
-        searchCandidate(order.id, PURCHASE_ORDER_KIND, drawerTarget(order.id), order.plantId),
+        searchCandidate(order.id, PURCHASE_ORDER_KIND, drawerTarget(order.id), [order.plantId]),
       );
     }
 
     for (const approval of records.approvals) {
-      const plantId = plantOfException(records, approval.exceptionId);
+      const exception = exceptionById.get(approval.exceptionId);
 
-      if (plantId === undefined) {
+      if (exception === undefined) {
         continue;
       }
 
@@ -715,28 +902,109 @@ function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandid
           approval.id,
           APPROVAL_KIND,
           routeTarget(`${APPROVAL_ROUTE}${approval.id}`),
-          plantId,
+          exceptionLanding(exception),
         ),
       );
     }
 
     for (const seeded of records.exceptionScenarios) {
       for (const scenario of seeded.scenarioSet.scenarios) {
-        const plantId = plantOfException(records, scenario.exceptionId);
+        const exception = exceptionById.get(scenario.exceptionId);
 
-        if (plantId === undefined) {
+        if (exception === undefined) {
           continue;
         }
 
         candidates.push(
-          searchCandidate(scenario.id, SCENARIO_KIND, drawerTarget(scenario.id), plantId),
+          searchCandidate(
+            scenario.id,
+            SCENARIO_KIND,
+            drawerTarget(scenario.id),
+            exceptionLanding(exception),
+          ),
         );
       }
+    }
+
+    /*
+     * A solver case opens the comparison screen, whose own read admits an exception through its reach
+     * (`handlers/scenarios.ts`'s `assertPermitted` over `landsInScope`), so this family keeps the wider
+     * reach while the approval and the scenario above are placed at the landing plant their own reads
+     * use.
+     */
+    for (const solverCase of records.solverCases) {
+      const exception = exceptionById.get(solverCase.exceptionId);
+
+      if (exception === undefined) {
+        continue;
+      }
+
+      candidates.push(
+        searchCandidate(
+          solverCase.id,
+          SOLVER_CASE_KIND,
+          routeTarget(`${EXCEPTION_ROUTE}${exception.id}${SCENARIOS_SEGMENT}`),
+          exceptionReach(exception),
+        ),
+      );
     }
   }
 
   if (holds(EVIDENCE_READ)) {
+    for (const plant of records.plants) {
+      candidates.push(searchCandidate(plant.id, PLANT_KIND, drawerTarget(plant.id), [plant.id]));
+    }
+
+    for (const supplier of records.suppliers) {
+      candidates.push(
+        searchCandidate(
+          supplier.id,
+          SUPPLIER_KIND,
+          drawerTarget(supplier.id),
+          evidence.plantsOfNode(records, supplier.id),
+        ),
+      );
+    }
+
+    for (const origin of records.origins) {
+      candidates.push(
+        searchCandidate(
+          origin.id,
+          ORIGIN_KIND,
+          drawerTarget(origin.id),
+          evidence.plantsOfNode(records, origin.id),
+        ),
+      );
+    }
+
+    for (const customer of records.customers) {
+      candidates.push(
+        searchCandidate(
+          customer.id,
+          CUSTOMER_KIND,
+          drawerTarget(customer.id),
+          evidence.plantsOfNode(records, customer.id),
+        ),
+      );
+    }
+
+    for (const material of records.materials) {
+      candidates.push(searchCandidate(material.id, MATERIAL_KIND, drawerTarget(material.id)));
+    }
+
+    for (const product of records.products) {
+      candidates.push(searchCandidate(product.id, PRODUCT_KIND, drawerTarget(product.id)));
+    }
+
+    for (const line of records.lines) {
+      candidates.push(searchCandidate(line.id, LINE_KIND, drawerTarget(line.id), [line.plantId]));
+    }
+
     for (const document of records.documents) {
+      if (!evidence.mayReadDocumentBody(ctx, document)) {
+        continue;
+      }
+
       candidates.push(searchCandidate(document.id, DOCUMENT_KIND, drawerTarget(document.id)));
     }
 
@@ -746,13 +1014,24 @@ function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandid
       );
     }
 
+    /*
+     * One audience per index, as the pin list resolves one per read: `pinVisibleTo` asks who is reading
+     * and what the records place each node in, and both halves are derived once for the whole build
+     * rather than once per pin.
+     */
+    const audience = evidence.pinAudienceOf(ctx);
+
     for (const pin of records.evidencePins) {
+      if (!evidence.pinVisibleTo(ctx, pin, audience)) {
+        continue;
+      }
+
       candidates.push(searchCandidate(pin.id, PIN_KIND, drawerTarget(pin.id)));
     }
   }
 
   if (holds(AUDIT_READ)) {
-    for (const event of state.auditEvents) {
+    for (const event of ctx.state.auditEvents) {
       candidates.push(searchCandidate(event.id, AUDIT_EVENT_KIND, drawerTarget(event.id)));
     }
   }
@@ -761,6 +1040,28 @@ function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandid
     for (const policy of records.policies) {
       candidates.push(
         searchCandidate(policy.id, POLICY_KIND, routeTarget(`${POLICY_ROUTE}${policy.id}`)),
+      );
+    }
+  }
+
+  if (evidence.mayReachPack(ctx)) {
+    const pack = records.marketIntelligence;
+
+    for (const network of pack.competitors) {
+      candidates.push(
+        searchCandidate(network.competitorId, COMPETITOR_KIND, drawerTarget(network.competitorId)),
+      );
+    }
+
+    for (const network of pack.competitors) {
+      for (const site of network.sites) {
+        candidates.push(searchCandidate(site.id, COMPETITOR_SITE_KIND, drawerTarget(site.id)));
+      }
+    }
+
+    for (const crossing of pack.chokepoints) {
+      candidates.push(
+        searchCandidate(crossing.id, CHOKEPOINT_KIND, drawerTarget(crossing.id)),
       );
     }
   }
@@ -1677,16 +1978,21 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Searches the identifiers the caller may see, grouped by the record kind they belong to.
    *
    * Only the families the acting persona may read are indexed, so the search cannot become a way round
-   * a forbidden read, and the records that name a plant are narrowed by the role's scope intersected with
-   * the shell's selection. A record that should name one and cannot — an approval or a scenario whose
-   * exception the records do not hold — is absent from the index rather than offered as one that names
-   * none, while a record the workspace never plant-scopes is returned. An empty term returns nothing
-   * rather than every record.
+   * a forbidden read, and a record the reads narrow by content — a withheld document body, another
+   * vendor's pin, the market-intelligence pack — is indexed only where the read itself would release it.
+   * The records that name a plant, or whose subject reaches one, are narrowed by the role's scope
+   * intersected with the shell's selection, on the same rule the exception family's reads apply: a
+   * record is admitted when its reach names a plant in scope, so an exception reached only through the
+   * plants it also affects is found as the queue lists it.
+   *
+   * An empty term returns nothing rather than every record, and the answer is bounded at
+   * {@link SEARCH_HIT_LIMIT} hits taken in the index's family order, so a term that matches the whole
+   * trail cannot return it.
    *
    * @param term - What the reader typed.
    * @param scope - The shell's plant and product selection.
-   * @returns The hits, grouped by family in the order the families are indexed; none while the
-   *   simulation's `empty` trigger empties the session's collections.
+   * @returns The hits, grouped by family in the index's documented order; none while the simulation's
+   *   `empty` trigger empties the session's collections.
    */
   async searchIdentifiers(term: string, scope: Scope): Promise<Result<SearchHit[]>> {
     return this.dispatchCollection((ctx) => {
@@ -1698,11 +2004,14 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
 
       const plants = scopedPlants(scope, ctx.actor.role);
 
-      return searchableCandidates(ctx.state, ctx.actor)
+      return searchableCandidates(ctx)
         .filter((candidate) => candidate.ref.toLowerCase().includes(needle))
         .filter(
-          (candidate) => candidate.plantId === undefined || plants.includes(candidate.plantId),
+          (candidate) =>
+            candidate.plants === undefined ||
+            candidate.plants.some((plantId) => plants.includes(plantId)),
         )
+        .slice(0, SEARCH_HIT_LIMIT)
         .map((candidate) => ({
           ref: candidate.ref,
           entityType: candidate.entityType,
@@ -1989,26 +2298,41 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   }
 
   /**
-   * Restores the seeded state and lifts every trigger, leaving the session as a first visit found it.
+   * Restores the seeded records and lifts every trigger, leaving the data as a first visit found it.
    *
    * The records and the chain are re-installed together, so a reader never meets a fresh record set
    * beside the chain of the session being replaced, and the triggers, the pending policy exceptions
    * and the request counter return to what a fresh session holds (contracts §1). It answers while the
    * `loading` trigger is in effect, so a reader can always put the session back (rule P-8).
    *
+   * THE ACTING PERSONA IS NOT PART OF THE RESET. It is the reader's own selection through the role
+   * switcher, not a seeded record, and the control promises to restore the seeded records, lift every
+   * trigger and close its panel: a reset that also put the seeded persona back would re-authorise every
+   * later call as somebody the reader is not, empty the queue of the records their own plant scope
+   * reached, and leave a governance route refused with a permission card they did not ask for.
+   * `restoreSeed` still puts the whole of a seeded session back, because its documented invariant
+   * requires that, so the identifier is read here first and re-installed over the restored records
+   * inside the same section; every persona it can hold is a seeded one, since `switchRole` accepts no
+   * other, so the restored record set carries the record the session continues to act as.
+   *
    * The reset runs as a section of the session's write queue, the queue an audited append takes. A
    * reset that ran beside an append would install the freshly hashed chain between that append's two
    * digests and its push, and the chain a reader verified afterwards would report a break nobody
    * caused; queueing it means the reset lands either wholly before an append or wholly after it, so the
    * chain is whole either way (contracts §6). `restoreSeed` deliberately takes no section of its own,
-   * so a section waiting here can always be released by this one.
+   * so a section waiting here can always be released by this one. Keeping the persona inside this same
+   * section is what stops a switch that is waiting behind the reset from being read back over it.
    *
    * @returns The literal `true`, in the envelope every call returns.
    */
   async resetDemo(): Promise<Result<true>> {
     return this.dispatchControl<true>((ctx) =>
       runExclusive(ctx.state, async (): Promise<true> => {
+        const actingPersona = ctx.state.activeUserId;
+
         await restoreSeed(ctx.state);
+
+        ctx.state.activeUserId = actingPersona;
         clearSimulationFlags(ctx.state);
 
         return true;
@@ -2076,8 +2400,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * `actorOf`'s own resolution of `state.activeUserId`, and nothing else. The record is therefore the
    * identity this adapter authorises every other call against rather than a second account of it, and a
-   * demonstration reset that puts `state.activeUserId` back to the seeded persona is reported by the next
-   * read instead of leaving a caller holding the role it switched to.
+   * role switch — the one member that moves the value — is reported by the next read instead of leaving
+   * a caller holding the role it replaced. A demonstration reset leaves the value as it stands (see
+   * `resetDemo`), so the read keeps reporting the persona the reader selected through it.
    *
    * It goes through `dispatchControl` for the same reason `switchRole` does: it must answer while the
    * simulation's `loading` trigger holds, so the shell can always learn who it is acting as. The read

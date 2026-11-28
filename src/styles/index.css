@@ -76,6 +76,18 @@
   :root {
     --evidence-drawer-dock-width: 420px;
 
+    /* Finding QA2-08: the content column had no measure, so at 1920 px the policy-detail lead
+       paragraph ran to 283 characters on one line and thirteen to seventeen prose blocks on most
+       routes passed 120 — a return sweep longer than a reader tracks comfortably. This is the
+       measure that keeps a block of this typeface's 13–14 px body copy to roughly 70–80 characters
+       per line, the span a sentence can be read across without losing its place: measured at
+       1920 px it renders the 14 px lead at 71–74 characters and a 13 px note at 75–79, where a 42rem
+       cap still ran them past 100. It is stated in rem, so it follows the reader's own
+       root font size the way the type scale's rem utilities do, and 28rem rather than a pixel figure
+       because it is a length the scale already carries — the container step Tailwind exposes as
+       `max-w-md` is the same 28rem — so no new value enters the system. */
+    --prose-measure: 28rem;
+
     /* The theme ground is painted on the root as well as on the body, so the user agent's canvas,
        overscroll past either end of the page and any area outside the body box show the theme ground
        instead of the user agent's own canvas colour. */
@@ -90,6 +102,34 @@
     html[data-evidence-docked] body {
       padding-inline-end: var(--evidence-drawer-dock-width);
     }
+  }
+
+  /* The prose cap, and why it bites on the prose rather than on the column. `#main-content` is the
+     `<main>` landmark `src/app/app.tsx` renders once for every route — the id is
+     `APP_SHELL_TEXT.mainContentId`, the same value the skip link targets — so one rule here reaches
+     every screen's paragraphs and list items and no screen has to remember a measure class. It is
+     scoped to that landmark deliberately: the top bar and the navigation are shell chrome with a
+     layout of their own, and they sit outside `<main>`, so nothing here touches them. Tables, charts,
+     the map and the graph keep the full content box, because a cell is a `<td>` and a mark is an
+     `<svg>`, and neither is a `<p>` or an `<li>`; the thirteen-column queue table, the canvas's 65/35
+     split and the 420 px drawer reservation all depend on that full box, which is why the measure is
+     capped here and the width of `<main>` is left alone. A component that sets its own `max-w-*` is
+     unaffected: the utilities layer is declared after base, so its cap still wins over this one. */
+  #main-content p,
+  #main-content li {
+    max-width: var(--prose-measure);
+  }
+
+  /* The one exception, for the list items that are rows rather than prose. The audit trail's
+     entries, the overview's "changed since your last visit" rows and the canvas dock's events all
+     draw their separator on the item itself, so the measure above would stop that hairline a
+     fraction of the way across the panel and leave the row looking cut short. An item holding
+     elements is such a row — its own layout decides the width it needs, and the prose inside it is a
+     `<p>` the rule above already caps — so it is released back to the full box; an item holding
+     nothing but its own text is a bullet in a side-effect or rejected-option list, and it keeps the
+     measure. This rule is written after the one it narrows, so it wins at equal specificity. */
+  #main-content li:has(> *) {
+    max-width: none;
   }
 
   /* rule B-3: every control shows a focus ring, including one authored without the

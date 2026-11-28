@@ -119,6 +119,7 @@
 import { resolveScope } from '../../../domain/aggregation/scope';
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
 import { solveSupplyDelay } from '../../../domain/solver/solve-supply-delay';
+import { formatQuantity } from '../../../types';
 import type {
   Approval,
   AuditAction,
@@ -187,6 +188,7 @@ const TRANSFER_LEVER_LABEL = 'Transfer sets';
 
 /** The separator a column name puts between the two lever readings. */
 const NAME_SEPARATOR = ' · ';
+
 
 /**
  * The letters an option's identifier may take within its own set, in the order §1 implies: the suffix of
@@ -799,6 +801,7 @@ function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): Candid
   ];
 }
 
+
 /**
  * The name a comparison column shows for an option whose record states none.
  *
@@ -808,11 +811,20 @@ function candidateOptions(ctx: HandlerContext, exceptionId: ExceptionId): Candid
  * position no record names, because a name written into a record this module does not hold would be
  * this module's own words about it (rule P-6).
  *
+ * Each lever value is stated in the grouped, unitless shape `formatQuantity` gives every number the
+ * interface prints — the rule `src/types/figure-text.ts` owns, so the column and the sandbox's own echo
+ * read one position the same way — which keeps a position far outside its bound a decimal number rather
+ * than the exponent form a raw interpolation gives it (AAP §0.12.3 keeps that position a measured
+ * option rather than a refusal).
+ *
  * @param levers - The lever position the option was measured at.
  * @returns The column name.
  */
 function optionName(levers: Levers): string {
-  return `${AIR_LEVER_LABEL} ${levers.airSets}${NAME_SEPARATOR}${TRANSFER_LEVER_LABEL} ${levers.transferSets}`;
+  return (
+    `${AIR_LEVER_LABEL} ${formatQuantity(levers.airSets)}${NAME_SEPARATOR}` +
+    `${TRANSFER_LEVER_LABEL} ${formatQuantity(levers.transferSets)}`
+  );
 }
 
 /** The identity members AAP 0.12.1 adds to a solver result to form a `Scenario`. */

@@ -33,10 +33,21 @@
  * 0.6.3 "Identity"). The handshake that produces it stays `ServiceProvider`'s own (AAP 0.12.1, AAP
  * 0.18.1).
  *
+ * THE CACHE IS FED BY THE WRITES, NOT BY AGE. Two things below make that true together, and neither
+ * works without the other. A cached answer lives for {@link CACHE_LIFETIME_MS} rather than expiring the
+ * moment it lands (AAP §0.6.2), and every resolved audited write invalidates the reads it moved through
+ * the one map in `src/services/write-reads.ts` — including entries with no observer mounted, which is
+ * the case a screen-driven invalidation loses when the screen that started the write unmounts inside the
+ * write's own 150-400 ms (AAP §0.3.2). The subscription that does it is {@link WriteInvalidationSync}: a
+ * subscription to the write channel, not a query and not a load, so it sits outside `ServiceProvider`
+ * where no start-up wait can delay it.
+ *
  * Rules served:
  * - P-2: the only data boundary in the tree is `ServiceProvider`. This module imports no seed module,
  *   no mock adapter and no HTTP client, and constructs none — `src/services/create-service.ts` stays
- *   the single binding point.
+ *   the single binding point. The one service module it reads, `write-reads.ts`, holds a table of port
+ *   member names and reaches no record, which is what lets the shell invalidate by name without becoming
+ *   a second path to the data.
  * - P-6: nothing here writes a figure, an amount, an identifier or a record value. The scope's "all"
  *   selection is the empty array `src/types/service.ts` defines it as, never a plant or product code.
  * - B-1: nothing here requests anything from any origin.
@@ -59,7 +70,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { create } from 'zustand';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
@@ -67,6 +78,7 @@ import { ServiceProvider, useActiveUser } from '../services/service-provider';
 import { ThemeProvider, defaultDensityForRole } from '../theme/theme-provider';
 import type { Role } from '../types/entities';
 import type { Scope } from '../types/service';
+import { observeWriteReads } from '../services/write-reads';
 
 /* ---------------------------------------------------------------------------------------------
  * The shell's state — AAP 0.12.1 "Shell", platform-specification.md §5.1
@@ -75,10 +87,11 @@ import type { Scope } from '../types/service';
 /**
  * What the shell shares with the screens below it, and the setters that change it.
  *
- * Five values, each owned by exactly one surface and read by several: the active role (the role
+ * Six values, each owned by exactly one surface and read by several: the active role (the role
  * switcher, read by this file for the theme's default density), the scope filters (the top bar, read
  * by every list call and aggregate), the selected node (both FileMap canvas lenses), the wall-mode
- * flag (the canvas) and the simulation popover's open state (the badge and the popover itself).
+ * flag (the canvas), the simulation popover's open state (the badge and the popover itself) and the
+ * one sentence the shell announces after an action that closes its own panel.
  *
  * The setters take the value to store rather than a reducer action, because no transition here has a
  * rule beyond assignment; where a change has a consequence — a role switch appends an audit event
@@ -92,11 +105,11 @@ export interface ShellState {
    *
    * The field holds a selection rather than the whole identity. `src/app/role-switcher.tsx` invokes
    * `switchRole` on the demonstration capability of `src/services/demonstration-controls.ts` and hands
-   * the returned persona's role to `setActiveRole`; `resetShell` returns the field to `null`. The
-   * persona in force is `useActiveRole()`, which answers this selection when there is one and the
-   * persona the adapter reported at start-up otherwise — so the shell displays the role the adapter
-   * enforces before anyone has switched, and again once a reset has put the adapter back (AAP 0.6.3
-   * "Identity").
+   * the returned persona's role to `setActiveRole`. The persona in force is `useActiveRole()`, which
+   * answers this selection when there is one and the persona the adapter reported at start-up otherwise
+   * — so the shell displays the role the adapter enforces before anyone has switched, and keeps
+   * displaying the one it switched to, because `Reset demo data` restores the adapter's records and
+   * leaves the persona both of them act as alone (AAP 0.6.3 "Identity").
    *
    * No screen derives authority from it: the adapter evaluates the permission matrix against its own
    * acting persona rather than trusting a caller's field (rule P-3 — the checks behind the switcher are
@@ -156,39 +169,45 @@ export interface ShellState {
   setSimulationOpen(open: boolean): void;
 
   /**
-   * Returns every field to its initial value.
+   * The outcome of an action that took the control it was pressed from off the screen, or `''`.
    *
-   * `Reset demo data` in the simulation popover resets the adapter's records through the port; this
-   * member resets the shell's own view of the session, which the adapter cannot reach. It restores all
-   * five fields — including closing the popover — so a reader who resets the demonstration sees the
-   * shell as a first-time visitor does rather than keeping a selection that pointed at a record the
-   * reset replaced.
+   * The reset closes the panel it is pressed in, so the confirmation a sighted reader gets from the
+   * panel's disappearance is nothing to a reader using assistive technology: the sentence lands here
+   * and the shell renders it in its own status region, which outlives the panel (rule B-3, WCAG 2.2
+   * SC 4.1.3). It is the shell's rather than the popover's because the popover unmounts as it closes.
+   */
+  announcement: string;
+
+  /** Writes the shell's announcement, or clears it with the empty string. */
+  setAnnouncement(announcement: string): void;
+
+  /**
+   * Returns the shell's own view of the session to a first visit's state.
    *
-   * Returning `activeRole` to `null` also returns the shell to the session's own persona: with no
-   * selection left, `useActiveRole()` answers the persona the adapter reported at start-up, which is
-   * the seeded persona `resetDemo` puts back in the adapter. A demonstration reset therefore calls
-   * `resetShell()` once `resetDemo()` has settled, so the shell adopts the persona the adapter
-   * restored rather than continuing to display the role it had switched to.
+   * NOT the demonstration's reset. `Reset demo data` restores the adapter's records and leaves the
+   * reader's persona, scope filters, selection, wall mode and the popover's own flag standing, so no
+   * screen or control calls this member; what needs it is a suite that drives the shell more than once,
+   * which has to return the store to its opening state between cases for the same reason a fresh page
+   * starts there. It restores all five fields.
    */
   resetShell(): void;
 }
 
 /**
- * The five data fields, without the setters: the shape both the store's initial state and
- * {@link ShellState.resetShell} restore.
+ * The five data fields, without the setters: the shape the store's initial state is built from.
  */
 type ShellData = Pick<
   ShellState,
-  'activeRole' | 'scope' | 'selectedNodeId' | 'wallMode' | 'simulationOpen'
+  'activeRole' | 'scope' | 'selectedNodeId' | 'wallMode' | 'simulationOpen' | 'announcement'
 >;
 
 /**
  * The state a first-time visitor's shell starts in, freshly allocated on every call.
  *
  * A function rather than a constant, because the scope holds two arrays: a shared constant would let a
- * consumer's in-place sort or splice reach the value `resetShell` restores, and the reset would then
- * restore a selection that was never the initial one. Each call returns new arrays and a new object,
- * so the initial value cannot be mutated by anyone holding a previous copy.
+ * consumer's in-place sort or splice reach the value a later call returns, and the store built from it
+ * would start on a selection that was never the initial one. Each call returns new arrays and a new
+ * object, so the initial value cannot be mutated by anyone holding a previous copy.
  *
  * The scope begins empty on both members, which is the "All plants" and "All products" selection the
  * type defines rather than a filter naming nothing (rule P-6: no plant or product code is written
@@ -203,6 +222,7 @@ function initialShellData(): ShellData {
     selectedNodeId: null,
     wallMode: false,
     simulationOpen: false,
+    announcement: '',
   };
 }
 
@@ -212,10 +232,11 @@ function initialShellData(): ShellData {
  *
  * Created without persistence middleware (contracts §1: theme and density are the only preferences
  * written to browser storage, and the theme provider owns them), and without any other middleware, so
- * a value read here is the value a setter stored and nothing observes, transforms or replays it.
- *
- * {@link ShellState.resetShell} merges the initial data fields over the current state, so the setters
- * survive a reset and a subscriber to a data field sees it return to its initial value.
+ * a value read here is the value a setter stored and nothing observes, transforms or replays it. Each
+ * field moves through its own setter: a demonstration reset restores the adapter's records and leaves
+ * the persona in force — and every other value a reader chose here — as they left it, while the closing
+ * popover takes its own open flag back. {@link ShellState.resetShell} is the store's own way back to
+ * the opening state and no application control calls it.
  */
 export const useShellStore: UseBoundStore<StoreApi<ShellState>> = create<ShellState>()((set) => ({
   ...initialShellData(),
@@ -240,6 +261,10 @@ export const useShellStore: UseBoundStore<StoreApi<ShellState>> = create<ShellSt
     set({ simulationOpen: open });
   },
 
+  setAnnouncement: (announcement) => {
+    set({ announcement });
+  },
+
   resetShell: () => {
     set(initialShellData());
   },
@@ -254,10 +279,12 @@ export const useShellStore: UseBoundStore<StoreApi<ShellState>> = create<ShellSt
  * adapter reported at start-up.
  *
  * Two sources in one order, because the shell may or may not have been switched. A role switch stores
- * the persona it returned and that selection wins while it stands; before any switch — and again once
- * `resetShell()` has cleared the selection — the persona in force is the one the adapter reported when
- * its start-up settled, which is the persona a fresh session acts as and the one `resetDemo` restores
- * in the adapter (AAP 0.6.3 "Identity").
+ * the persona it returned and that selection wins while it stands; before any switch, the persona in
+ * force is the one the adapter reported when its start-up settled, which is the persona a fresh session
+ * acts as (AAP 0.6.3 "Identity"). Both survive `Reset demo data`: the shell holds the selection it was
+ * given because nothing clears it, and the adapter keeps acting as the persona it names because
+ * `resetDemo` restores the records and leaves that one value alone — so the two can never describe two
+ * different people after a reset.
  *
  * Consumers that need the persona read it here: the theme's default density, the router's entry route
  * and the role switcher's own display all describe the session that is acting, so all three take one
@@ -281,14 +308,52 @@ export function useActiveRole(): Role | null {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * How long a cached answer is served before the cache re-derives it without a write having asked it to:
+ * five minutes.
+ *
+ * WHY AGE AT ALL, AND WHY THIS MUCH. The records change only through audited writes, and every write
+ * invalidates the reads it moves (AAP §0.6.2), so a cached answer is refreshed by the writes rather than
+ * by time passing — which is what lets a reader leave a screen and come back without paying the mock
+ * adapter's 150-400 ms again for every read of it (AAP §0.2.1). Without a lifetime every entry is stale
+ * the instant it lands, and a remount re-issues each read of the screen at that cost for answers that
+ * cannot have moved. The bound stays finite because the map can only name the reads the audited writes
+ * move: a record changed by a path outside it is served for at most this long instead of for the rest of
+ * the session.
+ */
+const CACHE_LIFETIME_MS = 300_000;
+
+/**
+ * How long a read's payload is kept once no screen observes it: one minute.
+ *
+ * TWO LIFETIMES, TWO QUESTIONS. {@link CACHE_LIFETIME_MS} says how long an answer may be *served* without
+ * a write moving it; this one says how long the records of an answer nobody is *looking at* stay in
+ * memory, which is what React Query's `gcTime` governs. A payload is dropped a minute after the last
+ * screen observing it unmounts, so touring the whole application does not hold every route's records at
+ * once — the queue, the trail, the canvas topology and pins and the atlas pack would otherwise all stay
+ * resident together long after the reader had moved on — while the minute is measured from the moment the
+ * last observer leaves, so a screen the reader is still looking at never loses its payload, and the port's
+ * own latency band keeps the re-read a returning screen makes cheap (QA1-02).
+ */
+const QUERY_CACHE_GC_TIME_MS = 60_000;
+
+/**
  * Builds the cache every screen reads through.
  *
  * This function fixes the key convention the whole cache follows: every read is made under
  * `[method, ...args]`, the port member's own name first, and the invalidation a write owes the reads
  * it touched is issued by the owner of that write once the port has resolved it — that write calls
  * `queryClient.invalidateQueries` for the members it moved, with the key window being the member's own
- * name (AAP 0.6.2). This function only creates the client: it fixes that convention and it invalidates
+ * name (AAP 0.6.2). The same invalidation is issued a second time, by member name and from the write
+ * itself, by {@link WriteInvalidationSync}, so a write whose own screen has unmounted still moves what it
+ * moved; both paths read the one list in `src/services/write-reads.ts`, so they cannot disagree. This
+ * function only creates the client: it fixes that convention, the two lifetimes below, and it invalidates
  * nothing itself.
+ *
+ * TWO LIFETIMES, TWO QUESTIONS. A cached answer is *served* for {@link CACHE_LIFETIME_MS} — the writes are
+ * what refresh an entry, and the lifetime is the outer bound that keeps an entry moved by something the
+ * write-reads map does not cover from being served stale for the session — and its payload is *kept* for
+ * {@link QUERY_CACHE_GC_TIME_MS} once no screen observes it, which is the outer bound on what a reader who
+ * has left every screen still holds in memory.
  *
  * Retries and window-focus refetches are off, and both are deliberate: the demonstration is
  * deterministic (AAP 0.2.1), so a background refetch could replace a figure the reader is midway
@@ -305,6 +370,8 @@ export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
+        gcTime: QUERY_CACHE_GC_TIME_MS,
+        staleTime: CACHE_LIFETIME_MS,
         retry: false,
         refetchOnWindowFocus: false,
       },
@@ -320,20 +387,69 @@ export function createQueryClient(): QueryClient {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * Feeds the cache every write the bound adapter resolves, whichever screen started it.
+ *
+ * WHY IT EXISTS. The invalidation a write owes its reads was issued by the screen that made the write,
+ * so a write whose screen unmounted inside its own 150-400 ms had nobody left to issue it: the assign
+ * commits, the audit row is written, and the queue's cached row keeps the pre-write owner until a later
+ * remount re-reads it (AAP §0.3.2: a write invalidates the reads it touched, whatever the screen did).
+ * The adapter reports each resolved write through `observeWriteReads`, and this component turns that
+ * report into invalidation, so the obligation is met by something the navigation cannot remove.
+ *
+ * WHICH READS IT MOVES, AND WHY THE REFETCH IS FORCED. The report carries the row of the one map in
+ * `src/services/write-reads.ts`, so the reads named are the writes' own and not a second list held here.
+ * `refetchType: 'all'` is load-bearing rather than a default restated: React Query's default refreshes
+ * only entries with a mounted observer, and the write this path exists for has none — its screen is gone
+ * — so the default would leave exactly the case that motivated the component (AAP §0.3.2). Naming a member
+ * invalidates every entry of that read under every argument list, which is the granularity a write to
+ * shared records needs (AAP §0.6.2).
+ *
+ * WHY IT IS NOT DATA LOADING. The effect subscribes to a channel and returns the unsubscribe; it issues
+ * no read of its own, holds no state and renders nothing, which is what AAP §0.18.1 reserves for the
+ * cache — "no useEffect for data loading" bars a second data path here, not a subscription. It renders
+ * `null` for the reason {@link ActiveRoleSeed} does: what it establishes is a connection rather than
+ * markup.
+ *
+ * It sits inside `<QueryClientProvider>` and outside `<ServiceProvider>`, because the adapter reports a
+ * write as soon as one resolves and a write raised during the boundary's start-up must not be missed
+ * while that boundary renders its skeleton.
+ *
+ * Exported for the reason `sideEffectAcknowledgement` is: the colocated suite mounts it beside a probe
+ * component to prove that an entry with no observer left refetches when a write is reported, which is a
+ * property of this component and cannot be observed through the assembled provider tree without a write
+ * reaching the adapter. It is not a test hook — nothing here branches on who is rendering it.
+ *
+ * @returns Nothing, at any render.
+ */
+export function WriteInvalidationSync(): null {
+  const queryClient = useQueryClient();
+
+  useEffect(
+    () =>
+      observeWriteReads((reads) => {
+        for (const read of reads) {
+          void queryClient.invalidateQueries({ queryKey: [read], refetchType: 'all' });
+        }
+      }),
+    [queryClient],
+  );
+
+  return null;
+}
+
+/**
  * Seeds the shell's persona from the one the adapter reported when the session's start-up settled.
  *
  * The guard is `activeRole === null`, and it is the whole of the rule: the shell adopts the session's
  * persona only while it has selected none of its own, so a reader who has switched role is never
  * overwritten with the seeded one.
  *
- * It runs at most once per session, and that is the second half of the rule rather than a detail.
- * `Reset demo data` clears the selection through `resetShell()` and re-reads the identity without
- * awaiting that read, so a second seeding would run while the cache still held the persona the reader
- * had switched to and would write that persona back into the store as the shell's selection — leaving
- * the role switcher displaying a persona the session no longer acts as, for good, because the guard
- * above then refuses every later correction. One seeding is all the store needs: `useActiveRole()`
- * answers the live identity while the selection is null, so after a reset the shell follows the persona
- * the adapter restored as soon as that read lands.
+ * It runs at most once per session, and that is the second half of the rule rather than a detail. The
+ * adoption belongs to the start-up alone: the identity read is re-issued whenever the demonstration's
+ * records are restored, and an adoption that ran again would take that answer as the shell's own
+ * selection and overwrite the persona the reader chose. The ref makes the one write permanent, so no
+ * later read can move the selection, and the role switcher keeps displaying the persona the adapter
+ * acts as — which `Reset demo data` leaves in place on both sides.
  *
  * It runs in an effect keyed on the value rather than in the render body, and it sets the store once for
  * the session: an assignment during a render would be a state change while rendering, and the seeding
@@ -413,7 +529,9 @@ export interface AppProvidersProps {
  *
  * The cache is created once per mount, in a state initialiser rather than as a module-level constant,
  * so every mount begins with an empty cache and a failing query in one render cannot be seen by the
- * next. The service boundary comes next and renders the accessible skeleton while the in-browser
+ * next. The write subscription is the cache's first child, ahead of the boundary, so a write that
+ * resolves while the adapter is still preparing the seeded records still invalidates the reads it moved.
+ * The service boundary comes next and renders the accessible skeleton while the in-browser
  * adapter prepares the seeded records; the seed of the shell's persona is its first child, so the
  * persona the adapter reported reaches the store before the theme reads it; the theme comes last,
  * around the shell, so the density it applies follows the persona in force.
@@ -426,6 +544,7 @@ export function AppProviders({ children }: AppProvidersProps): ReactElement {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <WriteInvalidationSync />
       <ServiceProvider>
         <ActiveRoleSeed />
         <ShellProviders>{children}</ShellProviders>

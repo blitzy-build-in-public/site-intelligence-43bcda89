@@ -17,7 +17,9 @@
  * are disabled with a reason naming the same two values —
  * both halves of one rule, in one test — and a disabled decision never reaches the service. The
  * detail's content: the plan summary, both euro members through the one money formatter, the missing
- * inputs and the write-back preview with the fixed tag. The two failure explanations the port can
+ * inputs and the write-back preview with the fixed tag, and the requester shown as the person the
+ * roster records for `requestedBy` — with the identifier the record itself states standing in its
+ * place whenever the roster names nobody. The two failure explanations the port can
  * return: a permission refusal through the forbidden card, and a policy refusal that names the rule
  * and leaves the decisions disabled. The decided approval: the tracker's steps in the record's own
  * order and the outcome card's measures and closing-stock tables, each reading asserted through the
@@ -239,6 +241,23 @@ function actingUser(role: Role, id: string = ACTING_APPROVER_ID): ActiveUser {
 
 /** The permission a decision requires, typed so a wrong name fails compilation. */
 const DECISION_PERMISSION: Permission = 'approval.decide';
+
+/**
+ * The persona the roster records for the plan's requester: the record's own `requestedBy` identifier,
+ * under the name and role a record states for it (rule P-6).
+ *
+ * Supplied only by the case that reads it, because the roster is what turns the plan summary's
+ * identifier into a person. Every other case leaves the roster naming nobody, which is the fallback an
+ * adapter that cannot name a persona leaves the screen to — the identifier the record states.
+ */
+const REQUESTER_PERSONA: ActiveUser = {
+  id: REQUESTER_ID,
+  name: 'Requesting planner',
+  role: 'material-planner',
+  plantIds: [PLANT_ID],
+  permissions: [DECISION_PERMISSION],
+  homeRoute: APPROVALS_ROUTE,
+};
 
 /** The policy the fixture's refusal names, an opaque placeholder rather than a rule identifier. */
 const POLICY_ID: PolicyId = 'policy-blocking';
@@ -721,16 +740,17 @@ const mockService = vi.hoisted(() => ({
  *
  * `getActiveUser` is the member the screen reads the acting persona through; it sits on the capability
  * beside the port rather than on the port itself because the contracts' interface declares no identity
- * (rule P-3). The factory below is hoisted above every import and cannot close over a fixture directly,
- * so the capability is hoisted too and its member is resolved by {@link beforeEach}: an approver the
- * fixture record names, so a case that does not care about identity keeps the expectations it was
- * written with, and a case about eligibility resolves the persona the record refuses instead.
- * `restoreMocks` in `vite.config.ts` clears each mock's resolution between cases, so every case states
- * its own.
+ * (rule P-3). `listPersonas` is the roster the plan summary names the requester from. The factory below
+ * is hoisted above every import and cannot close over a fixture directly, so the capability is hoisted
+ * too and its members are resolved by {@link beforeEach}: an approver the fixture record names, so a
+ * case that does not care about identity keeps the expectations it was written with, and a case about
+ * eligibility resolves the persona the record refuses instead. `restoreMocks` in `vite.config.ts`
+ * clears each mock's resolution between cases, so every case states its own.
  */
 const mockDemonstration = vi.hoisted(() => ({
   getActiveUser: vi.fn(),
   switchRole: vi.fn(),
+  listPersonas: vi.fn(),
 }));
 
 vi.mock('../../services/service-provider', () => ({
@@ -784,6 +804,9 @@ beforeEach(() => {
   /* The default persona is one the record opens to: a role it names, and an identifier that is not
      the plan's requester, so the eligibility explanation is silent unless a case asks for it. */
   mockDemonstration.getActiveUser.mockResolvedValue(ok(actingUser(nth(APPROVER_ROLES, 0))));
+  /* The roster names nobody by default, which is the fallback the plan summary owes a roster that
+     cannot name the record's requester: the identifier the record itself states. */
+  mockDemonstration.listPersonas.mockResolvedValue(ok([]));
 });
 
 afterEach(() => {
@@ -1508,6 +1531,25 @@ describe('the records the detail renders', () => {
       expect(item).toHaveTextContent(WRITE_BACK_TAG);
     });
   });
+
+  it('names the requester as the person the roster records for that identifier, the way the role switcher does', async () => {
+    mockDemonstration.listPersonas.mockResolvedValue(ok([REQUESTER_PERSONA]));
+
+    await renderPendingDetail();
+
+    const plan = regionNamed(APPROVAL_DETAIL_TEXT.planSection);
+
+    /* The name and the role, joined as the role switcher joins them and derived from the roster the
+       case handed the screen rather than retyped, so the case compares the screen against its own
+       input (rule P-6). */
+    expect(
+      await within(plan).findByText(`${REQUESTER_PERSONA.name} · ${REQUESTER_PERSONA.role}`),
+    ).toBeInTheDocument();
+
+    /* Nothing is dropped either: once the roster names the person, the identifier the record states
+       is no longer what the plan summary shows in their place. */
+    expect(plan).not.toHaveTextContent(REQUESTER_ID);
+  });
 });
 
 describe('the failures the port can report', () => {
@@ -1681,7 +1723,7 @@ describe('an approval that has been decided', () => {
     });
   });
 
-  it('opens the evidence drawer from a reading, on the record the comparison is about', async () => {
+  it('opens the evidence drawer from a reading, on the figure the reading printed', async () => {
     const user = userEvent.setup();
     mockService.getApproval.mockResolvedValue(ok(approvedApproval()));
 
@@ -1695,13 +1737,15 @@ describe('an approval that has been decided', () => {
 
     await user.click(readingTriggerIn(plannedCell, planned));
 
-    /* The drawer opens on the record the card's figures belong to, and the port is asked for the
-       reference the payload carried rather than for one the card composed (rule P-6, AAP §0.2.1's
-       F12): the approval's own identifier, which the evidence read resolves. */
+    /* The drawer opens on the figure that cell printed, and the port is asked for the reference the
+       cell composed rather than a fabricated one (rule P-6, AAP §0.2.1's F12): the record the payload
+       named, the column the reading stands in — the first row's — and the measure it reports. */
     const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
 
     expect(mockService.getEvidence).toHaveBeenCalledTimes(1);
-    expect(mockService.getEvidence).toHaveBeenCalledWith(APPROVAL_OUTCOME.evidenceRef);
+    expect(mockService.getEvidence).toHaveBeenCalledWith(
+      `${APPROVAL_OUTCOME.evidenceRef}#planned.unitsLate`,
+    );
     expect(await within(drawer).findByText(OUTCOME_EVIDENCE.formula)).toBeInTheDocument();
 
     await user.click(within(drawer).getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }));
@@ -1709,6 +1753,22 @@ describe('an approval that has been decided', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
+
+    /* The closing-stock table follows the same rule one table further down: the series prints one row
+       per date, so a reading names its column and the date whose close it states, and the drawer can
+       never print a number from a row nobody clicked (AAP 0.12.2's `Evidence.value`). */
+    const stock = await screen.findByRole('table', { name: OUTCOME_CARD_TEXT.stockCaption });
+    const firstStockRow = nth(within(stock).getAllByRole('row').slice(1), 0);
+    const plannedStockCell = nth(within(firstStockRow).getAllByRole('cell'), 1);
+    const firstStockDate = nth(joinedStockDates(), 0);
+
+    await user.click(within(plannedStockCell).getByRole('button'));
+
+    await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    expect(mockService.getEvidence).toHaveBeenLastCalledWith(
+      `${APPROVAL_OUTCOME.evidenceRef}#planned.dailyClosingStock/${firstStockDate}`,
+    );
   });
 
   it("opens the evidence drawer from a tracker step, on the step's own record", async () => {

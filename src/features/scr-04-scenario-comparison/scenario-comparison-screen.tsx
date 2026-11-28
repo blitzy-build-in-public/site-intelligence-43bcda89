@@ -124,11 +124,12 @@
  */
 
 import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
-import { Card } from '../../components/card';
+import { Card, INSET_SURFACE_CLASSES } from '../../components/card';
 import { ChartFrame } from '../../components/chart-frame';
 import { EvidenceRef, writeBackStepRef } from '../../components/evidence-drawer';
 import { ForbiddenCard } from '../../components/forbidden-card';
@@ -152,6 +153,7 @@ import {
   useRolesHolding,
   useService,
 } from '../../services/service-provider';
+import { WRITE_READS, type CachedRead } from '../../services/write-reads';
 import {
   APPROVAL_GATE_SOURCE,
   SEGREGATION_OF_DUTIES_POLICY_ID,
@@ -283,10 +285,39 @@ export const SCENARIO_COMPARISON_TEXT = {
 
   /**
    * What the chart's bars are, introducing the option names in the order they are drawn. The surface
-   * carries no legend of its own, so the caption is where a reader who never opens a bar learns which
-   * series is which; every option's own name follows from the records.
+   * prints a legend for the series it draws and this sentence states the order they are drawn in, so a
+   * reader who never opens a bar still learns which series is which; every option's own name follows
+   * from the records.
    */
   chartSeriesIntro: 'One bar per option in each order cluster, drawn in this order:',
+
+  /** The separator between the option names that sentence lists, so the list reads as one clause. */
+  chartSeriesSeparator: '; ',
+
+  /**
+   * What the chart's description states about an option it draws no bar for, before that option's name.
+   *
+   * The words are this screen's own; the facts they introduce are the record's: the option's name, the
+   * state its measurement is in, and the messages its own constraint check reported. A figure that
+   * named four options over three bars told a reader to expect a bar that does not exist, and a caption
+   * that dropped the fourth silently would leave the omission unexplained — so every option the figure
+   * cannot draw is named here with the reason the matrix already states in its column (rules P-6, P-1).
+   */
+  chartOmittedIntro: 'No bar is drawn for',
+
+  /**
+   * What the description states after such an option's name: the state its measurement is in, in the
+   * one word the comparison matrix puts in that option's column.
+   */
+  chartOmittedState: `, which reads ${CANNOT_COMPUTE_LABEL}.`,
+
+  /**
+   * What the description states before the record's own messages, when the record carries any.
+   *
+   * The messages themselves are never paraphrased or summarised: they are the constraint check's own
+   * sentences and are printed as the record states them (rule P-6).
+   */
+  chartOmittedReasonIntro: 'The constraint check states:',
 
   /** The table view's accessible name, which `ChartFrame` requires and must not be blank. */
   chartTableCaption: 'Units late per customer order, one column per option',
@@ -433,13 +464,13 @@ const DETAIL_CLASSES = 'text-13 break-words text-text-secondary';
 const INLINE_CLASSES = 'flex min-w-0 flex-wrap items-baseline gap-2';
 
 /**
- * The region a refusal or an export failure is reported in: the second raised surface inside the
- * decorative hairline at the card radius, as every other notice in the product paints its own. The
- * region is a live one, so a failure is announced when it arrives rather than only when a reader next
- * walks the page (rule B-3).
+ * The region a refusal or an export failure is reported in: the inset box `src/components/card.tsx`
+ * names as the third surface role — card radius, decorative hairline, second raised surface and its
+ * one padding, composed from `INSET_SURFACE_CLASSES` — so it wears the surface every other notice in
+ * the product wears. The region is a live one, so a failure is announced when it arrives rather than
+ * only when a reader next walks the page (rule B-3).
  */
-const NOTICE_CLASSES =
-  'flex min-w-0 flex-col gap-2 rounded-card border border-hairline bg-surface-2 px-3 py-2';
+const NOTICE_CLASSES = `flex min-w-0 flex-col gap-2 ${INSET_SURFACE_CLASSES}`;
 
 /* ---------------------------------------------------------------------------------------------
  * The neutral collections a memoised member or a `??` fallback needs
@@ -463,6 +494,27 @@ const NO_APPROVALS: readonly Approval[] = [];
  * comes to have two entries.
  */
 const APPROVALS_QUERY: ListQuery = {};
+
+/* ---------------------------------------------------------------------------------------------
+ * The reads a write moves — AAP 0.6.2
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Invalidates every cached entry of each read a recorded write moved.
+ *
+ * Every entry is keyed `[method, ...args]` (AAP 0.6.2), so naming a member invalidates every entry of
+ * that read under every argument list — TanStack Query's default match is by key prefix — and each row
+ * is the one table in `src/services/write-reads.ts`, so this screen refreshes the same reads the cache's
+ * own write channel invalidates.
+ *
+ * @param queryClient The client this screen obtained with `useQueryClient()`.
+ * @param reads The port members the write moved. An empty list invalidates nothing.
+ */
+function invalidateReads(queryClient: QueryClient, reads: readonly CachedRead[]): void {
+  for (const read of reads) {
+    void queryClient.invalidateQueries({ queryKey: [read] });
+  }
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The route a request lands on, and the tone each series is drawn in
@@ -497,10 +549,11 @@ const SERIES_TONES = ['accent', 'review', 'warning', 'pass', 'simulated'] as con
   readonly BarTone[];
 
 /**
- * The tone one series is drawn in: its position in the set, and the first tone for any series beyond the
- * list. A lookup rather than a computation, and the fallback keeps a set of more options readable.
+ * The tone one series is drawn in: its position among the drawn series, and the first tone for any
+ * series beyond the list. A lookup rather than a computation, and the fallback keeps a set of more
+ * options readable.
  *
- * @param index - The series' position in the option set.
+ * @param index - The series' position among the options the chart draws a bar for.
  * @returns The role family the series' bars are painted in.
  */
 function toneFor(index: number): BarTone {
@@ -512,23 +565,44 @@ function toneFor(index: number): BarTone {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * Whether the chart draws a bar for one option: the single test its marks, its legend rows, its
+ * description and the matrix's header swatch all read.
+ *
+ * `GroupedBarChart` draws a mark — and prints a legend row — only for a series that carries a cell, and
+ * a series carries the option's own per-order results. An option whose constraint check failed before
+ * any order was measured carries none, so it has no bar, no legend row and no colour in the plot, and
+ * the column it occupies in the matrix must repeat none of them either. Deciding that once, from the
+ * record's own member, is what keeps those surfaces from disagreeing about how many bars the figure
+ * has (rule P-6, rule B-3).
+ *
+ * @param option - The option, exactly as the service returned it.
+ * @returns `true` when the chart draws a bar for this option.
+ */
+function drawsBars(option: Scenario): boolean {
+  return option.orders.length > 0;
+}
+
+/**
  * The chart's groups: one per customer order the option set measures, in the order the records list them.
  *
  * Every option of a set is measured from the same solver case, so the case's own order list is the axis.
- * The group's label is the order's identifier, which is the record's own member, and its evidence
- * reference is that same identifier, which `getEvidence` resolves to the customer-order record behind it.
+ * The list is taken from the first option {@link drawsBars} names rather than from the first option of
+ * the set: an option whose constraint check failed carries no per-order result, and reading the axis off
+ * that one would draw no cluster at all — losing every bar of the comparable options beside it. The
+ * group's label is the order's identifier, which is the record's own member, and its evidence reference
+ * is that same identifier, which `getEvidence` resolves to the customer-order record behind it.
  *
  * @param scenarios - The measured options, exactly as the service returned them.
- * @returns One group per order, or an empty axis when the set holds no option.
+ * @returns One group per order, or an empty axis when no option in the set carries one.
  */
 function orderGroupsOf(scenarios: readonly Scenario[]): readonly BarGroup[] {
-  const [first] = scenarios;
+  const measured = scenarios.find(drawsBars);
 
-  if (first === undefined) {
+  if (measured === undefined) {
     return [];
   }
 
-  return first.orders.map((order) => ({
+  return measured.orders.map((order) => ({
     id: order.orderId,
     label: order.orderId,
     evidenceRef: order.orderId,
@@ -536,18 +610,22 @@ function orderGroupsOf(scenarios: readonly Scenario[]): readonly BarGroup[] {
 }
 
 /**
- * The chart's series: one per option, its cells the units each order is left late.
+ * The chart's series: one per drawn option, its cells the units each order is left late.
  *
  * `value` is the record's own count, for geometry alone, and `valueLabel` is that same count as a plain
  * decimal string — counts only, never money, so the application's one money formatter stays in
  * `MonoValue`. Nothing is rounded, converted or resequenced, and a cell's evidence reference is the
  * option's own identifier, whose record carries the measurement and the formula behind it.
  *
+ * Only an option {@link drawsBars} names is given a series: an option with no per-order result has
+ * nothing to paint, so it takes no place on the plot, no row in the legend and no tone — and the
+ * matrix reads that same absence when it decides whether a column carries a swatch.
+ *
  * @param scenarios - The measured options, exactly as the service returned them.
- * @returns One series per option, each aligned by index with {@link orderGroupsOf}'s groups.
+ * @returns One series per drawn option, each aligned by index with {@link orderGroupsOf}'s groups.
  */
 function orderSeriesOf(scenarios: readonly Scenario[]): readonly BarSeries[] {
-  return scenarios.map((scenario, index) => ({
+  return scenarios.filter(drawsBars).map((scenario, index) => ({
     id: scenario.id,
     label: scenario.name,
     tone: toneFor(index),
@@ -634,19 +712,60 @@ function orderCellLabelOf(
 }
 
 /**
- * The chart's description: the options named in the order their bars are drawn.
+ * The chart's description: the options drawn a bar each, in the order they are drawn, then every option
+ * that draws none with the reason its own record states.
  *
- * The surface draws one bar per option inside each order cluster and carries no legend of its own, so
- * this caption is what tells a reader which bars belong to which option — no colour is relied on and no
- * figure is involved (rule B-3, rule P-6).
+ * The sentence is composed from the options' own members and from nothing else (rule P-6): the drawn
+ * list names the options {@link drawsBars} names — the same test the surface reads before it paints a
+ * mark, prints a legend row and gives a column its swatch — and an option that carries no per-order
+ * result is named with the `Cannot compute` state the matrix puts in its column and the messages its
+ * constraint check reported, so the caption and the figure cannot disagree about how many bars there
+ * are. No colour and no figure is involved (rule B-3).
  *
  * @param scenarios - The measured options, in the set's own order.
  * @returns The sentence the frame prints under the chart's caption.
  */
 function seriesDescriptionOf(scenarios: readonly Scenario[]): string {
-  const names = scenarios.map((option) => option.name).join('; ');
+  const drawn = scenarios.filter(drawsBars);
+  const sentences: string[] = [];
 
-  return `${SCENARIO_COMPARISON_TEXT.chartSeriesIntro} ${names}`;
+  if (drawn.length > 0) {
+    const names = drawn
+      .map((option) => option.name)
+      .join(SCENARIO_COMPARISON_TEXT.chartSeriesSeparator);
+
+    sentences.push(`${SCENARIO_COMPARISON_TEXT.chartSeriesIntro} ${names}.`);
+  }
+
+  for (const option of scenarios) {
+    if (!drawsBars(option)) {
+      sentences.push(undrawnSentenceOf(option));
+    }
+  }
+
+  return sentences.join(' ');
+}
+
+/**
+ * What the chart's description states about one option it draws no bar for.
+ *
+ * The state comes from `CANNOT_COMPUTE_LABEL`, the one copy of the words AAP §0.8 fixes, and the
+ * reason is the option's own `constraintMessages` printed as the record states them — the same
+ * sentences the matrix puts in that option's constraint-check row. An option whose record carries no
+ * message still gets the state, so the caption never names an omission without saying what happened to
+ * it (rule P-6).
+ *
+ * @param option - The option the surface draws no bar for, exactly as the service returned it.
+ * @returns One sentence naming the option and the record's own account of why it has no bar.
+ */
+function undrawnSentenceOf(option: Scenario): string {
+  const stated = `${SCENARIO_COMPARISON_TEXT.chartOmittedIntro} ${option.name}${SCENARIO_COMPARISON_TEXT.chartOmittedState}`;
+
+  if (option.constraintMessages.length === 0) {
+    return stated;
+  }
+
+  return `${stated} ${SCENARIO_COMPARISON_TEXT.chartOmittedReasonIntro} ${option.constraintMessages.join(' ')}`;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1400,6 +1519,18 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
   );
   const chartDescription = useMemo(() => seriesDescriptionOf(scenarios), [scenarios]);
 
+  /**
+   * The tone one option's bars are painted in, or `undefined` where the chart draws none of them.
+   *
+   * The matrix repeats that colour as a swatch beside the option's name, and reading it from the same
+   * drawn series the surface paints means a header swatch and the bars it keys cannot name two tones.
+   * An option with no series has no bar in the plot, so it answers `undefined` and its column carries no
+   * swatch — the same absence that gives it no legend row and no place in the caption's drawn list
+   * (rule B-3).
+   */
+  const toneOfOption = (scenarioId: ScenarioId): BarTone | undefined =>
+    orderSeries.find((entry) => entry.id === scenarioId)?.tone;
+
   const chartTable = useMemo(
     () => ({
       caption: SCENARIO_COMPARISON_TEXT.chartTableCaption,
@@ -1437,10 +1568,9 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
       .requestApproval({ exceptionId: selected.exceptionId, scenarioId: selected.id })
       .then((recorded) => {
         /* A request writes an approval and appends an audit event, so the reads that show either are
-           marked stale: the inbox in SCR-05 and the trail in SCR-05's audit table. */
-        void queryClient.invalidateQueries({ queryKey: ['getScenarioSet'] });
-        void queryClient.invalidateQueries({ queryKey: ['listApprovals'] });
-        void queryClient.invalidateQueries({ queryKey: ['listAuditEvents'] });
+           marked stale — the option set the request was made from, the inbox in SCR-05 and the trail in
+           SCR-05's audit table, from `WRITE_READS.requestApproval`. */
+        invalidateReads(queryClient, WRITE_READS.requestApproval);
         void navigate(approvalRouteFor(recorded.data));
       })
       .catch((thrown: unknown) => {
@@ -1453,6 +1583,19 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
       .finally(() => {
         setIsRequesting(false);
       });
+  };
+
+  /**
+   * Re-reads what a sandbox measurement moved, once the service has answered one.
+   *
+   * A sandbox solve is an audited write (AAP 0.6.2): the adapter appends a `custom solve` event naming the
+   * exception and changes no option, so the option set the panel was opened from and the trail are the
+   * reads `WRITE_READS.solveScenario` names. The panel holds its measurement as local state and hands it
+   * back through this callback rather than writing the cache itself, so which reads a measurement
+   * refreshes stays with the screen that owns the `getScenarioSet` read (AAP 0.18.1, AAP 0.12.3).
+   */
+  const handleSandboxRecomputed = (): void => {
+    invalidateReads(queryClient, WRITE_READS.solveScenario);
   };
 
   /**
@@ -1474,7 +1617,7 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
     void service
       .exportScenarioComparison(exceptionId)
       .then((exported) => {
-        void queryClient.invalidateQueries({ queryKey: ['listAuditEvents'] });
+        invalidateReads(queryClient, WRITE_READS.exportScenarioComparison);
 
         if (!offerExportFile(exported.data)) {
           setExportFailure(SCENARIO_COMPARISON_TEXT.downloadUnavailable);
@@ -1619,6 +1762,7 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
               scenarioSet={scenarioSet}
               selectedScenarioId={selected?.id}
               onSelectScenario={setSelectedScenarioId}
+              toneOf={toneOfOption}
             />
 
             {/*
@@ -1699,6 +1843,7 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
             <ScenarioSandbox
               scenario={selected ?? null}
               caseBoundStatements={caseBoundStatements}
+              onRecomputed={handleSandboxRecomputed}
             />
           </div>
         )}

@@ -26,10 +26,10 @@
  * WHY EVERY WAIT IS WEB-FIRST. Nothing here sleeps. Opening the panel awaits the dialog's own
  * visibility; a trigger awaits the control's own applied state, `aria-pressed` or `aria-checked`,
  * which the panel writes only after the port call has returned; a reset awaits the panel closing,
- * which `resetShell` does once `resetDemo()` resolves. The port carries the mock adapter's 150-400 ms
- * of injected latency, so a state that has not appeared inside the bounds below has not appeared
- * rather than merely taken its time. A refusal is awaited beside the success, so a rejected change is
- * reported with the panel's own message instead of surfacing as a timeout.
+ * which the panel does itself once the port call has resolved. The port carries the mock adapter's
+ * 150-400 ms of injected latency, so a state that has not appeared inside the bounds below has not
+ * appeared rather than merely taken its time. A refusal is awaited beside the success, so a rejected
+ * change is reported with the panel's own message instead of surfacing as a timeout.
  *
  * WHAT IT NEVER DOES.
  * - No navigation by address. The mock adapter keeps the session in memory, so loading the document
@@ -990,17 +990,17 @@ export async function triggerSimulationState(page: Page, flag: SimulationFlag): 
  * Restores the seeded records through the single simulation popover, lifting every trigger with them.
  *
  * Drives the `Reset demo data` control of `src/app/simulation-controls.tsx` — the panel named by the
- * exact specification §5.3 label `Simulated control` — which calls the port's `resetDemo()` and then
- * the shell store's `resetShell()`: the adapter's records and triggers return to the seed, the shell
- * returns the role, the scope, the selection and the panel's own open state, and the cached reads are
- * dropped. Serving T-13, which asserts the stale-source banner and resets afterwards; T-15, whose
- * "Simulated data" badge and demonstration clock a reset returns to the session's own persona; and
- * T-17, which walks the states and the two further triggers and resets at the end.
+ * exact specification §5.3 label `Simulated control` — which calls the port's `resetDemo()`: the
+ * adapter's records and triggers return to the seed, while the persona the session acts as and
+ * everything else the reader chose in the shell stay as they were, and the panel closes itself.
+ * Serving T-13, which asserts the stale-source banner and resets afterwards; T-15, whose "Simulated
+ * data" badge and demonstration clock a reset leaves as they stand; and T-17, which walks the states
+ * and the two further triggers and resets at the end.
  *
  * A reload would restore the seed too, and that is exactly why this function never does one: a page
  * load would make a broken reset indistinguishable from a working one, so the reset has to travel
  * through the port and prove itself. Its proof is the panel closing — the component closes the panel
- * once `resetDemo()` resolves and `resetShell()` has run — and a refusal is reported with the panel's
+ * once `resetDemo()` resolves — and a refusal is reported with the panel's
  * own message instead of surfacing as a timeout.
  *
  * @param page The Playwright page showing the application.

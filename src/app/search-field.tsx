@@ -222,8 +222,17 @@ const POPOVER_CLASSES = [
   'rounded-card border border-hairline bg-surface-1 p-2',
 ].join(' ');
 
-/** The listbox's own column, so groups are separated by the grid's step rather than by margins. */
-const LISTBOX_CLASSES = 'flex min-w-0 flex-col gap-1';
+/**
+ * The listbox's own column, so groups are separated by the grid's step rather than by margins.
+ *
+ * `max-h-96` bounds the answer and `overflow-y-auto` lets it scroll inside the popover: the service
+ * caps how many hits one term returns, and a capped answer is still taller than the space under the
+ * top bar on a short window, so without the bound the last hits would sit past the bottom of the page
+ * with no way to reach them. The bound is a spacing-scale step rather than an arbitrary value, and a
+ * hit the arrow keys move to is scrolled into view by the field, so every hit stays reachable by
+ * keyboard as well as by pointer (rule B-3).
+ */
+const LISTBOX_CLASSES = 'flex max-h-96 min-w-0 flex-col gap-1 overflow-y-auto';
 
 /** One group's column: its heading, then its options. */
 const GROUP_CLASSES = 'flex min-w-0 flex-col';
@@ -494,6 +503,22 @@ export function SearchField(): ReactElement {
   const activeOptionId =
     isListboxShown && activeHit !== undefined ? `${listboxId}-option-${activeIndex}` : undefined;
 
+  /*
+   * The answer scrolls once it is taller than the room under the top bar, and DOM focus never leaves the
+   * input, so the browser scrolls nothing by itself when the arrow keys move the highlight. The option
+   * `aria-activedescendant` names is therefore brought into view here, by the nearest edge, so a
+   * keyboard reader can see the option the field is pointing at (rule B-3). Only an element that exists
+   * is touched, nothing animates, and `scrollIntoView` is called optionally because the test renderer
+   * need not implement it.
+   */
+  useEffect(() => {
+    if (activeOptionId === undefined) {
+      return;
+    }
+
+    document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeOptionId]);
+
   /** Closes the popover and drops the cursor, so a reopened list starts with nothing highlighted. */
   const closePopover = (): void => {
     setIsPopoverOpen(false);
@@ -691,6 +716,14 @@ interface HitListboxProps {
  * click handler, and the option's identifier is rendered by {@link MonoValue} in the mono face so
  * identifiers read the way they do everywhere else in the interface.
  *
+ * WHY THE OPTION CANCELS THE POINTER'S DEFAULT ACTION. An option is not a focus stop, so the default
+ * action of pressing one moves focus off the input — and the field closes its popover when focus leaves
+ * it, which unmounts the option between the press and the release and leaves the click to land on
+ * whatever the popover was covering. Cancelling `mousedown`'s default action keeps focus in the input,
+ * which is where the combobox pattern wants it, so the release completes on the option it started on
+ * and the click reaches the handler below. The keyboard path is untouched: it activates the same
+ * handler through `Enter` in the field.
+ *
  * @returns The listbox, with a visible heading for every group.
  */
 function HitListbox({
@@ -727,6 +760,11 @@ function HitListbox({
                 role="option"
                 aria-selected={option.index === activeIndex}
                 className={OPTION_CLASSES}
+                /* Keeps focus in the input, so the popover survives the press and the click below
+                   reaches this option (see this component's note on the pointer's default action). */
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                }}
                 onClick={() => {
                   onActivate(option.hit);
                 }}

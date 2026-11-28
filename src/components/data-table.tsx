@@ -55,6 +55,29 @@ export interface TableColumn<Row> {
   /** `end` for numeric columns, so figures line up on their last digit. Defaults to `start`. */
   readonly align?: 'start' | 'end';
   /**
+   * Whether the column's cells hold one line, which they do when the caller sets it.
+   *
+   * A row's height is `--row-height`, the density token, and a row's `height` is only a minimum: a
+   * cell that wraps or stacks deeper than the token grows the row, and the density switch then
+   * changes nothing on that table. A single-line cell also takes its value's own width, so an
+   * identifier is never broken mid-token, and what the wider table needs it takes from the scroll
+   * container instead of from the row.
+   */
+  readonly singleLine?: boolean;
+  /**
+   * Whether the column stays at the container's inline end while the table scrolls sideways.
+   *
+   * A column of row controls stays reachable at rest however wide the table gets, rather than
+   * sitting past the container's edge until the reader scrolls to it. The pinned cell paints the
+   * ground role, because it belongs to a table standing on the page, and it follows the activatable
+   * row's hover and press fill, so the row's feedback is not cut off where the pin begins.
+   *
+   * The pin holds from the `md` breakpoint up, where the container has room for the column and for
+   * the columns beside it. Below that a pinned column would cover most of a phone-width container,
+   * so it keeps its place in the table there and the reader scrolls to it.
+   */
+  readonly pinned?: boolean;
+  /**
    * The cell content. Money, identifiers and timestamps arrive already wrapped by the caller. The
    * index is the row's own position in the `rows` the caller supplied, so a windowed table hands a
    * cell the position the row holds in the whole set rather than its offset in the window.
@@ -136,12 +159,57 @@ const CONTROL_TARGET_SELECTOR =
  */
 const ROW_HEIGHT_CLASS = 'h-[var(--row-height)]';
 
-const TABLE_CLASS = 'w-full border-collapse text-13 text-text-primary';
+/*
+  `border-separate` with `border-spacing-0` rather than `border-collapse`: a sticky cell's own
+  inline-start border paints only under separate borders, and zero spacing keeps the hairline row
+  separators exactly where the collapsed model drew them, with no doubled border between two cells.
+ */
+const TABLE_CLASS = 'w-full border-separate border-spacing-0 text-13 text-text-primary';
 
 const HEADER_CELL_CLASS =
   'border-b border-hairline px-3 py-2 font-mono text-12 font-medium text-text-caption';
 
 const CELL_CLASS = 'border-b border-hairline px-3 align-middle';
+
+/**
+ * A pinned column's cell: held at the scroll container's inline end, above the cells that scroll
+ * under it, on the ground role the table itself stands on. Its inline-start hairline draws the pin's
+ * edge, and its hover and press fills are the activatable row's own, so the row's feedback runs
+ * across the pin rather than stopping where the pin begins.
+ *
+ * Every utility is `md:`-scoped for the reason the column's `pinned` member documents: the pin needs
+ * room for the column and for the columns beside it, which a phone-width container does not have.
+ */
+const PINNED_CELL_CLASS =
+  'md:sticky md:end-0 md:z-10 md:border-s md:border-hairline md:bg-ground md:group-hover:bg-surface-2 md:group-active:bg-surface-1';
+
+/**
+ * A pinned column's header cell: the same pin on the same ground, without the row fills, because a
+ * header cell belongs to no activatable row.
+ */
+const PINNED_HEADER_CELL_CLASS = 'md:sticky md:end-0 md:z-10 md:border-s md:border-hairline md:bg-ground';
+
+/**
+ * What the scroll container carries while any column is pinned: its inline-end scroll padding, and
+ * the one thing that has to give way for it.
+ *
+ * The scroll padding is 288 px, the pin's own width rounded up to a spacing step. The container
+ * reserves no room at its inline end on its own, so a control that takes keyboard focus there comes to
+ * rest flush against the container's edge — underneath the opaque pin, whose ground fill paints over
+ * the control's 2 px focus ring. A ring painted under a pin is an indicator the reader cannot see
+ * (rule B-3, WCAG 2.2 SC 2.4.11 Focus Not Obscured). This padding is what the browser's own focus
+ * scrolling reads: a control that would come to rest under the pin is scrolled out from under it
+ * instead. The value clears the pin's width — the queue's three row controls measure 258.78 px of
+ * content plus 24 px of cell padding, rounded up to the 288 px spacing step.
+ *
+ * The container's own inline-end padding gives way (`pe-0`) because the pin now covers that edge: the
+ * 4 px of ring space is drawn behind an opaque cell there and serves nothing, while leaving it makes
+ * the columns that scroll underneath show through as a strip of clipped text beside the pin.
+ *
+ * Both hold from the same `md` breakpoint the pin does, because below that breakpoint no column is
+ * pinned and the container has no pin to clear.
+ */
+const PINNED_SCROLL_PADDING_CLASS = 'md:scroll-pe-72 md:pe-0';
 
 /* Both ring-bearing controls below draw their indicator for keyboard focus only, so neither carries
    an `outline-none` reset. That reset sets `--tw-outline-style: none` on the element, and
@@ -183,9 +251,13 @@ const ROW_CLASS =
  * The affordance is one the row honours: a pointer click on the row — outside any control the row
  * holds, whose own click stays with that control — opens it, exactly as `Enter` on the row cursor
  * does. Nothing here advertises a gesture the row ignores (rule P-8).
+ *
+ * It also names the row a `group`, which is what a pinned cell's `group-hover:` and `group-active:`
+ * fills key on: only a row that opens something offers that feedback, so a row that opens nothing
+ * keeps its pinned cell on the ground and advertises no gesture at all.
  */
 const ACTIVATABLE_ROW_CLASS =
-  'cursor-pointer transition-colors duration-150 hover:bg-surface-2 active:bg-surface-1 motion-reduce:transition-none';
+  'group cursor-pointer transition-colors duration-150 hover:bg-surface-2 active:bg-surface-1 motion-reduce:transition-none';
 
 /** The row of controls under a windowed table: the two controls and the sentence that counts them. */
 const WINDOW_ROW_CLASS = 'flex min-w-0 flex-wrap items-center gap-3 pt-2';
@@ -309,6 +381,13 @@ export function DataTable<Row>({
    * entirely rather than combining with it.
    */
   const announcedOrder = sort ?? defaultOrder ?? null;
+
+  /**
+   * Whether any column is pinned, which is the one thing the scroll container has to know about it:
+   * a pin covers the container's inline end, so the container reserves that width as scroll padding
+   * and a control focused there is scrolled clear of the pin instead of resting underneath it.
+   */
+  const hasPinnedColumn = columns.some((column) => column.pinned === true);
 
   /**
    * Whether the body shows the empty sentence instead of data rows. A caller that declares no
@@ -446,8 +525,18 @@ export function DataTable<Row>({
         that edge's stroke and read as two horizontal rules with no vertical ones. The equal negative
         margin and the width raised by the same 8 px cancel the padding outside this box, so the table's
         own box — its width and its left and top edge — stays exactly where it was.
+
+        A table that pins a column also keeps that column's width free at the container's inline end as
+        scroll padding, and gives up its own padding at that end, so a control focused there is scrolled
+        out from under the pin rather than stopping beneath it and the columns scrolling underneath do
+        not show through beside it (see `PINNED_SCROLL_PADDING_CLASS`).
       */}
-      <div className="relative -mx-1 -my-1 w-[calc(100%_+_8px)] overflow-x-auto px-1 py-1">
+      <div
+        className={classNames(
+          'relative -mx-1 -my-1 w-[calc(100%_+_8px)] overflow-x-auto px-1 py-1',
+          hasPinnedColumn ? PINNED_SCROLL_PADDING_CLASS : undefined,
+        )}
+      >
         {/*
           `aria-rowcount` counts the header row as row 1, so a reader given a data row's position also
           knows how many rows the table holds in total: the row count includes it.
@@ -483,6 +572,7 @@ export function DataTable<Row>({
                     className={classNames(
                       HEADER_CELL_CLASS,
                       column.align === 'end' ? 'text-end' : 'text-start',
+                      column.pinned === true ? PINNED_HEADER_CELL_CLASS : undefined,
                     )}
                   >
                     {column.sortable === true ? (
@@ -590,6 +680,8 @@ export function DataTable<Row>({
                         className={classNames(
                           CELL_CLASS,
                           column.align === 'end' ? 'text-end' : 'text-start',
+                          column.singleLine === true ? 'whitespace-nowrap' : undefined,
+                          column.pinned === true ? PINNED_CELL_CLASS : undefined,
                         )}
                       >
                         {column.render(row, index)}

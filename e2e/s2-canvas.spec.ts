@@ -195,7 +195,17 @@ const DOCK_EVENTS = /Latest audit events/;
 
 /** The table views' captions, which are also their accessible names (rule B-3). */
 const GRAPH_TABLE_CAPTION = 'Dependency graph nodes by lane';
-const MAP_TABLE_CAPTION = 'FileMap canvas nodes, with family, connected nodes and evidence pins';
+const MAP_TABLE_CAPTION =
+  'FileMap canvas marks, with family, network, connected nodes, evidence pins and provenance';
+
+/**
+ * The sentence the graph drawing prints inside a lane the payload places no node in, and that the table
+ * view prints in that lane's own row.
+ *
+ * It is restated here because a browser spec compares rendered text rather than importing the drawing's
+ * text object, so a reworded sentence fails this suite instead of passing silently.
+ */
+const GRAPH_EMPTY_LANE = 'No nodes in this view.';
 
 /** The lens caption's prefix, so the lens in view is read as words rather than inferred from a class. */
 const LENS_CAPTION_PREFIX = 'Lens in view:';
@@ -310,6 +320,25 @@ function lensCaption(page: Page, lens: string): Locator {
   return page.getByText(`${LENS_CAPTION_PREFIX} ${lens}`, { exact: true });
 }
 
+/**
+ * Dismisses the evidence drawer a node activation opens, so the next control the spec drives is
+ * reachable.
+ *
+ * Activating a node opens the evidence behind it, and that drawer is a modal dialog: it takes focus and
+ * the page behind it — the lens controls included — is inert until it is dismissed. Closing it is what
+ * a reader does before choosing another lens, and the selection the node made stays current.
+ */
+async function dismissNodeEvidence(page: Page): Promise<void> {
+  const drawer = page.getByRole('dialog', { name: EVIDENCE_DIALOG, exact: true });
+
+  await expect(
+    drawer,
+    'Activating a node opened no evidence drawer, so the canvas offered none to dismiss.',
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+}
+
 /** One row of a chart frame's table view, as text. */
 interface TableRowReading {
   readonly cells: readonly string[];
@@ -350,6 +379,10 @@ interface GraphNodeReading {
  * The table is the drawing's own text: one row per node, in lane order, with the node's label, its
  * family, its pin summary and its place on the traced path. Reading it is how this suite knows which
  * nodes the chain reaches without importing a record or typing a name (rule P-6).
+ *
+ * A row that states a lane holding no node is not a node, so it is left out here: its node cell carries
+ * the drawing's own empty-lane sentence instead of a label, and the callers below walk the nodes. The
+ * lane rows are asserted where the table view itself is, so skipping them here hides none of them.
  */
 async function graphNodes(table: Locator): Promise<readonly GraphNodeReading[]> {
   const rows = await tableRows(table);
@@ -362,7 +395,8 @@ async function graphNodes(table: Locator): Promise<readonly GraphNodeReading[]> 
       lane === undefined ||
       label === undefined ||
       family === undefined ||
-      path === undefined
+      path === undefined ||
+      label === GRAPH_EMPTY_LANE
     ) {
       continue;
     }
@@ -371,6 +405,16 @@ async function graphNodes(table: Locator): Promise<readonly GraphNodeReading[]> 
   }
 
   return readings;
+}
+
+/**
+ * The rows of a table view that state a lane the drawing shows with no node in it.
+ *
+ * @param rows The table's body rows, as {@link tableRows} read them.
+ * @returns Those of them whose node cell carries the drawing's empty-lane sentence.
+ */
+function emptyLaneRows(rows: readonly TableRowReading[]): readonly TableRowReading[] {
+  return rows.filter((row) => row.cells[1] === GRAPH_EMPTY_LANE);
 }
 
 /**
@@ -466,6 +510,18 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
   const nodes = await graphNodes(graphTable);
   expect(nodes.length).toBe(drawnNodes);
 
+  /* Every lane the drawing shows takes a row too, including the one it fills with its own empty-lane
+     sentence, and every cell of that row states something rather than standing blank. */
+  const emptyLanes = emptyLaneRows(await tableRows(graphTable));
+
+  expect(emptyLanes.length).toBeGreaterThan(0);
+
+  for (const row of emptyLanes) {
+    for (const cell of row.cells) {
+      expect(cell).not.toBe('');
+    }
+  }
+
   await graphFrame.getByRole('button', { name: VIEW_AS_CHART }).click();
   await expect(graphTable).toHaveCount(0);
 
@@ -507,6 +563,8 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
      selection is re-read after each switch rather than assumed to have survived it. */
   for (const node of chain) {
     await graphNode(page, node.label).first().click();
+    await dismissNodeEvidence(page);
+
     await expect(graphFrame.getByText(node.label, { exact: true }).last()).toHaveText(node.label);
     /* The frame's own caption states the selection in words, so every node of the chain — the three
        materials included — is proven to be the selection rather than merely present in the drawing
@@ -563,6 +621,7 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
   await plantOnMap.focus();
   await expect(plantOnMap).toBeFocused();
   await page.keyboard.press('Enter');
+  await dismissNodeEvidence(page);
 
   await lensControl(page, GRAPH_LENS).click();
   await expect(lensCaption(page, GRAPH_LENS)).toBeVisible();
@@ -799,8 +858,8 @@ test('the map lens offers three zoom levels and five view presets over one drawi
   await presets.getByRole('button', { name: PRESET_LABELS[0], exact: true }).click();
   expect(await mapGeometry(page)).toBe(worldGeometry);
 
-  /* The market intelligence the lens overlays stays labelled, and no competitor value reaches the
-     first-party table view (rule P-5). */
+  /* The market intelligence the lens overlays stays labelled wherever it is drawn and wherever it is
+     tabulated, so a competitor's figures are never read as the client's own (rule P-5). */
   expect(
     await page.getByRole('group', { name: new RegExp(`^${MARKET_INTELLIGENCE}`) }).count(),
   ).toBeGreaterThan(0);
@@ -815,21 +874,37 @@ test('the map lens offers three zoom levels and five view presets over one drawi
     expect(row).toContain(SYNTHETIC_COMPANY);
   }
 
-  /* "View as table" on both lenses, each table carrying the same node set its lens draws. */
+  /* "View as table" on both lenses, each table carrying every mark its lens draws: the nodes of the
+     client's own network first, then the marks the atlas paints over them, every row labelled with the
+     family its figures belong to (success criterion 9, rule P-5). */
   const mapFrame = frameOf(page, MAP_REGION);
   const drawnOnMap = await mapDrawing(page).getByRole('button').count();
 
   await mapFrame.getByRole('button', { name: VIEW_AS_TABLE }).click();
   const mapTable = mapFrame.getByRole('table');
   await expect(mapTable.locator('caption')).toHaveText(MAP_TABLE_CAPTION);
-  expect((await tableRows(mapTable)).length).toBe(drawnOnMap);
 
-  for (const row of await tableRows(mapTable)) {
-    for (const cell of row.cells) {
-      expect(cell).not.toContain(MARKET_INTELLIGENCE);
-      expect(cell).not.toContain(SYNTHETIC_COMPANY);
-    }
+  const mapRows = await tableRows(mapTable);
+  const overlayRows = mapRows.slice(drawnOnMap);
+
+  expect(overlayRows.length).toBeGreaterThan(0);
+
+  /* The client's own rows state the first-party family, and carry no competitor's wording. */
+  for (const row of mapRows.slice(0, drawnOnMap)) {
+    const stated = row.cells.join(' ');
+
+    expect(stated).toContain(SIMULATED_DATA);
+    expect(stated).not.toContain(MARKET_INTELLIGENCE);
+    expect(stated).not.toContain(SYNTHETIC_COMPANY);
   }
+
+  /* Every row the overlay contributes is labelled market intelligence, and a competitor's site carries
+     the synthetic-company tag beside its network's own name. */
+  for (const row of overlayRows) {
+    expect(row.cells.join(' ')).toContain(MARKET_INTELLIGENCE);
+  }
+
+  expect(overlayRows.some((row) => row.cells.join(' ').includes(SYNTHETIC_COMPANY))).toBe(true);
 
   await mapFrame.getByRole('button', { name: VIEW_AS_CHART }).click();
   await expect(mapTable).toHaveCount(0);
@@ -843,7 +918,13 @@ test('the map lens offers three zoom levels and five view presets over one drawi
   await graphFrame.getByRole('button', { name: VIEW_AS_TABLE }).click();
   const graphTable = graphFrame.getByRole('table');
   await expect(graphTable.locator('caption')).toHaveText(GRAPH_TABLE_CAPTION);
-  expect((await tableRows(graphTable)).length).toBe(drawnOnGraph);
+
+  /* Every node the drawing marks takes a row, and the lanes the drawing shows without one take a row of
+     their own rather than dropping out of the table. */
+  const graphRows = await tableRows(graphTable);
+
+  expect(graphRows.length - emptyLaneRows(graphRows).length).toBe(drawnOnGraph);
+  expect(emptyLaneRows(graphRows).length).toBeGreaterThan(0);
 
   await graphFrame.getByRole('button', { name: VIEW_AS_CHART }).click();
   await expect(graphTable).toHaveCount(0);

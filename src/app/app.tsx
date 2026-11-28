@@ -400,6 +400,7 @@ export function AppShell(): ReactElement {
   const wallMode = useShellStore((state) => state.wallMode);
   const setSimulationOpen = useShellStore((state) => state.setSimulationOpen);
   const simulationOpen = useShellStore((state) => state.simulationOpen);
+  const announcement = useShellStore((state) => state.announcement);
 
   const badge = (
     <SimulatedDataBadge
@@ -418,6 +419,18 @@ export function AppShell(): ReactElement {
       </a>
 
       <TopBar badge={badge} />
+
+      {/*
+        The shell's one live region. An action that closes the panel it was pressed in — the simulation
+        popover's reset — leaves its outcome here, where a reader who cannot see that panel close still
+        hears it (rule B-3, WCAG 2.2 SC 4.1.3). It belongs to the shell rather than to the popover
+        because the popover unmounts as it closes, and it sits outside the top bar's row so the bar keeps
+        the nine positions the specification fixes (AAP 0.12.1). `sr-only` because it repeats nothing a
+        sighted reader needs: for them the panel's disappearance is the confirmation.
+      */}
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
 
       {wallMode ? null : <PrimaryNavigation />}
 

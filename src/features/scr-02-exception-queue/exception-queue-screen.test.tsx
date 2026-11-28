@@ -69,6 +69,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UserEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
@@ -92,7 +93,7 @@ import type {
   SimLabel,
   ThemeName,
 } from '../../types';
-import { EXCEPTION_QUEUE_TEXT, ExceptionQueueScreen } from './exception-queue-screen';
+import { EXCEPTION_QUEUE_TEXT, ExceptionQueueScreen, resetQueueViewState } from './exception-queue-screen';
 import type { ExceptionQueueScreenProps } from './exception-queue-screen';
 
 /* ---------------------------------------------------------------------------------------------
@@ -204,6 +205,16 @@ const PRODUCT_ID = ['PRD', 'R75'].join('-');
 /** The two plants the rows land on. */
 const PLANT_RGB = ['PLT', 'RGB'].join('-');
 const PLANT_BRN = ['PLT', 'BRN'].join('-');
+
+/**
+ * The two further plants a row reaches, which its plant cell discloses and the plant filter matches.
+ *
+ * They are assembled like every other identifier here rather than written out (rule P-6), and neither is
+ * a plant the default rows are recorded at, so a cell that named them could only have done so from the
+ * row's own reach list.
+ */
+const PLANT_QRO = ['PLT', 'QRO'].join('-');
+const PLANT_RAK = ['PLT', 'RAK'].join('-');
 
 /** The two personas the second and third rows are owned by. */
 const OWNER_B = ['USR', '02'].join('-');
@@ -339,6 +350,7 @@ function buildRow(overrides: Partial<ExceptionRow>): ExceptionRow {
     title: 'Late housing delivery',
     productIds: [PRODUCT_ID],
     plantId: PLANT_RGB,
+    alsoAffectsPlantIds: [],
     severity: 'low',
     revenueAtRiskEur: 1800,
     daysToImpact: 2,
@@ -443,13 +455,15 @@ function setUpUser(): UserEvent {
  * A fresh `QueryClient` per render keeps one case's cache out of the next one's, and `retry: false`
  * with `gcTime: 0` makes every read settle once and request its records again when it is re-read,
  * which is what lets a write be observed by the reads it invalidated.
+ *
+ * @returns The render result, so a case can unmount the screen and render it again.
  */
-function renderQueue(props: ExceptionQueueScreenProps = {}): void {
+function renderQueue(props: ExceptionQueueScreenProps = {}): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
 
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[QUEUE_ROUTE]}>
         <ExceptionQueueScreen {...props} />
@@ -536,6 +550,17 @@ function lastQuery(): ExceptionQuery | undefined {
 /** How many reads the screen has issued so far. */
 function readCount(): number {
   return stub.service.listExceptions.mock.calls.length;
+}
+
+/**
+ * Every query the screen has issued, in the order the reads were made.
+ *
+ * The screen issues two reads on mount — the queue and the unfiltered read whose rows fill the filters'
+ * options — so a case about what the first read was narrowed by collects them all rather than reading
+ * whichever happened to be issued last.
+ */
+function issuedQueries(): ExceptionQuery[] {
+  return stub.service.listExceptions.mock.calls.map((call) => call[0] as ExceptionQuery);
 }
 
 /**
@@ -657,10 +682,16 @@ describe('ExceptionQueueScreen', () => {
    * record a row's figure opens. The unmount between cases is registered globally by `tests/setup.ts`,
    * which is the `cleanup` Testing Library arms once it finds a global `afterEach`; the theme attribute
    * is cleared here because a case sets it before rendering.
+   *
+   * The screen's own view state outlives a mount on purpose, because that is what a client-side route
+   * change needs (QA5-F40), so each case returns it to a first visit's values before it renders: without
+   * this a filter or a saved view one case chose would still be in force in the next.
    */
   beforeEach(() => {
     vi.clearAllMocks();
     delete document.documentElement.dataset.theme;
+
+    resetQueueViewState();
 
     stub.activeUser = ACTIVE_USER;
     stub.rolesWithWork = [...ROLES_WITH_WORK];
@@ -816,6 +847,104 @@ describe('ExceptionQueueScreen', () => {
     },
   );
 
+  it('states the plant the shell selected until the reader chooses one, and the choice afterwards', async () => {
+    const user = setUpUser();
+
+    /*
+     * Only the first row reaches the screen, and it is recorded at the other plant, so the plant the
+     * shell selected is absent from the values the read supplies — the control must still offer the
+     * value it is standing for.
+     */
+    stub.service.listExceptions.mockResolvedValue(ok([ROW_A]));
+
+    const shellScope: Scope = { plants: [PLANT_BRN], products: [] };
+
+    renderQueue({ scope: shellScope });
+    await awaitQueue();
+
+    const plant = filterControl(EXCEPTION_QUEUE_TEXT.plantFilter);
+
+    /* The filter states the shell's plant, its option list holds it, and the read was narrowed by it. */
+    expect(plant).toHaveValue(PLANT_BRN);
+    expect(within(plant).getByRole('option', { name: PLANT_BRN })).toBeInTheDocument();
+    expect(issuedQueries()).toContainEqual({ plantId: PLANT_BRN });
+    expect(lastScope()).toEqual(shellScope);
+
+    /* Choosing "All plants" is an explicit choice of its own, so it stands even though the shell still
+       names a plant, and the read it drives carries no plant constraint. */
+    const readsBeforeAll = readCount();
+    const anyPlant = within(plant).getByRole('option', { name: EXCEPTION_QUEUE_TEXT.anyPlant });
+
+    await user.selectOptions(plant, anyPlant);
+
+    await waitFor(() => {
+      expect(readCount()).toBe(readsBeforeAll + 1);
+    });
+
+    expect(filterControl(EXCEPTION_QUEUE_TEXT.plantFilter)).toHaveValue('');
+    expect(lastQuery()).not.toHaveProperty('plantId');
+
+    /* An explicit plant reaches the read's query even though the shell's selection names another one,
+       which is what makes the control do what it says (rule P-8). */
+    const readsBeforeChoice = readCount();
+
+    await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.plantFilter), PLANT_RGB);
+
+    await waitFor(() => {
+      expect(readCount()).toBe(readsBeforeChoice + 1);
+    });
+
+    expect(filterControl(EXCEPTION_QUEUE_TEXT.plantFilter)).toHaveValue(PLANT_RGB);
+    expect(lastQuery()).toMatchObject({ plantId: PLANT_RGB });
+  });
+
+  /**
+   * The plant filter and the plant cell both state the reading the filter applies.
+   *
+   * The port keeps an exception recorded at the plant the filter names *or* reaching it
+   * (`ExceptionQuery.plantId`), so a queue narrowed to one plant can list a row whose own plant cell
+   * reads another. The caption therefore says which reading the filter means, and the cell names the
+   * plants the row reaches beside the plant it is recorded at, so the reader meets the reason where the
+   * row is rather than inferring it from a mismatch (F04).
+   */
+  it('says the plant filter matches a plant the row reaches, and names those plants in the cell', async () => {
+    stub.service.listExceptions.mockResolvedValue(
+      ok([
+        buildRow({
+          id: ROW_A_ID,
+          plantId: PLANT_RGB,
+          alsoAffectsPlantIds: [PLANT_BRN, PLANT_QRO],
+        }),
+        buildRow({ id: ROW_B_ID, plantId: PLANT_RAK }),
+      ]),
+    );
+
+    renderQueue();
+    await awaitQueue();
+
+    /*
+     * The caption is the reader's only warning that the filter is not "recorded at", so the wording
+     * itself is asserted rather than the constant that holds it: a filter left reading "Plant" is the
+     * defect this case exists to catch.
+     */
+    expect(screen.getByLabelText('Plant (or reaches)')).toBeVisible();
+
+    /* A reaching row names the plant it is recorded at, then the plants it reaches, as the record
+       lists them and no others. */
+    const reachingCell = cellIn(rowAt(0), EXCEPTION_QUEUE_TEXT.columnPlant);
+
+    expect(within(reachingCell).getByText(PLANT_RGB)).toBeVisible();
+    expect(reachingCell).toHaveTextContent(
+      `${EXCEPTION_QUEUE_TEXT.reachesPlants} ${PLANT_BRN}, ${PLANT_QRO}`,
+    );
+
+    /* A row that reaches nothing shows the plant it is recorded at and no reach line at all. */
+    const recordedOnlyCell = cellIn(rowAt(1), EXCEPTION_QUEUE_TEXT.columnPlant);
+
+    expect(within(recordedOnlyCell).getByText(PLANT_RAK)).toBeVisible();
+    expect(recordedOnlyCell).not.toHaveTextContent(EXCEPTION_QUEUE_TEXT.reachesPlants);
+  });
+
   it('reads the queue once more, narrowed by the supplier typed into its field', async () => {
     const user = setUpUser();
     renderQueue();
@@ -884,6 +1013,37 @@ describe('ExceptionQueueScreen', () => {
      */
     expect(onDayCleared).toHaveBeenCalledTimes(1);
   });
+
+  it('opens on the day the overview sent with the filters chosen here cleared', async () => {
+    const user = setUpUser();
+    const first = renderQueue();
+    await awaitQueue();
+
+    /* A status chosen on this screen, by a reader whom SCR-01's series then sends to one day. */
+    await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.statusFilter), 'resolved');
+    await waitFor(() => {
+      expect(lastQuery()).toMatchObject({ status: 'resolved' });
+    });
+
+    first.unmount();
+    stub.service.listExceptions.mockClear();
+
+    /*
+     * The arrival is the series asking for that day's records, so it narrows the whole queue rather than
+     * adding to the filters chosen here: the status is cleared and the read carries the day alone, which
+     * is what keeps the count the series row showed and the queue the reader opens in agreement (T-01).
+     */
+    renderQueue({ initialQuery: { date: THE_DAY } });
+    await awaitQueue();
+
+    const issuedQueries = stub.service.listExceptions.mock.calls.map(
+      (call) => call[0] as ExceptionQuery,
+    );
+
+    expect(issuedQueries).toContainEqual({ date: THE_DAY });
+    expect(filterControl(EXCEPTION_QUEUE_TEXT.statusFilter)).toHaveValue('');
+  });
+
 
   /**
    * One read per mount, the five enumerated filters filled from that same answer, and one read when a
@@ -1298,6 +1458,86 @@ describe('ExceptionQueueScreen', () => {
       expect(lastQuery()).toMatchObject({ severity: 'high' });
     });
     expect(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter)).toHaveValue('high');
+  });
+
+  it('restores the whole filter set a view holds, clearing the filters chosen after it was saved', async () => {
+    const user = setUpUser();
+    renderQueue();
+    await awaitQueue();
+
+    /* The planner saves the high-severity rows on their own — QA3-F21's own reproduction. */
+    await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter), 'high');
+    await waitFor(() => {
+      expect(lastQuery()).toMatchObject({ severity: 'high' });
+    });
+
+    const viewName = 'High severity triage';
+
+    await user.type(screen.getByLabelText(EXCEPTION_QUEUE_TEXT.viewNameLabel), viewName);
+    await user.click(screen.getByRole('button', { name: EXCEPTION_QUEUE_TEXT.saveView }));
+
+    /* They then narrow the queue by a status filter the view does not carry. */
+    await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.statusFilter), 'resolved');
+    await waitFor(() => {
+      expect(lastQuery()).toMatchObject({ severity: 'high', status: 'resolved' });
+    });
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `${EXCEPTION_QUEUE_TEXT.applyView}: ${viewName}`,
+      }),
+    );
+
+    /*
+     * The saved set comes back whole: the status chosen afterwards is cleared rather than left to narrow
+     * the saved rows to nothing, which is the defect QA3-F21 recorded — severity restored, status left in
+     * force, and an empty queue.
+     */
+    await waitFor(() => {
+      expect(lastQuery()).toEqual({ severity: 'high' });
+    });
+    expect(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter)).toHaveValue('high');
+    expect(filterControl(EXCEPTION_QUEUE_TEXT.statusFilter)).toHaveValue('');
+  });
+
+  it('keeps the filters and the saved views when the screen is unmounted and shown again', async () => {
+    const user = setUpUser();
+    const first = renderQueue();
+    await awaitQueue();
+
+    /* The reader narrows the queue to the high-severity rows and keeps that set under a name. */
+    await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter), 'high');
+    await waitFor(() => {
+      expect(lastQuery()).toMatchObject({ severity: 'high' });
+    });
+
+    const viewName = 'Regression walk';
+
+    await user.type(screen.getByLabelText(EXCEPTION_QUEUE_TEXT.viewNameLabel), viewName);
+    await user.click(screen.getByRole('button', { name: EXCEPTION_QUEUE_TEXT.saveView }));
+
+    /* The shell unmounts this screen when the reader leaves the route, which is the moment QA5-F40
+       recorded the choice being discarded. */
+    first.unmount();
+    stub.service.listExceptions.mockClear();
+
+    renderQueue();
+    await awaitQueue();
+
+    /*
+     * The choice is still in force on the way back: the read asks the port for the saved filter set, the
+     * control holds it, and the panel still lists the view — so a client-side route change costs the
+     * reader nothing.
+     */
+    const issuedQueries = stub.service.listExceptions.mock.calls.map(
+      (call) => call[0] as ExceptionQuery,
+    );
+
+    expect(issuedQueries).toContainEqual({ severity: 'high' });
+    await waitFor(() => {
+      expect(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter)).toHaveValue('high');
+    });
+    expect(screen.getByText(viewName)).toBeVisible();
   });
 });
 

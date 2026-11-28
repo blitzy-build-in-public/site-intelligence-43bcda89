@@ -105,13 +105,21 @@
  * 2. THE ENTITY IN VIEW IS MARKED IN BOTH DRAWINGS. `RadarChart` takes `selectedSeriesId` and draws
  *    that series' outline heavier while its label-band row states `aria-current` and prints its name
  *    in the emphasised weight; `CompetitorNetwork` takes `highlightedCompetitorId` and emphasises the
- *    family in view — the client's own network when the value is `null` — while the competitors that
- *    are not in view recede. The selector therefore performs the selection it presents rather than
- *    only highlighting its own control (rule P-8), the marking is a stroke weight, a text weight and
- *    an attribute rather than a hue (rule B-3), and the caption beside the group and the chip's own
- *    `aria-pressed` state it as before. The legend beside the radar is the one surface
- *    that only describes the series. Both drawings also answer with evidence instead of restating the
- *    selection: every radar vertex carries `<series id>#<axis id>` (see
+ *    family in view — the client's own network when the value is `null` — while a competitor in view
+ *    recedes the OTHER competitor families and the client's own network in view recedes none of them,
+ *    so every mark in the atlas's opening state keeps the hue its own legend row promises. The
+ *    selector therefore performs the selection it presents rather than only highlighting its own
+ *    control (rule P-8), the marking is a stroke weight, a text weight and an attribute rather than a
+ *    hue (rule B-3), and the caption beside the group and the chip's own `aria-pressed` state it in
+ *    words as before. The legend beside the radar is the one surface that only describes the series.
+ *    EACH SERIES' CONTROL CARRIES ITS CATEGORY'S OWN COLOUR: every entity control opens with a
+ *    decorative swatch in the role its series is drawn in — the accent role for the client's own
+ *    series, `--color-competitor-1/2/3` for a competitor's — resolved from the same
+ *    `competitorSlotOf`/`CHART_TONE_CLASSES` lookup the radar polygon, the network mark, the legend
+ *    row and `./chokepoint-table.tsx`'s competitor line resolve, so one category is one colour on
+ *    every surface of this screen; the swatch is `aria-hidden`, so the control's name and the P-5 tag
+ *    beside it are exactly what they were. Both drawings also answer with evidence instead of
+ *    restating the selection: every radar vertex carries `<series id>#<axis id>` (see
  *    {@link radarVertexReference}) and every site mark and crossing halo carries the identifier it was
  *    drawn from (see {@link networkMarkReference}), so each vertex, site and halo opens the record
  *    behind it (AAP §0.2.1 F12, §0.12.4) and no mark is a focus stop with nothing behind it (rule
@@ -150,16 +158,19 @@
  * either acts — the two selector groups through `Button`, the export through `ActionButton` — or is
  * disabled through `ActionButton` with the reason in its `disabledReason`).
  */
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
+import { create } from 'zustand';
+import type { StoreApi, UseBoundStore } from 'zustand';
+
 import { Button } from '../../components/button';
-import { Card } from '../../components/card';
+import { Card, INSET_SURFACE_CLASSES } from '../../components/card';
 import { ChartFrame } from '../../components/chart-frame';
 import type { ChartTableSpec } from '../../components/chart-frame';
 import type { TableColumn } from '../../components/data-table';
-import { competitorSlotOf } from '../../components/horizontal-bar-chart';
+import { CHART_TONE_CLASSES, competitorSlotOf } from '../../components/horizontal-bar-chart';
 import { Legend } from '../../components/legend';
 import type { LegendEntry } from '../../components/legend';
 import { offerExportFile } from '../../components/offer-export-file';
@@ -176,12 +187,17 @@ import { StatusIndicator } from '../../components/status-indicator';
 import {
   ActionButton,
   CONTROL_STRUCTURE_CLASSES,
-  PRIMARY_CONTROL_CLASSES,
-  PRIMARY_STATE_CLASSES,
   SECONDARY_CONTROL_CLASSES,
+  SELECTED_CONTROL_CLASSES,
 } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
-import { ATLAS_PACK_BANNER, COMPETITOR_NAME_TAG, SIM_LABELS } from '../../types';
+import { WRITE_READS } from '../../services/write-reads';
+import {
+  ATLAS_PACK_BANNER,
+  CLIENT_SELF_ASSESSMENT_LABEL,
+  COMPETITOR_NAME_TAG,
+  SIM_LABELS,
+} from '../../types';
 import type {
   Atlas,
   AtlasLane,
@@ -328,7 +344,8 @@ export const COMPETITIVE_ATLAS_TEXT = {
     'The client\u2019s own sites and every competitor network on one frame. The crossings the lanes traverse are listed in the chokepoint table below.',
 
   /** The accessible name of the network's table view, rendered as the table's caption. */
-  networkTableCaption: 'Sites the network view places, by network and position',
+  networkTableCaption:
+    'Sites, lanes and shared crossings the network view places, by network and position',
 
   /** The heading of the card holding the chokepoint table. */
   chokepointCardTitle: 'Shared chokepoints',
@@ -368,8 +385,13 @@ export const COMPETITIVE_ATLAS_TEXT = {
   /** The label of the table view's axis column. */
   columnAxis: 'Axis',
 
-  /** The label of the table view's site column. */
-  columnSite: 'Site',
+  /**
+   * The label of the table view's mark column: the site, lane or shared crossing the row states.
+   *
+   * The column prints more than a site — a lane prints the two sites it joins and a crossing prints its
+   * own label — so it is titled for the mark rather than for the one kind of mark a site is.
+   */
+  columnMark: 'Mark',
 
   /** The label of the table view's network column. */
   columnNetwork: 'Network',
@@ -394,6 +416,41 @@ export const COMPETITIVE_ATLAS_TEXT = {
    * network name for it.
    */
   clientSiteKind: 'Client network',
+
+  /**
+   * The words a crossing's row prints in the network column.
+   *
+   * A crossing is shared rather than owned: the drawing groups the halos under one shared-chokepoint
+   * heading and no competitor's network contains another's, so the cell says the networks share it
+   * instead of naming one of them or standing empty (rule B-3).
+   */
+  chokepointNetwork: 'Shared across networks',
+
+  /**
+   * The word between the two site names a lane's mark cell prints.
+   *
+   * A lane is read as the pair it joins, so the cell says "one to the other" rather than printing the
+   * two names as one run of text (rule B-3).
+   */
+  laneMarkJoin: 'to',
+
+  /**
+   * The latitude and longitude cells of a lane's row.
+   *
+   * A lane joins two sites and sits at no place of its own, so the two coordinate columns say that it
+   * spans them rather than printing a number nowhere in the payload states or leaving the cells blank
+   * (rule B-3).
+   */
+  laneCoordinate: 'Spans two sites',
+
+  /**
+   * The latitude and longitude cells of a crossing's row.
+   *
+   * The shared `Chokepoint` shape carries no coordinate member, so the drawing anchors a crossing on the
+   * lane that traverses it and this table states that the record holds no position of its own, rather
+   * than repeating the drawing's geometry as though the record had stated it (rules P-5, P-6).
+   */
+  chokepointCoordinate: 'No coordinate stated',
 
   /** What the boundary says when nothing the class in view selects can be compared. */
   empty: 'No competitor series and no shared crossing are in view, so there is nothing to compare.',
@@ -498,12 +555,14 @@ const NO_SCORE_MARKER = '—';
 const SCREEN_CLASSES = 'flex min-w-0 flex-col gap-6';
 
 /**
- * The banner naming the pack: the second raised surface inside the decorative hairline, at the card
- * radius, in the primary text role. Role tokens only, so both themes paint the values their own
+ * The banner naming the pack: the inset box `src/components/card.tsx` names as the third surface
+ * role, in the primary text role at the type scale's 13 px step. The box itself — card radius,
+ * decorative hairline, second raised surface and its one padding — is `INSET_SURFACE_CLASSES`, so
+ * this banner and every other notice in the product cannot drift apart; the type step and the
+ * wrapping are this screen's own. Role tokens only, so both themes paint the values their own
  * measure fixes, and the token layer exposes no elevation utility, so no shadow can be added.
  */
-const BANNER_CLASSES =
-  'rounded-card border border-hairline bg-surface-2 px-3 py-2 text-13 break-words text-text-primary';
+const BANNER_CLASSES = `text-13 break-words text-text-primary ${INSET_SURFACE_CLASSES}`;
 
 /** The selector row: the two groups stacked below 1280 px and side by side from it. */
 const SELECTOR_ROW_CLASSES =
@@ -530,16 +589,18 @@ const SELECTION_CAPTION_CLASSES = 'min-w-0 text-13 text-text-secondary';
 const RESTING_CHIP_CLASSES = `${CONTROL_STRUCTURE_CLASSES} ${SECONDARY_CONTROL_CLASSES}`;
 
 /**
- * The chip whose class or entity is in view: the same structure, the filled action pair and the
- * primary action's pointer states.
+ * The chip whose class or entity is in view: the same structure plus the marking a chosen control
+ * wears everywhere in the product, both taken from their single owner in `src/components/tooltip.tsx`.
  *
- * The chosen chip keeps the filled pair it wore when the chips were actions, so the selection a reader
- * sees is unchanged and no colour is invented here; what the plain primitive adds is `aria-pressed` on
- * the control itself, so the choice is stated programmatically as well as in the caption beside the
- * group (rule B-3).
+ * That marking is the accent boundary, the first raised surface and the heavier weight the shell's
+ * current navigation entry wears — not the filled action pair, which belongs to the one action the
+ * screen exists to take. A chosen chip that wore the fill put two and three "primary" controls on
+ * the screen at once, so a reader could not tell the action from a selection; the accent boundary
+ * describes the state and leaves the export the only filled control. The state is also the control's
+ * own, through `aria-pressed`, and is stated again in words by the caption beside the group, so it
+ * never rests on colour alone (rule B-3).
  */
-const CHOSEN_CHIP_CLASSES =
-  `${CONTROL_STRUCTURE_CLASSES} ${PRIMARY_CONTROL_CLASSES} ${PRIMARY_STATE_CLASSES}`;
+const CHOSEN_CHIP_CLASSES = `${CONTROL_STRUCTURE_CLASSES} ${SELECTED_CONTROL_CLASSES}`;
 
 /**
  * A companion tag — the competitor name tag, the market-intelligence label or the client series
@@ -573,14 +634,31 @@ const OPTION_TAG_CLASSES =
 const CONTROL_TAG_CLASSES = 'rounded-control border border-current px-1 text-12';
 
 /**
+ * The category swatch a series' selector control opens with: the same 12 px mark, on the 4 px grid and
+ * at the 2 px control radius, that `./legend.tsx` draws beside a series' name.
+ *
+ * The outline is the inherited foreground for the reason {@link CONTROL_TAG_CLASSES} states: a control
+ * inside the selector is filled with the action pair in its primary variant, so the swatch sits on the
+ * accent fill for the entity in view and on the page's own surface for the others, and the foreground
+ * is the one value that separates the mark from either. The mark is decorative — `aria-hidden` is set
+ * where it is rendered — because the series' name and its tag beside it are what name the entity.
+ */
+const SELECTOR_SWATCH_CLASSES =
+  'inline-block size-3 shrink-0 rounded-control border border-current';
+
+/**
  * An identifier in the tabular mono face, so the class identifiers line up when a reader compares
  * two of them. Presentation only: the value arrives as the payload spells it.
  */
 const IDENTIFIER_CLASSES = 'font-mono text-13 tabular-nums';
 
-/** The notice the export's failure is reported in: the raised second surface, in the primary role. */
-const NOTICE_CLASSES =
-  'rounded-card border border-hairline bg-surface-2 px-3 py-2 text-13 break-words text-text-primary';
+/**
+ * The notice the export's failure is reported in: the same inset box the pack banner above wears,
+ * `INSET_SURFACE_CLASSES` from `src/components/card.tsx`, in the primary text role at the 13 px step
+ * of the type scale. The box's boundary, radius, surface and padding come from the constant, so a
+ * notice here and a notice on any other screen wear one surface.
+ */
+const NOTICE_CLASSES = `text-13 break-words text-text-primary ${INSET_SURFACE_CLASSES}`;
 
 /* ---------------------------------------------------------------------------------------------
  * The entity list and its defaults
@@ -790,40 +868,72 @@ interface RadarTableRow {
 }
 
 /**
- * One row of the network's table view: a site the drawing places, with the family it belongs to.
+ * Which of the network drawing's marks a row of its table view states.
  *
- * Only sites are rows. The crossings the drawing marks have no coordinate member of their own — the
- * component places each at the position it states or at the midpoint of the first lane naming it — so
- * they are listed by `./chokepoint-table.tsx` instead of being repeated here with a guessed position.
+ * The drawing paints three kinds of mark: the sites of the client's and the competitors' networks, the
+ * lanes each competitor's network runs between its own sites, and the shared crossings the pack records.
+ * The kind decides no cell a reader sees — the site, network, coordinate and provenance columns state it
+ * in words — it keeps the two provenances and the three shapes apart in the row, so a cell written for a
+ * site cannot be printed for a crossing (rule P-5).
+ */
+type NetworkTableMark = 'site' | 'lane' | 'chokepoint';
+
+/**
+ * One row of the network's table view: a mark the drawing places, with the family it belongs to.
+ *
+ * Every mark the drawing paints takes a row and nothing it does not paint takes one, so the table and the
+ * drawing beside it cannot disagree about what the network view places (success criterion 9). A site
+ * states its own coordinates; a lane has none of its own and a crossing states none in the shared
+ * `Chokepoint` shape, so both say so in the coordinate columns rather than printing a blank or a guessed
+ * position (rule B-3). The coordinates are therefore the cell text rather than a number: a cell either
+ * states the record's own value or the reason there is none.
  */
 interface NetworkTableRow {
-  /** The site's identifier, used as the row key. */
-  readonly id: string;
+  /** The row's stable key: the mark's kind, then the identifier the payload gives it. */
+  readonly rowKey: string;
 
-  /** The name the drawing prints for the site. */
+  /** Which of the drawing's marks this row states. */
+  readonly mark: NetworkTableMark;
+
+  /** The name the drawing prints for the mark, as the payload states it. */
   readonly siteLabel: string;
 
-  /** The network the site belongs to, as the payload names it, or the client's own wording. */
+  /** The network the mark belongs to, as the payload names it, or the client's own wording. */
   readonly networkLabel: string;
 
-  /** Whether the site belongs to a competitor, which decides whether the name tag is printed. */
+  /** Whether the mark belongs to a competitor, which decides whether the name tag is printed. */
   readonly isCompetitor: boolean;
 
   /**
    * The label the row's provenance column prints: the family every figure in this row belongs to.
    *
-   * It is taken from the fixed §5.3 list by the family the site belongs to, never chosen here: the
-   * market-intelligence member for a competitor's site, because its coordinates and its network are
-   * market intelligence, and the `Simulated data` member for one of the client's own, because that
-   * site is a seeded first-party record (rules P-1, P-5).
+   * It is taken from the string that owns it, never chosen here: the market-intelligence member of the
+   * fixed list for a competitor's site, a lane and a crossing, and `CLIENT_SELF_ASSESSMENT_LABEL` for one
+   * of the client's own sites, because the drawing labels the client's group and every client site with
+   * it. `CLIENT_SELF_ASSESSMENT_LABEL` is deliberately outside the seven-member union (AAP 0.10), which
+   * is why the column is typed as both (rules P-1, P-5).
    */
-  readonly provenanceLabel: SimLabel;
+  readonly provenanceLabel: SimLabel | typeof CLIENT_SELF_ASSESSMENT_LABEL;
 
-  /** Latitude in decimal degrees, exactly as the record states it. */
-  readonly latitude: number;
+  /** The latitude cell: the record's own value, or the sentence a mark with no position states. */
+  readonly latitude: string;
 
-  /** Longitude in decimal degrees, exactly as the record states it. */
-  readonly longitude: number;
+  /** The longitude cell, on the same terms as {@link NetworkTableRow.latitude}. */
+  readonly longitude: string;
+}
+
+/**
+ * The site cell of a lane's row: the two sites the lane joins, each named by the payload's own label.
+ *
+ * A lane's identifier is not printed anywhere, because the payload names its endpoints and a reader
+ * comparing the table with the drawing is looking at two named sites rather than at two identifiers.
+ *
+ * @param fromLabel - The label of the site the lane leaves.
+ * @param toLabel - The label of the site the lane reaches.
+ * @returns The cell text.
+ */
+function laneLabelOf(fromLabel: string, toLabel: string): string {
+  return `${fromLabel} ${COMPETITIVE_ATLAS_TEXT.laneMarkJoin} ${toLabel}`;
 }
 
 /**
@@ -949,70 +1059,151 @@ function radarTableOf(
 }
 
 /**
- * The rows the network's table view lists: the client's own sites and every competitor's, in the
- * payload's order and with the payload's own names.
+ * One site's row: the mark the payload places, with the network it belongs to.
  *
- * The families are labelled rather than merged: a competitor's row names its network and says that
- * the site is a competitor's, the renderer adds the imported name tag beside the network's name, and
- * the row carries the §5.3 label its family owns for the provenance column to print, so a reader
- * never has to infer whose site a row is or where its figures came from (rule P-5). The sites are the
- * ones the drawing beside the table places — the client's own and those of the networks in view — so
- * the table and the drawing cannot state different networks (AAP §0.12.4). Nothing is sorted,
- * counted or combined.
+ * @param site - The site as the payload states it.
+ * @param networkLabel - The network's own name, or the client's own wording for the first-party family.
+ * @param isCompetitor - Whether the site belongs to a competitor.
+ * @param provenanceLabel - The label the family every figure in the row belongs to carries.
+ * @returns The row.
+ */
+function siteRowOf(
+  site: AtlasSite,
+  networkLabel: string,
+  isCompetitor: boolean,
+  provenanceLabel: SimLabel | typeof CLIENT_SELF_ASSESSMENT_LABEL,
+): NetworkTableRow {
+  return {
+    rowKey: `site:${site.id}`,
+    mark: 'site',
+    siteLabel: site.label,
+    networkLabel,
+    isCompetitor,
+    provenanceLabel,
+    latitude: String(site.latitude),
+    longitude: String(site.longitude),
+  };
+}
+
+/**
+ * The rows the network's table view lists: every mark the drawing beside it places, in the payload's order.
+ *
+ * The drawing places three kinds of mark and this list states all three, so a reader who switches the
+ * figure to its table reads the same network rather than a subset of it (success criterion 9): the
+ * client's own sites, then each competitor network's sites, then the lanes those networks run between
+ * their own sites, then the shared crossings a lane traverses. A lane takes one row stating the two sites
+ * it joins — never its identifier — and a crossing no lane names takes none, because the drawing has no
+ * geometry to place it with and only what the drawing paints belongs in its table.
+ *
+ * The families are labelled rather than merged (rule P-5): the client's own rows carry
+ * `CLIENT_SELF_ASSESSMENT_LABEL`, the same companion string the drawing labels its client group and every
+ * client site with, and every competitor mark carries the market-intelligence member of the fixed list.
+ * A competitor's row names its network, which the renderer tags with the imported name tag. Nothing is
+ * sorted, counted or combined, and no row states a measure: the crossings' overlap, buffer days and
+ * contention note belong to `./chokepoint-table.tsx`, and this table states only the marks the plot
+ * places.
  *
  * @param clientSites - The client's own sites the payload carries.
  * @param networks - The competitor networks in view.
- * @returns The rows, or none when nothing in view places a site.
+ * @param chokepoints - The shared crossings in view, as the drawing was given them.
+ * @returns The rows, or none when nothing in view places a mark.
  */
 function networkRowsOf(
   clientSites: readonly AtlasSite[],
   networks: readonly CompetitorNetworkPayload[],
+  chokepoints: readonly Chokepoint[],
 ): readonly NetworkTableRow[] {
-  const rows: NetworkTableRow[] = clientSites.map((site) => ({
-    id: site.id,
-    siteLabel: site.label,
-    networkLabel: COMPETITIVE_ATLAS_TEXT.clientSiteKind,
-    isCompetitor: false,
-    provenanceLabel: SIMULATED_DATA_LABEL,
-    latitude: site.latitude,
-    longitude: site.longitude,
-  }));
+  const rows: NetworkTableRow[] = [];
+  const labelBySiteId = new Map<string, string>();
+
+  for (const site of clientSites) {
+    labelBySiteId.set(site.id, site.label);
+    rows.push(
+      siteRowOf(site, COMPETITIVE_ATLAS_TEXT.clientSiteKind, false, CLIENT_SELF_ASSESSMENT_LABEL),
+    );
+  }
 
   for (const network of networks) {
     for (const site of network.sites) {
+      if (!labelBySiteId.has(site.id)) {
+        labelBySiteId.set(site.id, site.label);
+      }
+
+      rows.push(siteRowOf(site, network.label, true, MARKET_INTELLIGENCE_LABEL));
+    }
+  }
+
+  /* The lanes the drawing runs over those sites, and the crossings they traverse: a crossing is placed
+     from a lane because the shared `Chokepoint` shape states no coordinate of its own. */
+  const crossingsTraversed = new Set<string>();
+
+  for (const network of networks) {
+    for (const lane of network.lanes) {
+      const fromLabel = labelBySiteId.get(lane.fromId);
+      const toLabel = labelBySiteId.get(lane.toId);
+
+      if (fromLabel === undefined || toLabel === undefined) {
+        continue;
+      }
+
+      if (lane.chokepointId !== undefined) {
+        crossingsTraversed.add(lane.chokepointId);
+      }
+
       rows.push({
-        id: site.id,
-        siteLabel: site.label,
+        rowKey: `lane:${lane.fromId}->${lane.toId}`,
+        mark: 'lane',
+        siteLabel: laneLabelOf(fromLabel, toLabel),
         networkLabel: network.label,
         isCompetitor: true,
         provenanceLabel: MARKET_INTELLIGENCE_LABEL,
-        latitude: site.latitude,
-        longitude: site.longitude,
+        latitude: COMPETITIVE_ATLAS_TEXT.laneCoordinate,
+        longitude: COMPETITIVE_ATLAS_TEXT.laneCoordinate,
       });
     }
+  }
+
+  for (const crossing of chokepoints) {
+    if (!crossingsTraversed.has(crossing.id)) {
+      continue;
+    }
+
+    rows.push({
+      rowKey: `chokepoint:${crossing.id}`,
+      mark: 'chokepoint',
+      siteLabel: crossing.label,
+      networkLabel: COMPETITIVE_ATLAS_TEXT.chokepointNetwork,
+      isCompetitor: false,
+      provenanceLabel: MARKET_INTELLIGENCE_LABEL,
+      latitude: COMPETITIVE_ATLAS_TEXT.chokepointCoordinate,
+      longitude: COMPETITIVE_ATLAS_TEXT.chokepointCoordinate,
+    });
   }
 
   return rows;
 }
 
 /**
- * The network's table view: one row per site the drawing places.
+ * The network's table view: one row per mark the drawing places.
  *
  * The last column states the family every figure in the row belongs to, because the drawing beside
  * the table labels each competitor's group and the table must not leave a reader to infer the same
  * thing from the tag on the network's name: one cell for the row says which family the network, the
- * site and both coordinates came from, where a label repeated beside each figure would say it three
+ * mark and both coordinates came from, where a label repeated beside each figure would say it three
  * times and give a reader nothing to scan (rules P-1, P-5). The column takes the position and the
  * treatment `./chokepoint-table.tsx` gives its own provenance column, so both tables of this screen
- * report provenance the same way.
+ * report provenance the same way. The column ids are the ones the table published before the lanes and
+ * crossings took rows, so a reader or a test that addresses a column by id still finds it.
  *
  * @param clientSites - The client's own sites the payload carries.
  * @param networks - The competitor networks in view.
+ * @param chokepoints - The shared crossings in view, as the drawing was given them.
  * @returns The specification the chart frame's table view renders.
  */
 function networkTableOf(
   clientSites: readonly AtlasSite[],
   networks: readonly CompetitorNetworkPayload[],
+  chokepoints: readonly Chokepoint[],
 ): ChartTableSpec<NetworkTableRow> {
   const columns: readonly TableColumn<NetworkTableRow>[] = [
     {
@@ -1030,7 +1221,7 @@ function networkTableOf(
     },
     {
       id: 'site',
-      header: COMPETITIVE_ATLAS_TEXT.columnSite,
+      header: COMPETITIVE_ATLAS_TEXT.columnMark,
       render: (row) => row.siteLabel,
     },
     {
@@ -1055,8 +1246,8 @@ function networkTableOf(
   return {
     caption: COMPETITIVE_ATLAS_TEXT.networkTableCaption,
     columns,
-    rows: networkRowsOf(clientSites, networks),
-    getRowKey: (row) => row.id,
+    rows: networkRowsOf(clientSites, networks, chokepoints),
+    getRowKey: (row) => row.rowKey,
   };
 }
 
@@ -1099,6 +1290,92 @@ function competitorNameResolverOf(
 const ATLAS_SOURCE: SourceId = 'market-pack';
 
 /* ---------------------------------------------------------------------------------------------
+ * The reader's choices — held outside the component so a route change keeps them
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The three choices the atlas holds: the class in view, the entity in view and the mark the network
+ * holds as selected.
+ *
+ * The shell unmounts the atlas when the reader leaves `/competitive`, so the three sat in `useState` and
+ * were discarded by every client-side route change — a competitor chosen in the selector fell back to the
+ * class's own default before the reader had come back (QA5-F40). A zustand store created in this module
+ * outlives the component, so the reader returns to the surface they left. It is this module's own store
+ * and holds no shell vocabulary: AAP 0.6.1 gives the shell store the active role, the scope, the selected
+ * node, wall mode and the simulation popover, and none of those is a choice made on this screen.
+ *
+ * Created with no persistence middleware: theme and density are the only preferences this application
+ * writes to browser storage (platform-contracts.md §1), so a reload opens on the class the shell's
+ * selection implies again.
+ */
+interface AtlasViewState {
+  /**
+   * The reader's own class choice.
+   *
+   * `undefined` means the reader has chosen nothing yet, so the atlas follows the shell's product
+   * selection (see {@link resolveDefaultClass}); `null` means the reader asked for every class the pack
+   * holds. The two stay distinct so "All product classes" stays reachable under a shell that has filtered
+   * to one product (rule P-8).
+   */
+  ownClass: string | null | undefined;
+
+  /** The series the reader chose in the entity selector, or `null` while the class's default stands. */
+  ownEntity: string | null;
+
+  /** The mark the network reported as selected, or `null` when none is. */
+  selectedMarkId: string | null;
+
+  /** Takes the class the reader chose, or `null` for every class the pack holds. */
+  setOwnClass(ownClass: string | null | undefined): void;
+
+  /** Takes the series the reader chose in the entity selector. */
+  setOwnEntity(ownEntity: string | null): void;
+
+  /** Takes the mark the network reported as selected. */
+  setSelectedMarkId(selectedMarkId: string | null): void;
+
+  /** Returns the three members to a first visit's values, leaving the setters in place. */
+  resetView(): void;
+}
+
+/** The view a first visit starts in: no class chosen yet, no entity chosen, no mark selected. */
+function initialAtlasView(): Pick<AtlasViewState, 'ownClass' | 'ownEntity' | 'selectedMarkId'> {
+  return { ownClass: undefined, ownEntity: null, selectedMarkId: null };
+}
+
+/** The atlas's view state, read through a zustand hook so the screen re-renders on the members it selects. */
+const useAtlasViewStore: UseBoundStore<StoreApi<AtlasViewState>> = create<AtlasViewState>()((set) => ({
+  ...initialAtlasView(),
+
+  setOwnClass: (ownClass) => {
+    set({ ownClass });
+  },
+
+  setOwnEntity: (ownEntity) => {
+    set({ ownEntity });
+  },
+
+  setSelectedMarkId: (selectedMarkId) => {
+    set({ selectedMarkId });
+  },
+
+  resetView: () => {
+    set(initialAtlasView());
+  },
+}));
+
+/**
+ * Returns the atlas's view state to the one a first visit starts in.
+ *
+ * The state outlives every mount on purpose, so a suite that drives this screen calls this between cases:
+ * without it the competitor one case selected would still be in view in the next.
+ * `src/app/role-switcher.test.tsx` resets the shell store the same way.
+ */
+export function resetAtlasViewState(): void {
+  useAtlasViewStore.getState().resetView();
+}
+
+/* ---------------------------------------------------------------------------------------------
  * Props
  * ------------------------------------------------------------------------------------------- */
 
@@ -1135,6 +1412,60 @@ export interface CompetitiveAtlasScreenProps {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * The swatch class one series' selector control opens with, or `null` where the series carries none.
+ *
+ * A competitor's swatch takes the `--color-competitor-*` role its identifier resolves through
+ * `competitorSlotOf` and `CHART_TONE_CLASSES` — the one lookup the radar polygon, the network mark,
+ * the legend row and the chokepoint table's line for that competitor resolve their own colour through
+ * — so the selector states the same colour for a category as every drawing of it, and a re-pointed
+ * role reaches them all. The client's own series takes the accent role, which specification §4.1
+ * reserves for first-party flows.
+ *
+ * A competitor whose identifier states no slot of the three specification §4.2 defines takes no
+ * swatch here rather than the accent role or another competitor's hue: the first would present market
+ * intelligence as the client's own reading and the second would state a colour the chart beside it
+ * does not use (rule P-5). The control's name and tag are then all it carries, which is what it
+ * carried before the swatch existed.
+ *
+ * @param series - The series the control selects.
+ * @returns The class list of the swatch, or `null` when the series has no hue of its own to show.
+ */
+function selectorSwatchClassOf(series: AtlasSeries): string | null {
+  const slot = competitorSlotOf(series.competitorId);
+
+  if (series.competitorId === null) {
+    return CHART_TONE_CLASSES.accent.swatch;
+  }
+
+  return slot === null ? null : CHART_TONE_CLASSES[`competitor-${slot}`].swatch;
+}
+
+/** Props of the category swatch a series' selector control opens with. */
+interface SeriesSwatchProps {
+  /** The series the control selects; its `competitorId` decides the role the swatch takes. */
+  readonly series: AtlasSeries;
+}
+
+/**
+ * The category swatch a series' selector control opens with, in the hue that series is drawn in
+ * everywhere else on the screen.
+ *
+ * It is `aria-hidden` and carries no text: the control's accessible name is the series' own name and
+ * its tag, exactly as before, so the colour reaches a reader who can see it and nothing is announced
+ * twice (rule B-3).
+ *
+ * @param props - The series the control selects.
+ * @returns The swatch, or `null` when the series has no hue of its own to show.
+ */
+function SeriesSwatch({ series }: SeriesSwatchProps): ReactElement | null {
+  const swatch = selectorSwatchClassOf(series);
+
+  return swatch === null ? null : (
+    <span aria-hidden="true" className={`${SELECTOR_SWATCH_CLASSES} ${swatch}`} />
+  );
+}
+
+/**
  * SCR-13, the competitive atlas: the pack banner, the two selectors, the radar with its legend, the
  * network view and the chokepoint table, over one read.
  *
@@ -1146,11 +1477,11 @@ export interface CompetitiveAtlasScreenProps {
  *
  * Nothing here writes, so a re-render can move no record; the state the component owns is the
  * reader's own — the class in view, the entity in view and the mark the network holds as selected —
- * plus the one refusal the reader has to be told about, a brief this page could not hand over, and
- * never a copy of service data. The class in view narrows every surface the screen draws — the
- * alerts the band lists, the radar series, the competitor networks, their sites and the crossings
- * their lanes traverse — from the payload's own classification, so the selector filters the atlas
- * rather than restating it (AAP §0.12.4).
+ * held in this module's store so a route change keeps them (QA5-F40), plus the one refusal the reader
+ * has to be told about, a brief this page could not hand over, and never a copy of service data. The
+ * class in view narrows every surface the screen draws — the alerts the band lists, the radar series,
+ * the competitor networks, their sites and the crossings their lanes traverse — from the payload's own
+ * classification, so the selector filters the atlas rather than restating it (AAP §0.12.4).
  *
  * @param props - The shell's selection. See {@link CompetitiveAtlasScreenProps}.
  * @returns The header with its export action, the pack banner, the chokepoint alert strip, the
@@ -1159,6 +1490,7 @@ export interface CompetitiveAtlasScreenProps {
  */
 export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): ReactElement {
   const service = useService();
+  const queryClient = useQueryClient();
 
   const scope = props.scope ?? NO_SCOPE;
 
@@ -1168,9 +1500,12 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
    * asked for every class the pack holds. The two stay distinct so "All product classes" stays
    * reachable under a shell that has filtered to one product (rule P-8).
    */
-  const [ownClass, setOwnClass] = useState<string | null | undefined>(undefined);
-  const [ownEntity, setOwnEntity] = useState<string | null>(null);
-  const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
+  const ownClass = useAtlasViewStore((state) => state.ownClass);
+  const ownEntity = useAtlasViewStore((state) => state.ownEntity);
+  const selectedMarkId = useAtlasViewStore((state) => state.selectedMarkId);
+  const setOwnClass = useAtlasViewStore((state) => state.setOwnClass);
+  const setOwnEntity = useAtlasViewStore((state) => state.setOwnEntity);
+  const setSelectedMarkId = useAtlasViewStore((state) => state.setSelectedMarkId);
 
   /*
    * What the export reports when the brief arrived but this page has no way to hand it over. The
@@ -1197,10 +1532,19 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
    * export itself is reported from its own error state. The one outcome it cannot state — a payload
    * that arrived on a page with no object-URL factory to offer it with — is held in
    * `exportOfferFailure`, because the brief was prepared and recorded and only the hand-over failed.
+   *
+   * It records itself on the trail before the file is offered, so a settled brief invalidates the reads
+   * `WRITE_READS.exportChokepointBrief` names — one row of the write-reads map in
+   * `src/services/write-reads.ts`, which the cache's own write channel reads too (AAP §0.6.2,
+   * contracts §6).
    */
   const exportMutation = useMutation<Result<ExportPayload>, unknown, void>({
     mutationFn: () => service.exportChokepointBrief(),
     onSuccess: (result) => {
+      for (const read of WRITE_READS.exportChokepointBrief) {
+        void queryClient.invalidateQueries({ queryKey: [read] });
+      }
+
       if (!offerExportFile(result.data)) {
         setExportOfferFailure(COMPETITIVE_ATLAS_TEXT.downloadUnavailable);
       }
@@ -1261,8 +1605,11 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
 
   const radarTable = useMemo(() => radarTableOf(axes, seriesInView), [axes, seriesInView]);
   const networkTable = useMemo(
-    () => (atlas === undefined ? null : networkTableOf(clientSites, networksInView)),
-    [atlas, clientSites, networksInView],
+    () =>
+      atlas === undefined
+        ? null
+        : networkTableOf(clientSites, networksInView, chokepointsInView),
+    [atlas, clientSites, networksInView, chokepointsInView],
   );
   const legendEntries = useMemo(() => legendEntriesOf(seriesInView), [seriesInView]);
   /*
@@ -1479,6 +1826,7 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                         selectEntity(entry.id);
                       }}
                     >
+                      <SeriesSwatch series={entry} />
                       <span>{entry.label}</span>{' '}
                       {/* The tag states the family the record belongs to: the competitor name tag
                           for a market-intelligence series, and the label the record states for every

@@ -26,6 +26,14 @@
  * bound, so the application cannot start half-bound: exactly one adapter is constructed, and it is
  * the one written on that line.
  *
+ * THE BINDING ALSO REPORTS ITS WRITES. The adapter is wrapped in `withWriteReporting` before it is
+ * bound, so every resolved write announces the reads it moved to the write-reads channel of
+ * `./write-reads` — the map AAP 0.6.2 states and contracts §6's audit chain implies for every audited
+ * action. That report is what lets the cache learn of a write whose own screen has unmounted, and it
+ * costs the swap nothing: `withWriteReporting` takes the adapter and answers the port, so replacing
+ * `new MockBackend()` with `new ApiClient()` inside the wrapper leaves the two lines above as the whole
+ * change (AAP §0.6.2, AAP §0.12.1 "Adapter selection").
+ *
  * WHY TWO OF THE THREE EXPORTS ARE NOT PORT MEMBERS. `SiteIntelligenceService` is the port, the
  * application's one shared contract between screens and adapters, whose derivation from the contracts'
  * capabilities is recorded at the port's own header. It declares neither a readiness promise nor a
@@ -53,6 +61,7 @@
 import { MockBackend } from './mock/mock-backend';
 import type { DemonstrationControls } from './demonstration-controls';
 import type { SiteIntelligenceService } from './site-intelligence-service';
+import { withWriteReporting } from './write-reads';
 
 /* ---------------------------------------------------------------------------------------------
  * The bound adapter — AAP 0.12.1 "Adapter selection", AAP 0.6.2, rule P-2
@@ -88,7 +97,11 @@ export function createService(): SiteIntelligenceService {
     // of `new MockBackend()` on this line points the application at the unconnected HTTP adapter of
     // `src/services/api-client/`. No screen, component, feature or shell module changes with either of
     // the two lines (AAP 0.6.2, AAP 0.12.1 "Adapter selection").
-    const service: SiteIntelligenceService = new MockBackend();
+    //
+    // The wrapper reports each resolved write's moved reads to `./write-reads`, which is how the cache
+    // hears of a write whose own screen has gone (AAP §0.3.2, AAP §0.6.2). It takes the adapter and
+    // answers the port, so the swap above replaces this line's constructor and nothing else.
+    const service: SiteIntelligenceService = withWriteReporting(new MockBackend());
 
     boundService = service;
   }

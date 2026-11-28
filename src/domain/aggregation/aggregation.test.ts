@@ -94,6 +94,7 @@ import type {
   PackageId,
   PinState,
   PlantId,
+  PlantRiskRow,
   PpapElement,
   PpapPackage,
   Role,
@@ -842,6 +843,24 @@ function soleLine(lines: readonly AffectedLine[]): AffectedLine {
   return line;
 }
 
+/**
+ * Finds the by-plant row one case is about.
+ *
+ * @param rows The rows the aggregate returned.
+ * @param plantId The plant the row is for.
+ * @returns That row.
+ * @throws Error when the aggregate returned no row for the plant.
+ */
+function plantRowOf(rows: readonly PlantRiskRow[], plantId: PlantId): PlantRiskRow {
+  const row = rows.find((candidate) => candidate.plantId === plantId);
+
+  if (row === undefined) {
+    throw new Error(`The aggregate returned no by-plant row for ${plantId}.`);
+  }
+
+  return row;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * F. The one scope resolver — AAP 0.2.1; AAP 0.12.1, "Scope resolution"
  * ------------------------------------------------------------------------------------------- */
@@ -1109,6 +1128,36 @@ describe('computeExceptionRows', () => {
     expect(singleProductRow.productIds).toEqual([PRODUCT_A.id]);
   });
 
+  /**
+   * The row carries the plants the exception reaches, which the queue's Plant cell discloses.
+   *
+   * The record owns that list, so the projection copies it: a row is a fresh object the caller may sort,
+   * render or annotate, and an array shared with the record would let a caller's change reach the state
+   * the demonstration holds (AAP 0.2.1, AAP 0.18.2).
+   */
+  it('carries the plants a row reaches in the record’s order, as an array of its own', () => {
+    const reaching = probeException({
+      id: 'EXC-PROBE-REACH',
+      plantId: 'PLT-BRN',
+      alsoAffectsPlantIds: ['PLT-RGB', 'PLT-QRO'],
+      severity: 'low',
+      status: 'open',
+      daysToImpact: 6,
+      detectedAt: DETECTED_48_HOURS,
+      affectedLines: [probeLine(ORDER_ONE, UNITS_FIRST)],
+    });
+    const bundle: ExceptionAggregateInput = { ...RECORD_BUNDLE, exceptions: [reaching] };
+    const row = rowOf(computeExceptionRows(bundle, EVERY_PLANT), reaching.id);
+
+    expect(row.plantId).toBe(reaching.plantId);
+    expect(row.alsoAffectsPlantIds).toEqual(['PLT-RGB', 'PLT-QRO']);
+    expect(row.alsoAffectsPlantIds).toEqual(reaching.alsoAffectsPlantIds);
+
+    row.alsoAffectsPlantIds.push('PLT-RAK');
+
+    expect(reaching.alsoAffectsPlantIds).toEqual(['PLT-RGB', 'PLT-QRO']);
+  });
+
   it('carries a baseline-measured exception value from the solve, not from its stored line', () => {
     const scope: Scope = { plants: plantScopeFor('platform-administrator'), products: [] };
     const rows = computeExceptionRows(BASELINE_BUNDLE, scope);
@@ -1286,18 +1335,55 @@ describe('computeOverview', () => {
     expect(silentPlant?.plantName).toBe(PLANTS.find((plant) => plant.id === plantId)?.name);
   });
 
-  it('groups an exception under the plant in scope it reaches, not the one it lands on', () => {
+  it('counts an exception at the plant it is recorded at, so a plant outside the selection keeps a row', () => {
     const scope: Scope = { plants: ['PLT-QRO'], products: [] };
     const overview = computeOverview(OVERVIEW_BUNDLE, scope);
-    const reaching = RECORD_BUNDLE.exceptions.find((exception) =>
-      exception.alsoAffectsPlantIds.includes('PLT-QRO'),
+    const admittedOpen = computeExceptionRows(RECORD_BUNDLE, scope).filter(
+      (row) => row.status === 'open',
     );
-    const unitsAtRisk = reaching?.affectedLines[0]?.unitsAtRisk;
+    const recorded = new Set(admittedOpen.map((row) => row.plantId));
+    const reachingRow = admittedOpen.find((row) =>
+      RECORD_BUNDLE.exceptions.some(
+        (exception) => exception.id === row.id && exception.alsoAffectsPlantIds.includes('PLT-QRO'),
+      ),
+    );
 
-    expect(reaching).toBeDefined();
-    expect(overview.byPlant.map((row) => row.plantId)).toEqual(scope.plants);
-    expect(overview.openExceptions).toBe(1);
-    expect(overview.revenueAtRiskEur).toBe(halfUp2((unitsAtRisk ?? 0) * PRODUCT_B.priceEur));
+    /*
+     * The exception the selection admits through a plant it reaches is counted where it is recorded,
+     * which is the plant the queue's own row shows for it — never the plant that admitted it.
+     */
+    expect(reachingRow).toBeDefined();
+    expect(reachingRow?.plantId).toBe(EXCEPTION_FIFTH.plantId);
+    expect(scope.plants).not.toContain(reachingRow?.plantId);
+
+    /*
+     * The rows are the selection's plants plus the plants the admitted open exceptions are recorded at,
+     * in the order the plant records state, so every plant the queue can show has a row here and no
+     * exception is folded into a plant it does not belong to.
+     */
+    expect(overview.byPlant.map((row) => row.plantId)).toEqual(
+      PLANTS.filter((plant) => scope.plants.includes(plant.id) || recorded.has(plant.id)).map(
+        (plant) => plant.id,
+      ),
+    );
+
+    /*
+     * The partition: a row's count and amount are the queue's own open rows recorded at that plant, so
+     * the two surfaces state one figure per plant, and the rows still close on the tiles.
+     */
+    for (const row of overview.byPlant) {
+      const recordedHere = admittedOpen.filter((candidate) => candidate.plantId === row.plantId);
+
+      expect(row.openExceptions).toBe(recordedHere.length);
+      expect(row.revenueAtRiskEur).toBe(
+        halfUp2(recordedHere.reduce((total, candidate) => total + candidate.revenueAtRiskEur, 0)),
+      );
+    }
+
+    expect(overview.openExceptions).toBe(admittedOpen.length);
+    expect(halfUp2(overview.byPlant.reduce((total, row) => total + row.revenueAtRiskEur, 0))).toBe(
+      overview.revenueAtRiskEur,
+    );
   });
 
   it('counts the exceptions opened and resolved on each of the days ending on the clock date', () => {
@@ -1363,8 +1449,55 @@ describe('one resolved scope for the queue and the overview', () => {
     expect(rows.some((row) => !scope.plants.includes(row.plantId))).toBe(true);
     expect(overview.openExceptions).toBe(rows.filter((row) => row.status === 'open').length);
     expect(overview.revenueAtRiskEur).toBe(openRevenueOf(rows));
-    expect(overview.byPlant.map((row) => row.plantId)).toEqual(scope.plants);
-    expect(overview.byPlant).toHaveLength(1);
+    /*
+     * The rows cover the selection's plants and the plants the admitted open rows are recorded at, so
+     * the role's one plant is not the only row: an exception it reaches is counted at the plant that
+     * recorded it, and the rows still close on the tiles.
+     */
+    const recorded = new Set(rows.filter((row) => row.status === 'open').map((row) => row.plantId));
+
+    expect(overview.byPlant.map((row) => row.plantId)).toEqual(
+      PLANTS.filter((plant) => scope.plants.includes(plant.id) || recorded.has(plant.id)).map(
+        (plant) => plant.id,
+      ),
+    );
+    expect(halfUp2(overview.byPlant.reduce((total, row) => total + row.revenueAtRiskEur, 0))).toBe(
+      overview.revenueAtRiskEur,
+    );
+  });
+
+  it('reports a plant the same figure whether the scope is the whole one or that plant alone', () => {
+    const whole = computeOverview(OVERVIEW_BUNDLE, resolveScope({}, CROSS_PLANT_ROLE));
+    const reaching = RECORD_BUNDLE.exceptions.find(
+      (exception) => exception.status === 'open' && exception.alsoAffectsPlantIds.length > 0,
+    );
+    const plantId = reaching?.alsoAffectsPlantIds[0];
+
+    expect(reaching).toBeDefined();
+
+    if (plantId === undefined) {
+      throw new Error('The probe records hold no open exception that reaches another plant.');
+    }
+
+    const wholeRow = plantRowOf(whole.byPlant, plantId);
+    const alone = computeOverview(OVERVIEW_BUNDLE, { plants: [plantId], products: [] });
+    const aloneRow = plantRowOf(alone.byPlant, plantId);
+
+    /*
+     * One plant, one figure: the plant the exception is recorded at reports the same count, amount and
+     * name whether the reader is looking at the persona's whole scope or at that plant alone, so an
+     * exception that reaches this plant from elsewhere cannot move its figure.
+     */
+    expect(aloneRow.openExceptions).toBe(wholeRow.openExceptions);
+    expect(aloneRow.revenueAtRiskEur).toBe(wholeRow.revenueAtRiskEur);
+    expect(aloneRow.plantName).toBe(wholeRow.plantName);
+
+    /*
+     * The selection did narrow the population — and the exception it admitted through this plant keeps
+     * the row of the plant that recorded it rather than joining this one.
+     */
+    expect(alone.openExceptions).toBeLessThan(whole.openExceptions);
+    expect(alone.byPlant.map((row) => row.plantId)).toContain(reaching?.plantId);
   });
 
   it('narrows nothing for a cross-plant role, so the queue and the overview still agree', () => {
@@ -1863,6 +1996,7 @@ describe('computeRibbonTiles', () => {
     const tiles = computeRibbonTiles(
       computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT),
       countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT),
+      EVERY_PLANT,
     );
 
     expect(tiles).toHaveLength(6);
@@ -1876,10 +2010,14 @@ describe('computeRibbonTiles', () => {
     ]);
   });
 
-  it('copies each value from the overview and the rows rather than computing one', () => {
+  it('copies each value from the overview, the rows and the scope rather than computing one', () => {
     const overview = computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT);
     const rows = computeExceptionRows(RECORD_BUNDLE, EVERY_PLANT);
-    const tiles = computeRibbonTiles(overview, countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT));
+    const tiles = computeRibbonTiles(
+      overview,
+      countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT),
+      EVERY_PLANT,
+    );
     const critical = rows.filter((row) => row.severity === 'critical').length;
 
     expect(tiles.map((tile) => tile.value)).toEqual([
@@ -1888,14 +2026,32 @@ describe('computeRibbonTiles', () => {
       overview.revenueAtRiskEur,
       overview.customerOrdersAtRisk,
       overview.medianHoursToApprovedPlan,
-      overview.byPlant.length,
+      EVERY_PLANT.plants.length,
     ]);
+  });
+
+  it('counts the plants the scope names, not the plants a reached exception adds a row for', () => {
+    /*
+     * A selection of one plant admits an exception recorded at another plant when that exception
+     * reaches the selected one, and the by-plant grouping gives that plant a row of its own so its
+     * rows partition the tiles. The tile labelled "plants in scope" states the selection's plants, so
+     * the two counts differ here by construction: the case would pass on a rule that counted either.
+     */
+    const scope: Scope = { plants: plantScopeFor(SINGLE_PLANT_ROLE), products: [] };
+    const overview = computeOverview(OVERVIEW_BUNDLE, scope);
+    const tiles = computeRibbonTiles(overview, countAtHeadOfUrgency(RECORD_BUNDLE, scope), scope);
+    const reachedRow = overview.byPlant.find((row) => !scope.plants.includes(row.plantId));
+
+    expect(reachedRow).toBeDefined();
+    expect(overview.byPlant.length).toBeGreaterThan(scope.plants.length);
+    expect(tiles.find((tile) => tile.id === 'plants-in-scope')?.value).toBe(scope.plants.length);
   });
 
   it('marks every tile as computed provenance, so a market-intelligence figure cannot share it', () => {
     const tiles = computeRibbonTiles(
       computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT),
       countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT),
+      EVERY_PLANT,
     );
 
     expect(tiles.every((tile) => tile.provenance === 'computed')).toBe(true);
@@ -1905,8 +2061,8 @@ describe('computeRibbonTiles', () => {
   it('returns fresh tiles on every call and leaves the overview it was given unchanged', () => {
     const overview = computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT);
     const critical = countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT);
-    const first = computeRibbonTiles(overview, critical);
-    const second = computeRibbonTiles(overview, critical);
+    const first = computeRibbonTiles(overview, critical, EVERY_PLANT);
+    const second = computeRibbonTiles(overview, critical, EVERY_PLANT);
 
     expect(second).toEqual(first);
     expect(second).not.toBe(first);
@@ -1948,6 +2104,7 @@ function probeRow(spec: ProbeRowSpec): ExceptionRow {
     title: `${spec.id} probe row`,
     productIds: [PRODUCT_A.id],
     plantId: 'PLT-RGB',
+    alsoAffectsPlantIds: [],
     severity: spec.severity,
     revenueAtRiskEur: spec.revenueAtRiskEur,
     daysToImpact: spec.daysToImpact,
@@ -2054,6 +2211,7 @@ describe('provenance separation', () => {
     const tiles = computeRibbonTiles(
       computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT),
       countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT),
+      EVERY_PLANT,
     );
     const rows = computeLedger(LEDGER_EVENTS, DECLARED_LEDGER, DEMO_CLOCK);
     const blockedEndpoint = ledgerRowOf(rows, ENDPOINT_BLOCKED);

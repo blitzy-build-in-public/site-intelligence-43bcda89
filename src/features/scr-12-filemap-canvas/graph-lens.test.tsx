@@ -1,395 +1,397 @@
 /**
  * Component suite for `graph-lens.tsx`, the framed graph lens of the FileMap canvas (SCR-12, stage S2).
  *
- * WHAT IS UNDER TEST, AND WHY IT IS THIS FILE'S. `GraphLens` composes the drawing in
- * `src/components/dependency-graph.tsx` inside `src/components/chart-frame.tsx`, holds the reader's
- * emphasis choices and hands the frame the rows its table view prints. The drawing's own suite covers
- * its controls one at a time; what only the lens can own is the reading those controls produce — which
- * nodes the direction emphasises, which it pushes back, whether anything is dimmed at all, and whether
- * the caption and the table view say the same thing as the drawing. Each case below asserts one
- * clause of that: the lens opens on the reading it gave before the controls existed (both directions,
- * dimming on, and the caption sentence the browser checks quote); choosing upstream or downstream
- * changes the emphasised set, the dimmed set and the table view's path column together, so one walk
- * of the payload is applied to both representations; turning the dimming off keeps the path and dims
- * nothing while the caption states that; and with no node selected the four controls are disabled
- * with the drawing's own reason, which is the state rule P-8 requires them to explain rather than sit
- * inert in.
+ * WHAT IS UNDER TEST. `GraphLens` composes the six-lane drawing in `src/components/dependency-graph.tsx`
+ * inside `src/components/chart-frame.tsx`, derives the emphasis the shared selection gives it and hands
+ * the frame the rows its table view prints. This suite is about those rows, which nothing else covers:
+ * the table states one row per node of the payload and one row for every lane the drawing shows with no
+ * node in it, in the lane order `DEPENDENCY_GRAPH_LANES` fixes, so a reader who cannot see the drawing is
+ * told that the Lines lane exists and holds nothing instead of counting the lanes and finding one missing
+ * (success criterion 9). The empty lane's own sentence is the drawing's, imported rather than retyped, and
+ * the two columns the drawing has no vocabulary for — the family a lane without nodes has none of, and the
+ * path a node no lane reaches is not on — are this lens's own words, asserted here so a blank cell or an
+ * em dash cannot take their place (rule B-3). One further case reads the path column back against a
+ * selection, because the row's last cell is the only place the emphasis the drawing paints in weight and
+ * boundary is stated in words.
  *
- * THE FIXTURE IS SYNTHETIC AND BUILT HERE. One chain — origin, supplier, material, plant, customer —
- * plus a second supplier that joins nothing, so every direction has nodes on it and off it, and one
- * node the payload states no pins for. No seed module, no `src/services/mock` and nothing from
- * `tests/fixtures` is imported (rule P-2), no identifier is shaped like a domain record (rule P-6), and
- * no label is a real party (rule P-7). The evidence mapper resolves nothing for every node, so
- * activation reports a selection and mounts no drawer: the suite therefore needs no service provider,
- * and nothing here reaches any origin (rule B-1).
+ * THE FIXTURE IS SYNTHETIC AND DELIBERATELY PLAIN. Its identifiers carry no domain prefix, because rule
+ * P-6 keeps domain identifiers out of `src/features` — tests included — and the suite needs one node per
+ * family, one lane chain and two pin tallies: one node with several pin states and one with a single pin.
+ * The narrowed payload removes the customer family outright, which is the case where a lane the drawing
+ * fills today is emptied by a scope the service resolved before the lens saw it.
+ *
+ * NO SERVICE IS REACHED. The drawing mounts `EvidenceDrawer` only for a node whose evidence reference the
+ * caller resolved, and this suite supplies no mapper, so the lens opens no drawer and asks the port for
+ * nothing (rule P-2). Nothing here hashes, reads the clock or touches the network; the suite runs in the
+ * jsdom environment `vite.config.ts` sets by default.
  *
  * Rules this suite is written to hold to:
- * - B-3: the emphasis is read twice — as the drawing's boundary weight and surface, and as the table
- *   view's path column — so a reader who cannot see the drawing reads the same distinction as text,
- *   and every interaction is driven from the keyboard or the pointer through `@testing-library`.
- * - P-1: no simulation label is spelled here; the frame's label belongs to its own suite.
- * - P-6: every expectation is derived from the payload the fixture states or from the wording the lens
- *   exports; no count, figure or identifier is typed into a case.
- * - P-8: the disabled controls are asserted through the reason the drawing states, not only through
- *   `aria-disabled`.
- *
- * Renders under the jsdom environment `vite.config.ts` configures; nothing here hashes, reads the clock
- * or shows a computed figure (rule P-6).
+ * - B-3: every cell of every row states something, and the path column names each node's place on the
+ *   traced path in words rather than leaving it to the drawing's emphasis.
+ * - P-1: the only simulation label the suite could meet is the frame's, and it is not asserted here; the
+ *   empty-lane sentence is read from the drawing's own text object instead of being copied in.
+ * - P-6: every expectation is derived from the inline payload — a label, a lane or a count the fixture
+ *   states — and no figure is typed into a case.
  */
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import type { Topology, TopologyNode } from '../../types';
-import { DEPENDENCY_GRAPH_TEXT } from '../../components/dependency-graph';
+import type { PinCounts, Topology, TopologyNode, TopologyNodeKind } from '../../types';
+import {
+  DEPENDENCY_GRAPH_LANES,
+  DEPENDENCY_GRAPH_TEXT,
+} from '../../components/dependency-graph';
+import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from '../../components/graph-vocabulary';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
 import { GRAPH_LENS_TEXT, GraphLens } from './graph-lens';
 import type { GraphLensProps } from './graph-lens';
 
 /* ---------------------------------------------------------------------------------------------
- * The fixture — one chain, one node off it, and no pins anywhere
+ * The fixture — one node per family, one lane chain and two pin tallies
  * ------------------------------------------------------------------------------------------- */
 
-/** A node of the payload, with the fields a case does not vary. */
+/** One node of the payload, with the coordinates and reach a case does not vary. */
 function makeNode(id: string, kind: TopologyNode['kind'], label: string): TopologyNode {
   return { id, kind, label, latitude: 0, longitude: 0, productIds: [] };
 }
 
-const ORIGIN = makeNode('origin-one', 'origin', 'Northern mine');
+const ORIGIN = makeNode('origin-north', 'origin', 'Northern mine');
 const SUPPLIER = makeNode('supplier-one', 'supplier', 'First tier partner');
-const SUPPLIER_OFF_PATH = makeNode('supplier-two', 'supplier', 'Second tier partner');
-const MATERIAL = makeNode('material-one', 'material', 'Rolled sheet');
-const PLANT = makeNode('plant-one', 'plant', 'Main assembly site');
-const CUSTOMER = makeNode('customer-one', 'customer', 'Harbour works');
+const MATERIAL = makeNode('material-sheet', 'material', 'Rolled sheet');
+const PLANT = makeNode('plant-main', 'plant', 'Main assembly site');
+const CUSTOMER = makeNode('customer-harbour', 'customer', 'Harbour works');
 
 /**
- * The payload every case draws: origin → supplier → material → plant → customer, stated as lanes that
- * run upstream to downstream, plus a supplier no lane names.
- *
- * The plant is the selection every case starts from, which is what makes the two directions distinct:
- * one material, one supplier and one origin lie upstream of it and one customer lies downstream, while
- * the unnamed supplier lies on neither path and is therefore the node a dimming lens always pushes back.
+ * Two pin tallies: one node carrying several states and one carrying a single pin, so the row's pin cell
+ * is asserted for both the plural and the singular noun the drawing owns. The rest carry none.
  */
+const PINS_BY_NODE: Record<string, PinCounts> = {
+  'plant-main': { pass: 2, fail: 1, review: 0, pending: 0, stale: 0, empty: 0 },
+  'supplier-one': { pass: 0, fail: 0, review: 0, pending: 1, stale: 0, empty: 0 },
+};
+
+/** The lane chain every case draws, upstream to downstream. */
+const LANES: Topology['lanes'] = [
+  { fromId: 'origin-north', toId: 'supplier-one' },
+  { fromId: 'supplier-one', toId: 'material-sheet' },
+  { fromId: 'material-sheet', toId: 'plant-main' },
+  { fromId: 'plant-main', toId: 'customer-harbour' },
+];
+
+/** The payload every case draws: one node in each of the five families the topology carries. */
 const TOPOLOGY: Topology = {
   origins: [ORIGIN],
-  suppliers: [SUPPLIER, SUPPLIER_OFF_PATH],
+  suppliers: [SUPPLIER],
   materials: [MATERIAL],
   plants: [PLANT],
   customers: [CUSTOMER],
-  lanes: [
-    { fromId: ORIGIN.id, toId: SUPPLIER.id },
-    { fromId: SUPPLIER.id, toId: MATERIAL.id },
-    { fromId: MATERIAL.id, toId: PLANT.id },
-    { fromId: PLANT.id, toId: CUSTOMER.id },
-  ],
-  pinsByNode: {},
+  lanes: LANES,
+  pinsByNode: PINS_BY_NODE,
 };
 
-/** The selection every case starts from: a node with something on each side of it. */
-const SELECTED_NODE_ID = PLANT.id;
-
-const noop = (): void => {};
+/** The same payload with the customer family emptied, as a narrowed scope leaves it. */
+const NARROWED_TOPOLOGY: Topology = { ...TOPOLOGY, customers: [] };
 
 /**
- * The mapping the lens is given: no record stands behind any node, so activating one reports the
- * selection and opens nothing.
+ * The nodes one lane draws, in the payload's own order.
  *
- * It is what keeps this suite free of the service provider the evidence drawer would read through, and
- * it is the honest answer this lens is composed with when the screen names no evidence of its own.
+ * The `switch` is exhaustive over `TopologyNodeKind` and carries no `default` arm, so a family added to
+ * that union fails to compile here instead of silently emptying a lane the assertion walks.
+ *
+ * @param topology The payload to read.
+ * @param kind The node family the lane draws.
+ * @returns The nodes of that family.
  */
-const NO_NODE_EVIDENCE = (): undefined => undefined;
+function nodesOfFamily(topology: Topology, kind: TopologyNodeKind): readonly TopologyNode[] {
+  switch (kind) {
+    case 'origin':
+      return topology.origins;
+    case 'supplier':
+      return topology.suppliers;
+    case 'material':
+      return topology.materials;
+    case 'plant':
+      return topology.plants;
+    case 'customer':
+      return topology.customers;
+  }
+}
 
-/** Renders the lens with the payload above and the props a case does not vary. */
+/**
+ * Every node of the payload in the order the drawing places it: lane order, then the payload's own order
+ * within a lane.
+ *
+ * @param topology The payload to read.
+ * @returns The nodes, in the order the table states them.
+ */
+function nodesInLaneOrder(topology: Topology): readonly TopologyNode[] {
+  return DEPENDENCY_GRAPH_LANES.flatMap((lane) =>
+    lane.kind === null ? [] : nodesOfFamily(topology, lane.kind),
+  );
+}
+
+/** The props every case starts from, so a case states only what it changes. */
+const BASE_PROPS: GraphLensProps = {
+  topology: TOPOLOGY,
+  selectedNodeId: null,
+  onSelectNode: () => undefined,
+};
+
+/* ---------------------------------------------------------------------------------------------
+ * Rendering and queries
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Renders the lens with the props a case does not vary.
+ *
+ * @param overrides The props this case changes.
+ * @returns The render result, so a case can unmount before rendering again.
+ */
 function renderLens(overrides: Partial<GraphLensProps> = {}): ReturnType<typeof render> {
-  return render(
-    <GraphLens
-      topology={overrides.topology ?? TOPOLOGY}
-      onSelectNode={overrides.onSelectNode ?? noop}
-      evidenceRefForNode={NO_NODE_EVIDENCE}
-      {...(overrides.selectedNodeId === undefined
-        ? {}
-        : { selectedNodeId: overrides.selectedNodeId })}
-    />,
-  );
+  return render(<GraphLens {...BASE_PROPS} {...overrides} />);
 }
 
-/* ---------------------------------------------------------------------------------------------
- * The controls, the drawing and the table view — read the way a reader meets them
- * ------------------------------------------------------------------------------------------- */
-
-/** The group holding the three direction controls, named by the caption the drawing gives it. */
-function directionGroup(): HTMLElement {
-  return screen.getByRole('group', { name: DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabel });
-}
-
-/** One direction control, found by the label it prints. */
-function directionControl(
-  direction: keyof typeof DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabels,
-): HTMLElement {
-  return within(directionGroup()).getByRole('button', {
-    name: DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabels[direction],
-  });
-}
-
-/** The dimming switch, found by the label it prints. */
-function dimmingSwitch(): HTMLElement {
-  return screen.getByRole('switch', { name: DEPENDENCY_GRAPH_TEXT.dimmingLabel });
-}
-
-/** One node of the drawing, found by the label its accessible name starts with. */
-function nodeButton(label: string): HTMLElement {
-  return screen.getByRole('button', { name: new RegExp(`^${label}, `, 'u') });
-}
-
-/** The classes one node's boundary carries, as tokens, so a variant prefix cannot satisfy a match. */
-function nodeBoxTokens(label: string): readonly string[] {
-  const box = nodeButton(label).querySelector('rect');
-
-  if (box === null) {
-    throw new Error(`The node named ${label} draws no boundary.`);
-  }
-
-  return (box.getAttribute('class') ?? '').split(' ');
-}
-
-/** The control that switches the frame's two representations, named for the figure it belongs to. */
-function tableToggle(): HTMLElement {
-  return screen.getByRole('button', {
-    name: `${VIEW_AS_TABLE_LABELS.showTable}: ${GRAPH_LENS_TEXT.title}`,
-  });
+/** The control that switches the frame's two representations, named by the frame's title. */
+function tableToggleName(label: string): string {
+  return `${label}: ${GRAPH_LENS_TEXT.title}`;
 }
 
 /**
- * The word the table view prints in the path column for one node.
+ * Opens the lens's table view from the keyboard, as a reader without a pointer would.
  *
- * The column is read from the row rather than by position in the table, so a lane that gains or loses
- * a node does not move the value this case is about; the path column is the row's last cell, which is
- * the order `graph-lens.tsx` declares its columns in.
- *
- * @param table The table view's table, as the frame renders it.
- * @param label The node's own label, which is the row's second cell.
- * @returns The path word of that row.
- * @throws When the table holds no row for the label, which would mean the view omitted a mark.
+ * @returns The table element.
  */
-function pathWordOf(table: HTMLElement, label: string): string {
-  const row = within(table).getByRole('cell', { name: label }).closest('tr');
+async function openTable(): Promise<HTMLElement> {
+  const user = userEvent.setup();
 
-  if (row === null) {
-    throw new Error(`The table view printed no row for ${label}.`);
-  }
+  screen.getByRole('button', { name: tableToggleName(VIEW_AS_TABLE_LABELS.showTable) }).focus();
+  await user.keyboard('{Enter}');
 
-  const cells = within(row).getAllByRole('cell');
-
-  return cells[cells.length - 1]?.textContent ?? '';
+  return screen.getByRole('table', { name: GRAPH_LENS_TEXT.tableCaption });
 }
 
-/** Leaves `<html>` on the default theme for whichever suite runs next. */
-afterEach(() => {
-  document.documentElement.removeAttribute('data-theme');
-});
+/**
+ * One row's cells, as a reader reads them left to right.
+ *
+ * @param row The row to read.
+ * @returns The text of each cell.
+ */
+function cellsOf(row: HTMLElement): readonly (string | null)[] {
+  return within(row).getAllByRole('cell').map((cell) => cell.textContent);
+}
 
-/* ---------------------------------------------------------------------------------------------
- * The reading the lens opens on
- * ------------------------------------------------------------------------------------------- */
+/**
+ * The pin cell the table prints for one node's counts, in the drawing's own vocabulary.
+ *
+ * Restated here rather than imported, because the lens keeps its own summary and this suite asserts the
+ * sentence a reader actually reads: a reworded summary must fail here rather than pass silently.
+ *
+ * @param counts The node's counts, or `undefined` when the payload holds none for it.
+ * @returns The cell text.
+ */
+function pinsCellOf(counts: PinCounts | undefined): string {
+  if (counts === undefined) {
+    return DEPENDENCY_GRAPH_TEXT.noPins;
+  }
 
-describe('GraphLens default emphasis', () => {
-  it('opens on both directions with dimming on, and states that reading in words', () => {
-    renderLens({ selectedNodeId: SELECTED_NODE_ID });
-
-    expect(directionControl('both')).toHaveAttribute('aria-pressed', 'true');
-    expect(directionControl('upstream')).toHaveAttribute('aria-pressed', 'false');
-    expect(directionControl('downstream')).toHaveAttribute('aria-pressed', 'false');
-    expect(dimmingSwitch()).toHaveAttribute('aria-checked', 'true');
-
-    /* The sentence the lens stated before the controls existed, character for character: a reader who
-       never touches them reads exactly what they read then. */
-    expect(
-      screen.getByText(
-        'Emphasis traces the upstream and downstream path of Main assembly site; ' +
-          'every other node is dimmed.',
-      ),
-    ).toBeInTheDocument();
-
-    /* And the drawing applies it: the nodes on both sides of the selection are emphasised and the one
-       no lane names is pushed back. */
-    expect(nodeBoxTokens(SUPPLIER.label)).toContain('stroke-accent');
-    expect(nodeBoxTokens(CUSTOMER.label)).toContain('stroke-accent');
-    expect(nodeBoxTokens(SUPPLIER_OFF_PATH.label)).toContain('stroke-hairline');
-  });
-
-  it('names the drawing it frames with the lens’s own title', () => {
-    renderLens({ selectedNodeId: SELECTED_NODE_ID });
-
-    /* The lens supplies the title and the drawing states it as its accessible name, so the figure and
-       the graphic inside it are announced by the words a reader sees above them (rule B-3). */
-    expect(screen.getByRole('group', { name: GRAPH_LENS_TEXT.title })).toHaveAttribute(
-      'aria-label',
-      GRAPH_LENS_TEXT.title,
-    );
-  });
-});
-
-/* ---------------------------------------------------------------------------------------------
- * The direction the reader chooses
- * ------------------------------------------------------------------------------------------- */
-
-describe('GraphLens emphasis direction', () => {
-  it.each([
-    {
-      direction: 'upstream',
-      onPath: [ORIGIN.label, SUPPLIER.label, MATERIAL.label],
-      offPath: [CUSTOMER.label],
-      onPathWord: GRAPH_LENS_TEXT.path.upstream,
-      caption:
-        'Emphasis traces the upstream path of Main assembly site; every other node is dimmed.',
-    },
-    {
-      direction: 'downstream',
-      onPath: [CUSTOMER.label],
-      offPath: [ORIGIN.label, SUPPLIER.label, MATERIAL.label],
-      onPathWord: GRAPH_LENS_TEXT.path.downstream,
-      caption:
-        'Emphasis traces the downstream path of Main assembly site; every other node is dimmed.',
-    },
-  ] as const)(
-    'traces only the $direction half of the path through the drawing, the caption and the table',
-    async ({ direction, onPath, offPath, onPathWord, caption }) => {
-      const user = userEvent.setup();
-      renderLens({ selectedNodeId: SELECTED_NODE_ID });
-
-      await user.click(directionControl(direction));
-
-      expect(directionControl(direction)).toHaveAttribute('aria-pressed', 'true');
-      expect(directionControl('both')).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getByText(caption)).toBeInTheDocument();
-
-      /* The drawing states the choice on every node: the ones the direction reached are traced, the
-         ones it did not are pushed back with a thinner boundary and a lighter label (rule B-3). */
-      for (const label of onPath) {
-        expect(nodeBoxTokens(label)).toContain('stroke-accent');
-      }
-
-      for (const label of offPath) {
-        expect(nodeBoxTokens(label)).toContain('stroke-hairline');
-      }
-
-      /* The table view is the same walk in words: every node outside the chosen direction reads as
-         off the path rather than as belonging to the half nobody traced. */
-      await user.click(tableToggle());
-
-      const table = screen.getByRole('table', { name: GRAPH_LENS_TEXT.tableCaption });
-
-      expect(pathWordOf(table, PLANT.label)).toBe(GRAPH_LENS_TEXT.path.selected);
-
-      for (const label of onPath) {
-        expect(pathWordOf(table, label)).toBe(onPathWord);
-      }
-
-      for (const label of offPath) {
-        expect(pathWordOf(table, label)).toBe(GRAPH_LENS_TEXT.path.none);
-      }
-    },
+  const stated = PIN_STATE_ORDER.filter((state) => counts[state] > 0).map(
+    (state) => `${counts[state]} ${state}`,
   );
 
-  it('traces both halves at once when the reader returns to both directions', async () => {
-    const user = userEvent.setup();
+  if (stated.length === 0) {
+    return DEPENDENCY_GRAPH_TEXT.noPins;
+  }
 
-    renderLens({ selectedNodeId: SELECTED_NODE_ID });
+  const total = PIN_STATE_ORDER.reduce((sum, state) => sum + counts[state], 0);
+  const noun = total === 1 ? DEPENDENCY_GRAPH_TEXT.pinNounSingular : DEPENDENCY_GRAPH_TEXT.pinNoun;
 
-    await user.click(directionControl('upstream'));
-    await user.click(directionControl('both'));
+  return `${total} ${noun}${DEPENDENCY_GRAPH_TEXT.pinBreakdownSeparator} ${stated.join(', ')}`;
+}
 
-    expect(directionControl('both')).toHaveAttribute('aria-pressed', 'true');
-    expect(nodeBoxTokens(ORIGIN.label)).toContain('stroke-accent');
-    expect(nodeBoxTokens(CUSTOMER.label)).toContain('stroke-accent');
-    expect(
-      screen.getByText(
-        'Emphasis traces the upstream and downstream path of Main assembly site; ' +
-          'every other node is dimmed.',
-      ),
-    ).toBeInTheDocument();
-  });
-});
-
-/* ---------------------------------------------------------------------------------------------
- * The dimming the reader turns off
- * ------------------------------------------------------------------------------------------- */
-
-describe('GraphLens dimming', () => {
-  it('keeps the path emphasised and pushes nothing back once dimming is off, and says so', async () => {
-    const user = userEvent.setup();
-
-    renderLens({ selectedNodeId: SELECTED_NODE_ID });
-
-    expect(nodeBoxTokens(SUPPLIER_OFF_PATH.label)).toContain('stroke-hairline');
-
-    await user.click(dimmingSwitch());
-
-    expect(dimmingSwitch()).toHaveAttribute('aria-checked', 'false');
-
-    /* The path is still traced, and the node the dimming pushed back is now drawn at the resting
-       emphasis it shares with every other node off the path. */
-    expect(nodeBoxTokens(SUPPLIER.label)).toContain('stroke-accent');
-    expect(nodeBoxTokens(SUPPLIER_OFF_PATH.label)).not.toContain('stroke-hairline');
-    expect(nodeBoxTokens(SUPPLIER_OFF_PATH.label)).toContain('stroke-control-boundary');
-
-    /* Rule B-3: the caption states the state that is actually applied, not the default. */
-    expect(
-      screen.getByText(
-        'Emphasis traces the upstream and downstream path of Main assembly site; ' +
-          'no other node is dimmed.',
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it('dims again when the reader turns it back on', async () => {
-    const user = userEvent.setup();
-
-    renderLens({ selectedNodeId: SELECTED_NODE_ID });
-
-    await user.click(dimmingSwitch());
-    await user.click(dimmingSwitch());
-
-    expect(dimmingSwitch()).toHaveAttribute('aria-checked', 'true');
-    expect(nodeBoxTokens(SUPPLIER_OFF_PATH.label)).toContain('stroke-hairline');
-  });
-});
+/**
+ * The whole of one empty lane's row, as the table states it: the lane's own heading, the sentence the
+ * drawing prints inside that lane, and the three cells the drawing has no wording for.
+ */
+const EMPTY_LANE_CELLS: readonly string[] = [
+  DEPENDENCY_GRAPH_TEXT.emptyLane,
+  GRAPH_LENS_TEXT.emptyLane.family,
+  DEPENDENCY_GRAPH_TEXT.noPins,
+  GRAPH_LENS_TEXT.emptyLane.path,
+];
 
 /* ---------------------------------------------------------------------------------------------
- * Nothing selected: the state every control has to explain
+ * The cases
  * ------------------------------------------------------------------------------------------- */
 
-describe('GraphLens with no selection', () => {
-  it('disables all four controls with the drawing’s own reason and states what selecting does', () => {
+describe('GraphLens table view', () => {
+  it('prints a row for the lane the drawing fills with its empty-lane sentence', async () => {
     renderLens();
 
-    const controls = [...within(directionGroup()).getAllByRole('button'), dimmingSwitch()];
+    /* The drawing states the lane itself, so the case is about the table matching a sentence a reader
+       can already see rather than about a sentence invented here. */
+    expect(screen.getAllByText(DEPENDENCY_GRAPH_TEXT.emptyLane)).toHaveLength(1);
 
-    expect(controls).toHaveLength(4);
+    const table = await openTable();
+    const rows = within(table).getAllByRole('row').slice(1);
+    const emptyLanes = DEPENDENCY_GRAPH_LANES.filter((lane) => lane.kind === null);
 
-    for (const control of controls) {
-      expect(control).toHaveAttribute('aria-disabled', 'true');
+    expect(emptyLanes.length).toBeGreaterThan(0);
+    expect(rows).toHaveLength(nodesInLaneOrder(TOPOLOGY).length + emptyLanes.length);
 
-      const describedBy = control.getAttribute('aria-describedby');
-      const reason = document.getElementById(describedBy ?? '');
+    /* The lane column runs the drawing's own lanes, in the drawing's own order, so the table and the
+       picture list the same six columns. */
+    const laneCells: (string | null)[] = [];
 
-      /* The reason is the drawing's, imported rather than restated, so the lens and the control that
-         states it cannot describe the missing selection in two ways (rule P-8). */
-      expect(reason?.textContent).toBe(DEPENDENCY_GRAPH_TEXT.emphasisUnavailable);
+    for (const row of rows) {
+      laneCells.push(cellsOf(row)[0] ?? null);
     }
 
-    /* The caption states what the lens shows while nothing is selected, which is the sentence that
-       tells a reader the controls above it are waiting for a selection. */
-    expect(screen.getByText(GRAPH_LENS_TEXT.description)).toBeInTheDocument();
-    expect(screen.queryByText(new RegExp('^Emphasis traces', 'u'))).toBeNull();
+    expect([...new Set(laneCells)]).toStrictEqual(
+      DEPENDENCY_GRAPH_LANES.map((lane) => lane.label),
+    );
+
+    /* The lane with no node family takes exactly one row, and every one of its cells says something
+       true about it: the drawing's sentence, no family, no pins and no node to trace. */
+    for (const lane of emptyLanes) {
+      const stated = rows.filter((row) => cellsOf(row)[0] === lane.label);
+
+      expect(stated).toHaveLength(1);
+
+      const row = stated[0];
+
+      expect(row).toBeDefined();
+
+      if (row === undefined) {
+        continue;
+      }
+
+      expect(cellsOf(row)).toStrictEqual([lane.label, ...EMPTY_LANE_CELLS]);
+      expect(within(row).getByText(DEPENDENCY_GRAPH_TEXT.emptyLane)).toBeInTheDocument();
+    }
   });
 
-  it('dims nothing and traces nothing while nothing is selected', () => {
+  it('states every node of the payload in its own lane, in the payload’s own words', async () => {
     renderLens();
 
-    for (const label of [ORIGIN.label, SUPPLIER.label, SUPPLIER_OFF_PATH.label, CUSTOMER.label]) {
-      expect(nodeBoxTokens(label)).not.toContain('stroke-hairline');
-      expect(nodeBoxTokens(label)).toContain('stroke-control-boundary');
+    const table = await openTable();
+    const rows = within(table).getAllByRole('row').slice(1);
+    const emptyLanes = DEPENDENCY_GRAPH_LANES.filter((lane) => lane.kind === null);
+
+    expect(rows).toHaveLength(nodesInLaneOrder(TOPOLOGY).length + emptyLanes.length);
+
+    /* Each node's row is found by the label it prints for that node, so the assertion reads the row a
+       reader would point at and the empty lane's row between two families cannot shift it. */
+    for (const lane of DEPENDENCY_GRAPH_LANES) {
+      if (lane.kind === null) {
+        continue;
+      }
+
+      for (const node of nodesOfFamily(TOPOLOGY, lane.kind)) {
+        const row = rows.find((candidate) => cellsOf(candidate)[1] === node.label);
+
+        expect(row).toBeDefined();
+
+        if (row === undefined) {
+          continue;
+        }
+
+        expect(cellsOf(row)).toStrictEqual([
+          lane.label,
+          node.label,
+          NODE_FAMILY_WORDS[node.kind],
+          pinsCellOf(TOPOLOGY.pinsByNode[node.id]),
+          GRAPH_LENS_TEXT.path.noSelection,
+        ]);
+      }
+    }
+  });
+
+  it('prints an empty-lane row for a lane a narrowed payload empties as well', async () => {
+    renderLens({ topology: NARROWED_TOPOLOGY });
+
+    const table = await openTable();
+    const rows = within(table).getAllByRole('row').slice(1);
+    const customerLane = DEPENDENCY_GRAPH_LANES.find((lane) => lane.kind === 'customer');
+
+    expect(customerLane).toBeDefined();
+
+    if (customerLane === undefined) {
+      return;
+    }
+
+    /* One row fewer than the full payload, and the customer lane keeps its place with the drawing's own
+       sentence instead of disappearing from the table. The lanes shown empty are the one the drawing never
+       fills — every `kind: null` lane — plus the customer lane this payload empties. */
+    const lanesShownEmpty =
+      DEPENDENCY_GRAPH_LANES.filter((lane) => lane.kind === null).length + 1;
+
+    expect(rows).toHaveLength(nodesInLaneOrder(NARROWED_TOPOLOGY).length + lanesShownEmpty);
+
+    const stated = rows.filter((row) => cellsOf(row)[0] === customerLane.label);
+
+    expect(stated).toHaveLength(1);
+
+    const row = stated[0];
+
+    expect(row).toBeDefined();
+
+    if (row === undefined) {
+      return;
+    }
+
+    expect(cellsOf(row)).toStrictEqual([customerLane.label, ...EMPTY_LANE_CELLS]);
+  });
+
+  it('states each node’s place on the traced path, and no path for a lane that holds no node', async () => {
+    renderLens({ selectedNodeId: PLANT.id });
+
+    const table = await openTable();
+    const rows = within(table).getAllByRole('row').slice(1);
+
+    /**
+     * The path word one node's row prints, found by the label the row states for it.
+     *
+     * @param label The node's own label, as the payload spells it.
+     * @returns The last cell of that row.
+     */
+    function pathWordOf(label: string): string | null {
+      const row = rows.find((candidate) => cellsOf(candidate)[1] === label);
+
+      if (row === undefined) {
+        throw new Error(`the table printed no row for ${label}`);
+      }
+
+      const cells = cellsOf(row);
+
+      return cells[cells.length - 1] ?? null;
+    }
+
+    expect(pathWordOf(PLANT.label)).toBe(GRAPH_LENS_TEXT.path.selected);
+    expect(pathWordOf(SUPPLIER.label)).toBe(GRAPH_LENS_TEXT.path.upstream);
+    expect(pathWordOf(ORIGIN.label)).toBe(GRAPH_LENS_TEXT.path.upstream);
+    expect(pathWordOf(CUSTOMER.label)).toBe(GRAPH_LENS_TEXT.path.downstream);
+
+    /* An empty lane holds no node, so it is on no path: the column says so rather than borrowing a node's
+       word for it. */
+    const emptyLane = DEPENDENCY_GRAPH_LANES.filter((lane) => lane.kind === null).map(
+      (lane) => lane.label,
+    );
+
+    expect(emptyLane.length).toBeGreaterThan(0);
+
+    for (const label of emptyLane) {
+      const row = rows.find((candidate) => cellsOf(candidate)[0] === label);
+
+      expect(row).toBeDefined();
+
+      if (row === undefined) {
+        continue;
+      }
+
+      const cells = cellsOf(row);
+
+      expect(cells[cells.length - 1]).toBe(GRAPH_LENS_TEXT.emptyLane.path);
     }
   });
 });

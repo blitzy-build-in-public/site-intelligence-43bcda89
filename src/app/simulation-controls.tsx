@@ -11,9 +11,10 @@
  * WHY THE STATE LIVES IN TWO PLACES AND ONLY TWO. The popover's open flag is the shell store's
  * `simulationOpen`, so the persistent `Simulated data` badge can open it from any route
  * (`src/app/providers.tsx` owns that field and this file neither introduces a second flag nor reads a
- * query parameter). Everything else below is either a local mirror of what this popover sent or the
- * request currently in flight; no screen branches on a trigger, because a trigger changes what the
- * adapter answers rather than which branch a component takes (AAP 0.12.1).
+ * query parameter). Everything else below is either a local mirror of what this popover sent, the
+ * request currently in flight, or the sentence the reset announces once the panel it closed is gone; no
+ * screen branches on a trigger, because a trigger changes what the adapter answers rather than which
+ * branch a component takes (AAP 0.12.1).
  *
  * WHY THE TRIGGERS GO THROUGH THE PORT. Every change is a `setSimulation` or `resetDemo` call on the
  * bound `SiteIntelligenceService` (rule P-2). This module imports no seed module, no mock adapter and
@@ -41,20 +42,23 @@
  *
  * WHAT IS NOT HERE. No role switching (that is `src/app/role-switcher.tsx`), no theme or density control
  * (that is `src/theme/`), no diagnostic or trace panel, and no state beyond the mirror of what this
- * popover sent. The one edit the tamper trigger makes to a recorded audit result belongs to the
- * adapter, so no identifier, sequence number or result value is typed here (rule P-6).
+ * popover sent and the one sentence it announces. The one edit the tamper trigger makes to a recorded
+ * audit result belongs to the adapter, so no identifier, sequence number or result value is typed here
+ * (rule P-6).
  *
  * Rules served:
  * - P-1 / P-4: the heading carries the exact `Simulated control` label from `SIM_LABELS`, and nothing
  *   here claims that the demonstration establishes a configuration, prevents a copy or resists an edit.
  * - P-2: every change goes through `useService()`; no record import of any kind.
- * - P-6: no figure, amount, identifier, date or sequence number is written here, and the reset's own
- *   outcome is reported from the service's message rather than from a count of anything.
+ * - P-6: no figure, amount, identifier, date or sequence number is written here: a refused change is
+ *   reported with the service's own message, and a completed reset with a sentence that states no count
+ *   of anything.
  * - P-7: product vocabulary only — no company, customer or model name of the real world.
  * - P-8: every control acts, and a control that cannot act is disabled with the sentence that says why.
  * - B-1 / B-2: no request, no environment read, no credential, no configuration value.
- * - B-3: a dialog with a focus trap, `Escape`, a visible focus ring, no colour-only state, and role
- *   tokens for every colour so both themes keep their measured contrast.
+ * - B-3: a dialog with a focus trap, `Escape`, a visible focus ring, no colour-only state, role tokens
+ *   for every colour so both themes keep their measured contrast, and a polite status region that
+ *   reports a completed reset once the panel it closed has gone (WCAG 2.2 SC 4.1.3).
  * - No test hook: nothing here reads a global, a query parameter or a flag to change behaviour.
  */
 import { X } from '@phosphor-icons/react';
@@ -128,6 +132,17 @@ export const SIMULATION_CONTROLS_TEXT = {
 
   /** What the reset does, immediately under its control. */
   resetDetail: 'Restores the seeded records, lifts every trigger and closes this panel.',
+
+  /**
+   * What a completed reset reports to a reader who cannot see the panel close.
+   *
+   * The action closes the panel it was taken from, so the control that was pressed, the confirmation
+   * the reader expects and the record they were reading all leave the screen at once. This sentence is
+   * what a screen reader hears in their place (rule B-3, WCAG 2.2 SC 4.1.3). It states only what the
+   * reset does — no figure, identifier or date is stated anywhere in this panel (rule P-6) — and
+   * claims nothing the demonstration does not perform (rule P-4).
+   */
+  resetCompleted: 'The demonstration data is restored and every trigger is lifted.',
 
   /** The accessible name of the control that repeats a change whose call failed. */
   retryLabel: 'Try again',
@@ -427,10 +442,17 @@ const TOGGLE_BUSY_CLASSES =
 /**
  * The single simulation popover, rendered by the shell beside the badge that opens it.
  *
- * It renders nothing while the shell store's `simulationOpen` is false, and its own state — the mirror
- * of what it has sent, the change in flight and the last failure — lives above that early return, so
+ * The panel renders only while the shell store's `simulationOpen` is true, and its own state — the
+ * mirror of what it has sent, the change in flight and the last failure — lives above that branch, so
  * closing and reopening the panel shows the triggers the adapter actually holds rather than resetting
  * the panel's memory to "all lifted".
+ *
+ * The reset is the one action here that closes the panel it was taken from, so its outcome would
+ * otherwise leave the screen with no word at all: it writes
+ * {@link SIMULATION_CONTROLS_TEXT.resetCompleted} into the shell store's announcement, which the shell
+ * renders in its own status region outside this component (rule B-3, WCAG 2.2 SC 4.1.3). The
+ * announcement is cleared when the panel is opened again, so a second reset announces itself the same
+ * way instead of re-writing a string that never changed and going unreported.
  *
  * Every change goes through the port: a screen state is set through `setSimulation`, the two extra
  * triggers the same way, and `Reset demo data` through `resetDemo`. A resolved change drops the reads
@@ -441,12 +463,12 @@ const TOGGLE_BUSY_CLASSES =
  * lift the trigger it set (rule P-8). A rejected one leaves the mirror untouched, keeps the panel open
  * and offers the retry, so nothing on screen pretends a change took effect (rule P-8).
  *
- * @returns The popover while it is open, or `null` while it is closed.
+ * @returns The panel while the popover is open, and `null` while it is closed.
  */
 export function SimulationControls(): ReactElement | null {
   const isOpen = useShellStore((state) => state.simulationOpen);
   const setSimulationOpen = useShellStore((state) => state.setSimulationOpen);
-  const resetShell = useShellStore((state) => state.resetShell);
+  const setAnnouncement = useShellStore((state) => state.setAnnouncement);
   const service = useService();
   const queryClient = useQueryClient();
 
@@ -454,6 +476,20 @@ export function SimulationControls(): ReactElement | null {
   const [extraFlags, setExtraFlags] = useState<FlagMirror>(initialFlagMirror);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
+
+  /**
+   * Clears the last announcement when the panel is opened.
+   *
+   * The region holds one sentence, and a second reset in the same session would write the same
+   * sentence into it: a live region reports a change, so an unchanged string would announce nothing.
+   * Emptying it on the way in leaves the next reset with something to say, and clears a message the
+   * reader has already been given. It reads no data and runs no read of its own (AAP 0.18.1).
+   */
+  useEffect(() => {
+    if (isOpen) {
+      setAnnouncement('');
+    }
+  }, [isOpen, setAnnouncement]);
 
   /**
    * Drops the reads a change was holding, clears what they cached and starts them again, in that order.
@@ -527,10 +563,21 @@ export function SimulationControls(): ReactElement | null {
         await service.resetDemo();
         setActiveState(null);
         setExtraFlags(initialFlagMirror());
-        /* The shell's own view of the session is not the adapter's: a reset also returns the role,
-           the scope, the selection and this panel's open flag, which is why the panel closes here and
-           returns focus to the badge that opened it. */
-        resetShell();
+        /* The reset closes the panel, so this is the whole of what a reader who is not looking at the
+           screen is told that it worked: the status region above carries the sentence, and it is
+           written only after the port has resolved (rule B-3, WCAG 2.2 SC 4.1.3). */
+        setAnnouncement(SIMULATION_CONTROLS_TEXT.resetCompleted);
+        /* The panel closes, and nothing else of the reader's session moves: the seeded records, the
+           chain and the triggers are the adapter's, while the persona in force, the scope filters, the
+           canvas selection and wall mode are the reader's own and survive the reset. Closing the panel
+           is also what returns focus to the badge that opened it. */
+        setSimulationOpen(false);
+        /* The records the reset installed are answered again by the screens that are mounted. The
+           payloads cached for the routes the reader has left describe the session that has just been
+           replaced, and holding them until their retention runs out keeps every visited route's records
+           resident on top of the ones being re-read; so the entries no mounted screen observes are
+           dropped here, before the reads are re-issued, and what remains is what a reader can still see. */
+        queryClient.removeQueries({ type: 'inactive' });
         /* Issued, not awaited: the busy state covers the port call, and a refetch the `loading` trigger
            holds would otherwise keep every control disabled for the rest of the session (rule P-8). The
            reads the reset was holding are dropped first, so the refetch starts a new one. The acting

@@ -744,9 +744,13 @@ export function PolicyDetailScreen(_props: PolicyDetailScreenProps): ReactElemen
    * readers of the same member qualify it with a name of their own — the shell's role switcher
    * (`src/app/role-switcher.tsx`) caches `['listPersonas', 'shell']`, the sovereignty screen
    * (`src/features/scr-07-sovereignty-and-policies/sovereignty-screen.tsx`) caches
-   * `['listPersonas', 'governance']`, and the service boundary's rule-P-8 gate read (`usePersonaRoster`
-   * in `src/services/service-provider.tsx`) caches its own `['listPersonas', 'permission-gates']` —
-   * so no two of them share an entry.
+   * `['listPersonas', 'governance']`, the service boundary's rule-P-8 gate read (`usePersonaRoster`
+   * in `src/services/service-provider.tsx`) caches its own `['listPersonas', 'permission-gates']`, and
+   * the two screens that name a record's owner or requester cache
+   * `['listPersonas', 'investigation']` (`src/features/scr-03-investigation/investigation-screen.tsx`)
+   * and `['listPersonas', 'approval-detail']`
+   * (`src/features/scr-05-approvals-and-audit/approval-detail-screen.tsx`) — so no two of them share
+   * an entry.
    */
   const readPersonas =
     demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);

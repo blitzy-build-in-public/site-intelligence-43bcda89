@@ -50,16 +50,27 @@
  * draws its own path and its own marks, and nothing here sums, totals or blends a first-party
  * figure with a market-intelligence one.
  *
- * THE POINTER IS ANSWERED TOO (rule B-3). A mark is a focus stop with a drawn focus ring, so a
- * keyboard reader always sees where they are; the same ring is revealed by `group-hover` and held by
- * `group-active`, so a hovered or pressed mark is visibly live for a pointer reader as well, and
- * neither state repaints the value the mark encodes. The only property either state transitions is
- * opacity, and it is carried by a `motion-safe` transition, so a reduced-motion session is shown the
- * same three states with no animation and nothing on this surface depends on one finishing. Where two
- * marks coincide, each one's invisible target is widened by a step for every series painted above it:
- * a baseline reading the same level as the selected option keeps a ring of its own outside the marks
- * over it and stays reachable by pointer, a chart of one series keeps the minimum target unchanged, and
- * the dot, the ring and the paint order are untouched — only the transparent target grows.
+ * THE POINTER IS ANSWERED TOO, AND WHAT IT SAYS IS A READ-OUT (rule B-3). A mark is a focus stop with
+ * a drawn focus ring, so a keyboard reader always sees where they are, and the ring is held in React
+ * state rather than by a hover variant alone: `pointerenter`, `pointerdown` and `focus` make one date
+ * the active column and `pointerleave` and `blur` clear it, so a hovered or focused mark is visibly
+ * live on a device that reports no hover capability as well as on one that does. That is not a
+ * preference: every hover variant this project's theme layer emits ships inside `@media (hover: hover)`,
+ * so a CSS-only reveal is inert wherever the engine never matches it and cannot be observed in a
+ * component test at all. The variants stay beside the state as an extra cue.
+ *
+ * THE ACTIVE COLUMN, NOT THE MARK UNDER THE POINTER. While a date is active the surface prints
+ * `./chart-readout.tsx`'s read-out at that column: the date, then every series that states a point on
+ * it with that series' own already-formatted value. Resolving the read-out to the column and not to
+ * whichever circle was painted last is what makes each series readable where two of them read the
+ * same value: where both series are zero their marks sit at one centre, and a column-wide read-out
+ * names them both instead of the later-painted one taking the press and hiding the other. Each
+ * coincident mark also keeps an invisible target of its own, widened by a step for every series
+ * painted above it, so neither is unreachable by pointer either. Naming the series and its formatted
+ * value is the whole of what the read-out prints — the module computes, rounds and formats nothing
+ * (rule P-6). The only property any of these states transitions is opacity, carried by a `motion-safe`
+ * transition, so a reduced-motion session is shown the same states with no animation and nothing on
+ * this surface depends on one finishing.
  *
  * Rules served: B-1 (no charting dependency, no fetched asset), B-2 (nothing to configure), B-3
  * (keyboard-reachable named marks, pointer states from role tokens only, and every transition gated
@@ -70,9 +81,10 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
 import type { IsoDate, SimLabel } from '../types';
 import { EvidenceDrawer } from './evidence-drawer';
+import { ChartReadout, chartTargetRadius, useChartScale } from './chart-readout';
 import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 import type { ChartTone } from './horizontal-bar-chart';
-
+import { truncateToWidth } from './svg-label';
 /* ---------------------------------------------------------------------------------------------
  * The vocabulary a caller draws with
  * ------------------------------------------------------------------------------------------- */
@@ -351,20 +363,25 @@ const FOCUS_RING_RADIUS = 6;
 const FOCUS_RING_STROKE_WIDTH = 1.5;
 
 /**
- * The ring around one mark: the series' own tone, invisible while the mark is neither focused, hovered
- * nor held down.
+ * The ring around one mark: the series' own tone, invisible while no mark on its date is active.
  *
- * `:focus-visible` rather than `:focus` for the keyboard half, so a pointer press does not leave a
- * keyboard indicator behind; `group-hover` and `group-active` for the pointer half, so a mark under the
- * pointer or under a press is visibly live even for a reader who is not using a keyboard. All three
- * reveal the same ring in the series' tone, which keeps the reading untouched: the ring adds a halo
- * around the dot and never repaints the value the mark encodes. `motion-safe:` carries the fade, so a
- * reduced-motion session gets the same states with no transition (rule B-3). No raw palette value, no
- * arbitrary value and no opacity literal appears here — `opacity-0` and `opacity-100` are the two
- * ends of the utility set the theme layer exposes, and no shadow utility exists to select.
+ * THE RING IS REVEALED BY STATE, AND THE VARIANTS ARE AN EXTRA CUE. The surface holds the date the
+ * pointer is over or the keyboard is on, and every mark on that date draws its ring through
+ * {@link FOCUS_RING_VISIBLE_CLASSES}. The `group-focus-visible`, `group-hover` and `group-active`
+ * variants stay beside that state so a pointer or a keyboard focus shows the ring in the same instant,
+ * but no reader depends on them: every hover variant this project's theme layer emits ships inside
+ * `@media (hover: hover)`, so a device that reports no hover capability would otherwise never see a
+ * ring at all, and no component test could observe it. The ring adds a halo around the dot and never
+ * repaints the value the mark encodes, and `motion-safe:` carries the fade, so a reduced-motion session
+ * gets the same states with no transition (rule B-3). No raw palette value and no arbitrary value
+ * appears here, and no shadow utility exists to select.
  */
 const FOCUS_RING_CLASSES =
-  'opacity-0 group-focus-visible:opacity-100 group-hover:opacity-100 group-active:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
+  'group-focus-visible:opacity-100 group-hover:opacity-100 group-active:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
+
+/** The ring's two states: hidden while no mark on the date is active, visible while one is. */
+const FOCUS_RING_HIDDEN_CLASSES = 'opacity-0';
+const FOCUS_RING_VISIBLE_CLASSES = 'opacity-100';
 
 /** Stroke widths and dash patterns: the hairline grid, a solid series, a dashed one, and the rest. */
 const HAIRLINE_STROKE_WIDTH = 1;
@@ -393,6 +410,12 @@ const DEFAULT_CHART_LABEL = 'Line chart';
 
 /** The surface itself: it fills its frame's width and keeps the box's proportions. */
 const SURFACE_CLASSES = 'block h-auto w-full min-w-0';
+
+/**
+ * The box the surface and its read-out share: `relative`, so the read-out is positioned against this
+ * drawing's own rectangle and can be placed at a share of the viewBox without measuring anything.
+ */
+const SURFACE_WRAPPER_CLASSES = 'relative';
 
 /** The shaded span's fill: the surface-2 role the theme paints a raised region with. */
 const BAND_CLASSES = 'text-surface-2';
@@ -892,6 +915,74 @@ export function LineChart({
    */
   const opensDrawer = activation === undefined;
 
+  /*
+   * THE DATE THE READER IS ON, AND WHAT IT SAYS. A pointer entering a mark, pressing it or focusing it
+   * makes its date the active column, and leaving or blurring clears it; the read-out beside the
+   * drawing then names that date and every series that states a reading on it. Resolving the read-out
+   * to the date rather than to whichever circle was painted last is what keeps each series reachable
+   * where two of them read the same value: where both are zero their marks sit at one centre, and the
+   * read-out names them both instead of the later-painted one hiding the other.
+   */
+  const [pointedX, setPointedX] = useState<IsoDate | null>(null);
+  const [focusedX, setFocusedX] = useState<IsoDate | null>(null);
+  const activeX = pointedX ?? focusedX;
+
+  /*
+   * The scale the drawing is rendered at, so a mark's target can be sized in CSS pixels rather than in
+   * user units: `./chart-readout.tsx` converts the 24 px minimum through it, and the dot's and the
+   * ring's own geometry stay untouched.
+   */
+  const { surfaceRef, scale } = useChartScale(VIEWBOX_WIDTH);
+
+  /** The room one date has on the axis: the nearest a target may grow before it meets its neighbour. */
+  const columnSpacing = PLOT_WIDTH / Math.max(1, calendar.length - 1);
+
+  /** The dates the read-out states readings for: the active one, and nothing where none is active. */
+  const activePoints =
+    activeX === null
+      ? []
+      : series.flatMap((spec) => {
+          const point = spec.points.find((candidate) => candidate.x === activeX);
+
+          return point === undefined ? [] : [{ series: spec, point }];
+        });
+
+  /** The read-out's lines: each series' own name beside the value it already formatted. */
+  const activeReadings = activePoints.map((entry) => ({
+    label: entry.series.label,
+    value: entry.point.yLabel,
+  }));
+
+  /** Where the highest mark on the active date sits, so the read-out is placed clear of every mark. */
+  const activeTopY =
+    activePoints.length === 0
+      ? 0
+      : Math.min(...activePoints.map((entry) => positionOfY(entry.point.y, y)));
+
+  /** Makes one date the active column: what pointing at, pressing or focusing a mark on it does. */
+  function activateColumn(date: IsoDate): void {
+    setPointedX(date);
+  }
+
+  /**
+   * Clears the active date, but only for the date that still holds it: a pointer crossing from one
+   * mark to another reports the leaving mark first, and clearing unconditionally would blank the
+   * read-out the entering mark is about to set.
+   */
+  function releaseColumn(date: IsoDate): void {
+    setPointedX((current) => (current === date ? null : current));
+  }
+
+  /** Makes one date the focused column, for the keyboard route. */
+  function focusColumn(date: IsoDate): void {
+    setFocusedX(date);
+  }
+
+  /** Clears the focused date, for the mark that still holds it. */
+  function releaseFocusOf(date: IsoDate): void {
+    setFocusedX((current) => (current === date ? null : current));
+  }
+
   /** Opens one point's evidence, whether the mark was clicked, tapped or pressed from the keyboard. */
   function openPoint(key: string, evidenceRef: string): void {
     setOpened({ key, evidenceRef });
@@ -936,269 +1027,323 @@ export function LineChart({
 
   return (
     <>
-      <svg
-        role="group"
-        aria-label={chartLabelFor(series)}
-        viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
-        className={SURFACE_CLASSES}
-      >
-        {/* The shaded spans, beneath every other mark so the series stay legible over them. */}
-        <g className={BAND_CLASSES}>
-          {bandList.map((band) => {
-            const from = x.positionOf(band.from);
-            const to = x.positionOf(band.to);
+      <div className={SURFACE_WRAPPER_CLASSES}>
+        <svg
+          ref={surfaceRef}
+          role="group"
+          aria-label={chartLabelFor(series)}
+          viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
+          className={SURFACE_CLASSES}
+        >
+          {/* The shaded spans, beneath every other mark so the series stay legible over them. */}
+          <g className={BAND_CLASSES}>
+            {bandList.map((band) => {
+              const from = x.positionOf(band.from);
+              const to = x.positionOf(band.to);
 
-            return (
-              <rect
-                key={`band-${band.from}-${band.to}`}
-                x={roundCoordinate(Math.min(from, to))}
-                y={PLOT_TOP}
-                width={roundCoordinate(Math.abs(to - from))}
-                height={PLOT_HEIGHT}
-                fill="currentColor"
-              />
-            );
-          })}
-        </g>
+              return (
+                <rect
+                  key={`band-${band.from}-${band.to}`}
+                  x={roundCoordinate(Math.min(from, to))}
+                  y={PLOT_TOP}
+                  width={roundCoordinate(Math.abs(to - from))}
+                  height={PLOT_HEIGHT}
+                  fill="currentColor"
+                />
+              );
+            })}
+          </g>
 
-        {/* The grid, on the hairline role, and the plot's own two edges. */}
-        <g className={HAIRLINE_CLASSES}>
-          {yTicks.map((tick) => {
-            const yPosition = roundCoordinate(positionOfY(tick, y));
+          {/* The grid, on the hairline role, and the plot's own two edges. */}
+          <g className={HAIRLINE_CLASSES}>
+            {yTicks.map((tick) => {
+              const yPosition = roundCoordinate(positionOfY(tick, y));
 
-            return (
-              <line
-                key={`grid-${tick}`}
-                x1={PLOT_LEFT}
-                x2={PLOT_RIGHT_EDGE}
-                y1={yPosition}
-                y2={yPosition}
-                stroke="currentColor"
-                strokeWidth={HAIRLINE_STROKE_WIDTH}
-              />
-            );
-          })}
-          <line
-            x1={PLOT_LEFT}
-            x2={PLOT_LEFT}
-            y1={PLOT_TOP}
-            y2={PLOT_BOTTOM_EDGE}
-            stroke="currentColor"
-            strokeWidth={HAIRLINE_STROKE_WIDTH}
-          />
-          <line
-            x1={PLOT_LEFT}
-            x2={PLOT_RIGHT_EDGE}
-            y1={PLOT_BOTTOM_EDGE}
-            y2={PLOT_BOTTOM_EDGE}
-            stroke="currentColor"
-            strokeWidth={HAIRLINE_STROKE_WIDTH}
-          />
-        </g>
-
-        {/* Reference levels: the zero line above all, ruled with a fine dot and labelled in the
-            secondary role. */}
-        <g className={REFERENCE_CLASSES}>
-          {referenceList.map((reference) => {
-            const yPosition = roundCoordinate(positionOfY(reference.y, y));
-
-            return (
-              <g key={`reference-${reference.label}-${reference.y}`}>
+              return (
                 <line
+                  key={`grid-${tick}`}
                   x1={PLOT_LEFT}
                   x2={PLOT_RIGHT_EDGE}
                   y1={yPosition}
                   y2={yPosition}
                   stroke="currentColor"
                   strokeWidth={HAIRLINE_STROKE_WIDTH}
-                  strokeDasharray={REFERENCE_DASH}
                 />
+              );
+            })}
+            <line
+              x1={PLOT_LEFT}
+              x2={PLOT_LEFT}
+              y1={PLOT_TOP}
+              y2={PLOT_BOTTOM_EDGE}
+              stroke="currentColor"
+              strokeWidth={HAIRLINE_STROKE_WIDTH}
+            />
+            <line
+              x1={PLOT_LEFT}
+              x2={PLOT_RIGHT_EDGE}
+              y1={PLOT_BOTTOM_EDGE}
+              y2={PLOT_BOTTOM_EDGE}
+              stroke="currentColor"
+              strokeWidth={HAIRLINE_STROKE_WIDTH}
+            />
+          </g>
+
+          {/* Reference levels: the zero line above all, ruled with a fine dot and labelled in the
+              secondary role. */}
+          <g className={REFERENCE_CLASSES}>
+            {referenceList.map((reference) => {
+              const yPosition = roundCoordinate(positionOfY(reference.y, y));
+
+              return (
+                <g key={`reference-${reference.label}-${reference.y}`}>
+                  <line
+                    x1={PLOT_LEFT}
+                    x2={PLOT_RIGHT_EDGE}
+                    y1={yPosition}
+                    y2={yPosition}
+                    stroke="currentColor"
+                    strokeWidth={HAIRLINE_STROKE_WIDTH}
+                    strokeDasharray={REFERENCE_DASH}
+                  />
+                  <text
+                    x={PLOT_RIGHT_EDGE}
+                    y={yPosition - REFERENCE_LABEL_LIFT}
+                    textAnchor="end"
+                    fill="currentColor"
+                    className={AXIS_LABEL_CLASSES}
+                  >
+                    {reference.label}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+
+          {/* The shaded spans' own labels, in the secondary role so they read over the fill. A span's
+              name is the caller's wording and can be any length, so a run wider than the plot is
+              shortened and keeps its full text in a `title` child; the legend and the frame's table view
+              carry the span itself, so nothing a reader needs to identify it depends on the drawn run. */}
+          <g className={X_LABEL_CLASSES}>
+            {bandList.map((band) => {
+              const from = x.positionOf(band.from);
+              const to = x.positionOf(band.to);
+              const label = truncateToWidth(band.label, PLOT_WIDTH);
+
+              return (
                 <text
-                  x={PLOT_RIGHT_EDGE}
-                  y={yPosition - REFERENCE_LABEL_LIFT}
-                  textAnchor="end"
-                  fill="currentColor"
-                  className={AXIS_LABEL_CLASSES}
-                >
-                  {reference.label}
-                </text>
-              </g>
-            );
-          })}
-        </g>
-
-        {/* The shaded spans' own labels, in the secondary role so they read over the fill. */}
-        <g className={X_LABEL_CLASSES}>
-          {bandList.map((band) => {
-            const from = x.positionOf(band.from);
-            const to = x.positionOf(band.to);
-
-            return (
-              <text
-                key={`band-label-${band.from}-${band.to}`}
-                x={roundCoordinate((from + to) / 2)}
-                y={BAND_LABEL_BASELINE}
-                textAnchor="middle"
-                fill="currentColor"
-                className={AXIS_LABEL_CLASSES}
-              >
-                {band.label}
-              </text>
-            );
-          })}
-        </g>
-
-        {/* Due-date markers: a dashed tick off the axis and its label beneath it. */}
-        <g className={MARKER_CLASSES}>
-          {markerList.map((marker) => {
-            const xPosition = roundCoordinate(x.positionOf(marker.x));
-
-            return (
-              <g key={`marker-${marker.x}-${marker.label}`}>
-                <line
-                  x1={xPosition}
-                  x2={xPosition}
-                  y1={PLOT_BOTTOM_EDGE}
-                  y2={PLOT_BOTTOM_EDGE + MARKER_TICK_LENGTH}
-                  stroke="currentColor"
-                  strokeWidth={HAIRLINE_STROKE_WIDTH}
-                  strokeDasharray={MARKER_DASH}
-                />
-                <text
-                  x={xPosition}
-                  y={MARKER_LABEL_BASELINE}
+                  key={`band-label-${band.from}-${band.to}`}
+                  x={roundCoordinate((from + to) / 2)}
+                  y={BAND_LABEL_BASELINE}
                   textAnchor="middle"
                   fill="currentColor"
                   className={AXIS_LABEL_CLASSES}
                 >
-                  {marker.label}
+                  {label === band.label ? null : <title>{band.label}</title>}
+                  {label}
                 </text>
+              );
+            })}
+          </g>
+
+          {/* Due-date markers: a dashed tick off the axis and its label beneath it. A label wider than
+              the plot is shortened the way a span's name is, with its full text in a `title` child. */}
+          <g className={MARKER_CLASSES}>
+            {markerList.map((marker) => {
+              const xPosition = roundCoordinate(x.positionOf(marker.x));
+              const label = truncateToWidth(marker.label, PLOT_WIDTH);
+
+              return (
+                <g key={`marker-${marker.x}-${marker.label}`}>
+                  <line
+                    x1={xPosition}
+                    x2={xPosition}
+                    y1={PLOT_BOTTOM_EDGE}
+                    y2={PLOT_BOTTOM_EDGE + MARKER_TICK_LENGTH}
+                    stroke="currentColor"
+                    strokeWidth={HAIRLINE_STROKE_WIDTH}
+                    strokeDasharray={MARKER_DASH}
+                  />
+                  <text
+                    x={xPosition}
+                    y={MARKER_LABEL_BASELINE}
+                    textAnchor={xLabelAnchor(xPosition)}
+                    fill="currentColor"
+                    className={AXIS_LABEL_CLASSES}
+                  >
+                    {label === marker.label ? null : <title>{marker.label}</title>}
+                    {label}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+
+          {/* One path per series, in that series' own tone, dashed where the caller says so. */}
+          {series.map((spec) => (
+            <path
+              key={`series-${spec.id}`}
+              d={seriesPath(spec.points, x, y)}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={SERIES_STROKE_WIDTH}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray={spec.dashed === true ? SERIES_DASH : undefined}
+              className={CHART_TONE_CLASSES[spec.tone].text}
+            />
+          ))}
+
+          {/* One focusable mark per point: small dot, generous target, evidence on activation. */}
+          {series.map((spec, seriesIndex) => {
+            /*
+             * Every series painted above this one widens its target, so a coincident mark stays reachable;
+             * `chartTargetRadius` then holds that result at 24 CSS pixels wherever the date's own room on
+             * the axis allows it. The dot and the ring keep their drawn size either way.
+             */
+            const hitRadius = chartTargetRadius(
+              scale,
+              HIT_RADIUS + (series.length - 1 - seriesIndex) * HIT_RADIUS_STEP,
+              columnSpacing,
+            );
+
+            return (
+              <g key={`marks-${spec.id}`} className={CHART_TONE_CLASSES[spec.tone].text}>
+                {spec.points.map((point, index) => {
+                  const key = `${spec.id}-${index}`;
+                  const isOpen = opened?.key === key;
+                  const isActive = point.x === activeX;
+                  const cx = roundCoordinate(x.positionOf(point.x));
+                  const cy = roundCoordinate(positionOfY(point.y, y));
+
+                  return (
+                    <g
+                      key={key}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={markLabelOf(spec, point, activation)}
+                      aria-haspopup={opensDrawer ? 'dialog' : undefined}
+                      aria-expanded={opensDrawer ? isOpen : undefined}
+                      aria-controls={opensDrawer && isOpen ? drawerId : undefined}
+                      onPointerEnter={() => {
+                        activateColumn(point.x);
+                      }}
+                      onPointerDown={() => {
+                        activateColumn(point.x);
+                      }}
+                      onPointerLeave={() => {
+                        releaseColumn(point.x);
+                      }}
+                      onFocus={() => {
+                        focusColumn(point.x);
+                      }}
+                      onBlur={() => {
+                        releaseFocusOf(point.x);
+                      }}
+                      onClick={() => {
+                        activatePoint(key, spec, point);
+                      }}
+                      onKeyDown={(event) => {
+                        handlePointKeyDown(event, key, spec, point);
+                      }}
+                      className={POINT_CLASSES}
+                    >
+                      <circle cx={cx} cy={cy} r={MARK_RADIUS} fill="currentColor" />
+                      {/* Revealed while this date is active — pointed at, pressed or focused — in the
+                          series' own tone, with the hover and pressed variants kept as an extra cue. */}
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={FOCUS_RING_RADIUS}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={FOCUS_RING_STROKE_WIDTH}
+                        className={`${FOCUS_RING_CLASSES} ${
+                          isActive ? FOCUS_RING_VISIBLE_CLASSES : FOCUS_RING_HIDDEN_CLASSES
+                        }`}
+                      />
+                      {/* Last child, so it takes the pointer anywhere near the dot, widened per series so
+                          a mark painted over a coincident one stays reachable. */}
+                      <circle cx={cx} cy={cy} r={hitRadius} fill="transparent" />
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
-        </g>
 
-        {/* One path per series, in that series' own tone, dashed where the caller says so. */}
-        {series.map((spec) => (
-          <path
-            key={`series-${spec.id}`}
-            d={seriesPath(spec.points, x, y)}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={SERIES_STROKE_WIDTH}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray={spec.dashed === true ? SERIES_DASH : undefined}
-            className={CHART_TONE_CLASSES[spec.tone].text}
+          {/* The x axis: every date the calendar labels, as the record states it. */}
+          <g className={X_LABEL_CLASSES}>
+            {xLabels.map((value) => (
+              <text
+                key={`x-label-${value}`}
+                x={roundCoordinate(x.positionOf(value))}
+                y={X_LABEL_BASELINE}
+                textAnchor={xLabelAnchor(x.positionOf(value))}
+                fill="currentColor"
+                className={AXIS_LABEL_CLASSES}
+              >
+                {value}
+              </text>
+            ))}
+          </g>
+
+          {/* The y axis: the domain's own readings, so the zero line is labelled wherever it falls. */}
+          <g className={X_LABEL_CLASSES}>
+            {yTicks.map((tick) => (
+              <text
+                key={`y-label-${tick}`}
+                x={PLOT_LEFT - Y_TICK_GAP}
+                y={roundCoordinate(positionOfY(tick, y)) + Y_TICK_TEXT_LIFT}
+                textAnchor="end"
+                fill="currentColor"
+                className={AXIS_LABEL_CLASSES}
+              >
+                {String(tick)}
+              </text>
+            ))}
+          </g>
+
+          {/* The axis names, where the caller gave them. */}
+          {xAxisLabel === undefined ? null : (
+            <text
+              x={PLOT_LEFT + PLOT_WIDTH / 2}
+              y={X_AXIS_LABEL_BASELINE}
+              textAnchor="middle"
+              fill="currentColor"
+              className={AXIS_TITLE_CLASSES}
+            >
+              {xAxisLabel}
+            </text>
+          )}
+          {yAxisLabel === undefined ? null : (
+            <text
+              transform={`translate(${Y_AXIS_LABEL_OFFSET} ${PLOT_TOP + PLOT_HEIGHT / 2}) rotate(-90)`}
+              textAnchor="middle"
+              fill="currentColor"
+              className={AXIS_TITLE_CLASSES}
+            >
+              {yAxisLabel}
+            </text>
+          )}
+        </svg>
+
+        {/* The read-out for the active date: the date, then every series that states a reading on it,
+            placed above the highest of those marks and positioned as a share of the drawing's own box by
+            `./chart-readout.tsx`, so it lands on its column at any width and stays legible. */}
+        {activeX === null || activeReadings.length === 0 ? null : (
+          <ChartReadout
+            anchor={{
+              x: x.positionOf(activeX),
+              y: activeTopY,
+              viewBoxWidth: VIEWBOX_WIDTH,
+              viewBoxHeight: VIEWBOX_HEIGHT,
+            }}
+            title={activeX}
+            lines={activeReadings}
           />
-        ))}
-
-        {/* One focusable mark per point: small dot, generous target, evidence on activation. */}
-        {series.map((spec, seriesIndex) => {
-          /* Every series painted above this one widens its target, so a coincident mark stays reachable. */
-          const hitRadius = HIT_RADIUS + (series.length - 1 - seriesIndex) * HIT_RADIUS_STEP;
-
-          return (
-            <g key={`marks-${spec.id}`} className={CHART_TONE_CLASSES[spec.tone].text}>
-              {spec.points.map((point, index) => {
-                const key = `${spec.id}-${index}`;
-                const isOpen = opened?.key === key;
-                const cx = roundCoordinate(x.positionOf(point.x));
-                const cy = roundCoordinate(positionOfY(point.y, y));
-
-                return (
-                  <g
-                    key={key}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={markLabelOf(spec, point, activation)}
-                    aria-haspopup={opensDrawer ? 'dialog' : undefined}
-                    aria-expanded={opensDrawer ? isOpen : undefined}
-                    aria-controls={opensDrawer && isOpen ? drawerId : undefined}
-                    onClick={() => {
-                      activatePoint(key, spec, point);
-                    }}
-                    onKeyDown={(event) => {
-                      handlePointKeyDown(event, key, spec, point);
-                    }}
-                    className={POINT_CLASSES}
-                  >
-                    <circle cx={cx} cy={cy} r={MARK_RADIUS} fill="currentColor" />
-                    {/* Revealed by keyboard focus, a hover or a press, in the series' own tone. */}
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={FOCUS_RING_RADIUS}
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={FOCUS_RING_STROKE_WIDTH}
-                      className={FOCUS_RING_CLASSES}
-                    />
-                    {/* Last child, so it takes the pointer anywhere near the dot, widened per series so a
-                        mark painted over a coincident one stays reachable. */}
-                    <circle cx={cx} cy={cy} r={hitRadius} fill="transparent" />
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })}
-
-        {/* The x axis: every date the calendar labels, as the record states it. */}
-        <g className={X_LABEL_CLASSES}>
-          {xLabels.map((value) => (
-            <text
-              key={`x-label-${value}`}
-              x={roundCoordinate(x.positionOf(value))}
-              y={X_LABEL_BASELINE}
-              textAnchor={xLabelAnchor(x.positionOf(value))}
-              fill="currentColor"
-              className={AXIS_LABEL_CLASSES}
-            >
-              {value}
-            </text>
-          ))}
-        </g>
-
-        {/* The y axis: the domain's own readings, so the zero line is labelled wherever it falls. */}
-        <g className={X_LABEL_CLASSES}>
-          {yTicks.map((tick) => (
-            <text
-              key={`y-label-${tick}`}
-              x={PLOT_LEFT - Y_TICK_GAP}
-              y={roundCoordinate(positionOfY(tick, y)) + Y_TICK_TEXT_LIFT}
-              textAnchor="end"
-              fill="currentColor"
-              className={AXIS_LABEL_CLASSES}
-            >
-              {String(tick)}
-            </text>
-          ))}
-        </g>
-
-        {/* The axis names, where the caller gave them. */}
-        {xAxisLabel === undefined ? null : (
-          <text
-            x={PLOT_LEFT + PLOT_WIDTH / 2}
-            y={X_AXIS_LABEL_BASELINE}
-            textAnchor="middle"
-            fill="currentColor"
-            className={AXIS_TITLE_CLASSES}
-          >
-            {xAxisLabel}
-          </text>
         )}
-        {yAxisLabel === undefined ? null : (
-          <text
-            transform={`translate(${Y_AXIS_LABEL_OFFSET} ${PLOT_TOP + PLOT_HEIGHT / 2}) rotate(-90)`}
-            textAnchor="middle"
-            fill="currentColor"
-            className={AXIS_TITLE_CLASSES}
-          >
-            {yAxisLabel}
-          </text>
-        )}
-      </svg>
+      </div>
 
       {/* The legend: a visible row per series and per shaded span, each named beside its own swatch. */}
       {series.length === 0 && bandList.length === 0 ? null : (

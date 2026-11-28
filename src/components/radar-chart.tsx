@@ -30,26 +30,32 @@
  * pack fixes its scores as integers from zero to one hundred, one per axis in axis order, with the
  * upper bound the strongest reading the pack records; `SCORE_MIN` and `SCORE_MAX` below are that
  * scale and nothing else reads them. They are geometry rather than a figure: a reading outside them
- * is drawn at the nearest ring instead of off the drawing, and no scale number is printed, so the
- * chart types no number onto the screen.
+ * is drawn at the nearest ring instead of off the drawing, and the only numbers the drawing prints are
+ * the scale's own two values — its midpoint and its upper bound, computed from those two constants —
+ * so a reader can measure an outline against the axis and no reading is ever typed onto the screen
+ * (rule P-6).
  *
- * WHY EVERY OUTLINE IS PAINTED UNDER EVERY MARK, AND THE PRESS IS RESOLVED BY PROXIMITY (pointer
- * hit-testing). Paint order protects the press, and the drawing paints in two passes for it: a
- * polygon painted after a mark would sit above that mark's vertex target and take the press aimed
- * at it. A polygon is decoration for the readings the marks carry and never acts
+ * WHY EVERY OUTLINE IS PAINTED UNDER EVERY MARK, AND THE POINTER AND THE PRESS ARE BOTH RESOLVED BY
+ * PROXIMITY (pointer hit-testing). Paint order protects the read-out and the press alike, and the
+ * drawing paints in two passes for it: an outline painted after a mark would sit above that mark's
+ * vertex target and take the pointer aimed at it. A polygon is decoration for the readings the marks
+ * carry and never acts
  * itself, so it is transparent to pointer events and every outline is painted before every mark,
- * both in payload order. Paint order alone cannot place a press, though: a target has to stay large
- * enough for a pointer (rule B-3), and two series' scores on one axis can put their dots closer
+ * both in payload order. Paint order alone cannot answer a pointer, though: a target has to stay
+ * large enough for a pointer (rule B-3), and two series' scores on one axis can put their dots closer
  * together than one target is wide, so the target painted last covers the dot drawn before it and
- * would take a press aimed at its neighbour. The drawing therefore resolves the press itself rather
- * than leaving it to the browser's hit test: {@link RadarChart} listens once, on the `<svg>`,
- * converts the pointer's coordinates into this drawing's own units and activates the vertex whose
- * centre is NEAREST the press — see {@link nearestRadarMark} — within the hit radius a target already
- * carries. A dense cluster then opens the vertex under the pointer wherever the pointer lands inside
- * overlapping targets, and a press clear of every vertex activates nothing, so no reading is invented
- * (rule P-8). The keyboard route is untouched and stays exact, because it needs no hit-testing at
- * all: one focus stop per vertex, in axis order, each named with its axis, its series and its value,
- * activated by `Enter` or `Space` on the mark itself.
+ * sits above it wherever the two overlap. The drawing therefore resolves the pointer itself rather
+ * than leaving it to the browser's hit test: {@link RadarChart} listens on the `<svg>` for the
+ * pointer's movement and for its press, converts the pointer's coordinates into this drawing's own
+ * units, and answers the vertex whose centre is NEAREST it — see {@link nearestRadarMark} — within
+ * the hit radius a target already carries. Pointing into a dense cluster therefore reads out the dot
+ * nearest the pointer however the targets overlap, a press at that point activates the same vertex,
+ * and a pointer clear of every vertex reads out and activates nothing, so no reading is invented
+ * (rule P-8). The ring follows the vertex that resolution picked, so the mark a reader is told about
+ * is the mark that lights up even where another series' target is painted above it. The keyboard
+ * route is untouched and stays exact, because it needs no hit-testing at all: one focus stop per
+ * vertex, in axis order, each named with its axis, its series and its value, activated by `Enter` or
+ * `Space` on the mark itself.
  *
  * WHY EACH POLYGON CARRIES ITS OWN LABEL (rule P-1). A legend beside a drawing relates a name to a
  * shape only through a swatch a reader has to match, so each series is labelled at its own outline as
@@ -82,45 +88,65 @@
  * structural — a stroke weight, a text weight and an attribute — and never a hue a reader has to
  * separate (rule B-3).
  *
- * WHAT IT DOES NOT DO. It reads no clock, keeps no state beyond the evidence it has open, sends no
- * request (rule B-1), reads no configuration (rule B-2) and imports no seed record (rule P-2: every
- * score arrives in the `series` prop exactly as the atlas payload stated it). It computes and
- * formats no domain figure (rule P-6), declares one transition — the guarded fade that reveals a
- * vertex's ring under a hover or a press — and no animation at all, so a reduced-motion session is
- * shown the same drawing with nothing to undo (rule B-3), claims nothing about where a record is held
- * or whether it could be altered (rule P-4), and names no company, place or person of its own (rule
- * P-7).
+ * WHAT IT DOES NOT DO. It reads no clock, keeps no state beyond the vertices the drawing reports (the
+ * one the pointer resolved and the one the keyboard is on) and the
+ * evidence it has open, sends no request (rule B-1), reads no configuration (rule B-2) and imports no
+ * seed record (rule P-2: every score arrives in the `series` prop exactly as the atlas payload stated
+ * it). It computes and formats no domain figure (rule P-6), declares one transition — the guarded fade
+ * that reveals a vertex's ring — and no animation at all, so a reduced-motion session is shown the
+ * same drawing with nothing to undo (rule B-3), claims nothing about where a record is held or whether
+ * it could be altered (rule P-4), and names no company, place or person of its own (rule P-7).
  *
  * ACCESSIBILITY (rule B-3). The drawing is one `<svg role="group">` named by
  * `RADAR_CHART_TEXT.groupLabel`, which deliberately does not repeat the `<figcaption>` the caller's
  * `./chart-frame.tsx` supplies. Each axis is named at its outer end in the secondary text role, and
- * the rings, spokes and vertex dots are decoration. A vertex that can act — because the caller's
+ * the rings, spokes, the scale's two values and vertex dots are decoration, hidden from assistive
+ * technology because every reading is named at its own vertex and printed again in the frame's table
+ * view. A vertex that can act — because the caller's
  * `evidenceRefFor` resolved a reference for it, or because `onActivate` was supplied — is a
  * `<g role="button" tabIndex={0}>` whose accessible name states the axis, the series and the value,
  * operable by the pointer the drawing resolves and by `Enter` or `Space` on the mark itself, with a
- * ring in the `focus-ring` role drawn around the mark and revealed by a keyboard focus, a hover or a
- * press, so the pointer has the indicator the keyboard already had. A vertex that can do nothing
- * stays a plain `<circle>`, so rule P-8 is never broken by a control with nothing behind it, and the
- * drawing's one press listener is not a control: it adds no focus stop and no accessible node. WHAT A
- * POINTER MEANS is resolved by distance: two series' readings on one axis can sit closer together than
- * two invisible targets, so a press activates the mark nearest the pointer among the drawing's marks
- * rather than the mark whose target received the event, and the outline polygons take no pointer events
- * at all, so a shape that performs nothing never swallows an aim. `Enter` and `Space` are exact,
- * because focus lands on one mark alone.
+ * ring in the `focus-ring` role drawn around the mark. WHICH VERTEX IS ACTIVE IS REACT STATE, set by
+ * the drawing's nearest-vertex resolution as the pointer moves over it and by focus reaching a mark,
+ * and cleared when the pointer leaves the drawing, when it moves clear of every vertex, or when that
+ * mark loses focus: that state paints the ring and it is what `./chart-readout.tsx` prints beside the
+ * drawing — the axis, the series and the score the mark already announces — so a pointer reader has
+ * the same reading a screen reader does. A hover variant alone could not carry that: every hover
+ * variant this project emits lives inside `@media (hover: hover)`, so it is inert wherever the engine
+ * never matches it, and it would light the target painted above the dot a reader aimed at rather than
+ * the vertex the drawing resolved. A vertex that can do nothing stays a plain `<circle>`, so rule P-8
+ * is never broken by a control with nothing behind it, and the drawing's pointer listeners are not a
+ * control: they add no focus stop and no accessible node. WHAT A POINTER MEANS is resolved by
+ * distance: two series' readings on one axis can sit closer together than two invisible targets, so a
+ * pointer movement reads out, and a press activates, the mark nearest the pointer among the drawing's
+ * marks rather than the mark whose target received the event, and the outline polygons take no
+ * pointer events at all, so a shape that performs nothing never swallows an aim. `Enter` and `Space`
+ * are exact, because focus lands on one mark alone.
  */
 import { useState } from 'react';
 import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
 } from 'react';
 
 import { COMPETITOR_NAME_TAG } from '../types';
 import type { AtlasSeries, RadarAxis } from '../types';
 
 import { EvidenceDrawer } from './evidence-drawer';
+import { ChartReadout, chartTargetRadius, useChartScale } from './chart-readout';
 import { CHART_TONE_CLASSES, competitorSlotOf } from './horizontal-bar-chart';
 import type { CompetitorSlot } from './horizontal-bar-chart';
+import { SeriesBand } from './series-band';
+import type { SeriesBandGeometry, SeriesBandRow } from './series-band';
+import {
+  LABEL_CLEARANCE,
+  SVG_LABEL_TEXT_METRICS,
+  estimateTextWidth,
+  placeLabels,
+} from './svg-label';
+import type { LabelBox, LabelFit, LabelObstacle, LabelPlacement, LabelRequest } from './svg-label';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording, in the one place it is written
@@ -256,10 +282,11 @@ const RADIUS = 120;
 /**
  * The concentric rings, as fractions of {@link RADIUS}.
  *
- * Four rings give a reader a coarse quartile reading without any tick label, which is deliberate:
- * printing scale numbers would put a typed figure on the screen (rule P-6), and the numbers a reader
- * needs are the scores, which arrive with the payload and are named in each vertex's accessible
- * name.
+ * Four rings give a reader a coarse quartile reading, and the two of them the scale states a value for are
+ * named by {@link RING_TICKS}: the outer ring is the scale's upper bound and the middle one its midpoint,
+ * so a reader can read the axis off the plot rather than only out of a vertex's accessible name. Those two
+ * values are derived from {@link SCORE_MIN} and {@link SCORE_MAX}, so no score is typed onto the screen
+ * (rule P-6).
  */
 const RING_FRACTIONS = [0.25, 0.5, 0.75, 1] as const;
 
@@ -331,7 +358,14 @@ const POLYGON_LABEL_HALO_WIDTH = 3;
  */
 const POLYGON_LABEL_VERTICAL_TOLERANCE = 0.3;
 
-/** A vertex: the dot a reader sees, the larger invisible target around it, and its focus ring. */
+/**
+ * A vertex: the dot a reader sees, the larger invisible target around it, and its focus ring.
+ *
+ * {@link MARK_HIT_RADIUS} is the target's radius in the drawing's own units at the size the drawing is
+ * drawn at its natural width; the radius actually drawn comes from `./chart-readout.tsx`'s
+ * `chartTargetRadius`, which grows it until the target is 24 CSS pixels across at the width the element
+ * is rendered at — the minimum rule B-3 sets, which the view box's proportions cannot express.
+ */
 const MARK_RADIUS = 3.5;
 const MARK_HIT_RADIUS = 12;
 const FOCUS_RING_RADIUS = 9;
@@ -349,6 +383,24 @@ const LABEL_BAND_TOP = 370;
 const SERIES_LABEL_ROW_HEIGHT = 34;
 const SERIES_LABEL_LINE_HEIGHT = 16;
 const LABEL_BAND_PADDING = 12;
+
+/**
+ * Where this drawing's band starts, how its rows are spaced and how wide a line may be.
+ *
+ * `./series-band.tsx` owns the row itself — the two text roles, the truncation and the row in view's
+ * emphasis — so this drawing states only its own geometry: the band begins {@link LABEL_BAND_TOP} below
+ * the axes, one row per series {@link SERIES_LABEL_ROW_HEIGHT} apart, with the companion line
+ * {@link SERIES_LABEL_LINE_HEIGHT} below its name, and no line may run past the drawing's own width. No
+ * swatch column is stated because this band prints none: each series' polygon at its own outline carries
+ * its colour, and the screen's `./legend.tsx` carries the swatch.
+ */
+const BAND_GEOMETRY: SeriesBandGeometry = {
+  top: LABEL_BAND_TOP,
+  rowHeight: SERIES_LABEL_ROW_HEIGHT,
+  lineHeight: SERIES_LABEL_LINE_HEIGHT,
+  textX: SERIES_LABEL_X,
+  maxTextWidth: VIEW_WIDTH - SERIES_LABEL_X - LABEL_CLEARANCE,
+};
 
 /**
  * The pack scale the seed's market-intelligence records use, and the only two numbers the geometry
@@ -451,6 +503,12 @@ function toneOf(series: readonly AtlasSeries[], one: AtlasSeries): SeriesTone {
 const SVG_CLASSES = 'block h-auto w-full min-w-0';
 
 /**
+ * The box the drawing and its read-out share: `relative`, so a read-out placed at a share of the view
+ * box lands on the vertex it describes without either of them being measured.
+ */
+const SURFACE_WRAPPER_CLASSES = 'relative';
+
+/**
  * A polygon label's words: the primary text role, haloed in the card surface role behind its fill.
  *
  * The fill is the token specification §4 measures for text and is the same one the label band's rows
@@ -462,41 +520,38 @@ const SVG_CLASSES = 'block h-auto w-full min-w-0';
  */
 const POLYGON_LABEL_TEXT_CLASSES = 'text-12 fill-text-primary stroke-surface-1';
 
-/** A series' name line in the label band: the primary text role, whose contrast §4 measures. */
-const BAND_NAME_CLASSES = 'text-12 fill-text-primary';
-
-/**
- * The weight the name of the series in view takes: the type scale's own bundled weight, so the
- * emphasis is structure rather than a size, a colour or a decoration (rule B-3).
- */
-const SELECTED_NAME_CLASSES = 'font-semibold';
-
 /**
  * A vertex that can act: the whole mark, with the visible dot and the invisible target around it.
  *
- * The target is the SVG half of the 24x24 px minimum a pointer needs (rule B-3): the dot is a few
- * units across, so the group carries a larger hit circle declared `fill="none"` with pointer events
- * enabled, which receives the pointer without painting anything. Its `group` marker is what the ring's
- * hover and pressed variants hang on, so a hover is applied by the browser rather than held in state.
+ * The target is the size rule B-3 asks a mark to present, and it is sized in CSS pixels rather than in
+ * the drawing's own units (WCAG 2.2 SC 2.5.8): `./chart-readout.tsx`'s `chartTargetRadius` grows the
+ * radius until the target is 24 CSS pixels across at the width the drawing is rendered at, so a narrow
+ * panel keeps the same target a wide one has. Its size never decides which reading a pointer gets: the
+ * drawing answers the vertex *nearest* the pointer ({@link nearestRadarMark}) rather than the target the
+ * browser hit, so two targets that overlap cannot hand one reading's pointer to another. The `group`
+ * marker is what the ring's keyboard variant hangs on.
  */
 const MARK_GROUP_CLASSES = 'group cursor-pointer';
 
 /**
  * The ring around one vertex: the `focus-ring` role the token layer measures for that purpose in both
- * themes, revealed by a keyboard focus, a hover or a press.
+ * themes, revealed while the vertex is the active one.
  *
- * `:focus-visible` rather than `:focus` for the keyboard half, so a pointer press does not leave a
- * keyboard indicator behind and a keyboard reader always sees one; `group-hover` and `group-active` for
- * the pointer half, so a vertex under the pointer or under a press is visibly live for a reader who
- * never uses a keyboard. All three reveal the same ring, so no state repaints the reading the vertex
- * encodes, and the ring is mounted at every render but painted at zero opacity until one of them
- * applies: nothing about it is conditionally rendered, so a hover leaves the surface's own state alone.
- * `motion-safe:` carries the fade, which is the only property any of these states changes (rule B-3);
- * no raw palette value, no arbitrary value and no opacity literal appears beyond the two ends of the
- * opacity scale, and the theme layer exposes no shadow to select.
+ * WHICH STATE PAINTS IT. The vertex the drawing's pointer resolution picked, and the vertex the
+ * keyboard is on, are held in React state by the chart below, and that state paints the ring through
+ * {@link FOCUS_RING_VISIBLE_CLASSES} and leaves it invisible through {@link FOCUS_RING_HIDDEN_CLASSES}.
+ * `group-focus-visible` stays beside that state as an extra cue for the keyboard. There is deliberately
+ * no `group-hover` and no `group-active` variant: a hover and a press belong to the topmost target the
+ * browser hit, which is not always the vertex the drawing resolved, so a ring lit by them would sit on
+ * a different reading than the one the read-out names. The state is what makes the ring correct, and
+ * that is also why a reader on a device reporting no hover still sees the vertex they are pointing at
+ * together with the read-out that belongs to it. No state repaints the reading the vertex encodes, and
+ * `motion-safe:` carries the fade, which is the only property any of these states changes (rule B-3).
  */
-const FOCUS_RING_CLASSES =
-  'stroke-focus-ring opacity-0 group-focus-visible:opacity-100 group-hover:opacity-100 group-active:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
+const FOCUS_RING_STATE_CLASSES =
+  'stroke-focus-ring group-focus-visible:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
+const FOCUS_RING_HIDDEN_CLASSES = 'opacity-0';
+const FOCUS_RING_VISIBLE_CLASSES = 'opacity-100';
 
 /* ---------------------------------------------------------------------------------------------
  * Geometry helpers — pure arithmetic over the drawing's own coordinate space
@@ -600,6 +655,10 @@ interface SeriesVertex {
   readonly point: ChartPoint;
   /** The mark's accessible name: the axis, the series and the score, in that order. */
   readonly label: string;
+  /** The axis' own name, which is the heading of the read-out this vertex shows. */
+  readonly axisLabel: string;
+  /** The score as the record states it, for the read-out's value. Never recomputed here. */
+  readonly scoreText: string;
 }
 
 /**
@@ -624,6 +683,8 @@ function verticesOf(one: AtlasSeries, axes: readonly RadarAxis[]): readonly Seri
       axisId: axis.id,
       point: pointOnAxis(index, axes.length, axisFraction(value)),
       label: `${axis.label}, ${one.label}: ${value}`,
+      axisLabel: axis.label,
+      scoreText: String(value),
     });
   }
 
@@ -703,8 +764,215 @@ function polygonLabelOf(
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The scale's own values — the two rings that state what the axis measures
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The rings the scale states a value for: the midpoint and the outer ring.
+ *
+ * Two values rather than four, because a reader needs the scale's span and its half to place any reading
+ * between them, and a value on every ring would print four numbers beside a drawing whose readings are
+ * already named at every vertex. The fractions are the rings' own, so the values fall exactly on rings the
+ * drawing paints, and each value is computed from {@link SCORE_MIN} and {@link SCORE_MAX} — the scale the
+ * market pack's scores are recorded on — rather than typed (rule P-6).
+ */
+const RING_TICK_FRACTIONS: readonly number[] = [0.5, 1];
+
+/**
+ * The scale's values: the caption role, haloed by the surface behind the drawing.
+ *
+ * The caption role is what an annotation takes in this layer, and the surface-role stroke, painted before
+ * the fill, is the same device the polygon labels use: a ring or a spoke passing under the words is broken
+ * around them rather than running through the glyphs (rule B-3).
+ */
+const RING_TICK_CLASSES = 'text-12 fill-text-caption stroke-surface-1';
+
+/**
+ * The room the scale's values are placed in, and how far from their ring they are tried.
+ *
+ * The bounds stop above the series band, so a value never prints among the rows; the distances start close
+ * to the ring because a value belongs beside the circle it measures, and step outward only when an axis
+ * name or a polygon label already sits there.
+ */
+const RING_TICK_FIT: LabelFit = {
+  metrics: SVG_LABEL_TEXT_METRICS,
+  bounds: { width: VIEW_WIDTH, height: LABEL_BAND_TOP - LABEL_CLEARANCE },
+  boxHeight: SVG_LABEL_TEXT_METRICS.fontSize + 3,
+  lineHeight: SVG_LABEL_TEXT_METRICS.fontSize,
+  clearance: LABEL_CLEARANCE,
+  markRadius: POLYGON_LABEL_SWATCH_RADIUS,
+  distances: [6, 14, 24, 36, 52],
+  maxTextWidth: VIEW_WIDTH - 2 * LABEL_CLEARANCE,
+};
+
+/** One value the scale states: which ring it names, what it says and the point on that ring. */
+interface RingTick {
+  /** A stable key: the ring's own fraction. */
+  readonly key: string;
+  /** The ring the value names, as a fraction of {@link RADIUS}. */
+  readonly fraction: number;
+  /** The value itself, on the scale {@link SCORE_MIN}–{@link SCORE_MAX}. */
+  readonly value: string;
+  /** The point on that ring the value is placed beside. */
+  readonly point: ChartPoint;
+}
+
+/**
+ * The values the scale states, each on the ring it names.
+ *
+ * They sit on the direction halfway between the first two spokes rather than on a spoke itself, so a value
+ * never starts out on top of an axis name; the placement still answers for an axis name or a polygon label
+ * that reaches the space, and steps the value outward when it does. A drawing that states no axis has no
+ * spoke to sit between, so the direction falls back to the one a single spoke would leave free.
+ *
+ * @param axisCount How many axes the drawing carries.
+ * @returns One value per ring the scale states.
+ */
+function ringTicksOf(axisCount: number): readonly RingTick[] {
+  const count = Math.max(1, axisCount);
+  const angle = axisAngle(0, count) + Math.PI / count;
+
+  return RING_TICK_FRACTIONS.map((fraction) => ({
+    key: `ring-${String(fraction)}`,
+    fraction,
+    value: String(Math.round(SCORE_MIN + fraction * (SCORE_MAX - SCORE_MIN))),
+    point: {
+      x: roundCoordinate(CENTRE_X + RADIUS * fraction * Math.cos(angle)),
+      y: roundCoordinate(CENTRE_Y + RADIUS * fraction * Math.sin(angle)),
+    },
+  }));
+}
+
+/**
+ * The box one label's text occupies, as the placement reasons about it.
+ *
+ * A label is anchored at its start, its middle or its end, and its box grows away from that anchor, so the
+ * box's left edge is the anchor for a start-anchored run and moves left by the run's width for the other
+ * two. The height is one type step above the baseline, which is where the placement keeps its clear space.
+ *
+ * @param text The run the label prints.
+ * @param point Where the label's anchor sits.
+ * @param anchor Which end of the run the anchor is.
+ * @returns The label's box.
+ */
+function textBoxOf(text: string, point: ChartPoint, anchor: AxisLabelAnchor): LabelBox {
+  const width = estimateTextWidth(text, SVG_LABEL_TEXT_METRICS);
+  const left =
+    anchor === 'start' ? point.x : anchor === 'end' ? point.x - width : point.x - width / 2;
+
+  return {
+    x: left,
+    y: point.y - SVG_LABEL_TEXT_METRICS.fontSize,
+    width,
+    height: SVG_LABEL_TEXT_METRICS.fontSize + 3,
+  };
+}
+
+/**
+ * Where an axis name is printed: on the extension of its own spoke, {@link AXIS_LABEL_OFFSET} beyond the
+ * outer ring.
+ *
+ * @param axisIndex The axis' position among the axes.
+ * @param axisCount How many axes the drawing carries.
+ * @returns The point the axis name is anchored at.
+ */
+function axisLabelPointFor(axisIndex: number, axisCount: number): ChartPoint {
+  return pointOnAxis(axisIndex, axisCount, (RADIUS + AXIS_LABEL_OFFSET) / RADIUS);
+}
+
+/**
+ * Every printed name a scale value must keep clear of: each axis name and each series' polygon label.
+ *
+ * The series band is excluded by the fit's own bounds rather than by an obstacle, because no value may be
+ * placed among the rows at all.
+ *
+ * @param axes The axes the drawing carries.
+ * @param series The series the drawing carries, in drawing order.
+ * @returns One obstacle per axis name and per polygon label.
+ */
+function ringTickObstaclesOf(
+  axes: readonly RadarAxis[],
+  series: readonly AtlasSeries[],
+): readonly LabelObstacle[] {
+  const obstacles: LabelObstacle[] = [];
+
+  for (const [index, axis] of axes.entries()) {
+    obstacles.push({
+      key: `axis-name:${axis.id}`,
+      box: textBoxOf(
+        axis.label,
+        axisLabelPointFor(index, axes.length),
+        axisLabelAnchorFor(index, axes.length),
+      ),
+    });
+  }
+
+  for (const [index, one] of series.entries()) {
+    const label = polygonLabelOf(one, axes, index);
+
+    if (label === null) {
+      continue;
+    }
+
+    obstacles.push({
+      key: `polygon-label:${one.id}`,
+      box: textBoxOf(one.label, label.text, label.anchor),
+    });
+  }
+
+  return obstacles;
+}
+
+/**
+ * Where the scale's values are printed, keyed by the ring each one names.
+ *
+ * The placement is `./svg-label.ts`'s, so a value steps outward from its ring rather than printing over an
+ * axis name or a polygon label, and a value nothing can be cleared for is left off the drawing instead of
+ * overprinting one.
+ *
+ * @param ticks The values the scale states.
+ * @param axes The axes the drawing carries.
+ * @param series The series the drawing carries, in drawing order.
+ * @returns One placement per value that has room.
+ */
+function ringTickPlacementsOf(
+  ticks: readonly RingTick[],
+  axes: readonly RadarAxis[],
+  series: readonly AtlasSeries[],
+): ReadonlyMap<string, LabelPlacement> {
+  const requests: LabelRequest[] = ticks.map((tick) => ({
+    key: tick.key,
+    lines: [tick.value],
+    x: tick.point.x,
+    y: tick.point.y,
+  }));
+
+  return placeLabels(requests, ringTickObstaclesOf(axes, series), RING_TICK_FIT);
+}
+
+/* ---------------------------------------------------------------------------------------------
  * Pointer resolution — the press belongs to the vertex nearest it, not to the topmost target
  * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The vertex a reader is pointing at or has focused, as the series and the axis it belongs to.
+ *
+ * The identity is the two identifiers themselves rather than a selector string assembled from them: the
+ * ring and the read-out both have to locate the same reading, and a key parsed back into its parts
+ * would be a second source of truth beside the one the marks were rendered with.
+ */
+interface ActiveVertex {
+  /** The series whose record the vertex belongs to. */
+  readonly seriesId: string;
+
+  /** The axis the vertex sits on. */
+  readonly axisId: string;
+}
+
+/** Whether two vertices are one and the same reading, so a ring and a read-out cannot disagree. */
+function isSameVertex(one: ActiveVertex | null, other: ActiveVertex): boolean {
+  return one !== null && one.seriesId === other.seriesId && one.axisId === other.axisId;
+}
 
 /** One vertex a press can resolve to: the reading it reports and the point its dot is drawn at. */
 interface RadarMarkCentre {
@@ -874,6 +1142,14 @@ interface SeriesMarksProps extends SeriesGeometryProps {
   readonly onActivate: ((seriesId: string) => void) | undefined;
   /** Reports one activated vertex to the chart, which owns the evidence it has open. */
   readonly onVertexActivate: (seriesId: string, evidenceRef: string | null) => void;
+  /** The vertex the drawing resolved or the keyboard is on, so its ring and the read-out can report it. */
+  readonly activeVertex: ActiveVertex | null;
+  /** Reports the vertex focus reached, which is the keyboard's own route to the ring and the read-out. */
+  readonly onVertexFocus: (vertex: ActiveVertex) => void;
+  /** Reports the vertex focus left. */
+  readonly onVertexBlur: (vertex: ActiveVertex) => void;
+  /** The radius each acting vertex's invisible target is drawn at, in the drawing's own units. */
+  readonly hitRadius: number;
 }
 
 /** Props of one series' outline: the geometry it shares with its marks, and whether it is in view. */
@@ -931,10 +1207,10 @@ function SeriesOutline({
  * per stated reading.
  *
  * The chart paints every outline before it paints any mark group, so no polygon and no other series'
- * decoration can sit above a mark in document order. A mark carries no press handler of its own: the
- * chart resolves one press on the drawing and activates the vertex nearest it, so a press cannot be
- * delivered to a neighbouring target that happens to be painted above the dot a reader aimed at, and
- * no gesture can activate two vertices.
+ * decoration can sit above a mark in document order. A mark carries no pointer handler of its own: the
+ * chart resolves the pointer on the drawing — the vertex nearest it is read out as the pointer moves and
+ * activated when it is pressed — so pointing cannot be answered by a neighbouring target that happens to
+ * be painted above the dot a reader aimed at, and no gesture can activate two vertices.
  *
  * A mark becomes a control only when activating it does something — it opens the evidence the caller's
  * mapper resolved for that vertex, or it reports the series through `onActivate`. A vertex the mapper
@@ -942,10 +1218,10 @@ function SeriesOutline({
  * then did nothing would be a control that cannot act (rule P-8), and the drawing still shows every
  * reading it holds.
  *
- * WHO DECIDES WHICH MARK A POINTER MEANS. The chart owns the drawing's one press listener: it converts
- * the press into the drawing's own units and activates the mark nearest it, so no layer needs its
- * neighbours' geometry and no mark carries a press handler of its own. `Enter` and `Space` are the
- * mark's own, because focus is exact.
+ * WHO DECIDES WHICH MARK A POINTER MEANS. The chart owns the drawing's pointer listeners: it converts
+ * the pointer's position into the drawing's own units and reads out the mark nearest it as the pointer
+ * moves, activating that same mark when it is pressed, so no layer needs its neighbours' geometry.
+ * `Enter` and `Space` stay the mark's own, because focus is exact.
  */
 function SeriesMarks({
   series,
@@ -954,6 +1230,10 @@ function SeriesMarks({
   evidenceRefFor,
   onActivate,
   onVertexActivate,
+  activeVertex,
+  onVertexFocus,
+  onVertexBlur,
+  hitRadius,
 }: SeriesMarksProps): JSX.Element | null {
   const vertices = verticesOf(series, axes);
 
@@ -979,12 +1259,17 @@ function SeriesMarks({
     }
 
     /* The keyboard route: `Enter` or `Space` on the focused mark activates this very vertex, with no
-       hit-testing involved. The pointer route is the drawing's one press listener, which resolves the
-       press to the nearest vertex; a mark deliberately carries no press handler, so one gesture can
-       never activate two readings. */
+       hit-testing involved. The pointer route is the drawing's own nearest-vertex resolution, which
+       reads out and activates the vertex nearest the pointer; a mark deliberately carries no pointer
+       handler, so a target painted above a neighbour can neither answer for it nor make one gesture
+       activate two readings. */
     function activate(): void {
       onVertexActivate(series.id, evidenceRef);
     }
+
+    /* What the ring and the read-out report: this reading, as the series and the axis it belongs to. */
+    const mark: ActiveVertex = { seriesId: series.id, axisId: vertex.axisId };
+    const isActive = isSameVertex(activeVertex, mark);
 
     return (
       <g
@@ -1001,13 +1286,21 @@ function SeriesMarks({
           event.preventDefault();
           activate();
         }}
+        onFocus={() => {
+          onVertexFocus(mark);
+        }}
+        onBlur={() => {
+          onVertexBlur(mark);
+        }}
         className={MARK_GROUP_CLASSES}
       >
-        {/* The target: as large as a pointer needs, and painted with nothing. */}
+        {/* The target: the size rule B-3 asks a mark to present, painted with nothing. The drawing
+            resolves a pointer by distance rather than by this element, so its extent never decides
+            which reading the pointer answers. */}
         <circle
           cx={vertex.point.x}
           cy={vertex.point.y}
-          r={MARK_HIT_RADIUS}
+          r={hitRadius}
           fill="none"
           pointerEvents="all"
         />
@@ -1017,14 +1310,16 @@ function SeriesMarks({
           r={MARK_RADIUS}
           className={tone.area}
         />
-        {/* The ring: revealed by keyboard focus, a hover or a press. */}
+        {/* The ring: revealed while the drawing reports this vertex, through the state alone. */}
         <circle
           cx={vertex.point.x}
           cy={vertex.point.y}
           r={FOCUS_RING_RADIUS}
           fill="none"
           strokeWidth={FOCUS_RING_WIDTH}
-          className={FOCUS_RING_CLASSES}
+          className={`${FOCUS_RING_STATE_CLASSES} ${
+            isActive ? FOCUS_RING_VISIBLE_CLASSES : FOCUS_RING_HIDDEN_CLASSES
+          }`}
         />
       </g>
     );
@@ -1045,20 +1340,25 @@ function SeriesMarks({
  * line per series beneath them. It reads no clock, sends no request and computes no domain figure,
  * so a re-render of the atlas draws the same radar from the same payload.
  *
- * The component holds one piece of state — which evidence is open — and nothing else: activating a
+ * The component holds three pieces of state — the vertex the pointer resolved, the vertex the keyboard
+ * is on, and which evidence is open — and nothing else: activating a
  * mark asks the caller where that reading's evidence lives, opens `./evidence-drawer.tsx` beside the
  * drawing when it is told, and reports the series through `onActivate`. The drawer is a sibling of
  * the `<svg>` rather than a child of it, because a dialog is not an SVG element and the drawer
  * portals itself out of the flow anyway; keeping it outside the drawing also keeps it out of the
- * drawing's accessible name and out of its group.
+ * drawing's accessible name and out of its group. The one effect measures the drawing's width, through
+ * `./chart-readout.tsx`'s `useChartScale`, so a vertex's target is sized in CSS pixels rather than in
+ * the drawing's proportions; nothing here reads a clock or subscribes to anything else.
  *
  * The height grows with the number of series, so the name band below the axes always fits whatever
  * the payload carries and no label is clipped.
  *
- * A press is resolved by the drawing instead of by the browser's hit test: {@link nearestRadarMark}
- * picks the vertex nearest the press within the target radius, so a dense cluster opens the vertex
- * under the pointer even where a neighbour's larger target is painted above it, while the keyboard
- * route keeps activating the focused mark exactly.
+ * The pointer is resolved by the drawing instead of by the browser's hit test: {@link nearestRadarMark}
+ * answers the vertex nearest the pointer within the target radius as the pointer moves, so pointing into
+ * a dense cluster reads out the dot under the pointer even where a neighbour's larger target is painted
+ * above it, a press at that point activates that same vertex, and a pointer clear of every vertex leaves
+ * nothing reading out. The keyboard route keeps setting and clearing the read-out on focus and blur and
+ * keeps activating the focused mark exactly.
  */
 export function RadarChart({
   axes,
@@ -1068,9 +1368,63 @@ export function RadarChart({
   evidenceRefFor,
 }: RadarChartProps): JSX.Element {
   const [openEvidenceRef, setOpenEvidenceRef] = useState<string | null>(null);
+  const [pointedVertex, setPointedVertex] = useState<ActiveVertex | null>(null);
+  const [focusedVertex, setFocusedVertex] = useState<ActiveVertex | null>(null);
+  const { surfaceRef, scale: measuredScale } = useChartScale(VIEW_WIDTH);
 
   const viewHeight = LABEL_BAND_TOP + series.length * SERIES_LABEL_ROW_HEIGHT + LABEL_BAND_PADDING;
   const marks = activateableMarksOf(series, axes, evidenceRefFor, onActivate);
+
+  /**
+   * The band's rows: one per series, its own name and the companion label its figures carry, with the
+   * series the screen reports on marked as the row in view.
+   *
+   * Both strings come from {@link labelLinesOf}, which imports them, so the band prints the fixed §5.3
+   * label or the series-specific self-assessment tag exactly as the record states it and never retypes
+   * one (rules P-1, P-5).
+   */
+  const bandRows: readonly SeriesBandRow[] = series.map((one) => {
+    const lines = labelLinesOf(one);
+
+    return {
+      key: one.id,
+      name: lines.name,
+      companion: lines.companion,
+      current: one.id === selectedSeriesId,
+    };
+  });
+
+  /**
+   * The scale's two values and where each is printed: the midpoint and the outer ring, computed from the
+   * scale the records are scored on rather than typed in, and placed clear of every name the drawing
+   * already prints (QA5-F32).
+   */
+  const ringTicks = ringTicksOf(axes.length);
+  const ringTickPlacements = ringTickPlacementsOf(ringTicks, axes, series);
+
+  /**
+   * The vertex the drawing reports: the one the pointer resolved, or the focused one where the pointer
+   * has resolved none.
+   *
+   * The two routes are held apart so neither can blank the other's reading: the pointer's vertex wins
+   * while there is one, because a reader who is pointing is asking about the mark the drawing answered
+   * with, and a vertex reached from the keyboard still reads out — its ring and its read-out alike —
+   * whichever series is painted above it, because focus needs no hit-testing at all.
+   */
+  const activeVertex = pointedVertex ?? focusedVertex;
+
+  /**
+   * The radius every acting vertex's invisible target is drawn at, in the drawing's own units.
+   *
+   * `Number.POSITIVE_INFINITY` as the slot: the pointer on this drawing is resolved to the *nearest*
+   * vertex rather than to the topmost target, so two targets that overlap cannot make one reading's
+   * pointer ambiguous and there is no neighbour's share to stay inside.
+   */
+  const hitRadius = chartTargetRadius(
+    measuredScale,
+    MARK_HIT_RADIUS,
+    Number.POSITIVE_INFINITY,
+  );
 
   function activateVertex(seriesId: string, evidenceRef: string | null): void {
     onActivate?.(seriesId);
@@ -1080,30 +1434,140 @@ export function RadarChart({
     }
   }
 
+  /** Makes one vertex the keyboard's active one: what focus reaching a mark sets. */
+  function focusVertex(vertex: ActiveVertex): void {
+    setFocusedVertex(vertex);
+  }
+
   /**
-   * Resolves one press on the drawing to the vertex the reader aimed at.
+   * Clears the keyboard's active vertex, but only for the vertex that still holds it: focus leaving one
+   * mark can be reported after the pointer has already resolved another vertex, and clearing
+   * unconditionally would blank the reading that vertex set.
+   */
+  function blurVertex(vertex: ActiveVertex): void {
+    setFocusedVertex((current) => (isSameVertex(current, vertex) ? null : current));
+  }
+
+  /**
+   * The read-out the active vertex shows, or `null` while none is active.
+   *
+   * It states the axis, the series and the score the mark's own accessible name carries, and the
+   * series' name is read out through {@link labelLinesOf}, so a competitor's name keeps the tag every
+   * competitor name carries (rule P-5) and the client's series keeps its own provenance. Nothing is
+   * formatted here: the score is the record's own text (rule P-6).
+   *
+   * @param mark The vertex the drawing reports, if any.
+   * @returns The read-out beside the drawing, or `null` where there is nothing to read out.
+   */
+  function readoutFor(mark: ActiveVertex | null): JSX.Element | null {
+    if (mark === null) {
+      return null;
+    }
+
+    const one = series.find((candidate) => candidate.id === mark.seriesId);
+    const vertex = one === undefined
+      ? undefined
+      : verticesOf(one, axes).find((candidate) => candidate.axisId === mark.axisId);
+
+    if (one === undefined || vertex === undefined) {
+      return null;
+    }
+
+    return (
+      <ChartReadout
+        anchor={{
+          x: vertex.point.x,
+          y: vertex.point.y,
+          viewBoxWidth: VIEW_WIDTH,
+          viewBoxHeight: viewHeight,
+        }}
+        title={vertex.axisLabel}
+        lines={[{ label: labelLinesOf(one).name, value: vertex.scoreText }]}
+      />
+    );
+  }
+
+  /**
+   * The vertex a pointer at a client position resolves to.
    *
    * The pointer's client coordinates are converted into this drawing's own units by the scale the
-   * element applies to its view box, and the vertex nearest that point — within the target radius a
-   * mark already carries — is the one activated. Nothing happens when the element reports no width,
-   * which is how a drawing with no layout at all avoids dividing by zero, and nothing happens when
-   * the press is clear of every vertex, so a press on empty space activates no reading (rule P-8).
+   * element applies to its view box — the element's rendered width over the view box's own width, the
+   * same factor on both axes — and the vertex nearest that point within the target radius is the answer,
+   * taken from the mark centres the drawing itself laid out ({@link activateableMarksOf}) rather than
+   * from whichever element the browser hit. Nothing resolves when the element reports no width, which is
+   * how a drawing with no layout avoids dividing by zero, and nothing resolves when the pointer is clear
+   * of every vertex, so a pointer on empty space never reports a reading it is not on (rule P-8).
+   *
+   * @param surface The `<svg>` the pointer was dispatched to.
+   * @param clientX The pointer's horizontal client coordinate.
+   * @param clientY The pointer's vertical client coordinate.
+   * @returns The nearest vertex within the target radius, or `null` when there is none.
+   */
+  function vertexNearestPointer(
+    surface: SVGSVGElement,
+    clientX: number,
+    clientY: number,
+  ): RadarMarkCentre | null {
+    const rect = surface.getBoundingClientRect();
+    const scale = rect.width / VIEW_WIDTH;
+
+    if (!(scale > 0)) {
+      return null;
+    }
+
+    return nearestRadarMark(
+      marks,
+      { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale },
+      hitRadius,
+    );
+  }
+
+  /**
+   * Reads out the vertex the pointer is nearest as it moves over the drawing.
+   *
+   * WHY THE MOVEMENT AND NOT THE MARK THE POINTER IS OVER. The element a browser reports belongs to the
+   * topmost thing painted at that point, and a target has to stay 24 CSS pixels across (rule B-3) while
+   * two series' scores on one axis can sit closer together than that, so the series painted last would
+   * answer for a dot painted before it. The drawing therefore answers every movement with the vertex
+   * nearest the pointer — {@link nearestRadarMark}, the resolution a press uses too — so the dot a
+   * reader aims at is the reading they are told and the ring follows it. Only a change of vertex is
+   * stored, so a pointer crossing one target does not re-render the drawing for every pixel it moves.
+   *
+   * @param event The pointer movement the drawing received.
+   */
+  function movePointer(event: ReactPointerEvent<SVGSVGElement>): void {
+    const resolved = vertexNearestPointer(event.currentTarget, event.clientX, event.clientY);
+    const next = resolved === null ? null : { seriesId: resolved.seriesId, axisId: resolved.axisId };
+
+    setPointedVertex((current) => {
+      if (next === null) {
+        return null;
+      }
+
+      return isSameVertex(current, next) ? current : next;
+    });
+  }
+
+  /**
+   * Clears the pointer's reading when the pointer leaves the drawing, so a value it resolved is not left
+   * beside a drawing nothing is pointing at. The keyboard's own vertex keeps its read-out: that one was
+   * never the pointer's to clear.
+   */
+  function pointerLeftDrawing(): void {
+    setPointedVertex(null);
+  }
+
+  /**
+   * Activates the vertex the press resolved to, opening the evidence the caller mapped for it.
+   *
+   * The press is resolved exactly as a pointer movement is — {@link vertexNearestPointer} — so the mark
+   * a reader presses is the mark the read-out was naming, and a press clear of every vertex activates
+   * nothing (rule P-8).
    *
    * @param event The press the drawing received.
    */
   function activateNearestVertex(event: ReactMouseEvent<SVGSVGElement>): void {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const scale = rect.width / VIEW_WIDTH;
-
-    if (!(scale > 0)) {
-      return;
-    }
-
-    const point = {
-      x: (event.clientX - rect.left) / scale,
-      y: (event.clientY - rect.top) / scale,
-    };
-    const mark = nearestRadarMark(marks, point, MARK_HIT_RADIUS);
+    const mark = vertexNearestPointer(event.currentTarget, event.clientX, event.clientY);
 
     if (mark === null) {
       return;
@@ -1114,168 +1578,187 @@ export function RadarChart({
 
   return (
     <>
-      <svg
-        role="group"
-        aria-label={RADAR_CHART_TEXT.groupLabel}
-        viewBox={`0 0 ${VIEW_WIDTH} ${viewHeight}`}
-        className={SVG_CLASSES}
-        onClick={activateNearestVertex}
-      >
-        {/* The scale: the rings and the spokes, which frame the readings without stating one. */}
-        <g aria-hidden="true">
-          {RING_FRACTIONS.map((fraction) => (
-            <circle
-              key={fraction}
-              cx={CENTRE_X}
-              cy={CENTRE_Y}
-              r={RADIUS * fraction}
-              fill="none"
-              strokeWidth={RING_STROKE_WIDTH}
-              className="stroke-hairline"
-            />
-          ))}
-          {axes.map((axis, index) => {
-            const end = pointOnAxis(index, axes.length, 1);
-
-            return (
-              <line
-                key={axis.id}
-                x1={CENTRE_X}
-                y1={CENTRE_Y}
-                x2={roundCoordinate(end.x)}
-                y2={roundCoordinate(end.y)}
+      <div className={SURFACE_WRAPPER_CLASSES}>
+        <svg
+          ref={surfaceRef}
+          role="group"
+          aria-label={RADAR_CHART_TEXT.groupLabel}
+          viewBox={`0 0 ${VIEW_WIDTH} ${viewHeight}`}
+          className={SVG_CLASSES}
+          onClick={activateNearestVertex}
+          onPointerMove={movePointer}
+          onPointerLeave={pointerLeftDrawing}
+        >
+          {/* The scale: the rings and the spokes, which frame the readings without stating one. */}
+          <g aria-hidden="true">
+            {RING_FRACTIONS.map((fraction) => (
+              <circle
+                key={fraction}
+                cx={CENTRE_X}
+                cy={CENTRE_Y}
+                r={RADIUS * fraction}
+                fill="none"
                 strokeWidth={RING_STROKE_WIDTH}
                 className="stroke-hairline"
               />
+            ))}
+            {axes.map((axis, index) => {
+              const end = pointOnAxis(index, axes.length, 1);
+
+              return (
+                <line
+                  key={axis.id}
+                  x1={CENTRE_X}
+                  y1={CENTRE_Y}
+                  x2={roundCoordinate(end.x)}
+                  y2={roundCoordinate(end.y)}
+                  strokeWidth={RING_STROKE_WIDTH}
+                  className="stroke-hairline"
+                />
+              );
+            })}
+          </g>
+
+          {/* Every outline first, then every series' marks. A polygon is decoration for the readings
+              the marks carry, so painting the outlines in one pass is what keeps any polygon from
+              sitting above a mark and taking its activation. */}
+          {series.map((one) => (
+            <SeriesOutline
+              key={one.id}
+              series={one}
+              allSeries={series}
+              axes={axes}
+              isSelected={one.id === selectedSeriesId}
+            />
+          ))}
+
+          {series.map((one) => (
+            <SeriesMarks
+              key={one.id}
+              series={one}
+              allSeries={series}
+              axes={axes}
+              evidenceRefFor={evidenceRefFor}
+              onActivate={onActivate}
+              onVertexActivate={activateVertex}
+              activeVertex={activeVertex}
+              onVertexFocus={focusVertex}
+              onVertexBlur={blurVertex}
+              hitRadius={hitRadius}
+            />
+          ))}
+
+          {/* One label per series, printed at that series' own outline: a swatch in the polygon's own
+              role token, a short leader to the vertex it names, and the series' own label in the
+              primary text role. A reader can therefore tell the outlines apart on the drawing itself,
+              instead of only in the legend beside it (rule P-1). The words sit outside their swatch away
+              from the drawing's vertical centre line and clear of the spoke, so a label covers neither an
+              axis name nor another series' name, and the group takes no pointer events, so no label
+              stands between a reader and a vertex. Each label carries a ground-role halo painted before
+              its own fill, so a spoke or another series' outline passing through the words never runs
+              through the glyphs a reader is reading (rule B-3). */}
+          {series.map((one, index) => {
+            const label = polygonLabelOf(one, axes, index);
+
+            if (label === null) {
+              return null;
+            }
+
+            const tone = toneOf(series, one);
+
+            return (
+              <g key={`polygon-label-${one.id}`} pointerEvents="none">
+                <path
+                  d={`M ${roundCoordinate(label.vertex.x)} ${roundCoordinate(
+                    label.vertex.y,
+                  )} L ${roundCoordinate(label.swatch.x)} ${roundCoordinate(label.swatch.y)}`}
+                  strokeWidth={RING_STROKE_WIDTH}
+                  className="fill-none stroke-hairline"
+                />
+                <circle
+                  cx={roundCoordinate(label.swatch.x)}
+                  cy={roundCoordinate(label.swatch.y)}
+                  r={POLYGON_LABEL_SWATCH_RADIUS}
+                  className={tone.area}
+                />
+                <text
+                  x={roundCoordinate(label.text.x)}
+                  y={roundCoordinate(label.text.y)}
+                  textAnchor={label.anchor}
+                  dominantBaseline="middle"
+                  strokeWidth={POLYGON_LABEL_HALO_WIDTH}
+                  strokeLinejoin="round"
+                  paintOrder="stroke"
+                  className={POLYGON_LABEL_TEXT_CLASSES}
+                >
+                  {one.label}
+                </text>
+              </g>
             );
           })}
-        </g>
 
-        {/* Every outline first, then every series' marks. A polygon is decoration for the readings
-            the marks carry, so painting the outlines in one pass is what keeps any polygon from
-            sitting above a mark and taking its activation. */}
-        {series.map((one) => (
-          <SeriesOutline
-            key={one.id}
-            series={one}
-            allSeries={series}
-            axes={axes}
-            isSelected={one.id === selectedSeriesId}
-          />
-        ))}
+          {axes.map((axis, index) => {
+            const outer = axisLabelPointFor(index, axes.length);
 
-        {series.map((one) => (
-          <SeriesMarks
-            key={one.id}
-            series={one}
-            allSeries={series}
-            axes={axes}
-            evidenceRefFor={evidenceRefFor}
-            onActivate={onActivate}
-            onVertexActivate={activateVertex}
-          />
-        ))}
-
-        {/* One label per series, printed at that series' own outline: a swatch in the polygon's own
-            role token, a short leader to the vertex it names, and the series' own label in the
-            primary text role. A reader can therefore tell the outlines apart on the drawing itself,
-            instead of only in the legend beside it (rule P-1). The words sit outside their swatch away
-            from the drawing's vertical centre line and clear of the spoke, so a label covers neither an
-            axis name nor another series' name, and the group takes no pointer events, so no label
-            stands between a reader and a vertex. Each label carries a ground-role halo painted before
-            its own fill, so a spoke or another series' outline passing through the words never runs
-            through the glyphs a reader is reading (rule B-3). */}
-        {series.map((one, index) => {
-          const label = polygonLabelOf(one, axes, index);
-
-          if (label === null) {
-            return null;
-          }
-
-          const tone = toneOf(series, one);
-
-          return (
-            <g key={`polygon-label-${one.id}`} pointerEvents="none">
-              <path
-                d={`M ${roundCoordinate(label.vertex.x)} ${roundCoordinate(
-                  label.vertex.y,
-                )} L ${roundCoordinate(label.swatch.x)} ${roundCoordinate(label.swatch.y)}`}
-                strokeWidth={RING_STROKE_WIDTH}
-                className="fill-none stroke-hairline"
-              />
-              <circle
-                cx={roundCoordinate(label.swatch.x)}
-                cy={roundCoordinate(label.swatch.y)}
-                r={POLYGON_LABEL_SWATCH_RADIUS}
-                className={tone.area}
-              />
+            return (
               <text
-                x={roundCoordinate(label.text.x)}
-                y={roundCoordinate(label.text.y)}
-                textAnchor={label.anchor}
+                key={axis.id}
+                x={roundCoordinate(outer.x)}
+                y={roundCoordinate(outer.y)}
+                textAnchor={axisLabelAnchorFor(index, axes.length)}
                 dominantBaseline="middle"
-                strokeWidth={POLYGON_LABEL_HALO_WIDTH}
-                strokeLinejoin="round"
-                paintOrder="stroke"
-                className={POLYGON_LABEL_TEXT_CLASSES}
+                className="text-12 fill-text-secondary"
               >
-                {one.label}
+                {axis.label}
               </text>
-            </g>
-          );
-        })}
+            );
+          })}
 
-        {axes.map((axis, index) => {
-          const outer = pointOnAxis(
-            index,
-            axes.length,
-            (RADIUS + AXIS_LABEL_OFFSET) / RADIUS,
-          );
+          {/* The scale's own two values: the midpoint and the outer ring, so the axis scale is readable
+              from the plot instead of only out of a vertex's accessible name. Each is placed off its own
+              ring through `./svg-label.ts`, so neither prints over an axis name or a polygon label. The
+              group is hidden from assistive technology with the rings and spokes beside it: every reading
+              this drawing carries is named at its own vertex and printed again in the frame's table view,
+              so these two numbers are the frame a sighted reader measures the plot against rather than a
+              reading of their own, and announcing a bare number in the drawing's group would tell a screen
+              reader nothing it is not already told. */}
+          <g aria-hidden="true">
+            {ringTicks.map((tick) => {
+              const placement = ringTickPlacements.get(tick.key);
+              const value = placement?.lines[0];
 
-          return (
-            <text
-              key={axis.id}
-              x={roundCoordinate(outer.x)}
-              y={roundCoordinate(outer.y)}
-              textAnchor={axisLabelAnchorFor(index, axes.length)}
-              dominantBaseline="middle"
-              className="text-12 fill-text-secondary"
-            >
-              {axis.label}
-            </text>
-          );
-        })}
+              if (placement === undefined || value === undefined) {
+                return null;
+              }
 
-        {series.map((one, index) => {
-          const lines = labelLinesOf(one);
-          const top = LABEL_BAND_TOP + index * SERIES_LABEL_ROW_HEIGHT;
-          const isSelected = one.id === selectedSeriesId;
+              return (
+                <text
+                  key={tick.key}
+                  x={placement.labelX}
+                  y={placement.labelY}
+                  strokeWidth={POLYGON_LABEL_HALO_WIDTH}
+                  strokeLinejoin="round"
+                  paintOrder="stroke"
+                  className={RING_TICK_CLASSES}
+                >
+                  {value}
+                </text>
+              );
+            })}
+          </g>
 
-          return (
-            /* The row of the series in view states `aria-current` and prints its name in the
-               emphasised weight, so the selection is carried by the drawing itself (rule P-8) and
-               never by colour alone (rule B-3). */
-            <g key={one.id} aria-current={isSelected ? 'true' : undefined}>
-              <text
-                x={SERIES_LABEL_X}
-                y={top}
-                className={
-                  isSelected ? `${BAND_NAME_CLASSES} ${SELECTED_NAME_CLASSES}` : BAND_NAME_CLASSES
-                }
-              >
-                {lines.name}
-              </text>
-              <text
-                x={SERIES_LABEL_X}
-                y={top + SERIES_LABEL_LINE_HEIGHT}
-                className="text-12 fill-text-caption"
-              >
-                {lines.companion}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+          {/* The band beneath the axes: one row per series, its name and the companion label its figures
+              carry. `./series-band.tsx` owns the row — the two text roles, the emphasis the series in
+              view takes and the truncation that keeps a long name inside the drawing — so this drawing
+              states only where its band starts and how its rows are spaced. */}
+          <SeriesBand rows={bandRows} geometry={BAND_GEOMETRY} />
+        </svg>
+
+        {/* The read-out the active vertex answers with: the axis, the series (a competitor's name
+            carrying its own tag) and the score the record states. Anchored on the vertex itself, at a
+            share of the view box, so it lands on the reading the pointer or the keyboard is on. */}
+        {readoutFor(activeVertex)}
+      </div>
       {openEvidenceRef === null ? null : (
         <EvidenceDrawer
           evidenceRef={openEvidenceRef}

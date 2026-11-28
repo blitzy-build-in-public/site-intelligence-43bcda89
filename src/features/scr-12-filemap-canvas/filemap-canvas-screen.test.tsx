@@ -81,7 +81,7 @@ import type { Mock } from 'vitest';
 
 import { DEPENDENCY_GRAPH_TEXT } from '../../components/dependency-graph';
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
-import { formatHours, formatMoney } from '../../components/mono-value';
+import { formatMeasuredHours, formatMoney } from '../../components/mono-value';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { TIMELINE_DOCK_TEXT } from '../../components/timeline-dock';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
@@ -124,7 +124,12 @@ import type {
   Timestamp,
   Topology,
 } from '../../types';
-import { DOCK_EVENT_ORDER, FILEMAP_CANVAS_TEXT, FilemapCanvasScreen } from './filemap-canvas-screen';
+import {
+  DOCK_EVENT_ORDER,
+  FILEMAP_CANVAS_TEXT,
+  FilemapCanvasScreen,
+  resetCanvasViewState,
+} from './filemap-canvas-screen';
 import type { FilemapCanvasScreenProps } from './filemap-canvas-screen';
 import { MAP_LENS_TEXT } from './map-lens';
 
@@ -431,6 +436,7 @@ function urgentRow(
     title: `Disruption recorded against ${id}`,
     productIds: [productId],
     plantId,
+    alsoAffectsPlantIds: [],
     severity,
     revenueAtRiskEur,
     daysToImpact,
@@ -515,14 +521,15 @@ const AUDIT_CACHE_KEY = [
 /**
  * The six tiles the canvas read returns, keyed by the aggregate keys the ribbon's presentation map
  * answers. Every value is distinct, so a case can find the figure a tile shows without knowing where
- * in the row the tile sits.
+ * in the row the tile sits, and the median is fractional because AAP §0.8 keeps it unrounded — so a
+ * case can tell the measured rule the map names from the nearest-whole-hour one it must not apply.
  */
 const RIBBON_TILES: readonly RibbonTile[] = [
   { id: 'open-exceptions', value: 7, provenance: 'computed' },
   { id: 'critical-exceptions', value: 2, provenance: 'computed' },
   { id: 'revenue-at-risk', value: 125000, provenance: 'computed' },
   { id: 'customer-orders-at-risk', value: 5, provenance: 'computed' },
-  { id: 'median-hours-to-approved-plan', value: 11, provenance: 'computed' },
+  { id: 'median-hours-to-approved-plan', value: 11.25, provenance: 'computed' },
   { id: 'plants-in-scope', value: 4, provenance: 'computed' },
 ];
 
@@ -542,18 +549,18 @@ const TILE_CAPTIONS: Readonly<Record<string, string>> = {
 
 /**
  * The aggregate keys the screen formats, as its own presentation map states: an amount through the
- * one money formatter, and a duration through the one duration formatter. Every other tile prints its
- * figure exactly as the aggregate returned it, so a case reads a tile's text back through these sets
- * rather than guessing at a format.
+ * one money formatter, and the median the domain keeps unrounded through the measured-duration rule
+ * (AAP §0.8). Every other tile prints its figure exactly as the aggregate returned it, so a case
+ * reads a tile's text back through these sets rather than guessing at a format.
  */
 const MONEY_TILE_IDS = new Set<string>(['revenue-at-risk']);
-const HOURS_TILE_IDS = new Set<string>(['median-hours-to-approved-plan']);
+const MEASURED_HOURS_TILE_IDS = new Set<string>(['median-hours-to-approved-plan']);
 
 /**
  * The text one ribbon tile prints, under the rule the screen's presentation map states for that tile.
  *
- * Nothing here recomputes a figure (rule P-6): an amount and a duration go through the interface's own
- * formatters, and a count is printed exactly as the aggregate returned it.
+ * Nothing here recomputes a figure (rule P-6): an amount and the unrounded median go through the
+ * interface's own formatters, and a count is printed exactly as the aggregate returned it.
  *
  * @param tile - The tile the canvas read returned.
  * @returns The text a reader sees in that tile.
@@ -563,7 +570,9 @@ function figureShown(tile: RibbonTile): string {
     return formatMoney(tile.value);
   }
 
-  return HOURS_TILE_IDS.has(tile.id) ? formatHours(tile.value) : String(tile.value);
+  return MEASURED_HOURS_TILE_IDS.has(tile.id)
+    ? formatMeasuredHours(tile.value)
+    : String(tile.value);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1102,11 +1111,16 @@ async function tabTo(
 
 /**
  * Arms every stub with the payloads a case starts from, so a case states only the read it changes.
+ *
+ * The screen's lens outlives a mount on purpose, because that is what a client-side route change needs
+ * (QA5-F40), so every case returns the store to a first visit's values before it renders.
  */
 beforeEach(() => {
   for (const member of Object.values(port)) {
     member.mockReset();
   }
+
+  resetCanvasViewState();
 
   port.getTopology.mockResolvedValue(envelope(TOPOLOGY));
   port.getCanvasRibbon.mockResolvedValue(envelope([...RIBBON_TILES]));
@@ -1241,8 +1255,8 @@ describe('FilemapCanvasScreen', () => {
       expect(within(region).getAllByText(SIM_LABELS[1])).toHaveLength(1);
 
       /* The figure is the value the read returned, formatted only by the rule the screen stated for
-         that tile: an amount through the interface's one money formatter, a duration through its one
-         duration formatter, a count as it arrived (rule P-6). Neither expectation recomputes
+         that tile: an amount through the interface's one money formatter, the unrounded median through
+         its measured-duration rule, a count as it arrived (rule P-6). Neither expectation recomputes
          anything. */
       const shown = figureShown(tile);
 
@@ -1502,6 +1516,27 @@ describe('FilemapCanvasScreen', () => {
        appearing beside the first. */
     expect(within(lensGroup).getByRole('status')).toBe(caption);
     expect(caption.textContent).toBe(lensCaption(FILEMAP_CANVAS_TEXT.graphLens));
+  });
+
+  it('keeps the lens the reader chose when the screen is unmounted and shown again', async () => {
+    const user = userEvent.setup();
+
+    const first = renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
+
+    /* The shell unmounts this screen on a client-side route change, which is the moment QA5-F40 recorded
+       the canvas reverting to the map lens. */
+    first.unmount();
+
+    renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
   });
 
   it('reports each wall-mode request to the shell that owns the navigation', async () => {

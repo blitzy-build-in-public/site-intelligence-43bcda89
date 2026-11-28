@@ -8,9 +8,10 @@
  * the `Scenario` that comes back. The pure `solve-supply-delay.ts` function (contracts §4 rules 1 to
  * 11) is the only place a measure is computed, the mock adapter composes it, and this component
  * neither imports nor reimplements either of them (AAP 0.12.1). There is no local clamp, no local
- * sum, no local "what would happen", no unit conversion and no formatting rule of any kind: money
- * leaves here through `MonoValue kind="money"`, the application's one money formatter, and every
- * count is rendered as the record's own number (rule P-6).
+ * sum, no local "what would happen" and no unit conversion, and the panel holds no formatting rule of
+ * its own: money leaves here through `MonoValue kind="money"` and a lever value it echoes through
+ * `formatQuantity`, both of them the shared module's rules, and every other count is rendered as the
+ * record's own number (rule P-6).
  *
  * A BREACH IS NOT A FAILED CALL. A lever outside its bound comes back as a `Scenario` whose
  * `constraintCheck` is `'fail'` with one message per breach, not as a `Problem` (AAP 0.12.3,
@@ -108,7 +109,7 @@ import type {
 } from 'react';
 
 import { EvidenceRef } from '../../components/evidence-drawer';
-import { MonoValue } from '../../components/mono-value';
+import { MonoValue, formatQuantity } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
@@ -464,11 +465,14 @@ export function invalidLeverText(field: keyof Levers): string {
  *
  * The result carries the `levers` it was measured under, so the block states them: a reader who has
  * edited a field since the last measurement can see which values the figures beside it belong to,
- * rather than having to assume they match what the inputs now hold. Every word of the value is the
- * record's own number written out, and the field names are the contract's.
+ * rather than having to assume they match what the inputs now hold. The field names are the
+ * contract's, and each value is stated in the grouped, unitless shape `formatQuantity` gives every
+ * number the interface prints — which is what keeps a position far outside its bound legible instead
+ * of reading as the exponent form `String()` writes it in (`1e+30`). The number itself is untouched:
+ * formatting narrows the text, never the value the measurement was taken at.
  */
 export function measuredAtText(levers: Levers): string {
-  const stated = LEVER_FIELDS.map((field) => `${field} ${String(levers[field])}`).join(', ');
+  const stated = LEVER_FIELDS.map((field) => `${field} ${formatQuantity(levers[field])}`).join(', ');
 
   return `Measured at ${stated}.`;
 }

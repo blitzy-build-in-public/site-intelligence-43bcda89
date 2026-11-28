@@ -13,10 +13,12 @@
  * the same level, the layered pointer targets that keep a coincident mark reachable, one focusable and
  * named evidence mark per point, activation of that mark from the keyboard and from a pointer opening
  * exactly that point's drawer, the caller-owned activation that reports the point instead and opens no
- * drawer at all, the visible legend that names every series beside its own tone's swatch and every
- * shaded span beside its own surface swatch, the series' own simulation label read out per row and
- * never invented, both themes, and the fact that the surface emits no frame, table or control of its
- * own.
+ * drawer at all, the read-out a mark answers with on focus and on pointer entry — its series, its date
+ * and its own formatted value, every series reading on the active date together so two marks drawn at
+ * one centre are both reportable, and the ring revealed on that date alone — the visible legend that
+ * names every series beside its own tone's swatch and every shaded span beside its own surface swatch,
+ * the series' own simulation label read out per row and never invented, both themes, and the fact that
+ * the surface emits no frame, table or control of its own.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `EvidenceDrawer` reads through
  * (rule P-2), so no adapter, seed module or network is involved and the suite observes exactly the
@@ -411,6 +413,33 @@ describe('LineChart', () => {
     expect(band).not.toBeNull();
     expect(Number(band?.getAttribute('width'))).toBeGreaterThan(0);
     expect(Number(band?.getAttribute('height'))).toBeGreaterThan(0);
+  });
+
+  it('keeps a band name wider than the plot out of the surface and the whole of it in the title', () => {
+    const overlong =
+      'A shaded span whose name runs far beyond the plot it is drawn in, and keeps running past the surface it is painted on';
+    const container = renderChart({
+      series: [BASELINE],
+      bands: [{ from: SECOND_DAY, to: THIRD_DAY, label: overlong }],
+    });
+    const shortened = [...surfaceOf(container).querySelectorAll('text')].filter((text) =>
+      (text.lastChild?.textContent ?? '').endsWith('…'),
+    );
+
+    expect(shortened.length).toBeGreaterThan(0);
+    /* The drawn run is shorter than the caller's wording, and the wording itself is still there. */
+    expect(shortened[0]?.querySelector('title')?.textContent).toBe(overlong);
+  });
+
+  it('anchors a due-date label on the window’s last day to its own end, so none of it leaves the plot', () => {
+    renderChart({
+      series: [BASELINE],
+      markers: [{ x: FIFTH_DAY, label: MARKER_LABEL }],
+    });
+    const label = screen.getByText(MARKER_LABEL);
+
+    /* Centred, half of the run would sit past the plot's own right edge and be cut by the surface. */
+    expect(label.getAttribute('text-anchor')).toBe('end');
   });
 
   it('names a shaded span in a legend row of its own, beside the span’s own surface swatch', () => {
@@ -982,3 +1011,182 @@ describe('LineChart', () => {
     }
   });
 });
+
+/* ---------------------------------------------------------------------------------------------
+ * The read-out a mark answers with
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Two series that both read zero on one day, which is exactly where their marks coincide: the second
+ * series is painted over the first, so a surface that resolved the pointer to the topmost circle could
+ * never report the first series' reading there.
+ */
+const COINCIDENT_DAY = THIRD_DAY;
+const NOTHING_OPENED = 'nothing opened';
+const NOTHING_RESOLVED = 'nothing resolved';
+const OPENED_LABEL = 'Opened';
+const RESOLVED_LABEL = 'Resolved';
+
+const OPENED: LineSeriesSpec = {
+  id: 'opened',
+  label: OPENED_LABEL,
+  tone: 'accent',
+  points: [
+    { x: SECOND_DAY, y: 4, yLabel: AT_PLAN, evidenceRef: 'evidence-opened-one' },
+    { x: COINCIDENT_DAY, y: 0, yLabel: NOTHING_OPENED, evidenceRef: 'evidence-opened-two' },
+  ],
+};
+
+const RESOLVED: LineSeriesSpec = {
+  id: 'resolved',
+  label: RESOLVED_LABEL,
+  tone: 'pass',
+  points: [
+    { x: SECOND_DAY, y: 0, yLabel: NOTHING_RESOLVED, evidenceRef: 'evidence-resolved-one' },
+    { x: COINCIDENT_DAY, y: 0, yLabel: NOTHING_RESOLVED, evidenceRef: 'evidence-resolved-two' },
+  ],
+};
+
+/** The class utilities of one element, split so a variant cannot be mistaken for the state itself. */
+function utilitiesOf(element: Element | null | undefined): readonly string[] {
+  return (element?.getAttribute('class') ?? '').split(' ');
+}
+
+/** The ring one mark draws around its dot, which is the second circle of its group. */
+function ringOf(mark: Element): Element | null {
+  return mark.querySelectorAll('circle')[1] ?? null;
+}
+
+describe('the read-out a point answers with', () => {
+  it('names its series, its date and its own formatted value on keyboard focus, and clears on blur', () => {
+    renderChart({ series: [BASELINE] });
+
+    const mark = screen.getByRole('button', {
+      name: `${BASELINE_LABEL}, ${FIRST_DAY}: ${AHEAD_OF_PLAN}`,
+    });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    fireEvent.focus(mark);
+
+    /* The read-out prints the mark's own strings — no figure is formatted here (rule P-6). */
+    const readout = screen.getByRole('tooltip');
+    expect(within(readout).getByText(BASELINE_LABEL)).toBeInTheDocument();
+    expect(within(readout).getByText(AHEAD_OF_PLAN)).toBeInTheDocument();
+    expect(within(readout).getByText(FIRST_DAY)).toBeInTheDocument();
+
+    fireEvent.blur(mark);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('answers a pointer that enters a mark as well as one that focuses it', () => {
+    renderChart({ series: [BASELINE] });
+
+    const mark = screen.getByRole('button', {
+      name: `${BASELINE_LABEL}, ${SECOND_DAY}: ${AT_PLAN}`,
+    });
+
+    fireEvent.pointerOver(mark);
+
+    const readout = screen.getByRole('tooltip');
+    expect(within(readout).getByText(BASELINE_LABEL)).toBeInTheDocument();
+    expect(within(readout).getByText(AT_PLAN)).toBeInTheDocument();
+
+    fireEvent.pointerOut(mark);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('names every series reading on the active date, so a coincident zero is not lost', () => {
+    renderChart({ series: [OPENED, RESOLVED] });
+
+    /* The Resolved mark is painted last and used to take the press outright. */
+    const resolvedMark = screen.getByRole('button', {
+      name: `${RESOLVED_LABEL}, ${COINCIDENT_DAY}: ${NOTHING_RESOLVED}`,
+    });
+
+    fireEvent.pointerOver(resolvedMark);
+
+    const readout = screen.getByRole('tooltip');
+
+    expect(within(readout).getByText(OPENED_LABEL)).toBeInTheDocument();
+    expect(within(readout).getByText(RESOLVED_LABEL)).toBeInTheDocument();
+    expect(within(readout).getByText(NOTHING_OPENED)).toBeInTheDocument();
+    expect(within(readout).getByText(NOTHING_RESOLVED)).toBeInTheDocument();
+
+    /* And the same column answers from the mark beneath it, which the topmost circle covers. */
+    const openedMark = screen.getByRole('button', {
+      name: `${OPENED_LABEL}, ${COINCIDENT_DAY}: ${NOTHING_OPENED}`,
+    });
+
+    fireEvent.pointerOut(resolvedMark);
+    fireEvent.pointerOver(openedMark);
+
+    expect(within(screen.getByRole('tooltip')).getByText(NOTHING_OPENED)).toBeInTheDocument();
+  });
+
+  it('reveals the ring on the active date alone, and hides it again when the mark is left', () => {
+    renderChart({ series: [OPENED, RESOLVED] });
+
+    const openedAtZero = screen.getByRole('button', {
+      name: `${OPENED_LABEL}, ${COINCIDENT_DAY}: ${NOTHING_OPENED}`,
+    });
+    const resolvedAtZero = screen.getByRole('button', {
+      name: `${RESOLVED_LABEL}, ${COINCIDENT_DAY}: ${NOTHING_RESOLVED}`,
+    });
+    const openedElsewhere = screen.getByRole('button', {
+      name: `${OPENED_LABEL}, ${SECOND_DAY}: ${AT_PLAN}`,
+    });
+
+    /* At rest every ring is invisible, whatever hover variants it also carries. */
+    for (const mark of [openedAtZero, resolvedAtZero, openedElsewhere]) {
+      expect(utilitiesOf(ringOf(mark))).toContain('opacity-0');
+      expect(utilitiesOf(ringOf(mark))).not.toContain('opacity-100');
+    }
+
+    fireEvent.focus(openedAtZero);
+
+    /* Both marks on that date are live, because the column is what is active — not one circle. */
+    expect(utilitiesOf(ringOf(openedAtZero))).toContain('opacity-100');
+    expect(utilitiesOf(ringOf(openedAtZero))).not.toContain('opacity-0');
+    expect(utilitiesOf(ringOf(resolvedAtZero))).toContain('opacity-100');
+    expect(utilitiesOf(ringOf(openedElsewhere))).toContain('opacity-0');
+
+    fireEvent.blur(openedAtZero);
+
+    expect(utilitiesOf(ringOf(openedAtZero))).toContain('opacity-0');
+  });
+
+  it('sizes a point’s target to 24 CSS pixels at the width the drawing is rendered at', () => {
+    /* A drawing at half its natural width: jsdom computes no layout, so the box a browser would have
+       measured is stated here, and one user unit is then worth half a CSS pixel. */
+    const renderedWidth = 340;
+    const scale = renderedWidth / 680;
+    vi.spyOn(SVGSVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: renderedWidth,
+      bottom: 130,
+      width: renderedWidth,
+      height: 130,
+      toJSON: () => ({}),
+    });
+
+    renderChart({ series: [BASELINE] });
+
+    const [mark] = screen.getAllByRole('button');
+    expect(mark).toBeDefined();
+    if (mark === undefined) {
+      return;
+    }
+
+    /* The dot itself is untouched: only the invisible target around it grew (WCAG 2.2 SC 2.5.8). */
+    expect(mark.querySelectorAll('circle')[0]?.getAttribute('r')).toBe('2.5');
+
+    const targetRadius = Number(mark.querySelectorAll('circle')[2]?.getAttribute('r'));
+    expect(targetRadius * 2 * scale).toBeGreaterThanOrEqual(24);
+  });
+});
+

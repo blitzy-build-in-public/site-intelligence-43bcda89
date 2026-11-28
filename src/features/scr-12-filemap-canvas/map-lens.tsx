@@ -1,6 +1,6 @@
 /**
  * The map lens of the FileMap canvas (SCR-12, stage S2): the client's network drawn over the bundled
- * world boundaries, framed so a reader can take the same nodes as a table.
+ * world boundaries, framed so a reader can take the same marks as a table.
  *
  * WHAT THIS MODULE IS AND IS NOT. `src/components/map-canvas.tsx` is the drawing — the projection,
  * the country shapes, the five node families, their evidence-pin badges, the S3 competitor overlay and
@@ -21,14 +21,24 @@
  * (its zoom in, zoom out and five preset buttons) and this module only holds their current values and
  * hands down the change handlers, so the controls stay in one place and the state in one place.
  *
- * THE ATLAS PAYLOAD IS FORWARDED, NEVER INSPECTED (rule P-5). When the screen holds an atlas payload the
- * lens passes it to `MapCanvas` unchanged, and the drawing paints the competitors' networks, the shared
- * crossings and their legend — each of which already carries the fixed market-intelligence label from
- * `src/types`. This module spells neither that string nor any competitor name, sums no competitor value
- * with a first-party one, and adds no competitor row to the table view: a market-intelligence figure
- * beside a first-party figure in one table would invite exactly the blended reading rule P-5 forbids, so
- * the table view is the client's own nodes and the overlay's provenance is stated by the drawing's own
- * legend. An absent payload is not an error: the lens then draws the first-party network alone, and a
+ * THE ATLAS PAYLOAD IS FORWARDED UNCHANGED, AND ITS MARKS ARE NAMED BY THE DRAWING (rule P-5). When the
+ * screen holds an atlas payload the lens passes it to `MapCanvas` unmodified, and the drawing paints the
+ * competitors' networks, the shared crossings and their legend — each of which already carries the fixed
+ * market-intelligence label from `src/types`. What the table says about those marks it takes from the
+ * drawing's own enumeration of them rather than by naming a competitor or a label here: this module
+ * spells neither that string nor any competitor name, and sums no competitor value with a first-party one.
+ *
+ * THE TABLE VIEW PRINTS EVERY MARK THE DRAWING PAINTS, AND LABELS EACH ROW'S FAMILY. A row per painted
+ * mark is what success criterion 9 asks of a table view, whose toggle has to render the same data as the
+ * drawing beside it, and the drawing publishes its own enumeration for exactly that reason:
+ * `overlayMarksOf` of `src/components/map-canvas.tsx`. Both representations read that one list, so a mark
+ * cannot be painted without a row and a row cannot state a mark the drawing left out. The families are
+ * kept apart rather than blended — every row carries the fixed label of the family its figures belong to
+ * in a column of its own, and a competitor's row names its network with the tag `src/types` fixes, while
+ * no cell, count or ordering combines a first-party value with a market-intelligence one. Stating the two
+ * families side by side in labelled rows is what rule P-5 requires of every market-intelligence element;
+ * dropping the overlay's marks from the table unlabelled is what it forbids. An absent payload is not an
+ * error: the lens then draws the client's own network alone and its table states that family alone, and a
  * role the atlas read refuses (AAP 0.12.4 SCR-13, USR-08) sees the same lens instead of a failure this
  * component would have had to invent. What the lens cannot know is WHY a payload is absent — the scope
  * may hold no pack, or the read may have been refused — so the caller's `atlasNotice` carries that
@@ -36,11 +46,13 @@
  * was, so a screen with nothing to explain explains nothing.
  *
  * NO FIGURE IS COMPUTED HERE (rule P-6). The table view prints the payload's own node labels, the
- * payload's own pin counts per state and the labels of the nodes its own lanes join; the only thing this
- * module derives is text from those values, with no arithmetic beyond reading a count the payload
- * carries, no currency, no identifier literal and no record value of its own. The frame's simulation
- * label is imported by position from `SIM_LABELS` (rule P-1) rather than written, because the pin totals
- * in the badges are computed from the records and a page-level badge does not label an individual figure.
+ * payload's own pin counts per state, the labels of the nodes its own lanes join and the name of each
+ * mark the drawing paints; the only thing this module derives is text from those values, with no
+ * arithmetic beyond reading a count the payload carries, no currency, no identifier literal and no record
+ * value of its own. The frame's simulation label, the label a node's row carries and the label an
+ * overlay's row carries are imported by position from `SIM_LABELS` (rule P-1) rather than written, and so
+ * is the competitor name tag, because the pin totals are computed from the records and a competitor's
+ * name is a market-intelligence element: a page-level badge labels neither.
  *
  * A NODE'S EVIDENCE REFERENCE IS FORWARDED, NEVER INVENTED. `MapCanvasProps.evidenceRefForNode` is
  * required by the drawing, because a mark a reader cannot inspect would leave AAP 0.2.1 F12's "any
@@ -65,11 +77,14 @@
  *   it holds no `fetch`, no tile template and no remote image.
  * - B-2: it reads no configuration and holds no credential-shaped literal.
  * - B-3: the table view is supplied through `ChartFrame` and cannot be omitted, the table carries the
- *   same nodes the map draws, the nodes stay keyboard operable inside the drawing, and this module adds no
- *   animation, so a reduced-motion session needs no opt-out here.
- * - P-1: the frame's label is `SIM_LABELS[1]`, imported rather than written.
+ *   same marks the map draws and states every cell of every row, the nodes stay keyboard operable inside
+ *   the drawing, and this module adds no animation, so a reduced-motion session needs no opt-out here.
+ * - P-1: the frame's label is `SIM_LABELS[1]`, a node's row carries `SIM_LABELS[0]` and an overlay
+ *   mark's row `SIM_LABELS[5]`, each imported rather than written, and a competitor's name carries the
+ *   imported tag.
  * - P-2: no service call, no seed import, no adapter import. The topology and the atlas are props.
- * - P-5: the atlas payload is forwarded unchanged; no competitor value enters the table view.
+ * - P-5: the atlas payload is forwarded unchanged, and every row it contributes is labelled with the
+ *   market-intelligence family it belongs to; no value is combined across the two families.
  * - P-6: every value on screen comes from the payload; nothing is typed in and nothing is computed.
  * - P-7: the lens authors no company, product or place name; every label is a payload record's own.
  * - P-8: the lens renders no control of its own, so it can render none that does nothing.
@@ -80,21 +95,20 @@
 import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 
-import { SIM_LABELS } from '../../types';
-import type {
-  Atlas,
-  PinCounts,
-  SimLabel,
-  Topology,
-  TopologyNode,
-  TopologyNodeKind,
-} from '../../types';
+import { COMPETITOR_NAME_TAG, SIM_LABELS } from '../../types';
+import type { Atlas, PinCounts, SimLabel, Topology, TopologyNode } from '../../types';
 
 import { ChartFrame } from '../../components/chart-frame';
 import type { TableColumn } from '../../components/data-table';
 import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from '../../components/graph-vocabulary';
-import { MAP_CANVAS_TEXT, MapCanvas } from '../../components/map-canvas';
-import type { MapViewPreset, MapZoomLevel } from '../../components/map-canvas';
+import { MAP_CANVAS_TEXT, MapCanvas, overlayMarksOf } from '../../components/map-canvas';
+import type {
+  MapOverlayMark,
+  MapOverlayMarkKind,
+  MapViewPreset,
+  MapZoomLevel,
+} from '../../components/map-canvas';
+import { StatusIndicator } from '../../components/status-indicator';
 
 /* ---------------------------------------------------------------------------------------------
  * The lens's own words — the one place its authored strings are written
@@ -108,23 +122,47 @@ import type { MapViewPreset, MapZoomLevel } from '../../components/map-canvas';
  * pin counts all arrive in the payload (rule P-6, P-7). The pin column's header and the "no pins"
  * sentence are taken from `MapCanvas`'s own text object instead of being repeated here, so a reader meets
  * one wording for evidence pins wherever the lens shows them.
+ *
+ * The words an overlay mark is named with are this lens's own, because the drawing names its overlay
+ * marks inside the SVG rather than in a text object a table could share: a reader of the table still has
+ * to learn that a row is a crossing or a competitor's site, and that a crossing belongs to no single
+ * network rather than to the one the reading client owns.
  */
 export const MAP_LENS_TEXT = {
   /** The lens caption, which titles the frame and names the drawing inside it. */
   title: 'Network map',
-  /** The one-line summary under the caption, stating what the drawing and its table both show. */
+  /**
+   * The one-line summary under the caption, stating what the drawing and its table both show, for a
+   * screen that supplied the atlas payload: the client's own network and the marks the atlas draws
+   * over it.
+   */
   description:
-    'The client network on the bundled world boundaries, with each node’s evidence pins and the lanes joining the nodes.',
+    'The client network on the bundled world boundaries, with each node’s evidence pins, the lanes joining the nodes, and every mark the atlas draws over it.',
   /** The table view's accessible name: its `<caption>`, and the name no table may go without. */
-  tableCaption: 'FileMap canvas nodes, with family, connected nodes and evidence pins',
-  /** The column printing the node's own label, as the payload states it. */
-  nodeColumn: 'Node',
-  /** The column printing which of the five families the node belongs to. */
+  tableCaption:
+    'FileMap canvas marks, with family, network, connected nodes, evidence pins and provenance',
+  /** The column printing the mark's own label: a node's, a crossing's or a competitor site's. */
+  markColumn: 'Mark',
+  /** The column printing which family the mark belongs to: a node family, a crossing or a site. */
   familyColumn: 'Family',
+  /** The column printing the network the mark belongs to, tagged where the network is a competitor's. */
+  networkColumn: 'Network',
   /** The column printing the labels of the nodes the payload's lanes join this one to. */
   connectionsColumn: 'Connected to',
+  /** The column printing the fixed label of the family every figure in the row belongs to. */
+  sourceColumn: 'Source',
   /** What a node the payload's lanes do not reach prints, instead of an empty cell. */
   noConnections: 'No lane joins this node',
+  /** What a mark the topology's lanes do not reach prints in the connections column. */
+  noOverlayConnections: 'No client lane joins this mark',
+  /** The network cell of a node's row: the client's own network, which the payload names nowhere. */
+  ownNetwork: 'Client network',
+  /** The network cell of a crossing's row, which belongs to no one competitor's network. */
+  sharedNetwork: 'Shared across networks',
+  /** The family word of a shared crossing the atlas paints. */
+  chokepointFamily: 'Shared chokepoint',
+  /** The family word of a competitor site the atlas paints. */
+  competitorSiteFamily: 'Competitor site',
 } as const;
 
 /**
@@ -135,6 +173,25 @@ export const MAP_LENS_TEXT = {
  * page's own badge does not stand in for the label of an individual surface.
  */
 const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
+
+/**
+ * The label a node's row carries: `Simulated data`, the first member of the fixed list, indexed rather
+ * than retyped so the exact §5.3 string has one owner (rule P-1).
+ *
+ * A node is a seeded first-party record, so the family its figures belong to is the first-party one, and
+ * it is never the market-intelligence member an overlay mark's row carries (rule P-5).
+ */
+const SIMULATED_DATA_LABEL: SimLabel = SIM_LABELS[0];
+
+/**
+ * The label an overlay mark's row carries: `Simulated market intelligence`, taken by position from the
+ * same fixed list (rule P-1).
+ *
+ * Every mark the atlas paints is market intelligence, which is why both of its kinds — a shared crossing
+ * and a competitor's site — carry this one label, and why no competitor value is ever printed under the
+ * first-party label a node's row carries (rule P-5).
+ */
+const MARKET_INTELLIGENCE_LABEL: SimLabel = SIM_LABELS[5];
 
 /* ---------------------------------------------------------------------------------------------
  * The view's starting point — presentation constants, not figures
@@ -153,32 +210,64 @@ const DEFAULT_ZOOM_LEVEL: MapZoomLevel = 1;
 const DEFAULT_VIEW_PRESET: MapViewPreset = 'world';
 
 /* ---------------------------------------------------------------------------------------------
- * The table view's rows — the payload's own nodes, read as they arrive
+ * The table view's rows — every mark the drawing paints, read as it arrives
  * --------------------------------------------------------------------------------------------- */
 
 /**
- * One node's row in the table view: the payload's values for that node, and nothing derived beyond the
- * text of its two summary cells.
+ * Which of the drawing's three kinds of mark a row of the table view states.
  *
- * `nodeId` is the row's stable key and the same identifier the drawing's nodes and the screen's selection
- * use, so a re-render keeps every row where it is and a reader who compares the table with the drawing is
- * reading the same node in both.
+ * A node is the client's own first-party network; a shared crossing and a competitor's site are the two
+ * kinds of mark the atlas overlay paints over it, and they are `MapOverlayMarkKind` itself, so this lens
+ * cannot describe a mark the drawing has no kind for. The kind decides no cell a reader sees — the
+ * family, the network and the source columns state it in words — it keeps the two provenances apart in
+ * the row's own shape, so a cell can never be written for one family and printed under the label of the
+ * other (rule P-5).
+ */
+type MapLensMark = 'node' | MapOverlayMarkKind;
+
+/**
+ * The family word each kind of overlay mark is printed with, keyed by the drawing's own kind so a mark
+ * added to `MapOverlayMarkKind` fails to compile here instead of reaching the table unnamed.
+ */
+const OVERLAY_FAMILY_WORDS = {
+  chokepoint: MAP_LENS_TEXT.chokepointFamily,
+  'competitor-site': MAP_LENS_TEXT.competitorSiteFamily,
+} as const satisfies Record<MapOverlayMarkKind, string>;
+
+/**
+ * One row of the table view: a mark the drawing paints, with the family every figure in the row belongs
+ * to.
+ *
+ * `rowKey` is prefixed by the mark's kind, so a node and an overlay mark that happened to share an
+ * identifier still take one row each and a re-render keeps every row where it is. Everything else is the
+ * payload's own: the mark's label, the network it belongs to, the neighbours the payload's lanes give a
+ * node and the counts its pin tally carries (rule P-6). The `source` cell is the one fixed string a row
+ * adds, and it is imported from `SIM_LABELS` rather than written (rule P-1).
  */
 interface MapLensRow {
-  /** The node's identifier, as the payload states it: the row key and the selection's key. */
-  readonly nodeId: string;
+  /** The row's stable key: the mark's kind, then the identifier the payload gives it. */
+  readonly rowKey: string;
 
-  /** The node's label, as the payload states it. */
+  /** Which of the drawing's three kinds of mark this row states. */
+  readonly mark: MapLensMark;
+
+  /** The mark's own label, as the payload states it. */
   readonly label: string;
 
-  /** Which of the five families the node belongs to. */
-  readonly kind: TopologyNodeKind;
+  /** The family the mark belongs to, in the word the drawing's own vocabulary prints it with. */
+  readonly family: string;
 
-  /** The labels of the nodes the payload's lanes join this one to, or the standalone sentence. */
+  /** The network the mark belongs to; the network column tags a competitor's own with the imported tag. */
+  readonly network: string;
+
+  /** The labels of the nodes the payload's lanes join a node to, or the sentence a mark with none. */
   readonly connections: string;
 
-  /** The node's evidence-pin counts per state, or the sentence for a node with none. */
+  /** The mark's evidence-pin counts per state, or the sentence for a mark with none. */
   readonly pins: string;
+
+  /** The fixed label of the family every figure in this row belongs to (rules P-1, P-5). */
+  readonly source: SimLabel;
 }
 
 /**
@@ -282,52 +371,138 @@ function pinSummaryOf(counts: PinCounts | undefined): string {
 }
 
 /**
- * Every row of the table view: one per node the payload holds, in family order.
+ * One node's row: the payload's values for that node, and nothing derived beyond the text of its two
+ * summary cells.
+ *
+ * @param node The node the payload holds.
+ * @param connections The labels of the nodes its lanes join it to, or the standalone sentence.
+ * @param counts The node's pin tally, or `undefined` when the payload holds none for it.
+ * @returns The row.
+ */
+function nodeRowOf(
+  node: TopologyNode,
+  connections: string,
+  counts: PinCounts | undefined,
+): MapLensRow {
+  return {
+    rowKey: `node:${node.id}`,
+    mark: 'node',
+    label: node.label,
+    family: NODE_FAMILY_WORDS[node.kind],
+    network: MAP_LENS_TEXT.ownNetwork,
+    connections,
+    pins: pinSummaryOf(counts),
+    source: SIMULATED_DATA_LABEL,
+  };
+}
+
+/**
+ * One overlay mark's row: a crossing or a competitor's site the drawing paints over the client's network.
+ *
+ * The network cell carries the payload's own name for the competitor, which the column tags with the
+ * imported name tag so a competitor is never printed untagged (rule P-5); a crossing belongs to no single
+ * network, so its cell says that the networks share it rather than leaving the column empty (rule B-3).
+ * The connections and pins cells say what the payload states for such a mark: the topology's lanes join
+ * its own nodes only, and the drawing badges evidence pins on nodes, so neither cell is blank and neither
+ * claims a figure the overlay does not carry.
+ *
+ * @param mark The mark the drawing paints, as its own enumeration publishes it.
+ * @returns The row.
+ */
+function overlayRowOf(mark: MapOverlayMark): MapLensRow {
+  return {
+    rowKey: `${mark.kind}:${mark.id}`,
+    mark: mark.kind,
+    label: mark.label,
+    family: OVERLAY_FAMILY_WORDS[mark.kind],
+    network: mark.network === null ? MAP_LENS_TEXT.sharedNetwork : mark.network.label,
+    connections: MAP_LENS_TEXT.noOverlayConnections,
+    pins: MAP_CANVAS_TEXT.noPins,
+    source: MARKET_INTELLIGENCE_LABEL,
+  };
+}
+
+/**
+ * Every row of the table view: one per node the payload holds, in family order, then one per mark the
+ * atlas overlay paints, in the order the drawing's own enumeration states them.
  *
  * The lanes are read once for the whole payload rather than per row, so a network of many nodes and many
- * lanes costs one walk of the lanes rather than one per node.
+ * lanes costs one walk of the lanes rather than one per node. The overlay's marks come from
+ * `overlayMarksOf` — the drawing's own list of what it paints — rather than from a second reading of the
+ * payload here, which is what keeps the table and the drawing from disagreeing about how many marks there
+ * are or which ones are painted (success criterion 9). A payload with no overlay contributes no overlay
+ * row, so an atlas the screen could not read leaves the client's own rows alone instead of an empty
+ * block of a second family.
  *
  * @param topology The payload the drawing draws and the table prints.
- * @returns One row per node.
+ * @param overlay The atlas payload the drawing paints over it, or `undefined` when there is none.
+ * @returns One row per node, then one row per painted overlay mark.
  */
-function buildRows(topology: Topology): readonly MapLensRow[] {
+function buildRows(topology: Topology, overlay: Atlas | undefined): readonly MapLensRow[] {
   const nodes = nodesInFamilyOrder(topology);
   const labels = labelsByNodeId(nodes);
   const neighbours = neighboursByNodeId(topology);
 
-  return nodes.map((node) => {
+  const rows: MapLensRow[] = nodes.map((node) => {
     const joined = (neighbours.get(node.id) ?? [])
       .map((neighbourId) => labels.get(neighbourId))
       .filter((label): label is string => label !== undefined);
 
-    return {
-      nodeId: node.id,
-      label: node.label,
-      kind: node.kind,
-      connections: joined.length === 0 ? MAP_LENS_TEXT.noConnections : joined.join(', '),
-      pins: pinSummaryOf(topology.pinsByNode[node.id]),
-    };
+    return nodeRowOf(
+      node,
+      joined.length === 0 ? MAP_LENS_TEXT.noConnections : joined.join(', '),
+      topology.pinsByNode[node.id],
+    );
   });
+
+  if (overlay === undefined) {
+    return rows;
+  }
+
+  for (const mark of overlayMarksOf(overlay)) {
+    rows.push(overlayRowOf(mark));
+  }
+
+  return rows;
 }
 
 /**
  * The table view's columns.
  *
  * Every column prints a payload value and none is sortable: `ChartFrame` renders a sort control only for
- * a column whose frame was given a sort handler, and this table has a fixed family order that is more
- * useful to a reader than an alphabetical one, so no ordering control is offered that could not be
- * honoured (rule P-8).
+ * a column whose frame was given a sort handler, and this table has a fixed order — the client's network
+ * by family, then the overlay's marks in the drawing's own order — that is more useful to a reader than
+ * an alphabetical one, so no ordering control is offered that could not be honoured (rule P-8).
+ *
+ * The network column prints the payload's own name for the network a mark belongs to, and adds the
+ * imported name tag beside it for a competitor's site, so a competitor is named as a synthetic company
+ * wherever this table names one (rule P-5). The source column closes the row with the fixed label of the
+ * family the row belongs to, printed through `StatusIndicator` so a reader meets it with the icon and the
+ * status colour the rest of the application gives a simulation label, rather than as a bare string a hue
+ * could be read into (rules B-3, P-1).
  */
 const MAP_LENS_COLUMNS = [
   {
     id: 'node',
-    header: MAP_LENS_TEXT.nodeColumn,
+    header: MAP_LENS_TEXT.markColumn,
     render: (row: MapLensRow) => row.label,
   },
   {
     id: 'family',
     header: MAP_LENS_TEXT.familyColumn,
-    render: (row: MapLensRow) => NODE_FAMILY_WORDS[row.kind],
+    render: (row: MapLensRow) => row.family,
+  },
+  {
+    id: 'network',
+    header: MAP_LENS_TEXT.networkColumn,
+    render: (row: MapLensRow) =>
+      row.mark === 'competitor-site' ? (
+        <>
+          <span>{row.network}</span> <span>{COMPETITOR_NAME_TAG}</span>
+        </>
+      ) : (
+        <span>{row.network}</span>
+      ),
   },
   {
     id: 'connections',
@@ -338,6 +513,13 @@ const MAP_LENS_COLUMNS = [
     id: 'pins',
     header: MAP_CANVAS_TEXT.pinsPrefix,
     render: (row: MapLensRow) => row.pins,
+  },
+  {
+    id: 'source',
+    header: MAP_LENS_TEXT.sourceColumn,
+    render: (row: MapLensRow) => (
+      <StatusIndicator meaning="simulated" label={row.source} />
+    ),
   },
 ] as const satisfies readonly TableColumn<MapLensRow>[];
 
@@ -392,8 +574,9 @@ export interface MapLensProps {
    * crossings, drawn over the client's own network by the drawing itself.
    *
    * Absent for a role the atlas read refuses (rule P-5 keeps that refusal in the service), and absent
-   * before S3's data is asked for; the lens then draws the first-party network alone and states no error
-   * of its own, because a missing overlay is a smaller drawing rather than a failure.
+   * before S3's data is asked for; the lens then draws the first-party network alone, its table states
+   * that family alone, and it states no error of its own, because a missing overlay is a smaller drawing
+   * rather than a failure.
    */
   readonly atlas?: Atlas | undefined;
 
@@ -425,16 +608,16 @@ export interface MapLensProps {
 }
 
 /**
- * The map lens of the FileMap canvas: the drawing, framed, with the table view of the nodes it draws.
+ * The map lens of the FileMap canvas: the drawing, framed, with the table view of the marks it draws.
  *
  * The lens holds the map's view state and nothing else. The zoom level and the view preset are the
  * surface's own presentation, so they live here and the drawing's controls report into them; the
  * selection is the screen's, so it arrives and leaves as props and this component keeps no copy that
  * could disagree with the graph lens beside it.
  *
- * The rows are memoised on the payload, so changing the selection or the zoom re-renders the drawing
- * without rebuilding the table's rows, and the table view opens with exactly the nodes the map is
- * drawing.
+ * The rows are memoised on the payload and on the overlay, so changing the selection or the zoom
+ * re-renders the drawing without rebuilding the table's rows, and the table view opens with exactly the
+ * marks the map is drawing.
  *
  * @param props The topology, the shared selection, the optional atlas overlay and the optional evidence
  *   mapper. See {@link MapLensProps}.
@@ -451,7 +634,7 @@ export function MapLens({
   const [zoomLevel, setZoomLevel] = useState<MapZoomLevel>(DEFAULT_ZOOM_LEVEL);
   const [viewPreset, setViewPreset] = useState<MapViewPreset>(DEFAULT_VIEW_PRESET);
 
-  const rows = useMemo(() => buildRows(topology), [topology]);
+  const rows = useMemo(() => buildRows(topology, atlas), [topology, atlas]);
 
   /*
    * The caption: the lens's own line of words, then the caller's reason for a degraded overlay when it
@@ -473,7 +656,7 @@ export function MapLens({
         caption: MAP_LENS_TEXT.tableCaption,
         columns: MAP_LENS_COLUMNS,
         rows,
-        getRowKey: (row) => row.nodeId,
+        getRowKey: (row) => row.rowKey,
       }}
     >
       <MapCanvas

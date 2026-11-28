@@ -39,9 +39,9 @@
  * `DemonstrationControls` itself, so it cannot drift from the signature the control calls.
  *
  * THE REAL SHELL STORE IS USED, NOT A DOUBLE. `providers.tsx` is imported rather than mocked, because
- * the store is what the component must talk to: `resetShell()` in `beforeEach` is what stops one
- * case's persona colouring the next, and `activeRole` read back through `getState()` is the evidence
- * that a switch stored its role and a refusal stored nothing. The route is read through a probe
+ * the store is what the component must talk to: clearing its five data fields in `beforeEach` is what
+ * stops one case's persona colouring the next, and `activeRole` read back through `getState()` is the
+ * evidence that a switch stored its role and a refusal stored nothing. The route is read through a probe
  * element that renders `useLocation().pathname`, never through a history object's internals.
  *
  * NO PERSON, IDENTIFIER OR FIGURE IS TYPED HERE. The two personas are fabricated by this suite and
@@ -338,13 +338,26 @@ async function renderSwitcher(): Promise<HTMLElement> {
  * ------------------------------------------------------------------------------------------- */
 
 /**
+ * Returns the shell store to a first-time visitor's state, so a case reads nothing of the one before it.
+ *
+ * The store's own `resetShell` does this and no application control calls it: `Reset demo data`
+ * restores the adapter's records and leaves the reader's persona, scope and selection standing, so a
+ * reset of the store is nobody's behaviour but a suite's. Each case here asserts the persona a press of
+ * the control stores, and a persona left behind by the case before it would be read back as this one's
+ * own.
+ */
+function clearShellState(): void {
+  useShellStore.getState().resetShell();
+}
+
+/**
  * Every case starts with no capability, no persona, a shell returned to its initial state and a
  * provider whose switch behaves the way that case states.
  */
 beforeEach(() => {
   stub.demonstration = null;
   stub.activeUser = null;
-  useShellStore.getState().resetShell();
+  clearShellState();
 });
 
 /**
@@ -353,7 +366,7 @@ beforeEach(() => {
  */
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
-  useShellStore.getState().resetShell();
+  clearShellState();
   vi.unstubAllGlobals();
 });
 

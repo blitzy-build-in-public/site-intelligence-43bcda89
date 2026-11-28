@@ -22,10 +22,13 @@
  * WHAT IS NOT SEPARATED, AND WHY. Two records can state the same coordinate — a competitor's site
  * beside the client's own — and their marks then print over one another. The marks are deliberately
  * left where the records put them, because nudging them apart would misstate where a site is; what is
- * separated is the NAMES, by the deterministic placement in {@link placeLabels}, which moves a label
- * outward past the neighbouring marks and crossings until it is clear. Every mark stays its own
- * control in the tab order and its own entry in the accessible tree, so nothing is lost to the
- * overlap.
+ * separated is the NAMES, by the deterministic placement in `src/components/svg-label.ts`, which moves
+ * a label outward past the neighbouring marks and crossings until it is clear. That placement is shared
+ * with the map lens, the radar's scale and the line chart's annotations, so one algorithm and each
+ * drawing's own geometry decide where a name goes; a name too wide for the room it has is shortened with
+ * an ellipsis and keeps the record's full text in a `title` child, and a name nothing can be cleared for
+ * is left unprinted rather than printed over its neighbour. Every mark stays its own control in the tab
+ * order and its own entry in the accessible tree, so nothing is lost to the overlap.
  *
  * WHY PROVENANCE IS STRUCTURAL (rule P-5). The two families are separate props and separate groups:
  * `clientSites` and `lanes` are the client's own first-party network, `networks` holds the
@@ -78,13 +81,15 @@
  * selector reports the network a reader picked, and a control whose only effect is its own highlight
  * does not perform the selection function it presents. `highlightedCompetitorId` therefore reaches
  * this drawing: the family in view is drawn with a heavier stroke, prints its names in the emphasised
- * weight and states `aria-current` on its group, while a competitor family that is not in view
- * recedes to the ground fill, hairline stroke and secondary text role
+ * weight and states `aria-current` on its group, while — when the family in view is a competitor —
+ * every OTHER competitor family recedes to the ground fill, hairline stroke and secondary text role
  * `src/components/dependency-graph.tsx` dims a node with. The client's own family is not a competitor
  * family and is never receded; it is emphasised when the entity in view is the client's own network,
- * which the caller states as `null`. Nothing else changes: every mark keeps its own accessible name,
- * its target, its rings and its keyboard activation, so the emphasis is a weight and a role token
- * rather than a hue or a hidden series (rule B-3).
+ * which the caller states as `null`. That state recedes no competitor: a competitor keeps the hue
+ * specification §4.2 gives it, so the label band inside this drawing stays true of the marks below it
+ * instead of promising three colours the plot does not show. Nothing else changes: every mark keeps
+ * its own accessible name, its target, its rings and its keyboard activation, so the emphasis is a
+ * weight and a role token rather than a hue or a hidden series (rule B-3).
  *
  * WHY THE POINTER IS RESOLVED BY PROXIMITY. A mark's target has to stay past the 24x24 px minimum
  * rule B-3 asks for, and the pack can place two marks closer together than one target is wide — a
@@ -110,6 +115,17 @@ import type {
 import { EvidenceDrawer } from '../../components/evidence-drawer';
 import { CHART_TONE_CLASSES, competitorSlotOf } from '../../components/horizontal-bar-chart';
 import type { CompetitorSlot } from '../../components/horizontal-bar-chart';
+import { SeriesBand } from '../../components/series-band';
+import type { SeriesBandGeometry, SeriesBandRow } from '../../components/series-band';
+import {
+  LABEL_CLEARANCE,
+  LABEL_DISTANCES,
+  SVG_LABEL_FONT_SIZE,
+  SVG_LABEL_TEXT_METRICS,
+  markObstacleOf,
+  placeLabels,
+} from '../../components/svg-label';
+import type { LabelFit, LabelObstacle, LabelPlacement, LabelRequest } from '../../components/svg-label';
 import {
   CLIENT_SELF_ASSESSMENT_LABEL,
   COMPETITOR_NAME_TAG,
@@ -253,26 +269,6 @@ const HALO_RADIUS = 15;
 const HALO_STROKE = 2;
 const HALO_DASH = '4 3';
 
-/* ---------------------------------------------------------------------------------------------
- * Label placement — deterministic separation, because two sites can stand in one place
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The label metrics the placement is computed from.
- *
- * A label is set in the 12-unit step of the type scale, and its box is estimated from the character
- * count rather than measured: a component may not read layout, and a measurement would make the
- * drawing depend on when it was rendered. The estimate is deliberately a little generous, so two
- * labels the placement keeps apart are also apart once the browser sets the text.
- */
-const LABEL_FONT_SIZE = 12;
-const LABEL_CHARACTER_WIDTH = 7;
-const LABEL_BOX_HEIGHT = LABEL_FONT_SIZE + 3;
-
-/** The clear space kept between a label and its mark, and between two labels. */
-const LABEL_MARK_GAP = 10;
-const LABEL_CLEARANCE = 4;
-
 /**
  * The label band under the plot: one row per series, each row a swatch, a name line and a label line.
  *
@@ -285,6 +281,25 @@ const LABEL_BAND_TEXT_X = LABEL_BAND_X + 2 * LABEL_BAND_SWATCH_SIZE + 12;
 const LABEL_BAND_ROW_HEIGHT = 36;
 const LABEL_BAND_LINE_HEIGHT = 15;
 const LABEL_BAND_PADDING = 18;
+
+/**
+ * Where this drawing's band starts, how its rows are spaced and where its swatch column sits.
+ *
+ * `src/components/series-band.tsx` owns the row itself — the two text roles, the truncation and the row in
+ * view's emphasis — so this drawing states only its own geometry: the band begins one line below the plot,
+ * one row per series {@link LABEL_BAND_ROW_HEIGHT} apart with the companion line {@link
+ * LABEL_BAND_LINE_HEIGHT} below its name, its swatch column at {@link LABEL_BAND_X}, and no line allowed
+ * past the drawing's own width. The geometry travels with this drawing rather than with the component, so
+ * the radar's band and this one keep their own proportions.
+ */
+const BAND_GEOMETRY: SeriesBandGeometry = {
+  top: PLOT_HEIGHT + LABEL_BAND_LINE_HEIGHT,
+  rowHeight: LABEL_BAND_ROW_HEIGHT,
+  lineHeight: LABEL_BAND_LINE_HEIGHT,
+  textX: LABEL_BAND_TEXT_X,
+  maxTextWidth: VIEW_WIDTH - LABEL_BAND_TEXT_X - LABEL_CLEARANCE,
+  swatch: { x: LABEL_BAND_X, size: LABEL_BAND_SWATCH_SIZE },
+};
 
 /* ---------------------------------------------------------------------------------------------
  * The competitor slots — shape and hue resolved from the competitor's own identifier
@@ -372,12 +387,6 @@ const SELECTED_LABEL_CLASSES = 'font-semibold';
  */
 const RECEDED_LABEL_CLASSES = 'fill-text-secondary stroke-surface-1 text-12';
 
-/** A series' name in the label band: the primary text role. */
-const BAND_NAME_CLASSES = 'fill-text-primary text-12';
-
-/** A series' label line in the label band: the caption role, which §4 measures for its surface. */
-const BAND_LABEL_CLASSES = 'fill-text-caption text-12';
-
 /** The stroke widths the lanes are drawn at: the client's first, a competitor's a little heavier. */
 const CLIENT_LANE_STROKE = 1;
 const COMPETITOR_LANE_STROKE = 1.5;
@@ -391,16 +400,17 @@ const COMPETITOR_LANE_STROKE = 1.5;
 const COMPETITOR_LANE_DASH = '6 4';
 
 /* ---------------------------------------------------------------------------------------------
- * The emphasis of a family — how the entity in view is marked, and how the others recede
+ * The emphasis of a family — how the entity in view is marked, and when the others recede
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * How one family of the drawing is painted while the screen reports an entity in view.
  *
  * `highlighted` is the family the screen reports on, `receded` a competitor family that is not it, and
- * `default` is what every family is painted as when the screen highlights nothing — so a caller that
- * passes no `highlightedCompetitorId` receives exactly the drawing it received before the prop
- * existed, mark for mark.
+ * `default` is what every family is painted as when the screen highlights nothing — and what a
+ * competitor family is painted as when the entity in view is the client's own network, which recedes
+ * no competitor. A caller that passes no `highlightedCompetitorId` therefore receives exactly the
+ * drawing it received before the prop existed, mark for mark.
  */
 type FamilyEmphasis = 'highlighted' | 'receded' | 'default';
 
@@ -530,12 +540,14 @@ export interface CompetitorNetworkProps {
    * picked, and a control whose only effect is its own highlight does not perform the selection it
    * presents (rule P-8). The entity in view is therefore marked inside this drawing: the highlighted
    * family's marks are drawn with a heavier stroke, its printed names take the emphasised weight and
-   * its group states `aria-current`. The other competitor families recede with the device
-   * `src/components/dependency-graph.tsx` dims a node with — the ground fill and a hairline stroke,
-   * with their printed names in the secondary text role, which is a role §4 measures — so the
-   * recession is a role token rather than a hue, and no name falls below the contrast rule B-3
-   * requires. The client's own family is not a competitor family and so is not receded when a
-   * competitor is in view.
+   * its group states `aria-current`. When the entity in view is a competitor, the other competitor
+   * families recede with the device `src/components/dependency-graph.tsx` dims a node with — the
+   * ground fill and a hairline stroke, with their printed names in the secondary text role, which is
+   * a role §4 measures — so the recession is a role token rather than a hue, and no name falls below
+   * the contrast rule B-3 requires. `null` — the client's own network in view — recedes no competitor
+   * family: each keeps the hue specification §4.2 assigns it, so every mark agrees with the label
+   * band inside the drawing that describes it. The client's own family is not a competitor family and
+   * so is never receded.
    *
    * WHAT IT NEVER TOUCHES. The selected mark's own ring and `aria-current`, every mark's accessible
    * name, its focus ring, its pointer target and its keyboard activation, and the press resolution
@@ -571,17 +583,17 @@ interface SitePlacement {
 }
 
 /**
- * A placed site with the point its printed name starts at.
+ * A placed site with the position its printed name was given.
  *
- * The label position is computed rather than fixed, because two sites can stand in the same place —
- * the pack's competitors and the client's own plants serve overlapping regions — and two names printed
- * from one point are both unreadable. See {@link placeLabels}.
+ * The position is computed rather than fixed, because two sites can stand in the same place — the
+ * pack's competitors and the client's own plants serve overlapping regions — and two names printed
+ * from one point are both unreadable. It is absent when the drawing had no room for the name even after
+ * shortening it: the mark is still drawn, and its own accessible name still carries the site's name.
+ * See `src/components/svg-label.ts`.
  */
 interface PlacedSite extends SitePlacement {
-  /** The x the site's name starts at. */
-  readonly labelX: number;
-  /** The y of the site's name baseline. */
-  readonly labelY: number;
+  /** Where the site's name is printed, or `undefined` when the drawing had no room for it. */
+  readonly printedLabel: LabelPlacement | undefined;
 }
 
 /** One lane, resolved to the path it is drawn as and the family whose hue it takes. */
@@ -622,7 +634,7 @@ interface PlacedClientNetwork {
   readonly lanes: readonly PlacedLane[];
 }
 
-/** One shared crossing, resolved to the point its halo is drawn at and its name's start. */
+/** One shared crossing, resolved to the point its halo is drawn at and the position of its printed name. */
 interface PlacedChokepoint {
   /** The crossing's identifier, used as the halo's key and reported on activation. */
   readonly id: string;
@@ -632,10 +644,8 @@ interface PlacedChokepoint {
   readonly x: number;
   /** The y the halo is centred on. */
   readonly y: number;
-  /** The x the crossing's name starts at. */
-  readonly labelX: number;
-  /** The y of the crossing's name baseline. */
-  readonly labelY: number;
+  /** Where the crossing's name is printed, or `undefined` when the drawing had no room for it. */
+  readonly printedLabel: LabelPlacement | undefined;
 }
 
 /**
@@ -1003,198 +1013,28 @@ function crossingLabelsOf(
  * Label placement — two sites can stand in one place, so their names are separated deterministically
  * ------------------------------------------------------------------------------------------- */
 
-/** A name waiting for a position: the key it is stored under, its text and the mark it belongs to. */
-interface LabelRequest {
-  /** The key the resolved position is stored under, unique within one drawing. */
-  readonly key: string;
-  /** The text the label prints, which is what its box is estimated from. */
-  readonly text: string;
-  /** The x of the mark the label belongs to. */
-  readonly x: number;
-  /** The y of the mark the label belongs to. */
-  readonly y: number;
-}
-
-/** Where a label's text starts and which baseline it sits on. */
-interface LabelPosition {
-  /** The x the text starts at. */
-  readonly labelX: number;
-  /** The y of the text's baseline. */
-  readonly labelY: number;
-}
-
 /**
- * A mark a label must keep clear of, named by the key its own label is stored under.
+ * The room this drawing gives a printed name, in its own user units.
  *
- * The key is what lets a label ignore the mark it belongs to — a name is meant to sit beside its own
- * mark — while avoiding every other mark and every crossing halo in the drawing.
+ * THE PLACEMENT IS SHARED, THE GEOMETRY IS NOT. `src/components/svg-label.ts` holds the one algorithm
+ * every surface in this layer composes — this view, the map lens, the radar's scale and the line chart's
+ * annotations — and each drawing states its own room and its own distances, so neither drawing's
+ * proportions are forced on the other. What is stated here is this view's: the bounds stop at
+ * {@link PLOT_HEIGHT} rather than at the element's full height, so a name never prints into the label band
+ * below the plot; the mark radius is the ring a site's own mark draws, so a name centred above or below a
+ * mark clears that ring; and the widest a shortened name may be is the plot's own width, so a run is cut
+ * rather than printed past the edge.
  */
-interface LabelObstacle {
-  /** The label key the mark's own label is stored under. */
-  readonly key: string;
-  /** The box the mark occupies, ring included. */
-  readonly box: LabelBox;
-}
-
-/** A label's printed box, in user units, as the placement reasons about it. */
-interface LabelBox {
-  /** The box's left edge. */
-  readonly x: number;
-  /** The box's top edge. */
-  readonly y: number;
-  /** The box's width. */
-  readonly width: number;
-  /** The box's height. */
-  readonly height: number;
-}
-
-/**
- * How far from its mark a label is tried, from the plain reading position outwards.
- *
- * A label first tries the clear space beside its mark. When that space is taken — by another label or
- * by another mark — it tries the next distance out, so a name in a crowded region steps away from its
- * mark instead of printing over its neighbour's. The distances are fixed, so the same payload resolves
- * the same collisions every time and a re-render never moves a name.
- */
-const LABEL_DISTANCES = [LABEL_MARK_GAP, 24, 38, 54, 72] as const;
-
-/**
- * The places a label may sit relative to its mark, in the order they are tried.
- *
- * Each distance is tried with the same seven placements — to the right of the mark at three heights,
- * to its left at two, and centred above and below it — so a label prefers the plain reading position
- * and steps outwards only as far as it has to.
- *
- * @param request The label to place.
- * @param width The label's estimated width.
- * @returns The candidate positions, most preferred first.
- */
-function labelCandidatesOf(request: LabelRequest, width: number): readonly LabelPosition[] {
-  const candidates: LabelPosition[] = [];
-
-  for (const distance of LABEL_DISTANCES) {
-    const right = request.x + distance;
-    const left = request.x - distance - width;
-    const centred = request.x - width / 2;
-
-    candidates.push(
-      { labelX: right, labelY: request.y + 4 },
-      { labelX: right, labelY: request.y - LABEL_FONT_SIZE },
-      { labelX: right, labelY: request.y + LABEL_FONT_SIZE + 8 },
-      { labelX: left, labelY: request.y + 4 },
-      { labelX: left, labelY: request.y - LABEL_FONT_SIZE },
-      { labelX: centred, labelY: request.y - RING_RADIUS - distance + 10 },
-      { labelX: centred, labelY: request.y + RING_RADIUS + distance + 4 },
-    );
-  }
-
-  return candidates;
-}
-
-/**
- * The box a label covers when it starts at one position.
- *
- * The baseline sits at the bottom of the box's text rather than at its middle, so the height grows
- * upwards from the position the text was given.
- *
- * @param position Where the label starts.
- * @param width The label's estimated width.
- * @returns The label's box.
- */
-function labelBoxOf(position: LabelPosition, width: number): LabelBox {
-  return {
-    x: position.labelX,
-    y: position.labelY - LABEL_FONT_SIZE,
-    width,
-    height: LABEL_BOX_HEIGHT,
-  };
-}
-
-/** Whether a label box sits inside the plot, so a name is never printed off the drawing. */
-function labelBoxFits(box: LabelBox): boolean {
-  return (
-    box.x >= LABEL_CLEARANCE &&
-    box.y >= LABEL_CLEARANCE &&
-    box.x + box.width <= VIEW_WIDTH - LABEL_CLEARANCE &&
-    box.y + box.height <= PLOT_HEIGHT - LABEL_CLEARANCE
-  );
-}
-
-/** Whether two label boxes, grown by the clear space, intersect. */
-function labelBoxesCollide(one: LabelBox, other: LabelBox): boolean {
-  return (
-    one.x < other.x + other.width + LABEL_CLEARANCE &&
-    other.x < one.x + one.width + LABEL_CLEARANCE &&
-    one.y < other.y + other.height + LABEL_CLEARANCE &&
-    other.y < one.y + one.height + LABEL_CLEARANCE
-  );
-}
-
-/**
- * Resolves a position for every label, keeping them off each other, off the marks and off the edge.
- *
- * Why this exists: the pack's competitor networks and the client's own plants serve overlapping
- * regions, so two sites can stand at the same point — and a site can stand on a crossing. Printed
- * from its mark, each name would then overprint another, and a crossing's dashes would print through a
- * site's name. The placement walks the labels in a fixed reading order (the client's own sites, then
- * each competitor's, then the crossings) and gives each the first candidate that is inside the plot
- * and clear of every label already placed and of every other mark. A label nothing can be cleared for
- * takes the first candidate that fits, so every name is still printed, and both outcomes are a pure
- * function of the payload rather than a measurement of it.
- *
- * @param requests The labels to place, in reading order.
- * @param obstacles The marks each label must keep clear of, its own included and ignored.
- * @returns One position per request key.
- */
-function placeLabels(
-  requests: readonly LabelRequest[],
-  obstacles: readonly LabelObstacle[],
-): ReadonlyMap<string, LabelPosition> {
-  const occupied: LabelBox[] = [];
-  const positions = new Map<string, LabelPosition>();
-
-  for (const request of requests) {
-    const width = roundCoordinate(request.text.length * LABEL_CHARACTER_WIDTH);
-    const blockers = [
-      ...obstacles.filter((obstacle) => obstacle.key !== request.key).map((obstacle) => obstacle.box),
-      ...occupied,
-    ];
-    const candidates = labelCandidatesOf(request, width);
-    const inside = candidates.filter((candidate) => labelBoxFits(labelBoxOf(candidate, width)));
-    const clear = inside.find(
-      (candidate) =>
-        !blockers.some((blocker) => labelBoxesCollide(blocker, labelBoxOf(candidate, width))),
-    );
-    const chosen = clear ??
-      inside[0] ?? { labelX: request.x + LABEL_MARK_GAP, labelY: request.y + 4 };
-
-    const position: LabelPosition = {
-      labelX: roundCoordinate(chosen.labelX),
-      labelY: roundCoordinate(chosen.labelY),
-    };
-
-    positions.set(request.key, position);
-    occupied.push(labelBoxOf(position, width));
-  }
-
-  return positions;
-}
-
-/**
- * The box a mark occupies, grown to the ring a reader sees around it.
- *
- * @param key The label key the mark's own label is stored under.
- * @param x The mark's centre x.
- * @param y The mark's centre y.
- * @param radius How far the mark's own ring reaches.
- * @returns The obstacle a label keeps clear of.
- */
-function markObstacleOf(key: string, x: number, y: number, radius: number): LabelObstacle {
-  return {
-    key,
-    box: { x: x - radius, y: y - radius, width: 2 * radius, height: 2 * radius },
-  };
-}
+const NETWORK_LABEL_FIT: LabelFit = {
+  metrics: SVG_LABEL_TEXT_METRICS,
+  bounds: { width: VIEW_WIDTH, height: PLOT_HEIGHT },
+  boxHeight: SVG_LABEL_FONT_SIZE + 3,
+  lineHeight: SVG_LABEL_FONT_SIZE,
+  clearance: LABEL_CLEARANCE,
+  markRadius: RING_RADIUS,
+  distances: LABEL_DISTANCES,
+  maxTextWidth: VIEW_WIDTH - 2 * LABEL_CLEARANCE,
+};
 
 /**
  * The key a site's label is stored under.
@@ -1363,21 +1203,21 @@ function drawingOf(
   const labelRequests: LabelRequest[] = [
     ...clientPlacements.map((placement) => ({
       key: siteLabelKey(placement.site.id),
-      text: placement.site.label,
+      lines: [placement.site.label],
       x: placement.x,
       y: placement.y,
     })),
     ...slotsTaken.flatMap((entry) =>
       entry.sites.map((placement) => ({
         key: siteLabelKey(placement.site.id),
-        text: placement.site.label,
+        lines: [placement.site.label],
         x: placement.x,
         y: placement.y,
       })),
     ),
     ...chokepointPlacements.map((crossing) => ({
       key: chokepointLabelKey(crossing.id),
-      text: crossing.label,
+      lines: [crossing.label],
       x: crossing.x,
       y: crossing.y,
     })),
@@ -1397,17 +1237,12 @@ function drawingOf(
     ),
   ];
 
-  const labelPositions = placeLabels(labelRequests, obstacles);
+  const labelPositions = placeLabels(labelRequests, obstacles, NETWORK_LABEL_FIT);
 
-  const placeSite = (placement: SitePlacement): PlacedSite => {
-    const position = labelPositions.get(siteLabelKey(placement.site.id));
-
-    return {
-      ...placement,
-      labelX: position?.labelX ?? placement.x + LABEL_MARK_GAP,
-      labelY: position?.labelY ?? placement.y + 4,
-    };
-  };
+  const placeSite = (placement: SitePlacement): PlacedSite => ({
+    ...placement,
+    printedLabel: labelPositions.get(siteLabelKey(placement.site.id)),
+  });
 
   const client: PlacedClientNetwork = {
     sites: clientPlacements.map(placeSite),
@@ -1421,15 +1256,10 @@ function drawingOf(
     lanes: competitorLanes[index] ?? [],
   }));
 
-  const placedCrossings: PlacedChokepoint[] = chokepointPlacements.map((crossing) => {
-    const position = labelPositions.get(chokepointLabelKey(crossing.id));
-
-    return {
-      ...crossing,
-      labelX: position?.labelX ?? crossing.x + HALO_RADIUS + 4,
-      labelY: position?.labelY ?? crossing.y - 2,
-    };
-  });
+  const placedCrossings: PlacedChokepoint[] = chokepointPlacements.map((crossing) => ({
+    ...crossing,
+    printedLabel: labelPositions.get(chokepointLabelKey(crossing.id)),
+  }));
 
   const series = seriesRowsOf(client, competitors, placedCrossings);
   const labelById = new Map(chokepoints.map((crossing) => [crossing.id, crossing.label]));
@@ -1859,7 +1689,8 @@ function SiteMark({
   emphasis,
   onActivate,
 }: SiteMarkProps): JSX.Element {
-  const { site, x, y, slot, labelX, labelY } = placed;
+  const { site, x, y, slot, printedLabel } = placed;
+  const printedName = printedLabel?.lines[0];
 
   return (
     <InteractiveMark
@@ -1894,15 +1725,18 @@ function SiteMark({
         className={joinClassNames(POINTER_RING_CLASSES, pointerStrokeClassFor(slot))}
       />
       {markOf(placed, emphasis)}
-      <text
-        x={labelX}
-        y={labelY}
-        strokeWidth={3}
-        paintOrder="stroke"
-        className={nameClassesFor(emphasis, isSelected)}
-      >
-        {site.label}
-      </text>
+      {printedName === undefined || printedLabel === undefined ? null : (
+        <text
+          x={printedLabel.labelX}
+          y={printedLabel.labelY}
+          strokeWidth={3}
+          paintOrder="stroke"
+          className={nameClassesFor(emphasis, isSelected)}
+        >
+          {printedName === site.label ? null : <title>{site.label}</title>}
+          {printedName}
+        </text>
+      )}
     </InteractiveMark>
   );
 }
@@ -1943,7 +1777,8 @@ function ChokepointMark({
   opensEvidence,
   onActivate,
 }: ChokepointMarkProps): JSX.Element {
-  const { x, y, label, labelX, labelY } = crossing;
+  const { x, y, label, printedLabel } = crossing;
+  const printedName = printedLabel?.lines[0];
 
   return (
     <InteractiveMark
@@ -1985,18 +1820,21 @@ function ChokepointMark({
         strokeDasharray={HALO_DASH}
         className="fill-none stroke-status-simulated"
       />
-      <text
-        x={labelX}
-        y={labelY}
-        strokeWidth={3}
-        paintOrder="stroke"
-        className={joinClassNames(
-          MARK_LABEL_CLASSES,
-          isSelected ? SELECTED_LABEL_CLASSES : undefined,
-        )}
-      >
-        {label}
-      </text>
+      {printedName === undefined || printedLabel === undefined ? null : (
+        <text
+          x={printedLabel.labelX}
+          y={printedLabel.labelY}
+          strokeWidth={3}
+          paintOrder="stroke"
+          className={joinClassNames(
+            MARK_LABEL_CLASSES,
+            isSelected ? SELECTED_LABEL_CLASSES : undefined,
+          )}
+        >
+          {printedName === label ? null : <title>{label}</title>}
+          {printedName}
+        </text>
+      )}
     </InteractiveMark>
   );
 }
@@ -2211,9 +2049,9 @@ interface CompetitorNetworkGroupProps {
  * competitor tag after the network's name and the imported market-intelligence label.
  *
  * When the screen reports this competitor as the entity in view the group states `aria-current`, its
- * marks are drawn with the heavier stroke and its printed names take the emphasised weight; a
- * competitor that is not in view recedes with the graph lens's ground fill, hairline stroke and
- * secondary text role (rule P-8, rule B-3).
+ * marks are drawn with the heavier stroke and its printed names take the emphasised weight; where the
+ * entity in view is another competitor this one recedes with the graph lens's ground fill, hairline
+ * stroke and secondary text role (rule P-8, rule B-3).
  *
  * @param props One competitor's network and what its marks reach.
  * @returns The group, or `null` when the frame can place none of the network's sites.
@@ -2304,42 +2142,15 @@ function ChokepointGroup({
 }
 
 /**
- * The rows the band prints, one per drawn series: the client's own first, then one per competitor
- * network, each already carrying the swatch its marks are drawn as, the name it prints with the
- * competitor tag where one is required, and the imported label its figures carry. The band is the
- * drawing's own statement of which series it shows and how each one is labelled (rule P-1), so it
- * derives nothing and only decides where each row prints; an empty list draws no band at all rather
- * than a heading over nothing.
- */
-interface SeriesBandProps {
-  /** One row per drawn series: the client's first, then one per competitor. */
-  readonly rows: readonly SeriesRow[];
-}
-
-/**
- * The label band under the plot: one swatch, one name line and one label line per drawn series.
+ * The shape one band row prints, which is the shape that series' marks carry.
  *
- * A drawing of two families has to say, on the drawing, which series it shows and which label each
- * one's figures carry (rule P-1). The competitor rows print the imported market-intelligence label and
- * the client's row the imported self-assessment label, so the band holds no fixed string of its own.
- *
- * @param props The rows to print.
- * @returns The band, or `null` when no series is drawn.
- */
-/**
- * The shape one band row prints, which is the shape that series' marks carry, and the point of the
- * band the swatch is centred on. Passing the series' own slot rather than a hue is what ties a row
- * to its marks without colour being the only cue (rule B-3): the client's filled circle, the
- * crossing's dashed ring and the three competitor shapes each print themselves, decoratively,
- * because the row's text carries the meaning.
+ * Passing the series' own slot rather than a hue is what ties a row to its marks without colour being the
+ * only cue (rule B-3): the client's filled circle, the crossing's dashed ring and the three competitor
+ * shapes each print themselves, decoratively, because the row's text carries the meaning.
  */
 interface SeriesSwatchProps {
   /** The shape the series is drawn as, which is the shape its marks carry. */
   readonly swatch: SeriesSwatch;
-  /** The x the swatch is centred on. */
-  readonly x: number;
-  /** The y the swatch is centred on. */
-  readonly y: number;
 }
 
 /**
@@ -2347,21 +2158,24 @@ interface SeriesSwatchProps {
  *
  * It is decorative — the row's text is what carries the meaning — so a band row states which shape
  * belongs to which series without asking a reader to infer it from the order of the rows, and without
- * colour being the only thing that ties a row to its marks (rule B-3).
+ * colour being the only thing that ties a row to its marks (rule B-3). The shape is drawn around the
+ * origin, because `src/components/series-band.tsx` translates the group it places this in to the row's own
+ * swatch centre: the band's row and line heights are then the only statement of where a swatch lands, and
+ * this drawing never restates them.
  *
- * @param props The shape and the point it is centred on.
+ * @param props The shape the row prints.
  * @returns The swatch element.
  */
-function SeriesSwatchMark({ swatch, x, y }: SeriesSwatchProps): JSX.Element {
+function SeriesSwatchMark({ swatch }: SeriesSwatchProps): JSX.Element {
   if (swatch === 'client') {
-    return <circle cx={x} cy={y} r={LABEL_BAND_SWATCH_SIZE} className={CLIENT_MARK_CLASSES} />;
+    return <circle cx={0} cy={0} r={LABEL_BAND_SWATCH_SIZE} className={CLIENT_MARK_CLASSES} />;
   }
 
   if (swatch === 'chokepoint') {
     return (
       <circle
-        cx={x}
-        cy={y}
+        cx={0}
+        cy={0}
         r={LABEL_BAND_SWATCH_SIZE}
         strokeWidth={HALO_STROKE}
         strokeDasharray={HALO_DASH}
@@ -2372,48 +2186,30 @@ function SeriesSwatchMark({ swatch, x, y }: SeriesSwatchProps): JSX.Element {
 
   return (
     <polygon
-      points={competitorMarkPoints(swatch, x, y, LABEL_BAND_SWATCH_SIZE)}
+      points={competitorMarkPoints(swatch, 0, 0, LABEL_BAND_SWATCH_SIZE)}
       strokeWidth={2}
       className={joinClassNames(COMPETITOR_MARK_CLASSES, COMPETITOR_STROKE_CLASSES[swatch])}
     />
   );
 }
 
-function SeriesBand({ rows }: SeriesBandProps): ReactNode {
-  if (rows.length === 0) {
-    return null;
-  }
-
-  return (
-    <g role="group" aria-label={COMPETITOR_NETWORK_TEXT.seriesBandGroupName}>
-      {rows.map((row, index) => {
-        const nameY = PLOT_HEIGHT + index * LABEL_BAND_ROW_HEIGHT + LABEL_BAND_LINE_HEIGHT;
-        const swatchY = nameY - LABEL_BAND_LINE_HEIGHT / 2;
-
-        return (
-          <g key={row.key}>
-            <g aria-hidden="true">
-              <SeriesSwatchMark
-                swatch={row.swatch}
-                x={LABEL_BAND_X + LABEL_BAND_SWATCH_SIZE}
-                y={swatchY}
-              />
-            </g>
-            <text x={LABEL_BAND_TEXT_X} y={nameY} className={BAND_NAME_CLASSES}>
-              {row.name}
-            </text>
-            <text
-              x={LABEL_BAND_TEXT_X}
-              y={nameY + LABEL_BAND_LINE_HEIGHT}
-              className={BAND_LABEL_CLASSES}
-            >
-              {row.label}
-            </text>
-          </g>
-        );
-      })}
-    </g>
-  );
+/**
+ * One row of the label band, for one drawn series.
+ *
+ * The row's swatch is the shape the series' own marks are drawn as, its name already carries the
+ * competitor tag where one is required, and its companion line is the imported label its figures carry —
+ * so the band holds no fixed string of its own (rule P-1).
+ *
+ * @param row The drawn series' row.
+ * @returns The row `src/components/series-band.tsx` prints.
+ */
+function bandRowOf(row: SeriesRow): SeriesBandRow {
+  return {
+    key: row.key,
+    name: row.name,
+    companion: row.label,
+    swatch: <SeriesSwatchMark swatch={row.swatch} />,
+  };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -2426,11 +2222,18 @@ const ROOT_CLASSES = 'flex min-w-0 flex-col gap-3';
 /**
  * How one competitor's family is painted while the screen reports an entity in view.
  *
- * `undefined` — the caller highlights nothing — leaves every family exactly as it was; the competitor
- * the screen names is emphasised; every OTHER competitor family recedes, and so does every competitor
- * family when the entity in view is the client's own network (which the caller states as `null`). The
- * client's own family is not a competitor family and is never receded here: it is emphasised when
- * `null` says it is the entity in view.
+ * `undefined` — the caller highlights nothing — leaves every family exactly as it was, and so does
+ * `null`, which states that the entity in view is the client's own network. The client's own
+ * selection singles out no competitor, so none recedes: each family keeps the competitor hue
+ * specification §4.2 assigns it, which is the hue the label band inside this same drawing shows for
+ * it, so a mark and its legend row cannot disagree about what colour a competitor is.
+ *
+ * A COMPETITOR IN VIEW IS THE ONE CASE THAT RECEDES THE OTHERS. When the screen names a competitor,
+ * that family is `highlighted` and every OTHER competitor family recedes, because there the emphasis
+ * is what separates the family being read from the families it is read against.
+ *
+ * The client's own family is not a competitor family and is never receded here: it is emphasised
+ * when `null` says it is the entity in view.
  *
  * @param highlightedCompetitorId The competitor in view, `null` for the client's own, or `undefined`.
  * @param competitorId The competitor the family being painted belongs to.
@@ -2440,7 +2243,7 @@ function competitorEmphasisOf(
   highlightedCompetitorId: CompetitorId | null | undefined,
   competitorId: CompetitorId,
 ): FamilyEmphasis {
-  if (highlightedCompetitorId === undefined) {
+  if (highlightedCompetitorId === undefined || highlightedCompetitorId === null) {
     return 'default';
   }
 
@@ -2472,7 +2275,8 @@ function clientEmphasisOf(
  * Each mark is a keyboard-operable control whose name says what it is and which family it belongs to,
  * the two families are drawn as separate groups with separate shapes, line styles and labels, and the
  * label band states each series' fixed label. When the screen reports an entity in view, that family
- * is emphasised and its group states `aria-current` while the other competitor families recede — see
+ * is emphasised and its group states `aria-current`; a competitor in view recedes the other
+ * competitor families, while the client's own network in view recedes none of them — see
  * {@link CompetitorNetworkProps.highlightedCompetitorId}. Activating a mark reports the entity and, where the
  * caller's mapper resolves one, opens `src/components/evidence-drawer.tsx` as a sibling of the
  * drawing rather than inside it, because a dialog is not an SVG element and the drawer portals itself
@@ -2594,7 +2398,11 @@ export function CompetitorNetwork({
           activateEntity={activateEntity}
         />
 
-        <SeriesBand rows={drawing.series} />
+        <SeriesBand
+          rows={drawing.series.map(bandRowOf)}
+          geometry={BAND_GEOMETRY}
+          label={COMPETITOR_NETWORK_TEXT.seriesBandGroupName}
+        />
       </svg>
 
       {openEvidenceRef === null ? null : (

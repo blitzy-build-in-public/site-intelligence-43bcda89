@@ -143,6 +143,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode } from 'react';
 
+import { INSET_SURFACE_CLASSES } from '../../components/card';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn, TableSort } from '../../components/data-table';
 import { DialogHeading } from '../../components/dialog-heading';
@@ -689,9 +690,13 @@ const FIELD_LIST_CLASSES = 'flex min-w-0 flex-col gap-1';
 /** The two payload halves, side by side, on the 4 px grid. */
 const PAYLOAD_GRID_CLASSES = 'grid grid-cols-2 gap-3';
 
-/** One payload half: a raised surface inside the panel's hairline. */
-const PAYLOAD_BLOCK_CLASSES =
-  'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-2 p-2';
+/**
+ * One payload half: the inset box `src/components/card.tsx` names as the third surface role — card
+ * radius, decorative hairline, second raised surface and its one padding, composed from
+ * `INSET_SURFACE_CLASSES` — inside the panel's own surface. The key-above-value stack is this
+ * drawer's own.
+ */
+const PAYLOAD_BLOCK_CLASSES = `flex min-w-0 flex-col gap-1 ${INSET_SURFACE_CLASSES}`;
 
 /** A payload half's caption. */
 const PAYLOAD_CAPTION_CLASSES = 'text-12 font-medium text-text-caption';

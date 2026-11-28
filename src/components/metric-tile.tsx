@@ -27,10 +27,13 @@
  *
  * WHAT IT DOES NOT DO. It computes nothing, rounds nothing, scales nothing and appends no unit (rule
  * P-6): `value` arrives exactly as the solver or the aggregation produced it, and the only formatting
- * in this tree is `./mono-value.tsx`, reached through `kind` — which now names the duration rule
- * beside the four mono-face ones, so a fractional median or an age in hours reaches the reader as a
- * whole reading while the number the aggregate computed stays exactly what it was. It re-implements
- * none of the primitives it composes — `./card.tsx` owns the surface and the heading,
+ * in this tree is `./mono-value.tsx`, reached through `kind` — which names the two duration rules
+ * beside the four mono-face ones, each for the value its own meaning calls for. An age reaches the
+ * reader as the nearest whole hour, because nobody scans a fraction off a queue column; a measured
+ * aggregate keeps the domain's precision up to two decimals, because AAP §0.8 fixes the median hours
+ * to an approved plan as unrounded and a tile may not print `11` beside the drawer that states
+ * `11.25`. The number the aggregate computed stays exactly what it was under either rule. It
+ * re-implements none of the primitives it composes — `./card.tsx` owns the surface and the heading,
  * `./evidence-drawer.tsx` owns the trigger and the dialog, `./status-indicator.tsx` owns the
  * icon-plus-label status — so a change to one of them reaches every tile at once instead of drifting
  * between copies.
@@ -53,7 +56,7 @@ import type { ReactElement, ReactNode } from 'react';
 import type { SimLabel } from '../types';
 import { Card } from './card';
 import { EvidenceRef } from './evidence-drawer';
-import { MonoValue, formatHours } from './mono-value';
+import { MonoValue, formatHours, formatMeasuredHours } from './mono-value';
 import type { FigureFormat } from './mono-value';
 import { StatusIndicator } from './status-indicator';
 
@@ -105,10 +108,12 @@ export interface MetricTileProps {
    * Which presentation rule `./mono-value.tsx` applies to the value.
    *
    * Omitted for a plain count, which is rendered as the value itself in the tile's own type step;
-   * `hours` for a duration, which is formatted to the nearest whole hour and printed in that same
-   * type step, because AAP §0.5.3 fixes the mono face for four other kinds only; and one of the four
-   * mono-face kinds for an amount, identifier, timestamp or hash, so the mono face and the tabular
-   * numerals that section requires reach the figure.
+   * `hours` for an age, which is formatted to the nearest whole hour because nobody scans a fraction
+   * off a card; `measured-hours` for a value the domain keeps unrounded (AAP §0.8), which keeps that
+   * value's own precision up to two decimals — both printed in that same type step, because AAP
+   * §0.5.3 fixes the mono face for four other kinds only; and one of the four mono-face kinds for an
+   * amount, identifier, timestamp or hash, so the mono face and the tabular numerals that section
+   * requires reach the figure.
    */
   readonly kind?: FigureFormat;
 
@@ -197,9 +202,11 @@ const GROUP_CLASSES = 'flex min-w-0 flex-col gap-1';
  * The figure as a reader sees it, under the rule the caller named.
  *
  * A duration is formatted and printed as text in the tile's own type step, because AAP §0.5.3 fixes
- * the mono face for money, identifiers, timestamps and hashes only. An amount, identifier, timestamp
- * or hash goes through `MonoValue`, which adds that face and the tabular numerals. A figure with no
- * rule named is the plain count, printed exactly as the aggregate returned it (rule P-6).
+ * the mono face for money, identifiers, timestamps and hashes only: an age is the nearest whole hour,
+ * and a measured value keeps the precision the domain fixes for it, up to two decimals (AAP §0.8).
+ * An amount, identifier, timestamp or hash goes through `MonoValue`, which adds that face and the
+ * tabular numerals. A figure with no rule named is the plain count, printed exactly as the aggregate
+ * returned it (rule P-6).
  *
  * @param value - The figure exactly as the service computed it.
  * @param kind - The presentation rule the calling screen named, if it named one.
@@ -208,6 +215,10 @@ const GROUP_CLASSES = 'flex min-w-0 flex-col gap-1';
 function figureOf(value: string | number, kind: FigureFormat | undefined): ReactNode {
   if (kind === 'hours') {
     return formatHours(value);
+  }
+
+  if (kind === 'measured-hours') {
+    return formatMeasuredHours(value);
   }
 
   if (kind === undefined) {

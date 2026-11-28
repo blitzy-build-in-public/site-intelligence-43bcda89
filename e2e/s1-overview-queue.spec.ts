@@ -358,6 +358,28 @@ async function queueColumn(page: Page, header: string): Promise<string[]> {
 }
 
 /**
+ * The value a queue cell states first: the line the column is named for.
+ *
+ * A cell can state a second line beneath its value — the Plant cell names the plant the row is
+ * recorded at and, below it, the plants the exception reaches, which is the reading its filter's
+ * caption states — and the row's own value in that column is the first line. The cell is read through
+ * its rendered text rather than its raw text content, because the two lines are separate blocks and
+ * only the rendered reading puts a break between them; that break would otherwise be absent and the
+ * disclosure would be folded into the plant a filter option names.
+ *
+ * @param cell - The cell to read.
+ * @returns The cell's own value, with any evidence suffix stripped.
+ */
+async function cellOwnValue(cell: Locator): Promise<string> {
+  const [own] = (await cell.innerText())
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+
+  return valueIn(own ?? '');
+}
+
+/**
  * Two columns of the queue read together, one row at a time, so the pairing of the two values is
  * guaranteed rather than inferred from two separate reads that a re-read could interleave.
  *
@@ -385,8 +407,8 @@ async function queueRowPairs(
   for (const row of rows) {
     const cells = row.getByRole('cell');
     pairs.push([
-      valueIn(await textOf(cells.nth(firstIndex))),
-      valueIn(await textOf(cells.nth(secondIndex))),
+      await cellOwnValue(cells.nth(firstIndex)),
+      await cellOwnValue(cells.nth(secondIndex)),
     ]);
   }
 

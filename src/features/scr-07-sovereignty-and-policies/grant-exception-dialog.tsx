@@ -15,8 +15,9 @@
  * the reads that write touched as stale through {@link invalidateReads}, the helper declared below,
  * called with the cache client it obtained through `useQueryClient()`. Naming a port member is the
  * whole of the convention AAP 0.6.2 fixes — every read is keyed `[method, ...args]`, so one member
- * name matches every entry of that read under every argument list — and it is the same invalidation
- * the approval detail screen performs for the reads its decision moved. A feature module may not
+ * name matches every entry of that read under every argument list — and the row it is handed is the one
+ * write-reads map in `src/services/write-reads.ts`, the table the approval detail screen takes its
+ * decision's row from as well. A feature module may not
  * import `src/app` (AAP 0.18.1 "Boundary discipline"), so that call is written here rather than
  * delegated to a helper of the shell's. The helper only marks cache entries stale: it reads no record,
  * edits none and holds no data boundary of its own. It is called before the caller is told the request
@@ -46,9 +47,9 @@
  * - P-2: data access is `useService()` alone, and the invalidation {@link invalidateReads} performs goes
  *   through the cache client `useQueryClient()` returns: it reads no record, edits none and holds no
  *   data boundary. No seed module, adapter, API client, shell module or other feature is imported — a
- *   feature module may not import `src/app` (AAP 0.18.1 "Boundary discipline") and the port arrives
- *   only as a type, for the helper's member names — so this dialog cannot become a second data
- *   boundary.
+ *   feature module may not import `src/app` (AAP 0.18.1 "Boundary discipline"), and the member names it
+ *   invalidates arrive as the write-reads row of `src/services/write-reads.ts`, which reaches no record
+ *   either — so this dialog cannot become a second data boundary.
  * - P-6: no figure, date, identifier, user, role or count is typed here. The policy identifier and its
  *   label arrive as props, the candidate approvers arrive as props, and the boundary the expiry is
  *   measured against is the imported `DEMO_CLOCK` constant rather than a literal or the system clock.
@@ -112,7 +113,7 @@ import type {
 } from '../../types';
 import { DEMO_CLOCK, SIM_LABELS } from '../../types';
 import { useService } from '../../services/service-provider';
-import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
+import { WRITE_READS, type CachedRead } from '../../services/write-reads';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording, in the one place it is written
@@ -566,21 +567,17 @@ function failureDetails(problem: Problem): FailureDetail[] {
  * The cache a recorded request moves — AAP 0.6.2
  * ------------------------------------------------------------------------------------------- */
 
-/** A port member that can hold a cached read, named from the interface rather than typed as a string. */
-type CachedRead = keyof SiteIntelligenceService;
-
 /**
  * Invalidates every cached entry of each read a recorded request moved.
  *
  * Every entry is keyed `[method, ...args]` (AAP 0.6.2), so naming a member invalidates every entry of
  * that read under every argument list — TanStack Query's default match is by key prefix. The adapter's
- * records are shared, so that granularity is what the write needs: a request recorded against one
- * policy moves the ledger the sovereignty read reports and the trail the audit read lists as well,
- * which is why the three reads are named rather than the one the request was made against.
- *
- * The members are the port's own, which is what lets this dialog hold the list at all — the port is
- * the only shared vocabulary between a screen and the adapters (rule P-2) — and nothing here reaches
- * into `src/app`, which a feature module may not import (AAP 0.18.1 "Boundary discipline").
+ * records are shared, so that granularity is what the write needs, and which reads it needs is not
+ * decided here: the caller passes `WRITE_READS.requestPolicyException`, one row of the write-reads map in
+ * `src/services/write-reads.ts` that the cache's own write channel reads too. The members it names are
+ * the port's own — the port is the only shared vocabulary between a screen and the adapters (rule P-2) —
+ * and nothing here reaches into `src/app`, which a feature module may not import (AAP 0.18.1 "Boundary
+ * discipline").
  *
  * @param queryClient The client this dialog obtained with `useQueryClient()`.
  * @param reads The port members the write touched. An empty list invalidates nothing.
@@ -752,13 +749,13 @@ export function GrantExceptionDialog({
 
       setSubmitting(false);
 
-      /* The three reads this write touched: `getPolicy`, for the policy the request was recorded
-         against, then the two reads of the same governance family — `getSovereigntyStatus`, whose
-         payload carries the ledger computed from the audit trail this write appends to, and
-         `listAuditEvents`, which shows the appended event. Issued before the caller is told the request
-         was recorded, so a surface that stays mounted reads the post-write payload rather than the one
-         it cached before the write. */
-      invalidateReads(queryClient, ['getPolicy', 'getSovereigntyStatus', 'listAuditEvents']);
+      /* The reads this write moved: the policy list and the policy the request was recorded against —
+         both read the pending request back — then the two reads of the same governance family,
+         `getSovereigntyStatus`, whose payload carries the ledger computed from the trail this write
+         appends to, and `listAuditEvents`, which shows the appended event. Issued before the caller is
+         told the request was recorded, so a surface that stays mounted reads the post-write payload
+         rather than the one it cached before the write. */
+      invalidateReads(queryClient, WRITE_READS.requestPolicyException);
 
       onSubmitted?.(result.data);
       onClose();

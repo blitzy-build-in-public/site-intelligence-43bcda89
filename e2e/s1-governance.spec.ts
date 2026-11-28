@@ -801,10 +801,28 @@ test('T-13 a stale source is named in the banner and in each disabled approval a
    * record's.
    */
   await resetDemoData(page);
+  /* A reset keeps the persona the session acts as, so this asks for the one already in force and
+     asserting it holds is what proves the reset did not sign the reader out. */
   await switchRole(page, 'USR-03');
   await follow(page, 'Approvals');
-  await activateRow(page, page.getByRole('row').filter({ hasText: approvalId }));
-  await expect(page.getByRole('heading', { level: 1, name: 'Approval' })).toBeVisible();
+
+  /*
+   * The inbox that replaces the one the reset dropped is filled by the re-read the reset issued, so the
+   * row is taken from the inbox's own table once that read has landed: a row matched anywhere in the
+   * document can be the screen being left behind, and a row activated while the list is still being
+   * replaced loses its Enter to the re-render.
+   */
+  const reopenedInbox = page.getByRole('table', { name: APPROVALS_CAPTION });
+  await expect(reopenedInbox).toBeVisible();
+
+  const reopenedRow = reopenedInbox.getByRole('row').filter({ hasText: approvalId });
+  await expect(
+    reopenedRow,
+    'the seeded approval is in the inbox once the re-read the reset issued has landed',
+  ).toHaveCount(1);
+
+  await activateRow(page, reopenedRow);
+  await expect(page.getByRole('heading', { level: 1, name: 'Approval', exact: true })).toBeVisible();
 
   await expect(
     page.getByRole('status').filter({ hasText: `${SUPPLY_SOURCE_LABEL}${STALE_SUFFIX}` }),

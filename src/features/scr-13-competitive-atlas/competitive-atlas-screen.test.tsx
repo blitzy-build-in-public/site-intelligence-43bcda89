@@ -58,12 +58,15 @@
  *     when it lands clear of every mark (rule P-8).
  * 14. The entity in view is marked in both drawings rather than only in the caption beside the
  *     selector: the radar's emphasised outline and its `aria-current` label-band row follow it, and
- *     the network drawing emphasises that family while the other competitor families recede — the
- *     client's own network included, both as the atlas's opening entity and after a competitor is
- *     chosen (rule P-8, rule B-3).
+ *     the network drawing emphasises that family — receding the other competitor families while a
+ *     competitor is in view, and receding none of them while the client's own network is, so every
+ *     competitor keeps the hue its own legend row promises (rule P-8, rule B-3).
  * 15. One competitor keeps one hue on every surface when the payload orders its series and its
  *     networks differently, because the slot each renderer paints is resolved from the competitor's
- *     own identifier (rule P-5).
+ *     own identifier (rule P-5). The same slot reaches the two surfaces below the drawings: every
+ *     entity selector control and every chokepoint-table competitor line opens with a decorative
+ *     swatch in the role its category is drawn in, and a competitor the slot mapping cannot place
+ *     carries none rather than another competitor's hue or the first-party accent.
  * 16. Every series is labelled at its own polygon inside the radar drawing — its own label, its own
  *     swatch and a leader to its own vertex — so the outlines are told apart on the drawing rather
  *     than only in the legend beside it (rule P-1).
@@ -172,6 +175,7 @@ import {
 } from '../../types';
 import type {
   Atlas,
+  AtlasLane,
   AtlasSeries,
   AtlasSite,
   Chokepoint,
@@ -191,7 +195,11 @@ import type {
   Scope,
   SourceId,
 } from '../../types';
-import { COMPETITIVE_ATLAS_TEXT, CompetitiveAtlasScreen } from './competitive-atlas-screen';
+import {
+  COMPETITIVE_ATLAS_TEXT,
+  CompetitiveAtlasScreen,
+  resetAtlasViewState,
+} from './competitive-atlas-screen';
 import { COMPETITOR_NETWORK_TEXT, nearestNetworkMark } from './competitor-network';
 
 /* ---------------------------------------------------------------------------------------------
@@ -585,6 +593,16 @@ const FIRST_CLASS_SITES: readonly AtlasSite[] = [
   ...ATLAS.clientSites,
   ...FIRST_CLASS_NETWORKS.flatMap((network) => [...network.sites]),
 ];
+
+/**
+ * The lanes the first class leaves drawn: every lane of every network in view, in the pack's order.
+ *
+ * A lane is a mark the network drawing places, so it takes a row of the table beside it and the count
+ * below has to include it (success criterion 9).
+ */
+const FIRST_CLASS_LANES: readonly AtlasLane[] = FIRST_CLASS_NETWORKS.flatMap((network) => [
+  ...network.lanes,
+]);
 
 /**
  * The payload of a pack with nothing to compare: no series and no crossing, so the screen's own
@@ -997,6 +1015,21 @@ function targetOf(mark: Element): {
 }
 
 /**
+ * The decorative category swatch inside an element, or `undefined` where it carries none.
+ *
+ * The swatch is a span that states `aria-hidden` and holds no text, so it adds nothing to the
+ * accessible name of the control or the table line it opens (rule B-3). Reading its class back is how
+ * a case observes the role a category is drawn in, rather than the colour value the theme resolves
+ * that role to. It is the only such span a selector control or a chokepoint line renders.
+ *
+ * @param element The control or table line to read.
+ * @returns The swatch element, or `undefined` where there is none.
+ */
+function swatchOf(element: HTMLElement): HTMLElement | undefined {
+  return element.querySelector<HTMLElement>('span[aria-hidden="true"]') ?? undefined;
+}
+
+/**
  * How far apart two points of a drawing's grid are, in that drawing's own units.
  *
  * @param one The first point.
@@ -1063,11 +1096,18 @@ function packBanner(): HTMLElement {
   return screen.getByRole('note', { name: COMPETITIVE_ATLAS_TEXT.bannerRegionLabel });
 }
 
-/** Arms every stub with the payloads a case starts from, so a case states only the read it changes. */
+/**
+ * Arms every stub with the payloads a case starts from, so a case states only the read it changes.
+ *
+ * The choices the screen holds outlive a mount on purpose, because that is what a client-side route
+ * change needs (QA5-F40), so every case returns the store to a first visit's values before it renders.
+ */
 beforeEach(() => {
   for (const member of Object.values(port)) {
     member.mockReset();
   }
+
+  resetAtlasViewState();
 
   port.getAtlas.mockResolvedValue(envelope(ATLAS));
   port.getEvidence.mockResolvedValue(evidenceEnvelope(EVIDENCE));
@@ -1496,6 +1536,97 @@ describe('CompetitiveAtlasScreen', () => {
     }
   });
 
+  it('opens each entity control and each chokepoint line with the hue its series is drawn in', async () => {
+    renderScreen();
+
+    const entityGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+    const table = await screen.findByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption,
+    });
+    const rows = within(table).getAllByRole('row').slice(1);
+
+    /* The client's own control opens with the accent role §4.1 reserves for first-party flows — the
+       role its radar polygon, its legend swatch and its network marks take. */
+    expect(
+      swatchOf(
+        within(entityGroup).getByRole('button', {
+          name: new RegExp(`^${escapeRegExp(CLIENT_SERIES.label)}`, 'u'),
+        }),
+      )?.getAttribute('class'),
+    ).toContain(CHART_TONE_CLASSES.accent.swatch);
+
+    for (const { competitorId, tone } of COMPETITOR_TONE_BY_ID) {
+      const series = COMPETITOR_SERIES.find((entry) => entry.competitorId === competitorId);
+
+      if (series === undefined) {
+        throw new Error(`the fixture states no series for ${competitorId}`);
+      }
+
+      /* The selector control carries the competitor's own role ... */
+      expect(
+        swatchOf(
+          within(entityGroup).getByRole('button', {
+            name: new RegExp(`^${escapeRegExp(series.label)}`, 'u'),
+          }),
+        )?.getAttribute('class'),
+      ).toContain(tone.swatch);
+
+      /* ... and so does every line the chokepoint table prints for it, in both competitor columns,
+         so one category is one colour below the drawings as well as in them (rule P-5). A crossing
+         that competitor does not use prints no line for it, so the rows are read for presence. */
+      const lines = rows
+        .flatMap((row) => within(row).queryAllByText(competitorId))
+        .map((identifier) => identifier.closest('li'))
+        .filter((line): line is HTMLLIElement => line !== null);
+
+      expect(lines.length).toBeGreaterThan(0);
+
+      for (const line of lines) {
+        expect(swatchOf(line)?.getAttribute('class')).toContain(tone.swatch);
+      }
+    }
+  });
+
+  it('gives a competitor the slot mapping cannot place no swatch rather than another hue', async () => {
+    const unplaced = 'competitor-outside-the-slots';
+
+    port.getAtlas.mockResolvedValue(
+      envelope({
+        ...ATLAS,
+        chokepoints: [
+          {
+            ...at(CHOKEPOINTS, 0, 'first crossing'),
+            competitorBufferDays: { [unplaced]: BUFFER_DAYS_FIRST },
+          },
+        ],
+      }),
+    );
+
+    renderScreen();
+
+    const table = await screen.findByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption,
+    });
+    const lines = within(table)
+      .getAllByText(unplaced)
+      .map((identifier) => identifier.closest('li'))
+      .filter((line): line is HTMLLIElement => line !== null);
+
+    expect(lines.length).toBeGreaterThan(0);
+
+    for (const line of lines) {
+      /* The line carries no swatch at all: specification §4.2 defines three competitor roles, and the
+         accent would present a market-intelligence record as the client's own reading (rule P-5). */
+      expect(swatchOf(line)).toBeUndefined();
+    }
+
+    /* The identifier still names the competitor, and rule P-5's tag still follows it in the competitor
+       column, so dropping the swatch removed no text the reader had. */
+    expect(within(table).getAllByText(COMPETITOR_NAME_TAG)).toHaveLength(1);
+  });
+
   it('prints every series’ own label inside the radar drawing, beside its own polygon', async () => {
     renderScreen();
 
@@ -1550,9 +1681,16 @@ describe('CompetitiveAtlasScreen', () => {
       'font-semibold',
     );
 
-    /* ... and every competitor family recedes to the graph lens's ground fill and hairline stroke,
-       with its printed names in the text role §4 measures for a recessed reading. */
-    for (const network of COMPETITOR_NETWORKS) {
+    /* ... and every competitor family keeps the hue its own legend row promises: the client's own
+       selection singles out no competitor, so none recedes to the graph lens's dimmed device, and the
+       label band inside this same drawing stays true of the marks below it. */
+    for (const { competitorId, tone } of COMPETITOR_TONE_BY_ID) {
+      const network = COMPETITOR_NETWORKS.find((entry) => entry.competitorId === competitorId);
+
+      if (network === undefined) {
+        throw new Error(`the fixture states no network for ${competitorId}`);
+      }
+
       const group = competitorGroupIn(drawing, network);
 
       expect(group).not.toHaveAttribute('aria-current');
@@ -1564,15 +1702,24 @@ describe('CompetitiveAtlasScreen', () => {
       for (const mark of marks) {
         const classes = mark.getAttribute('class') ?? '';
 
-        expect(classes).toContain('fill-ground');
-        expect(classes).toContain('stroke-hairline');
+        expect(classes).toContain(tone.stroke);
+        expect(classes).not.toContain('stroke-hairline');
+      }
+
+      /* The lanes that traverse the crossings are that family's too, drawn in the same role. */
+      const lanes = [...group.querySelectorAll('path')];
+
+      expect(lanes.length).toBeGreaterThan(0);
+
+      for (const lane of lanes) {
+        expect(lane.getAttribute('class')).toContain(tone.stroke);
       }
 
       expect(
         within(group)
           .getByText(`${network.label} site one`, { exact: true })
           .getAttribute('class'),
-      ).toContain('fill-text-secondary');
+      ).toContain('fill-text-primary');
     }
   });
 
@@ -1727,7 +1874,11 @@ describe('CompetitiveAtlasScreen', () => {
       }
     }
 
-    /* The network's table view lists the same sites the drawing places, so the two never disagree. */
+    /*
+     * The network's table view lists the same marks the drawing places, so the two never disagree: one
+     * row per site in view, one per lane those networks run and one per crossing those lanes traverse,
+     * which is every mark the narrowed drawing paints (success criterion 9).
+     */
     await user.click(
       within(networkDrawing).getByRole('button', {
         name: `${VIEW_AS_TABLE_LABELS.showTable}: ${COMPETITIVE_ATLAS_TEXT.networkFigureTitle}`,
@@ -1738,7 +1889,10 @@ describe('CompetitiveAtlasScreen', () => {
       name: COMPETITIVE_ATLAS_TEXT.networkTableCaption,
     });
 
-    expect(within(networkTable).getAllByRole('row')).toHaveLength(FIRST_CLASS_SITES.length + 1);
+    const marksInView =
+      FIRST_CLASS_SITES.length + FIRST_CLASS_LANES.length + FIRST_CLASS_CHOKEPOINTS.length;
+
+    expect(within(networkTable).getAllByRole('row')).toHaveLength(marksInView + 1);
 
     /* And the chokepoint table lists only the crossings a lane of an in-view network traverses. */
     const chokepointTable = screen.getByRole('table', {
@@ -1835,6 +1989,39 @@ describe('CompetitiveAtlasScreen', () => {
     ).toBeNull();
   });
 
+  it('keeps the competitor in view when the screen is unmounted and shown again', async () => {
+    const user = userEvent.setup();
+    const third = at(COMPETITOR_NETWORKS, 2, 'competitor network');
+
+    const first = renderScreen();
+
+    const entityGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    await user.click(
+      within(entityGroup).getByRole('button', {
+        name: new RegExp(`^${escapeRegExp(third.label)}`, 'u'),
+      }),
+    );
+
+    expect(
+      screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${third.label}`),
+    ).toBeInTheDocument();
+
+    /* The shell unmounts this screen on a client-side route change, which is the moment QA5-F40 recorded
+       the atlas reverting to the class's default series. */
+    first.unmount();
+
+    renderScreen();
+
+    await screen.findByRole('group', { name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel });
+
+    expect(
+      screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${third.label}`),
+    ).toBeInTheDocument();
+  });
+
   it('states the class group’s selection in words beside the control that carries it', async () => {
     const user = userEvent.setup();
 
@@ -1845,12 +2032,22 @@ describe('CompetitiveAtlasScreen', () => {
     });
 
     /* The atlas opens with every class in view, and both the caption and the control say so rather
-       than leaving the reader to compare colours (rule B-3). */
-    expect(
-      within(classGroup).getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.allClassesLabel }),
-    ).toHaveClass('bg-action-primary-bg');
+       than leaving the reader to compare colours (rule B-3). The selected control wears the accent
+       boundary the shell's current navigation entry wears and not the filled action pair, so the
+       screen keeps exactly one filled control — its primary action — while the selection reads as a
+       state. */
+    const allClasses = within(classGroup).getByRole('button', {
+      name: COMPETITIVE_ATLAS_TEXT.allClassesLabel,
+    });
+
+    expect(allClasses).toHaveClass('border-accent');
+    expect(allClasses).not.toHaveClass('bg-action-primary-bg');
+    /* The state is the control's own, not only the caption's: a toggle announces whether it is
+       pressed, so a reader who cannot see the accent boundary still hears which option is in force
+       (rule B-3, WCAG 4.1.2). */
+    expect(allClasses).toHaveAttribute('aria-pressed', 'true');
     expect(within(classGroup).getByRole('button', { name: FIRST_CLASS })).not.toHaveClass(
-      'bg-action-primary-bg',
+      'border-accent',
     );
     expect(
       within(classGroup).getByText(
@@ -1860,12 +2057,13 @@ describe('CompetitiveAtlasScreen', () => {
 
     await user.click(within(classGroup).getByRole('button', { name: FIRST_CLASS }));
 
-    expect(within(classGroup).getByRole('button', { name: FIRST_CLASS })).toHaveClass(
-      'bg-action-primary-bg',
-    );
-    expect(
-      within(classGroup).getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.allClassesLabel }),
-    ).not.toHaveClass('bg-action-primary-bg');
+    const chosen = within(classGroup).getByRole('button', { name: FIRST_CLASS });
+
+    expect(chosen).toHaveClass('border-accent');
+    expect(chosen).not.toHaveClass('bg-action-primary-bg');
+    expect(chosen).toHaveAttribute('aria-pressed', 'true');
+    expect(allClasses).not.toHaveClass('border-accent');
+    expect(allClasses).toHaveAttribute('aria-pressed', 'false');
     expect(
       within(classGroup).getByText(
         `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${FIRST_CLASS}. ${COMPETITIVE_ATLAS_TEXT.classCaptionDetail}`,
@@ -2077,8 +2275,9 @@ describe('CompetitiveAtlasScreen', () => {
       return row;
     }
 
-    /* The client's own row is a seeded first-party record, so its network, its site and both of its
-       coordinates are labelled `Simulated data` and never market intelligence (rules P-1, P-5). */
+    /* The client's own row is the first-party self-assessment the drawing labels its client group and
+       every client site with, so its provenance cell carries that companion string and never market
+       intelligence (rules P-1, P-5). */
     const clientRow = rowOf(CLIENT_SITE.label);
     const clientCells = within(clientRow).getAllByRole('cell');
 
@@ -2091,7 +2290,9 @@ describe('CompetitiveAtlasScreen', () => {
     expect(collapsedTextOf(at(clientCells, 3, 'client longitude cell'))).toBe(
       String(CLIENT_SITE.longitude),
     );
-    expect(collapsedTextOf(at(clientCells, 4, 'client provenance cell'))).toBe(SIM_LABELS[0]);
+    expect(collapsedTextOf(at(clientCells, 4, 'client provenance cell'))).toBe(
+      CLIENT_SELF_ASSESSMENT_LABEL,
+    );
     expect(within(clientRow).queryByText(SIM_LABELS[5])).toBeNull();
 
     /* Every competitor's row is market intelligence: the same column says so for the network, the
@@ -2111,6 +2312,152 @@ describe('CompetitiveAtlasScreen', () => {
       }
     }
   });
+
+  it('prints a row for every lane the networks run and every crossing they traverse', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const card = await networkCard();
+
+    await user.click(
+      within(card).getByRole('button', {
+        name: `${VIEW_AS_TABLE_LABELS.showTable}: ${COMPETITIVE_ATLAS_TEXT.networkFigureTitle}`,
+      }),
+    );
+
+    const table = screen.getByRole('table', { name: COMPETITIVE_ATLAS_TEXT.networkTableCaption });
+    const rows = within(table).getAllByRole('row').slice(1);
+    const lanes = COMPETITOR_NETWORKS.flatMap((network) => [...network.lanes]);
+    const traversed = CHOKEPOINTS.filter((crossing) =>
+      lanes.some((lane) => lane.chokepointId === crossing.id),
+    );
+    const sites = [
+      ...ATLAS.clientSites,
+      ...COMPETITOR_NETWORKS.flatMap((network) => [...network.sites]),
+    ];
+
+    /* One row per mark the drawing places — its sites, the lanes those networks run between their own
+       sites and the crossings those lanes traverse — and no row for anything else (criterion 9). */
+    expect(lanes.length).toBeGreaterThan(0);
+    expect(traversed.length).toBeGreaterThan(0);
+    expect(rows).toHaveLength(sites.length + lanes.length + traversed.length);
+
+    /**
+     * The one row whose mark cell prints every one of the given names.
+     *
+     * Found by the text the row prints rather than by its position, so a case reads the row a reader
+     * would point at.
+     *
+     * @param marks The names the row's mark cell must print.
+     * @returns The row.
+     * @throws When no row prints every name, which is the failure the case is asserting.
+     */
+    function rowMarkedWith(...marks: readonly string[]): HTMLElement {
+      const row = rows.find((candidate) => {
+        const markCell = collapsedTextOf(at(within(candidate).getAllByRole('cell'), 1, 'mark cell'));
+
+        return marks.every((mark) => markCell.includes(mark));
+      });
+
+      if (row === undefined) {
+        throw new Error(`the network table printed no row for ${marks.join(', ')}`);
+      }
+
+      return row;
+    }
+
+    /* A lane has no coordinate of its own: its mark cell names the two sites it joins — never their
+       identifiers — the network keeps its tag, and both coordinate cells say the lane spans two sites
+       rather than printing a position no record states (rule B-3). */
+    for (const network of COMPETITOR_NETWORKS) {
+      const labelById = new Map<string, string>();
+
+      for (const site of [...ATLAS.clientSites, ...network.sites]) {
+        labelById.set(site.id, site.label);
+      }
+
+      for (const lane of network.lanes) {
+        const fromLabel = labelById.get(lane.fromId);
+        const toLabel = labelById.get(lane.toId);
+
+        if (fromLabel === undefined || toLabel === undefined) {
+          throw new Error('the fixture states a lane whose site the payload does not place');
+        }
+
+        const row = rowMarkedWith(fromLabel, toLabel);
+        const cells = within(row).getAllByRole('cell');
+
+        expect(collapsedTextOf(row)).not.toContain(lane.fromId);
+        expect(collapsedTextOf(row)).not.toContain(lane.toId);
+        expect(collapsedTextOf(at(cells, 0, 'lane network cell'))).toBe(
+          `${network.label} ${COMPETITOR_NAME_TAG}`,
+        );
+        expect(collapsedTextOf(at(cells, 2, 'lane latitude cell'))).toBe(
+          COMPETITIVE_ATLAS_TEXT.laneCoordinate,
+        );
+        expect(collapsedTextOf(at(cells, 3, 'lane longitude cell'))).toBe(
+          COMPETITIVE_ATLAS_TEXT.laneCoordinate,
+        );
+        expect(collapsedTextOf(at(cells, 4, 'lane provenance cell'))).toBe(SIM_LABELS[5]);
+      }
+    }
+
+    /* A crossing is shared rather than owned and the shared record states no position of its own, so
+       the cells say both instead of naming one network or printing a guessed coordinate (rule B-3). */
+    for (const crossing of traversed) {
+      const row = rowMarkedWith(crossing.label);
+      const cells = within(row).getAllByRole('cell');
+
+      expect(collapsedTextOf(at(cells, 0, 'crossing network cell'))).toBe(
+        COMPETITIVE_ATLAS_TEXT.chokepointNetwork,
+      );
+      expect(collapsedTextOf(at(cells, 2, 'crossing latitude cell'))).toBe(
+        COMPETITIVE_ATLAS_TEXT.chokepointCoordinate,
+      );
+      expect(collapsedTextOf(at(cells, 3, 'crossing longitude cell'))).toBe(
+        COMPETITIVE_ATLAS_TEXT.chokepointCoordinate,
+      );
+      expect(collapsedTextOf(at(cells, 4, 'crossing provenance cell'))).toBe(SIM_LABELS[5]);
+      expect(within(row).queryByText(COMPETITOR_NAME_TAG)).toBeNull();
+    }
+  });
+
+  it('prints no row for a crossing no lane of the drawing reaches', async () => {
+    const user = userEvent.setup();
+    const unplaced: Chokepoint = {
+      ...at(CHOKEPOINTS, 0, 'first crossing'),
+      id: 'crossing-unplaced',
+      label: 'Crossing no lane names',
+    };
+
+    /* The plot places a crossing on the lane that traverses it, and no lane names this one, so the
+       drawing paints no mark for the record: a row here would state a mark a reader cannot find. */
+    port.getAtlas.mockResolvedValue(envelope({ ...ATLAS, chokepoints: [...CHOKEPOINTS, unplaced] }));
+
+    renderScreen();
+
+    const card = await networkCard();
+
+    await user.click(
+      within(card).getByRole('button', {
+        name: `${VIEW_AS_TABLE_LABELS.showTable}: ${COMPETITIVE_ATLAS_TEXT.networkFigureTitle}`,
+      }),
+    );
+
+    const table = screen.getByRole('table', { name: COMPETITIVE_ATLAS_TEXT.networkTableCaption });
+
+    expect(within(table).queryByText(unplaced.label, { exact: true })).toBeNull();
+
+    /* The crossing is still reported where its measures are read: the plot has nowhere to place it, the
+       chokepoint table lists it. */
+    const chokepointTable = screen.getByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption,
+    });
+
+    expect(within(chokepointTable).getByText(unplaced.label)).toBeInTheDocument();
+  });
+
 
   it('names each competitor of the chokepoint table beside its identifier and its buffer days', async () => {
     renderScreen();

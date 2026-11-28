@@ -5,12 +5,13 @@
  * queue screen relies on: a name decides its identifier, so the same name always yields the same one
  * and nothing here needs a counter, a clock or a random source; a view and the query inside it are
  * copied and frozen, so a caller that changes its own query afterwards cannot rewrite a view that is
- * already saved; a view stores the filters, the page size and the ordering rather than a continuation
- * position, and applying one lays its defined members over the queue's current query, keeps the page
- * size and the ordering it says nothing about, and sends no continuation position from either side,
- * so the queue reopens at its first page; listing returns a new array in the order the planner's own
- * names imply; and no call reaches browser storage, because the theme and the density are the only
- * preferences this application keeps between visits (platform-contracts.md §1).
+ * already saved; a view stores the filters — the day the queue was narrowed to among them — the page
+ * size and the ordering rather than a continuation position, and applying one restores exactly that
+ * set with nothing of the queue's current query laid under it, so a filter the view does not carry is
+ * cleared rather than left to narrow the saved rows to nothing (QA3-F21); listing returns a new array
+ * in the order the planner's own names imply; and no call reaches browser storage, because the theme
+ * and the density are the only preferences this application keeps between visits
+ * (platform-contracts.md §1).
  *
  * The filter values below are placeholders that name no record: this module copies a query and
  * resolves none, so no plant, supplier, owner or exception is named here (rule P-6), and the service
@@ -26,7 +27,7 @@ import { applySavedView, createSavedView, listSavedViews } from './saved-views';
 // The namespace form backs the public-surface case: a helper exported in future would appear here.
 import * as savedViews from './saved-views';
 
-import type { ExceptionQuery } from '../../types';
+import type { ExceptionQuery, IsoDate } from '../../types';
 
 /* ---------------------------------------------------------------------------------------------
  * Fixtures — one factory, so no case restates the queue's paging or ordering
@@ -50,6 +51,15 @@ const SEVERITY_ORDER = 'severity:desc';
 const PLANT_FILTER = 'plant-a';
 const SUPPLIER_FILTER = 'supplier-a';
 const OWNER_FILTER = 'owner-a';
+
+/**
+ * The day the queue was narrowed to when the view was saved.
+ *
+ * `ExceptionQuery.date` is how SCR-01's series hands the queue a day, so a view taken while that
+ * narrowing stands carries it. A placeholder in the contracts §1 `YYYY-MM-DD` shape: the module copies
+ * the value and resolves no record from it (rule P-6).
+ */
+const DAY_FILTER: IsoDate = '2000-01-01';
 
 /** Builds the query the queue holds, with each member the caller names replacing the default. */
 function queryOf(overrides: ExceptionQuery = {}): ExceptionQuery {
@@ -150,49 +160,65 @@ describe('createSavedView', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * applySavedView — the view's own members over the query the queue holds
+ * applySavedView — the whole saved filter set, and nothing of the queue's own query
  * ------------------------------------------------------------------------------------------- */
 
 describe('applySavedView', () => {
-  it('lays the view over the base query and keeps the members the view leaves out', () => {
-    const base = queryOf({ severity: 'high' });
-    const view = createSavedView('Critical at one plant', {
+  it('restores every member the view saved, and clears the filters the queue held beside them', () => {
+    const view = createSavedView(
+      'Critical at one plant',
+      queryOf({ severity: 'critical', plantId: PLANT_FILTER, date: DAY_FILTER }),
+    );
+
+    const applied = applySavedView(view);
+
+    /*
+     * The whole set comes back: the filters, the day the queue was narrowed to, the page size and the
+     * ordering. A queue that had since chosen a status and an owner shows the saved rows again, because
+     * neither of those was part of what the planner saved (QA3-F21).
+     */
+    expect(applied).toEqual({
+      limit: PAGE_SIZE,
+      sort: SEVERITY_ORDER,
       severity: 'critical',
       plantId: PLANT_FILTER,
+      date: DAY_FILTER,
     });
 
-    const applied = applySavedView(view, base);
-
-    // The members the view defines replace the base's own.
-    expect(applied.severity).toBe('critical');
-    expect(applied.plantId).toBe(PLANT_FILTER);
-    // The page size and the ordering the view says nothing about survive the switch.
-    expect(applied.limit).toBe(PAGE_SIZE);
-    // The continuation position does not: it names a place in the population the previous query
-    // selected, so the applied query asks the service for the first page instead.
-    expect('cursor' in applied).toBe(false);
-    expect(applied.sort).toBe(SEVERITY_ORDER);
-    // A member neither side names stays absent rather than arriving as `undefined`.
+    /* A filter the queue may hold and the view does not carry is absent, not inherited, so nothing of
+       the queue's current query can narrow the saved set to a different population. */
+    expect('status' in applied).toBe(false);
     expect('ownerId' in applied).toBe(false);
     expect('supplierId' in applied).toBe(false);
-    // The base is the queue's own query, and switching views does not consume it.
-    expect(base.severity).toBe('high');
-    expect(base.plantId).toBeUndefined();
+    expect('type' in applied).toBe(false);
   });
 
-  it('carries no continuation position from the view or from the base query', () => {
-    // Both sides carry a position: the view was saved while the queue was part way through one list,
-    // and the query it is applied over is part way through another.
-    const view = createSavedView('Critical rows', queryOf({ severity: 'critical' }));
-    const base = queryOf({ severity: 'high' });
+  it('clears the day the queue was narrowed to when the view was saved without one', () => {
+    const view = createSavedView('Every day', { severity: 'high' });
 
-    expect('cursor' in base).toBe(true);
+    const applied = applySavedView(view);
+
+    /* The day is part of the saved set like any filter: a view saved over the whole calendar leaves no day
+       in force, so the day the queue happened to hold cannot narrow the saved rows away (QA3-F21). */
+    expect('date' in applied).toBe(false);
+    expect(applied).toEqual({ severity: 'high' });
+  });
+
+  it('carries no continuation position, which a view never stores', () => {
+    /* The query the view was saved from was part way through a list; the view keeps the filter set and
+       leaves the position behind. */
+    const saved = queryOf({ severity: 'critical' });
+
+    expect('cursor' in saved).toBe(true);
+
+    const view = createSavedView('Critical rows', saved);
+
     expect('cursor' in view.query).toBe(false);
 
-    const applied = applySavedView(view, base);
+    const applied = applySavedView(view);
 
-    // A position names a place in the records the query that produced it selected, so it cannot travel
-    // to a different filter set: the applied query asks for the first page of the new one.
+    /* A position names a place in the records the query that produced it selected, so a filter set can
+       never reopen at one: the applied query asks for the first page. */
     expect('cursor' in applied).toBe(false);
     expect(applied).toEqual({
       limit: PAGE_SIZE,
@@ -201,25 +227,33 @@ describe('applySavedView', () => {
     });
   });
 
-  it('returns a new query and changes neither of its inputs', () => {
+  it('returns a new query that changes neither the view nor the query it was saved from', () => {
+    const source = queryOf({ severity: 'high', supplierId: SUPPLIER_FILTER });
     const view = createSavedView('Saved filters', {
+      ...source,
       severity: 'critical',
       plantId: PLANT_FILTER,
       ownerId: OWNER_FILTER,
     });
-    // Both sides are frozen: the view's query by the module and the base here, so a call that tried
-    // to write either one would fail rather than pass unnoticed.
-    const base = Object.freeze(queryOf({ severity: 'high' }));
-    const baseBefore = copyOfQuery(base);
+    /* The query the view was saved from is the caller's own and stays as it was, as does the frozen
+       copy inside the view. */
+    const sourceBefore = copyOfQuery(source);
     const viewQueryBefore = copyOfQuery(view.query);
 
-    const applied = applySavedView(view, base);
+    const applied = applySavedView(view);
 
-    expect(applied).not.toBe(base);
     expect(applied).not.toBe(view.query);
-    expect(base).toEqual(baseBefore);
+    expect(source).toEqual(sourceBefore);
     expect(view.query).toEqual(viewQueryBefore);
-    expect(applied.ownerId).toBe(OWNER_FILTER);
+
+    /* The answer is the caller's to change: writing to it cannot reach the frozen view it came from,
+       which is what makes applying a view a read of a value rather than a handle on it. */
+    applied.severity = 'low';
+    applied.limit = PAGE_SIZE * 2;
+
+    expect(view.query.severity).toBe('critical');
+    expect(view.query.limit).toBe(PAGE_SIZE);
+    expect(Object.isFrozen(view.query)).toBe(true);
   });
 });
 
@@ -261,8 +295,12 @@ describe('determinism', () => {
     expect(secondView).toEqual(firstView);
     expect(secondView.id).toBe(firstView.id);
 
-    const firstApplied = applySavedView(firstView, queryOf({ severity: 'high' }));
-    const secondApplied = applySavedView(secondView, queryOf({ severity: 'high' }));
+    /*
+     * Applying a view is a function of the view alone, so two views saved from deep-equal queries answer
+     * deep-equal queries whatever the queue happened to hold when each was applied (QA3-F21).
+     */
+    const firstApplied = applySavedView(firstView);
+    const secondApplied = applySavedView(secondView);
 
     expect(secondApplied).toEqual(firstApplied);
 
@@ -303,7 +341,7 @@ describe('saved views touch no side channel', () => {
     expect(vi.isMockFunction(Storage.prototype.removeItem)).toBe(true);
 
     const view = createSavedView('Session-only view', queryOf({ severity: 'critical' }));
-    applySavedView(view, queryOf({ severity: 'high' }));
+    applySavedView(view);
     listSavedViews([view, createSavedView('Another view', queryOf({ status: 'open' }))]);
 
     expect(setItem).not.toHaveBeenCalled();
@@ -319,7 +357,7 @@ describe('saved views touch no side channel', () => {
     expect(vi.isMockFunction(Math.random)).toBe(true);
 
     const view = createSavedView('Timeless view', queryOf({ status: 'open' }));
-    applySavedView(view, queryOf({ plantId: PLANT_FILTER }));
+    applySavedView(view);
     listSavedViews([view]);
 
     // An identifier derived from a name needs no counter and no instant, so neither source is read.

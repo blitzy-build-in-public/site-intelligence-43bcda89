@@ -1040,13 +1040,14 @@ function aggregateBundle(
 /**
  * Reads the six tiles of the FileMap canvas ribbon for one scope.
  *
- * The ribbon adds no arithmetic of its own: `computeRibbonTiles` copies the overview's aggregate values
- * and reports the critical count `countAtHeadOfUrgency` derives, so every tile is a computed figure and
- * the canvas can neither supply nor alter one (rule P-6). That count is counted over the population the
- * exception aggregate admits rather than over projected queue rows, so a read that tiles no exception
- * prices none, while the count still describes the population the queue's own rows are projected from
- * and the two cannot disagree (AAP 0.2.1). The tiles carry no caption, evidence reference or simulation
- * label, because those belong to the component that renders them (rule P-1, AAP 0.10).
+ * The ribbon adds no arithmetic of its own: `computeRibbonTiles` copies the overview's aggregate values,
+ * reports the critical count `countAtHeadOfUrgency` derives and counts the plants the resolved scope
+ * names, so every tile is a computed figure and the canvas can neither supply nor alter one (rule P-6).
+ * That count is counted over the population the exception aggregate admits rather than over projected
+ * queue rows, so a read that tiles no exception prices none, while the count still describes the
+ * population the queue's own rows are projected from and the two cannot disagree (AAP 0.2.1). The
+ * tiles carry no caption, evidence reference or simulation label, because those belong to the component
+ * that renders them (rule P-1, AAP 0.10).
  *
  * The empty-queue trigger empties the exception collection the bundle is built from, so the overview and
  * the critical count are derived from the same emptied set: the canvas's tiles and the queue's rows then
@@ -1071,5 +1072,9 @@ export async function getCanvasRibbon(
   const emptied = isSimulationOn(ctx.state, 'empty-queue');
   const bundle = aggregateBundle(ctx.state, emptied ? [] : ctx.state.records.exceptions);
 
-  return computeRibbonTiles(computeOverview(bundle, scope), countAtHeadOfUrgency(bundle, scope));
+  return computeRibbonTiles(
+    computeOverview(bundle, scope),
+    countAtHeadOfUrgency(bundle, scope),
+    scope,
+  );
 }

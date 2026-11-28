@@ -100,18 +100,19 @@ export interface DemonstrationControls {
    * Reads the persona the session is acting as.
    *
    * The record is the adapter's own resolution of the persona it enforces: the seeded persona the
-   * session opened with, the one the last successful `switchRole` selected, or again the seeded
-   * persona once the demonstration's `resetDemo()` has put its state back. Its role, its plant scope
-   * and its permissions are therefore the ones a call is authorised against rather than a parallel
-   * copy the interface keeps, which is what AAP 0.6.3's "Identity" row describes: the adapter holds
-   * the active user and the interface never decides what a caller may do.
+   * session opened with, or the one the last successful `switchRole` selected — and restoring the
+   * demonstration's records leaves that persona in place, because it is the reader's own choice rather
+   * than a seeded record, so the read keeps answering with it. Its role, its plant scope and its
+   * permissions are therefore the ones a call is authorised against rather than a parallel copy the
+   * interface keeps, which is what AAP 0.6.3's "Identity" row describes: the adapter holds the active
+   * user and the interface never decides what a caller may do.
    *
    * This is the read the shell seeds its persona from, and seeding from it is what makes the persona
-   * the interface displays and the persona the adapter enforces one value. The theme's default
-   * density and the router's entry route follow the persona in force for a fresh session, before
-   * anyone has switched (AAP 0.12.4), and a demonstration reset that reverts the adapter to its
-   * seeded persona is reported by the next read instead of leaving the interface displaying a role
-   * the adapter no longer acts as.
+   * the interface displays and the persona the adapter enforces one value. The theme's default density
+   * and the router's entry route follow the persona in force for a fresh session, before anyone has
+   * switched (AAP 0.12.4), and a change to the persona — a switch, or the reset that keeps it — is
+   * reported by the next read rather than leaving the interface displaying somebody the adapter no
+   * longer acts as.
    *
    * Why the read belongs here rather than on the port. The port carries the contracts' own member
    * set, so a member added there would make the port something other than that contract and would

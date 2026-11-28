@@ -13,12 +13,16 @@
  * carrying a combined reading; vertex marks keyboard operable with a name that states axis, series
  * and score, opening the evidence the caller's required mapper resolved and reporting the series it
  * picked; every outline transparent to pointer events and painted below every vertex mark, so no
- * polygon can take the press that belongs to a mark; a press resolved by the drawing to the vertex
- * nearest it — even where a neighbouring vertex's target is painted above that dot, and to nothing at
- * all when it lands clear of every vertex; a vertex the mapper cannot resolve left a plain
+ * polygon can take a press that belongs to a mark; the pointer resolved by the drawing itself to the
+ * vertex nearest it — for the value it reads out as the pointer moves as much as for the press it
+ * activates, even where a neighbouring vertex's target is painted above that dot, and to nothing at all
+ * when it lands clear of every vertex; a vertex the mapper cannot resolve left a plain
  * mark rather than a control (rule P-8); the slot a colour is selected by, which follows the
  * competitor's own identifier rather than this list's order; a polygon's fill and
- * stroke read from the one chart tone table the other surfaces resolve too; and both themes.
+ * stroke read from the one chart tone table the other surfaces resolve too; the read-out a vertex
+ * answers with on focus and on a pointer moving near it — its axis, its series (a competitor's keeping
+ * its own tag) and the score it announces — with the ring revealed on that vertex alone; and both
+ * themes.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `./evidence-drawer.tsx` reads
  * through (rule P-2), so no seed module, adapter or hash chain is involved and the suite observes
@@ -32,7 +36,7 @@
  * clock or touches the network.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,6 +61,16 @@ vi.mock('../services/service-provider', () => ({
 
 /** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
 const THEMES = ['command', 'paper'] as const;
+
+/**
+ * The two values the drawing's scale states, and how many numbers it prints.
+ *
+ * The market pack's scores are recorded from zero to one hundred, so the scale's midpoint is fifty and its
+ * upper bound one hundred. They name the axis the polygons are measured against rather than any series'
+ * reading, which is why the cases below count them apart from the names.
+ */
+const SCALE_VALUES = ['50', '100'] as const;
+const SCALE_TICK_COUNT = SCALE_VALUES.length;
 
 /**
  * The market-intelligence label, read from the fixed vocabulary by position rather than retyped: the
@@ -249,16 +263,15 @@ function distanceBetween(one: PolygonPoint, other: PolygonPoint): number {
 }
 
 /**
- * Lays the drawing out at its own scale, then presses it at one point of its own grid.
+ * Lays the drawing out at its own scale, as a browser would have.
  *
- * jsdom computes no layout at all, so the element reports a zero-width box and the drawing declines
- * to resolve a press against it — correctly, since there is no scale to convert the pointer by. A
- * case that exercises the press states the box a browser would have measured: the view box's own
+ * jsdom computes no layout at all, so the element reports a zero-width box and the drawing declines to
+ * resolve a pointer against it — correctly, since there is no scale to convert the coordinates by. A
+ * case that exercises the pointer states the box a browser would have measured: the view box's own
  * width and height, with the element's top-left corner at the origin, which makes one user unit one
- * CSS pixel and lets the press be stated in the drawing's coordinates. The press is dispatched at the
- * `<svg>` itself, which is the element the drawing resolves a press on.
+ * CSS pixel and lets the pointer be stated in the drawing's coordinates.
  */
-function pressAt(point: PolygonPoint): void {
+function layOutDrawing(): SVGSVGElement {
   const svg = svgElement();
   const box = (svg.getAttribute('viewBox') ?? '')
     .trim()
@@ -283,7 +296,27 @@ function pressAt(point: PolygonPoint): void {
     toJSON: () => ({}),
   });
 
-  fireEvent.click(svg, { clientX: point.x, clientY: point.y });
+  return svg;
+}
+
+/**
+ * Lays the drawing out, then presses it at one point of its own grid.
+ *
+ * The press is dispatched at the `<svg>` itself, which is the element the drawing resolves a press on.
+ */
+function pressAt(point: PolygonPoint): void {
+  fireEvent.click(layOutDrawing(), { clientX: point.x, clientY: point.y });
+}
+
+/**
+ * Lays the drawing out, then moves the pointer to one point of its own grid.
+ *
+ * The movement is dispatched at the `<svg>` itself, which is where the drawing resolves the vertex a
+ * reader is pointing at: the element the browser would have reported is deliberately not used, because
+ * a press or a hover belongs to the topmost target painted there while the drawing answers by distance.
+ */
+function pointAt(point: PolygonPoint): void {
+  fireEvent.pointerMove(layOutDrawing(), { clientX: point.x, clientY: point.y });
 }
 
 /** Every rendered line of text in the drawing, trimmed, in document order. */
@@ -426,14 +459,17 @@ function vertexName(series: AtlasSeries, axisIndex: number): string {  const axi
 }
 
 /**
- * The pointer-state utilities one class list declares, filtered by their prefix rather than matched as a
- * whole string, so a legitimate token change inside a state cannot fail the case while the requirement —
- * a hover and a pressed treatment built from role tokens — still holds.
+ * The ring a vertex reveals while it is the active one: the third circle of a mark, after the invisible
+ * pointer target and the visible dot.
  */
-function pointerStates(classList: string): readonly string[] {
-  return classList
-    .split(' ')
-    .filter((utility) => utility.startsWith('group-hover:') || utility.startsWith('group-active:'));
+function ringOf(mark: Element): Element {
+  const [target, dot, ring] = [...mark.querySelectorAll('circle')];
+
+  if (target === undefined || dot === undefined || ring === undefined) {
+    throw new Error('the vertex drew no ring');
+  }
+
+  return ring;
 }
 
 beforeEach(() => {
@@ -459,14 +495,48 @@ describe('RadarChart', () => {
 
     const texts = textContents();
 
-    /* Three lines per series: its name and its companion tag in the label band, and its own label at
-       its polygon. Everything else the drawing prints is an axis name. */
-    expect(AXES).toHaveLength(texts.length - SERIES.length * 3);
+    /* Three lines per series — its name and its companion tag in the label band, and its own label at
+       its polygon — plus one name per axis and the two values the scale states. Everything else the
+       drawing carries would be an annotation nobody asked for, so the count is exact. */
+    expect(AXES).toHaveLength(texts.length - SERIES.length * 3 - SCALE_TICK_COUNT);
     for (const axis of AXES) {
       expect(texts.filter((text) => text === axis.label)).toHaveLength(1);
     }
     // One spoke per axis, inside the decorative group that also carries the rings.
     expect(svgElement().querySelectorAll('line')).toHaveLength(AXES.length);
+  });
+
+  it('prints the scale’s two values, each beside the ring it names', () => {
+    renderChart();
+
+    const scale = scaleOf();
+    const ticks = SCALE_VALUES.map((value) => {
+      const text = [...svgElement().querySelectorAll('text')].find(
+        (node) => (node.lastChild?.textContent ?? '').trim() === value,
+      );
+
+      if (text === undefined) {
+        throw new Error(`the drawing printed no ${value} on its scale`);
+      }
+
+      return {
+        value,
+        distance: Math.hypot(
+          Number(text.getAttribute('x')) - scale.centre.x,
+          Number(text.getAttribute('y')) - scale.centre.y,
+        ),
+      };
+    });
+    const [midpoint, outer] = ticks;
+
+    if (midpoint === undefined || outer === undefined) {
+      throw new Error('the drawing did not print both of the scale’s values');
+    }
+
+    /* The midpoint sits inside the outer half of the drawing and the upper bound outside it, so each
+       value is printed beside the ring it names rather than both beside one circle. */
+    expect(midpoint.distance).toBeLessThan(scale.outerRadius * 0.75);
+    expect(outer.distance).toBeGreaterThan(scale.outerRadius * 0.75);
   });
 
   it('draws exactly one polygon per series, with one vertex per axis and no shared shape', () => {
@@ -644,11 +714,12 @@ describe('RadarChart', () => {
 
     const texts = textContents();
 
-    // The series lines and the axis names are all the drawing says; a combined reading would need a
-    // line of its own, and a bare number on one would be exactly that.
-    for (const text of texts) {
-      expect(text).not.toMatch(/^-?\d+([.,]\d+)?$/);
-    }
+    /* The only bare numbers the drawing states are the scale's own two values, which name the axis rather
+       than any series' reading. A combined score would need a number of its own, and it would not be one
+       of those two. */
+    const numbers = texts.filter((text) => /^-?\d+([.,]\d+)?$/.test(text));
+
+    expect([...numbers].sort()).toEqual([...SCALE_VALUES].sort());
 
     expect(texts.join(' ')).not.toMatch(/average|overall|combined/i);
     // One outline per series and no fifth shape standing in for a total.
@@ -679,7 +750,7 @@ describe('RadarChart', () => {
     expect(getEvidence).toHaveBeenCalledWith(EVIDENCE_REF);
   });
 
-  it('answers the pointer on every vertex, and keeps the keyboard ring behind it', () => {
+  it('draws every vertex ring from role tokens, and never from a paint-order-dependent hover', () => {
     renderChart({ evidenceRefFor: () => EVIDENCE_REF });
 
     const marks = screen.getAllByRole('button');
@@ -687,25 +758,33 @@ describe('RadarChart', () => {
     expect(marks).toHaveLength(SERIES.length * AXES.length);
 
     for (const mark of marks) {
-      /* The group marker the ring's hover and pressed variants hang on. */
+      /* The group marker the ring's keyboard variant hangs on. */
       expect(mark.getAttribute('class')).toContain('group');
 
-      const ringClasses = mark.querySelectorAll('circle')[2]?.getAttribute('class') ?? '';
-      const states = pointerStates(ringClasses);
+      const ring = ringOf(mark);
+      const ringClasses = ring.getAttribute('class') ?? '';
+      const utilities = ringClasses.split(' ');
 
-      expect(states.some((utility) => utility.startsWith('group-hover:'))).toBe(true);
-      expect(states.some((utility) => utility.startsWith('group-active:'))).toBe(true);
-      for (const utility of states) {
-        /* Every state names a role-token property: no palette literal, no arbitrary value, no shadow. */
-        expect(utility.slice(utility.lastIndexOf(':') + 1)).toMatch(/^(fill|stroke|opacity)-[a-z0-9]/u);
+      /* The ring is the focus-ring role, carried by the guarded fade, and starts hidden: only the state
+         the drawing resolves makes a vertex the active one. */
+      expect(ringClasses).toContain('stroke-focus-ring');
+      expect(ringClasses).toContain('group-focus-visible:opacity-100');
+      expect(ringClasses).toContain('motion-safe:transition-opacity');
+      expect(utilities).toContain('opacity-0');
+
+      for (const utility of utilities) {
+        /* Neither a hover nor a pressed variant: both belong to the topmost target the browser hit,
+           which is not always the vertex the drawing resolved, so a ring lit by them would sit on a
+           different reading than the read-out names. */
+        expect(utility.startsWith('group-hover:')).toBe(false);
+        expect(utility.startsWith('group-active:')).toBe(false);
+        /* Every utility names a role-token property: no palette literal, no arbitrary value, no shadow. */
         expect(utility).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(|\[.+\]/iu);
         expect(utility).not.toContain('shadow');
       }
 
-      /* The ring is still the focus-ring role the keyboard reveals, carried by the guarded fade. */
-      expect(ringClasses).toContain('stroke-focus-ring');
-      expect(ringClasses).toContain('group-focus-visible:opacity-100');
-      expect(ringClasses).toContain('motion-safe:transition-opacity');
+      /* No raw paint attribute either: the ring's colour is the token's, in both themes. */
+      expect(ring.getAttribute('stroke')).toBeNull();
     }
   });
 
@@ -1247,3 +1326,215 @@ describe('RadarChart', () => {
     expect(screen.getAllByRole('button')).toHaveLength(partial.values.length);
   });
 });
+
+/* ---------------------------------------------------------------------------------------------
+ * The read-out a vertex answers with
+ * ------------------------------------------------------------------------------------------- */
+
+/** One axis by its position, since every case below names the axis it expects to read out. */
+function axisAt(index: number): RadarAxis {
+  const axis = AXES[index];
+
+  if (axis === undefined) {
+    throw new Error(`no axis is defined at index ${index}`);
+  }
+
+  return axis;
+}
+
+/** One series' score at one axis, as the record states it. */
+function scoreOf(series: AtlasSeries, axisIndex: number): string {
+  const value = series.values[axisIndex];
+
+  if (value === undefined) {
+    throw new Error(`no score is defined at index ${axisIndex}`);
+  }
+
+  return String(value);
+}
+
+/** The class utilities of one element, split so a variant cannot be mistaken for the state itself. */
+function utilitiesOf(element: Element | null | undefined): readonly string[] {
+  return (element?.getAttribute('class') ?? '').split(' ');
+}
+
+describe('the read-out a vertex answers with', () => {
+  it('names the axis, the series and the score its accessible name carries, on keyboard focus', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    const mark = screen.getByRole('button', { name: vertexName(COMPETITOR_ALPHA, 2) });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    fireEvent.focus(mark);
+
+    const readout = screen.getByRole('tooltip');
+
+    /* The same three facts the mark announces, and a competitor's name keeps its own tag (rule P-5). */
+    expect(within(readout).getByText(axisAt(2).label)).toBeInTheDocument();
+    expect(
+      within(readout).getByText(`${COMPETITOR_ALPHA.label} ${COMPETITOR_NAME_TAG}`),
+    ).toBeInTheDocument();
+    expect(within(readout).getByText(scoreOf(COMPETITOR_ALPHA, 2))).toBeInTheDocument();
+
+    fireEvent.blur(mark);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('answers a pointer moving over a vertex as well as the keyboard focusing one', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    const focused = screen.getByRole('button', { name: vertexName(COMPETITOR_ALPHA, 2) });
+
+    fireEvent.focus(focused);
+
+    const byKeyboard = screen.getByRole('tooltip');
+
+    /* The same three facts the mark announces, and a competitor's name keeps its own tag (rule P-5). */
+    expect(within(byKeyboard).getByText(axisAt(2).label)).toBeInTheDocument();
+    expect(
+      within(byKeyboard).getByText(`${COMPETITOR_ALPHA.label} ${COMPETITOR_NAME_TAG}`),
+    ).toBeInTheDocument();
+    expect(within(byKeyboard).getByText(scoreOf(COMPETITOR_ALPHA, 2))).toBeInTheDocument();
+
+    fireEvent.blur(focused);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    pointAt(targetOf(screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) })).point);
+
+    const byPointer = screen.getByRole('tooltip');
+    expect(within(byPointer).getByText(axisAt(0).label)).toBeInTheDocument();
+    /* The client's series is a first-party self-assessment, so it carries no competitor tag. */
+    expect(within(byPointer).getByText(CLIENT_SERIES.label)).toBeInTheDocument();
+    expect(within(byPointer).getByText(scoreOf(CLIENT_SERIES, 0))).toBeInTheDocument();
+
+    /* A pointer that leaves the drawing takes the reading it resolved with it. */
+    fireEvent.pointerLeave(svgElement());
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('reveals the ring on the vertex the pointer resolved, and hides it when the pointer leaves', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    const first = screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) });
+    const second = screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 1) });
+
+    for (const mark of [first, second]) {
+      expect(utilitiesOf(ringOf(mark))).toContain('opacity-0');
+      expect(utilitiesOf(ringOf(mark))).not.toContain('opacity-100');
+    }
+
+    pointAt(targetOf(first).point);
+
+    expect(utilitiesOf(ringOf(first))).toContain('opacity-100');
+    expect(utilitiesOf(ringOf(first))).not.toContain('opacity-0');
+    expect(utilitiesOf(ringOf(second))).toContain('opacity-0');
+
+    fireEvent.pointerLeave(svgElement());
+
+    expect(utilitiesOf(ringOf(first))).toContain('opacity-0');
+  });
+
+  it('reads out the vertex nearest the pointer even where a later series is painted above it', () => {
+    /* Two series whose scores on every axis place their vertices a few units apart — closer together
+       than one pointer target is wide — so the target of the series painted last covers the first
+       series' dot, which is the reading a browser's own hit test would hand back. */
+    const lower: AtlasSeries = {
+      ...COMPETITOR_ALPHA,
+      id: 'series-lower',
+      competitorId: 'competitor-lower',
+      label: 'Lower network',
+      values: [50, 50, 50, 50, 50],
+    };
+    const upper: AtlasSeries = {
+      ...COMPETITOR_BETA,
+      id: 'series-upper',
+      competitorId: 'competitor-upper',
+      label: 'Upper network',
+      values: [55, 55, 55, 55, 55],
+    };
+
+    renderChart({ series: [lower, upper], evidenceRefFor: () => EVIDENCE_REF });
+
+    const lowerMark = screen.getByRole('button', { name: vertexName(lower, 0) });
+    const upperMark = screen.getByRole('button', { name: vertexName(upper, 0) });
+    const lowerTarget = targetOf(lowerMark);
+    const upperTarget = targetOf(upperMark);
+
+    /* The reproduction: both targets reach the inner vertex, and the later series' target is painted
+       above the first series' dot. */
+    expect(distanceBetween(lowerTarget.point, upperTarget.point)).toBeLessThan(upperTarget.radius);
+    expect(
+      lowerMark.compareDocumentPosition(upperMark) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    pointAt(lowerTarget.point);
+
+    const readout = screen.getByRole('tooltip');
+    expect(within(readout).getByText(axisAt(0).label)).toBeInTheDocument();
+    expect(within(readout).getByText(`${lower.label} ${COMPETITOR_NAME_TAG}`)).toBeInTheDocument();
+    expect(within(readout).getByText(scoreOf(lower, 0))).toBeInTheDocument();
+    expect(within(readout).queryByText(`${upper.label} ${COMPETITOR_NAME_TAG}`)).toBeNull();
+
+    /* The ring follows the vertex the drawing resolved, not the mark painted above it. */
+    expect(utilitiesOf(ringOf(lowerMark))).toContain('opacity-100');
+    expect(utilitiesOf(ringOf(upperMark))).toContain('opacity-0');
+  });
+
+  it('clears the read-out when the pointer moves clear of every vertex', () => {
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    pointAt(targetOf(screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) })).point);
+
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    /* The drawing's own origin corner. Every vertex sits within one ring radius of the centre, which is
+       far further from that corner than the target radius, so the pointer belongs to no vertex. */
+    pointAt({ x: 0, y: 0 });
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('leaves a vertex that can do nothing without a read-out', () => {
+    renderChart({});
+
+    /* No mapper and no handler, so no vertex acts: nothing is focusable and nothing is reported. */
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+
+    /* The pointer is moved over the middle of the drawing, where every vertex of a stated payload would
+       have been nearest; nothing is there to read out. */
+    pointAt(scaleOf().centre);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('sizes a vertex’s target to 24 CSS pixels at the width the drawing is rendered at', () => {
+    /* Half the drawing's natural width: jsdom computes no layout, so the box a browser would have
+       measured is stated here, and one user unit is then worth half a CSS pixel. */
+    const renderedWidth = 260;
+    const scale = renderedWidth / 520;
+    vi.spyOn(SVGSVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: renderedWidth,
+      bottom: renderedWidth,
+      width: renderedWidth,
+      height: renderedWidth,
+      toJSON: () => ({}),
+    });
+
+    renderChart({ evidenceRefFor: () => EVIDENCE_REF });
+
+    const mark = screen.getByRole('button', { name: vertexName(CLIENT_SERIES, 0) });
+    const { radius } = targetOf(mark);
+
+    /* The dot itself is untouched: only the invisible target around it grew (WCAG 2.2 SC 2.5.8). */
+    expect(mark.querySelectorAll('circle')[1]?.getAttribute('r')).toBe('3.5');
+    expect(radius * 2 * scale).toBeGreaterThanOrEqual(24);
+  });
+});
+

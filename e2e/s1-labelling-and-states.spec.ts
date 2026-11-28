@@ -1103,8 +1103,8 @@ test('T-17 the edited audit result makes verification report the break and repai
     'The reset dropped the note that states the chain shows a mechanism rather than tamper resistance (rule P-4).',
   ).toContainText(AUDIT_CHAIN_NOTE);
 
-  /* The reset also returns the session to the seeded persona, which does not hold the permission the
-     trail needs, so the restored chain is verified as the auditor the trail belongs to. */
+  /* The reset keeps the persona the session acts as, so the restored chain is verified as the auditor
+     the trail belongs to and the switch below changes nothing while the switcher already holds it. */
   await switchRole(page, 'USR-06');
   await clickNavEntry(page, 'Audit trail', '/audit');
 

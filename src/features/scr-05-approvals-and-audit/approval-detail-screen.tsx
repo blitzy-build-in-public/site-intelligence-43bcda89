@@ -32,6 +32,15 @@
  * gate has to describe the role a decision would actually be evaluated against. The capability is
  * absent on an adapter without identity, and `skipToken` then reads nothing.
  *
+ * A sixth read, `listPersonas`, is the roster the plan summary names the requester from. The approval
+ * states `requestedBy` and nothing that reads as a person, and rule P-2 makes the roster the only
+ * source of a persona's name, so the requester is shown as the person the records hold for that
+ * identifier, in the shape the shell's role switcher presents the same persona. The member is
+ * optional on the capability and read under this screen's own cache key; until it answers, when the
+ * adapter carries none, or when the roster does not name that identifier, the record's own identifier
+ * stays on screen exactly as it was, because the alternative is a name invented here (rules P-6,
+ * P-7).
+ *
  * Nothing is computed here. The two euro members are the record's, the side-effect figures are the
  * option's, the missing inputs are the exception's, the write-back steps are the approval's, and the
  * outcome's two sides are the service's own `solveSupplyDelay` output. This module adds, subtracts,
@@ -111,23 +120,30 @@
  * plan's plant": the side effects are read from the approved option's own record and the plant named is
  * the exception's `plantId`, never a value invented here. It carries no missing-input member either, so
  * the missing inputs shown are the exception's own `missingInputs`, the record that assessed them; and
- * it carries no evidence reference, so the two euro members open the drawer through the approval's own
- * identifier as the inbox's figure columns do (`APR-` reference to `GET /evidence?ref=`).
+ * it carries no evidence reference, so each of the two euro members opens the drawer through the
+ * approval's own identifier and the member's name, as the inbox's figure columns do —
+ * `<APR- identifier>#<member>` to `GET /evidence?ref=`, which the evidence read resolves to that one
+ * figure rather than to the record as a whole.
  *
- * THE INVALIDATION, AND THE ACTION THE CARD OFFERS. The cache is invalidated after a decision through
+ * THE INVALIDATION, AND THE ACTION THE CARD OFFERS. The cache is invalidated after a write through
  * `queryClient.invalidateQueries` with the port member's own name as the key prefix rather than through
  * a helper owned by the shell: this module may not import `src/app`, and a write's invalidation is one
- * call per read, so the grant-exception dialog declares the same helper beside its own write. The reads
- * each write moves are named once, below, and every write invalidates them whichever way the call
- * settled, because a decision can move the record even when it throws.
+ * call per read, so the grant-exception dialog declares the same helper beside its own write. Which
+ * reads move is not decided here: every write takes its row from the one write-reads map in
+ * `src/services/write-reads.ts`, and an approved decision is the reason that row reaches past the
+ * approval — the handler continues into the approved plan, which resolves the exception, so the queue's
+ * status column, the overview's open-exception tile, the exception's own detail, the canvas ribbon and
+ * the topology all move with the approval, the outcome and the trail. Every write invalidates its row
+ * whichever way the call settled, because a decision can move the record even when it throws.
  *
  * The approved plan's card offers the outcome review AAP §0.6.2 enumerates among the audited writes: a
- * control that calls `reviewApprovalOutcome` once the comparison has been read, invalidating
- * `getApproval` — whose `outcomeReviewed` member the write sets — and `listAuditEvents`, whose trail
- * gained its event. The control is gated in the order the service refuses in: the acting persona's
- * eligibility, which mirrors the handler's own permission and record checks; a record that already
- * carries its review, which the handler refuses rather than recording twice; and the call in flight. It
- * takes no freshness gate, because the review writes no source and the handler consults none.
+ * control that calls `reviewApprovalOutcome` once the comparison has been read, invalidating its row of
+ * that same map — `getApproval`, whose `outcomeReviewed` member the write sets, the outcome measured
+ * from it, and `listAuditEvents`, whose trail gained its event. The control is gated in the order the
+ * service refuses in: the acting persona's eligibility, which mirrors the handler's own permission and
+ * record checks; a record that already carries its review, which the handler refuses rather than
+ * recording twice; and the call in flight. It takes no freshness gate, because the review writes no
+ * source and the handler consults none.
  *
  * Rules this module is built to satisfy:
  * - P-1: the two euro members carry `Simulated calculation` from `SIM_LABELS`, every write-back step
@@ -181,7 +197,7 @@ import {
   useDemonstration,
   useService,
 } from '../../services/service-provider';
-import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
+import { WRITE_READS, type CachedRead } from '../../services/write-reads';
 import {
   APPROVAL_GATE_SOURCE,
   SEGREGATION_OF_DUTIES_POLICY_ID,
@@ -761,40 +777,19 @@ function gateRefusalReason(gate: Freshness | undefined): string | null {
  * The port members a write moves, and the plan behind the approval
  * ------------------------------------------------------------------------------------------- */
 
-/** A port member that can hold a cached read, named from the interface rather than typed as a string. */
-type CachedRead = keyof SiteIntelligenceService;
-
-/**
- * The reads a decision moves: the approval itself, the outcome measured from it, the inbox that shows
- * its status, the exception whose activity records it, and the audit trail that gained its event.
- */
-const DECISION_INVALIDATES: readonly CachedRead[] = [
-  'getApproval',
-  'getApprovalOutcome',
-  'listApprovals',
-  'getExceptionDetail',
-  'listAuditEvents',
-];
-
-/** The reads a write-back retry moves: the steps it left behind, the outcome, and the trail. */
-const RETRY_INVALIDATES: readonly CachedRead[] = ['getApproval', 'getApprovalOutcome', 'listAuditEvents'];
-
-/**
- * The reads an outcome review moves: the approval, whose `outcomeReviewed` member the write sets, and
- * the audit trail that gained the `outcome review` event.
- *
- * The comparison the review is about is unchanged by it, and the review writes no source and no record
- * behind the approval, so no other read moves (AAP §0.6.2).
- */
-const REVIEW_INVALIDATES: readonly CachedRead[] = ['getApproval', 'listAuditEvents'];
-
 /**
  * Invalidates every cached entry of each read a write touched.
  *
  * Every entry is keyed `[method, ...args]` (AAP §0.6.2), so naming a member invalidates every entry of
  * that read under every argument list — TanStack Query's default match is by key prefix. The adapter's
  * records are shared, so that granularity is what the write needs: a decision against one approval moves
- * the inbox, the exception's activity and the trail as well.
+ * the inbox, the exception the decision resolved, the overview's tiles and the trail as well, and the
+ * lists of what it moves are `WRITE_READS.decideApproval` and `WRITE_READS.retryWriteBack` — the one
+ * write-reads map in `src/services/write-reads.ts`, which the write channel feeding the cache reads too,
+ * so this screen's immediate refresh and the cache's own invalidation cannot name different reads.
+ *
+ * @param queryClient The client this screen obtained with `useQueryClient()`.
+ * @param reads The port members the write moved. An empty list invalidates nothing.
  */
 function invalidateReads(queryClient: QueryClient, reads: readonly CachedRead[]): void {
   for (const read of reads) {
@@ -1351,12 +1346,12 @@ export interface ApprovalDetailScreenProps {
 /**
  * The approval detail.
  *
- * Four reads through `useService()` (rule P-2), a fifth — the acting persona — through the
- * demonstration capability beside it, the state its records are in decided in one place, and three
- * writes — a decision, a write-back retry and the outcome review — that go to the port and invalidate
- * the reads they moved. Nothing on this screen writes a record itself, holds a figure of its own, or
- * decides whether an action is permitted: the service is the authority and this screen is the
- * explanation beside it.
+ * Four reads through `useService()` (rule P-2), a fifth — the acting persona — and a sixth — the
+ * roster the requester is named from — through the demonstration capability beside it, the state its
+ * records are in decided in one place, and three writes — a decision, a write-back retry and the
+ * outcome review — that go to the port and invalidate the reads they moved. Nothing on this screen
+ * writes a record itself, holds a figure of its own, or decides whether an action is permitted: the
+ * service is the authority and this screen is the explanation beside it.
  *
  * @param _props - The shell's plant and product selection, accepted for the router's uniform route
  *   contract; no read on this screen is parameterised by it.
@@ -1446,7 +1441,44 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
     retry: false,
   });
 
+  /*
+   * The roster the requester is named from. `listPersonas` is optional on the demonstration
+   * capability — a deployment knows its caller from the session that reached it — so the read runs
+   * only when the bound adapter holds it, and it is bound once here rather than narrowed again inside
+   * the query.
+   *
+   * The value cached is the persona list, not the `Result` envelope the call resolves, and it is
+   * keyed under this screen's own `'approval-detail'` qualifier. One member serves several readers —
+   * this screen, the investigation screen, the governance screens and the shell's role switcher
+   * (`src/app/role-switcher.tsx`) — so a key names its reader as well as its member: a key's value
+   * shape belongs to the reader that caches it, and naming the reader is what keeps one reader's
+   * shape from reaching another.
+   */
+  const readPersonas =
+    demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);
+
+  const personasQuery = useQuery<readonly ActiveUser[], unknown>({
+    queryKey: ['listPersonas', 'approval-detail'],
+    queryFn: readPersonas === undefined ? skipToken : async () => (await readPersonas()).data,
+    retry: false,
+  });
+
   const actingUser = actingUserQuery.data?.data ?? null;
+
+  /*
+   * The requester, named as the person the record's identifier stands for. The approval states its
+   * `requestedBy` and nothing that reads as a person, and the roster is the only source of a
+   * persona's name (rule P-2), so the text shown is a join of two records rather than a value of this
+   * module's own — presented the way the role switcher presents a persona, the name and then the role
+   * it acts in (`src/app/role-switcher.tsx`), so the plan summary and the switcher describe one
+   * persona one way. Until the roster answers, when the bound adapter carries none, or when the
+   * roster does not name that identifier, this is `undefined` and the record's own identifier stays
+   * what the plan summary shows: the alternative is a name this module would have to invent (rules
+   * P-6, P-7).
+   */
+  const requester = personasQuery.data?.find((persona) => persona.id === approval?.requestedBy);
+  const requesterName =
+    requester === undefined ? undefined : `${requester.name} · ${requester.role}`;
 
   const gate = result === undefined ? undefined : gateFreshnessOf(result.meta.freshness);
   const scenario = useMemo(
@@ -1635,7 +1667,7 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
          did not answer. Re-reading it is what mounts the tracker, the failed step and the retry that
          completes the change, instead of leaving the reader on a record the service no longer holds as
          pending (AAP §0.2.2, rule P-8). */
-      invalidateReads(queryClient, DECISION_INVALIDATES);
+      invalidateReads(queryClient, WRITE_READS.decideApproval);
     }
   };
 
@@ -1664,7 +1696,7 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
       setPolicyBlock(policyBlockOf(error));
     } finally {
       setRetryingWriteBackId(null);
-      invalidateReads(queryClient, RETRY_INVALIDATES);
+      invalidateReads(queryClient, WRITE_READS.retryWriteBack);
     }
   };
 
@@ -1707,7 +1739,7 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
       setReviewError(error);
     } finally {
       setReviewing(false);
-      invalidateReads(queryClient, REVIEW_INVALIDATES);
+      invalidateReads(queryClient, WRITE_READS.reviewApprovalOutcome);
     }
   };
 
@@ -1805,7 +1837,11 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
                 <div className={FIELD_CLASSES}>
                   <span className={CAPTION_CLASSES}>{APPROVAL_DETAIL_TEXT.requestedByLabel}</span>
                   <span className={BODY_CLASSES}>
-                    <MonoValue value={approval.requestedBy} kind="id" />
+                    {requesterName === undefined ? (
+                      <MonoValue value={approval.requestedBy} kind="id" />
+                    ) : (
+                      requesterName
+                    )}
                   </span>
                 </div>
 
@@ -1833,7 +1869,9 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
                   <div className={FIELD_CLASSES}>
                     <span className={CAPTION_CLASSES}>{APPROVAL_DETAIL_TEXT.costLabel}</span>
                     <span className={AMOUNT_CLASSES}>
-                      <EvidenceRef ref={approval.id}>
+                      {/* The reference names the figure as well as the record, so the drawer states
+                          the amount that was clicked rather than the approval's status. */}
+                      <EvidenceRef ref={`${approval.id}#addedCostEur`}>
                         <MonoValue value={approval.addedCostEur} kind="money" />
                       </EvidenceRef>
                     </span>
@@ -1843,7 +1881,8 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
                       {APPROVAL_DETAIL_TEXT.protectedRevenueLabel}
                     </span>
                     <span className={AMOUNT_CLASSES}>
-                      <EvidenceRef ref={approval.id}>
+                      {/* The same grammar for the second amount: one figure of one record. */}
+                      <EvidenceRef ref={`${approval.id}#protectedRevenueEur`}>
                         <MonoValue value={approval.protectedRevenueEur} kind="money" />
                       </EvidenceRef>
                     </span>

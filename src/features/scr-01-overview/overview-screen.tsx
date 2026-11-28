@@ -45,7 +45,10 @@ import { DataTable } from '../../components/data-table';
 import type { TableColumn, TableSort } from '../../components/data-table';
 import { EvidenceRef } from '../../components/evidence-drawer';
 import { HorizontalBarChart } from '../../components/horizontal-bar-chart';
-import type { HorizontalBarDatum } from '../../components/horizontal-bar-chart';
+import type {
+  HorizontalBarAxisTick,
+  HorizontalBarDatum,
+} from '../../components/horizontal-bar-chart';
 import { LineChart } from '../../components/line-chart';
 import type { LinePoint, LinePointActivation, LineSeriesSpec } from '../../components/line-chart';
 import { MetricTile } from '../../components/metric-tile';
@@ -116,13 +119,23 @@ const SCREEN_TEXT = {
   byPlantCaption: 'Open exceptions and revenue at risk, by plant',
 
   /**
+   * The attribution rule the rows beneath follow, printed above the table.
+   *
+   * A reader who narrows the shell's Plant filter sees the same figure for that plant as the unfiltered
+   * table showed, because the grouping counts an exception at the plant its record names rather than at
+   * the plant the selection makes it reach — so the sentence says which plant a row's figures belong to
+   * (AAP 0.2.1: a filtered queue and a filtered overview cannot disagree).
+   */
+  byPlantNote: 'Each exception is counted at the plant it is recorded at.',
+
+  /**
    * What the `Simulated calculation` label at the head of the risk-by-plant card refers to.
    *
    * The card mounts one label over the four counts and the four amounts its rows carry, so this sentence
    * states what the label covers rather than leaving a reader to guess which figures it qualifies. It
    * names no figure, amount, identifier or date (rules P-1 and P-6).
    */
-  byPlantNote: 'Every count and amount beneath is a computed figure.',
+  byPlantLabelNote: 'Every count and amount beneath is a computed figure.',
 
   byPlantEmpty: 'No plant in this scope carries an open exception.',
 
@@ -137,6 +150,17 @@ const SCREEN_TEXT = {
   revenueChartTitle: 'Revenue at risk by plant',
 
   revenueChartAxis: 'Revenue at risk',
+
+  /**
+   * What the revenue bars measure, stated under the figure's title.
+   *
+   * A reader who cannot decode the bars' lengths would otherwise have no scale reference at all: this
+   * sentence says every bar is scaled against one maximum and names the unit, and the axis beneath the
+   * bars prints that maximum and the zero baseline in the interface's one money format, so the amount
+   * at a bar's end and the scale it is read against are stated the same way (rules P-6, B-3).
+   */
+  revenueChartDescription:
+    'One bar per plant, every bar scaled against the same maximum revenue at risk and printed at the end of its row in EUR, with the axis beneath the bars stating that maximum.',
 
   revenueChartCaption: 'Revenue at risk by plant, as a table',
 
@@ -581,6 +605,35 @@ function seriesColumnsOf(
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The revenue bars' value axis
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The value axis' ticks for the revenue bars: the zero baseline, the axis maximum, and the midpoint
+ * when the maximum yields a whole one.
+ *
+ * The positions are taken from the same maximum the bars are scaled against, so a tick and the bar
+ * that reaches it state one amount. Each label goes through {@link formatMoney} — the interface's one
+ * money format, which prints the `EUR` code — so the scale beneath the bars, the amount at each bar's
+ * end and the amount in the table cell beside them are one rendering of one figure (rule P-6, AAP
+ * §0.8). The midpoint is labelled only when it is a whole number, because a half-euro tick would be a
+ * figure this file had decided rather than one the aggregate reported.
+ *
+ * @param axisMax - The maximum the bars are scaled against.
+ * @returns The ticks to draw, or an empty list when the axis has no positive extent.
+ */
+function revenueAxisTicksOf(axisMax: number): readonly HorizontalBarAxisTick[] {
+  if (!(axisMax > 0)) {
+    return [];
+  }
+
+  const midpoint = axisMax / 2;
+  const values = Number.isInteger(midpoint) ? [EMPTY_COUNT, midpoint, axisMax] : [EMPTY_COUNT, axisMax];
+
+  return values.map((value) => ({ value, label: formatMoney(value) }));
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The screen's own reading of an empty payload
  * ------------------------------------------------------------------------------------------- */
 
@@ -737,13 +790,21 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
 
   /*
    * The axis maximum is one value for the whole series, taken from the payload rather than from the
-   * bars, so a later narrowing cannot redraw the same amount at a different length. It is geometry:
-   * no figure on screen is derived from it.
+   * bars, so a later narrowing cannot redraw the same amount at a different length. It scales every
+   * bar's length and it is the figure the axis beneath them is labelled with, which is why the ticks
+   * below are derived from it and not from a scale of this file's own.
    */
   const axisMax = useMemo(
     () => Math.max(AXIS_FLOOR, ...byPlant.map((row) => row.revenueAtRiskEur)),
     [byPlant],
   );
+
+  /*
+   * The axis the bars are measured against, labelled: the ticks are derived from that same maximum and
+   * formatted by the interface's one money format, so a reader can read a bar's magnitude off the plot
+   * and not only off the amount printed at the end of its row (rules P-6, B-3).
+   */
+  const revenueTicks = useMemo(() => revenueAxisTicksOf(axisMax), [axisMax]);
 
   const openedPoints = useMemo<readonly LinePoint[]>(
     () =>
@@ -895,7 +956,7 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
               <MetricTile
                 label={SCREEN_TEXT.tileMedianHours}
                 value={overview.medianHoursToApprovedPlan}
-                kind="hours"
+                kind="measured-hours"
                 evidenceRef={tileRefs.medianHoursToApprovedPlan}
                 simLabel={CALCULATION_LABEL}
               />
@@ -933,6 +994,13 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
                 the four counts and four amounts is the label those figures own (AAP 0.10, rule P-1).
               */}
               <StatusIndicator meaning="simulated" label={CALCULATION_LABEL} />
+              <p className={DETAIL_CLASSES}>{SCREEN_TEXT.byPlantLabelNote}</p>
+              {/*
+                The attribution rule above the rows it describes: a plant's figure is the same whether
+                or not the shell's Plant filter is narrowed to it, so the sentence says which plant each
+                exception is counted at rather than leaving a reader to infer it from two readings
+                (AAP 0.2.1).
+              */}
               <p className={DETAIL_CLASSES}>{SCREEN_TEXT.byPlantNote}</p>
               <DataTable<PlantRiskRow>
                 columns={plantColumns}
@@ -949,12 +1017,14 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
               <Card as="div">
                 <ChartFrame<PlantRiskRow>
                   title={SCREEN_TEXT.revenueChartTitle}
+                  description={SCREEN_TEXT.revenueChartDescription}
                   simLabel={CALCULATION_LABEL}
                   tableRows={revenueTable}
                 >
                   <HorizontalBarChart
                     bars={bars}
                     max={axisMax}
+                    axisTicks={revenueTicks}
                     xAxisLabel={SCREEN_TEXT.revenueChartAxis}
                     onActivate={narrowToPlant}
                   />

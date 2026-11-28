@@ -12,12 +12,21 @@
  * and §6 the audit events the two writes append.
  *
  * WHAT THIS SCREEN OWNS, AND WHAT IT DOES NOT. It owns the reader's choices — the filters, the ordering,
- * the saved views, which row's dismissal is being written and what the last write reported — and it
- * owns nothing else. Every row, every amount, every freshness record and every refusal is the
+ * the day, the saved views, which row's dismissal is being written and what the last write reported — and
+ * it owns nothing else. Every row, every amount, every freshness record and every refusal is the
  * service's: the table is `listExceptions`'s answer rendered as it arrived, and the two writes are
  * `assignException` and `dismissException`. Nothing here filters, intersects, re-sorts or re-derives a
  * record, because a second place that narrowed the queue would disagree with the overview computed over
  * the same records (AAP 0.2.1, 0.8).
+ *
+ * THE READER'S CHOICES OUTLIVE THE SCREEN. The six filters, the ordering and the saved views sit in the
+ * zustand store declared below rather than in `useState`, because the shell unmounts this screen on a
+ * client-side route change: held in a hook they were all discarded on the way back, and a saved view was
+ * nearly unusable (QA5-F40). The day is not among them: it belongs to the entry that states it, so the
+ * screen seeds it from the arrival and holds it for as long as it is mounted, which is what keeps a
+ * narrowing from one screen out of the population another screen's gesture opens. The store is this
+ * module's own and holds no shell vocabulary; a reload still starts from a first visit, since theme and
+ * density stay the only persisted preferences (platform-contracts.md §1).
  *
  * THE ROLE'S SCOPE IS NEVER APPLIED HERE. The shell's plant and product selection travels in the read's
  * `scope` argument and the port intersects it with the acting role's plant scope before it answers, so a
@@ -55,18 +64,34 @@
  * each select as the way back to the wider set — including when a filter set matched nothing and the
  * answer states no value at all.
  *
+ * THE PLANT FILTER MEANS "OR REACHES", AND ITS CAPTION SAYS SO. The port keeps an exception recorded at
+ * the plant the filter names or reaching it (`ExceptionQuery.plantId`), so the caption reads
+ * "Plant (or reaches)" and the Plant cell names the plant the row is recorded at, followed by a line
+ * saying which plants it reaches. The distinction is stated where the reader meets it rather than left
+ * to be inferred from a row whose cell reads one plant under a filter set to another. Nothing here
+ * applies that rule: the service narrows the read and the screen states the rule it applied.
+ *
+ * THE PLANT FILTER STATES THE SHELL'S PLANT UNTIL THE READER CHOOSES. One of the six can also be set
+ * outside this screen: the top bar's Plant select arrives in the read's `scope`, which the port applies
+ * to every row it returns. So the plant filter opens on the plant the shell names and stays on it until
+ * the reader picks a plant themselves — "All plants" included — from which point the reader's choice is
+ * what the read is made with, and a saved view that carries a plant member is one such choice. The
+ * alternative is a page whose header says one plant while its own filter says "All plants", which is
+ * two statements of one selection (AAP 0.2.1). Nothing here types a plant identifier: the value is the
+ * one the scope carries, and the option list always offers it even when no row happened to land on it.
+ *
  * THE DAY THE QUEUE WAS NARROWED TO, WHICH IS NOT A SEVENTH FILTER. A reader who activates a day on
  * SCR-01's series arrives here with that date in the entry's location state, which the route reads back
  * and hands in as `initialQuery.date`; the screen holds it beside the six filters and sends it as
  * `ExceptionQuery.date`, the member the port narrows the read by exactly as it narrows by plant or
  * status. While it is set, one row inside the Filters group says which day the read keeps and offers the
  * control that clears it — nothing more is asked of the reader and nothing is re-filtered here (rule
- * P-2). The day is deliberately outside `FilterValues`: AAP 0.12.4 fixes the queue's filters as six, a
- * saved view remains those six (`./saved-views` copies only the members it names, so a date can never
- * enter one), and this row reports a narrowing rather than offering a choice. It prints the date the
- * record states, with no formatting, arithmetic or clock of its own (rule P-6), and its clear control is
- * an `ActionButton`, so the way out of the narrowing is the one the house style gives every control
- * (rules P-8, B-3).
+ * P-2). The day is deliberately outside `FilterValues`: AAP 0.12.4 fixes the queue's filters as six, and
+ * this row reports a narrowing rather than offering a choice. A saved view carries the day all the same,
+ * because a view stands for the whole filter set the planner saved (`./saved-views`), so applying one
+ * restores the day beside the six filters. It prints the date the record states, with no formatting,
+ * arithmetic or clock of its own (rule P-6), and its clear control is an `ActionButton`, so the way out of
+ * the narrowing is the one the house style gives every control (rules P-8, B-3).
  *
  * THE COLUMNS. The twelve AAP 0.12.4 names come first, in the order it gives them, each rendered from
  * the row's own member. A thirteenth column, "Actions", holds the three row controls, because rule P-8
@@ -74,7 +99,21 @@
  * the twelve specified columns are unchanged and unscoped by it. Money, identifiers and timestamps go
  * through `MonoValue`, the one presentation formatter (AAP 0.8); a count is printed as the record holds
  * it, with no arithmetic, and the age column's duration is presented in whole hours because the module
- * that measures it delegates that formatting to the component.
+ * that measures it delegates that formatting to the component. The plant cell is the one column that
+ * discloses a second member: it prints the plant the row is recorded at and, beside it, the plants the
+ * row also affects, so the column and the plant filter's caption describe the same distinction.
+ *
+ * EVERY CELL IS ONE LINE, AND THE ACTIONS COLUMN IS PINNED. A row's height is the density token — 32 px
+ * compact and 44 px comfortable (specification §4.3) — and a row's `height` is only a minimum, so a cell
+ * that wraps or stacks deeper than the token grows the row and the density switch then changes nothing
+ * on this screen. Every column therefore declares `singleLine`: the row keeps the token's height in both
+ * densities, and each cell takes its value's own width, so no identifier breaks mid-token. The one long
+ * free-text member, the title, is capped and ellipsised inside its own cell. Thirteen single-line columns
+ * are wider than the table column at a 1280 px viewport, so the actions column declares `pinned` and
+ * stays at the table container's inline end from the `md` breakpoint up, which keeps the three row
+ * controls AAP 0.12.4 fixes reachable at rest rather than only after scrolling the container sideways.
+ * Below that breakpoint the pin would cover most of a phone-width container, so there the column keeps
+ * its place in the table and the reader scrolls to it.
  *
  * LABELS. Revenue at risk and risk alone is a computed figure, so the column carries the exact
  * specification §5.3 label `Simulated calculation` — typed here as a `SimLabel` so a paraphrase fails to
@@ -139,11 +178,15 @@
  * would mean a second table or an unmanaged class on a row this screen does not own.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
-import { Card } from '../../components/card';
+import { create } from 'zustand';
+import type { StoreApi, UseBoundStore } from 'zustand';
+
+import { Card, INSET_SURFACE_CLASSES } from '../../components/card';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn, TableSort } from '../../components/data-table';
 import { DialogHeading } from '../../components/dialog-heading';
@@ -166,6 +209,7 @@ import { TextAreaField } from '../../components/text-area-field';
 import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
 import { useActiveUser, useRolesHolding, useService } from '../../services/service-provider';
+import { WRITE_READS, type CachedRead } from '../../services/write-reads';
 import {
   ALREADY_OWNER_REASON,
   APPROVAL_GATE_SOURCE,
@@ -233,8 +277,14 @@ export const EXCEPTION_QUEUE_TEXT = {
   /** The caption of the exception-type filter. */
   typeFilter: 'Type',
 
-  /** The caption of the plant filter. */
-  plantFilter: 'Plant',
+  /**
+   * The caption of the plant filter.
+   *
+   * The port keeps an exception recorded at the plant named or reaching it (`ExceptionQuery.plantId`),
+   * so the caption says which of the two the filter means rather than leaving a row recorded at another
+   * plant unexplained. The Plant column keeps its own header and discloses the plants a row reaches.
+   */
+  plantFilter: 'Plant (or reaches)',
 
   /** The caption of the severity filter. */
   severityFilter: 'Severity',
@@ -298,8 +348,23 @@ export const EXCEPTION_QUEUE_TEXT = {
   /** The products column's header. */
   columnProducts: 'Products',
 
-  /** The plant column's header. */
+  /**
+   * The plant column's header.
+   *
+   * The cell names the plant the exception is recorded at and, below it, the plants it reaches, so the
+   * header stays the column's own word while the cell carries the distinction the plant filter makes.
+   */
   columnPlant: 'Plant',
+
+  /**
+   * What the plant cell's second line says before the plants a row reaches, which follow it.
+   *
+   * It names the rule the plant filter applies rather than a filter of this screen's: a row whose plant
+   * cell reads one plant can be listed under a filter set to another because the exception reaches that
+   * plant, and the line says so where the reader meets the row. The identifiers after it are the row's
+   * own, rendered as the record holds them (rule P-6), so nothing is typed here but this word.
+   */
+  reachesPlants: 'reaches',
 
   /** The severity column's header. */
   columnSeverity: 'Severity',
@@ -629,6 +694,26 @@ const NO_FILTERS: FilterValues = {
 const NO_SCOPE: Scope = { plants: [], products: [] };
 
 /**
+ * The plant the shell's selection names, or `null` when it names none or more than one.
+ *
+ * The screen's `scope` prop is the shell's own selection rather than the role-resolved set: an empty
+ * `plants` array is the "All plants" selection, one member is the plant a reader picked in the top bar,
+ * and two or more is a set the six filters cannot state as one value. The plant filter can therefore
+ * report the shell's scope only when it names exactly one plant, which is the case the top bar's own
+ * control produces (AAP 0.2.1).
+ *
+ * @param scope The shell's plant and product selection, or `undefined` when it selected nothing.
+ * @returns The identifier of the plant it names, or `null` when it names none or several.
+ */
+function shellPlantOf(scope: Scope | undefined): string | null {
+  if (scope === undefined || scope.plants.length !== 1) {
+    return null;
+  }
+
+  return scope.plants[0] ?? null;
+}
+
+/**
  * The filters a shell-supplied query pre-applies, as the controls hold them.
  *
  * Every member a caller did not state becomes no constraint, so a shell that pins the plant alone still
@@ -797,6 +882,30 @@ function filterOptionsOf(rows: readonly ExceptionRow[]): FilterOptions {
     severities: distinctValues(rows, (row) => row.severity),
     statuses: distinctValues(rows, (row) => row.status),
     owners: distinctValues(rows, (row) => row.ownerId),
+  };
+}
+
+/**
+ * The filter options, with the plant the shell names offered beside the values the rows carry.
+ *
+ * A read narrowed to one plant can return rows recorded at other plants — the port admits an exception
+ * that reaches the selection through the plants it also affects — so the values the rows carry are not
+ * necessarily a superset of the selection, and a plant filter whose own value had no option could not
+ * state what the read is narrowed by. The list keeps `distinctValues`' order with the shell's plant
+ * among the values it sorts, so the control's options do not reorder themselves between two reads.
+ *
+ * @param options The options the unfiltered read supplied.
+ * @param shellPlantId The plant the shell names, or `null` when it names none.
+ * @returns Those options, or a copy whose plant list also holds the shell's plant.
+ */
+function filterOptionsWith(options: FilterOptions, shellPlantId: string | null): FilterOptions {
+  if (shellPlantId === null || options.plants.includes(shellPlantId)) {
+    return options;
+  }
+
+  return {
+    ...options,
+    plants: [...options.plants, shellPlantId].sort((left, right) => left.localeCompare(right)),
   };
 }
 
@@ -984,6 +1093,15 @@ interface FilterBarProps {
 
   /** Called with the whole filter state after a control changes one member of it. */
   readonly onChange: (next: FilterValues) => void;
+
+  /**
+   * Called with the plant the reader chose, the empty string included for "All plants".
+   *
+   * The plant is the one filter the screen can also be given from outside, so its change carries two
+   * facts — the value, and the reader's having chosen it — which only the screen can record. The other
+   * five report through {@link FilterBarProps.onChange} alone.
+   */
+  readonly onPlantChange: (plantId: string) => void;
 }
 
 /**
@@ -997,9 +1115,10 @@ interface FilterBarProps {
  * actually matched, so the state this component reports can only carry a severity or a status the records
  * hold. Nothing is filtered, intersected or re-ordered here — a change replaces the whole filter state,
  * which replaces the query and therefore the read (AAP 0.12.4: the service narrows the rows, not the
- * screen).
+ * screen). The plant is the one filter reported through its own callback, because the screen records the
+ * reader's having chosen it as well as the value ({@link FilterBarProps.onPlantChange}).
  */
-function FilterBar({ values, options, onChange }: FilterBarProps): ReactElement {
+function FilterBar({ values, options, onChange, onPlantChange }: FilterBarProps): ReactElement {
   const types = withCurrentValue(options.types, values.type);
   const plants = withCurrentValue(options.plants, values.plantId);
   const severities = withCurrentValue(options.severities, values.severity);
@@ -1045,9 +1164,7 @@ function FilterBar({ values, options, onChange }: FilterBarProps): ReactElement 
         label={EXCEPTION_QUEUE_TEXT.plantFilter}
         value={values.plantId}
         options={plantChoices}
-        onChange={(value) => {
-          onChange({ ...values, plantId: value });
-        }}
+        onChange={onPlantChange}
       />
       <ChoiceField
         label={EXCEPTION_QUEUE_TEXT.severityFilter}
@@ -1234,22 +1351,36 @@ const VIEWS_LIST_CLASSES = 'flex min-w-0 flex-col gap-2';
 /** The block above the table: the computed column's label and the sentence that says what it labels. */
 const TABLE_GROUP_CLASSES = 'flex min-w-0 flex-col gap-2';
 
-/** The region reporting what the last write did, bounded in the status role the outcome carries. */
-const REPORT_CLASSES =
-  'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-2 p-3';
+/**
+ * The region reporting what the last write did: the inset box `src/components/card.tsx` names as the
+ * third surface role, stacked so the outcome's indicator and its sentence sit one 4 px step apart.
+ * The box's boundary, radius, surface and padding come from `INSET_SURFACE_CLASSES`, so a report here
+ * and a notice on any other screen wear one surface.
+ */
+const REPORT_CLASSES = `flex min-w-0 flex-col gap-1 ${INSET_SURFACE_CLASSES}`;
 
-/** The row's three controls: they wrap rather than push the column wider than the table. */
-const ROW_ACTIONS_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
+/**
+ * The row's three controls on one line, so the row keeps the density token's height; the column is
+ * pinned, so the controls stay visible however wide the table gets.
+ */
+const ROW_ACTIONS_CLASSES = 'flex min-w-0 items-center gap-2';
 
 /** One row control: compact, so three of them fit a cell in both densities. */
 const ROW_ACTION_CLASSES = 'px-2';
 
 /**
  * The freshness cell: the source's name, its state through the status primitive and the instant it
- * last answered, stacked. The name is plain detail text and the state is the primitive's label, so
- * the icon and the status colour sit on the word that states a status (rule B-3).
+ * last answered, on one line. The name is plain detail text and the state is the primitive's label, so
+ * the icon and the status colour sit on the word that states a status (rule B-3). One line, every fact
+ * kept, so the row keeps the density token's height.
  */
-const FRESHNESS_CELL_CLASSES = 'flex min-w-0 flex-col gap-1';
+const FRESHNESS_CELL_CLASSES = 'flex min-w-0 items-center gap-2';
+
+/**
+ * The plant cell: the plant the row is recorded at, then the plants it reaches, on one line, so the
+ * row keeps the density token's height.
+ */
+const PLANT_CELL_CLASSES = 'flex min-w-0 items-center gap-2';
 
 /** A cell's supporting line: the smallest step, in the secondary text role. */
 const CELL_DETAIL_CLASSES = 'text-12 text-text-secondary';
@@ -1642,8 +1773,9 @@ interface RowActionHandlers {
 /**
  * The queue's columns: AAP 0.12.4's twelve members in its own order, then the actions cell.
  *
- * Every cell renders the member it is named for and nothing else, so the table shows the record the
- * service returned rather than a re-projection of it. The sortable columns' ids are the row's own member
+ * Every cell renders the member it is named for, and the plant cell adds the row's own reach disclosure
+ * beneath the plant it is recorded at, so the table shows the record the service returned rather than a
+ * re-projection of it. The sortable columns' ids are the row's own member
  * names, which is what makes the `sort=field:dir` parameter the screen sends name a member the port's list
  * read orders by; the products, freshness and actions columns are not sortable and carry no id the port
  * would accept. Money, identifiers and timestamps go through `MonoValue` — the one presentation formatter
@@ -1665,6 +1797,14 @@ interface RowActionHandlers {
  * The actions cell is the thirteenth column and is captioned "Actions": AAP 0.12.4 fixes the three row
  * actions, and rule P-8 requires each unavailable one to state its own reason, which a row has no other
  * surface for. The twelve specified columns keep their order and their content ahead of it.
+ *
+ * Every column declares `singleLine`, and the actions column declares `pinned` as well. A row's height is
+ * the density token and a row's `height` is only a minimum, so a cell that wraps or stacks deeper than
+ * the token would grow the row and leave the density switch with nothing to change; one line per cell
+ * keeps every row at 32 px compact and 44 px comfortable (specification §4.3). Thirteen single-line
+ * columns are wider than the table column at 1280 px, so the table scrolls inside `DataTable`'s own
+ * container, the title is capped inside its cell, and the pinned actions column keeps the row controls
+ * at the container's visible inline end from the `md` breakpoint up.
  */
 function columnsFor(handlers: RowActionHandlers): readonly TableColumn<ExceptionRow>[] {
   return [
@@ -1672,23 +1812,32 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       id: 'id',
       header: EXCEPTION_QUEUE_TEXT.columnID,
       sortable: true,
+      singleLine: true,
       render: (row) => <MonoValue value={row.id} kind="id" />,
     },
     {
       id: 'type',
       header: EXCEPTION_QUEUE_TEXT.columnType,
       sortable: true,
+      singleLine: true,
       render: (row) => sentenceOf(row.type),
     },
     {
       id: 'title',
       header: EXCEPTION_QUEUE_TEXT.columnTitle,
       sortable: true,
-      render: (row) => row.title,
+      singleLine: true,
+      /*
+        A title is a whole sentence and the longest value in its row, so it is the one cell that is
+        capped: `max-w-64` holds it to 256 px and ellipsises it. The whole string stays in the DOM, and
+        so in the accessibility tree, and opening the row shows the full record.
+      */
+      render: (row) => <span className="block max-w-64 truncate">{row.title}</span>,
     },
     {
       id: 'products',
       header: EXCEPTION_QUEUE_TEXT.columnProducts,
+      singleLine: true,
       render: (row) =>
         row.productIds.length === 0
           ? ''
@@ -1703,12 +1852,29 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       id: 'plantId',
       header: EXCEPTION_QUEUE_TEXT.columnPlant,
       sortable: true,
-      render: (row) => <MonoValue value={row.plantId} kind="id" />,
+      singleLine: true,
+      render: (row) => (
+        <span className={PLANT_CELL_CLASSES}>
+          <MonoValue value={row.plantId} kind="id" />
+          {row.alsoAffectsPlantIds.length === 0 ? null : (
+            <span className={CELL_DETAIL_CLASSES}>
+              {`${EXCEPTION_QUEUE_TEXT.reachesPlants} `}
+              {row.alsoAffectsPlantIds.map((plantId, index) => (
+                <span key={plantId}>
+                  {index === 0 ? null : ', '}
+                  <MonoValue value={plantId} kind="id" />
+                </span>
+              ))}
+            </span>
+          )}
+        </span>
+      ),
     },
     {
       id: 'severity',
       header: EXCEPTION_QUEUE_TEXT.columnSeverity,
       sortable: true,
+      singleLine: true,
       render: (row) => (
         <StatusIndicator
           meaning={SEVERITY_MEANINGS[row.severity]}
@@ -1721,6 +1887,7 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       header: EXCEPTION_QUEUE_TEXT.columnRevenue,
       sortable: true,
       align: 'end',
+      singleLine: true,
       render: (row) => (
         <EvidenceRef ref={row.id}>
           <MonoValue value={row.revenueAtRiskEur} kind="money" />
@@ -1732,6 +1899,7 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       header: EXCEPTION_QUEUE_TEXT.columnDaysToImpact,
       sortable: true,
       align: 'end',
+      singleLine: true,
       render: (row) => (
         <EvidenceRef ref={row.id}>
           {row.daysToImpact}
@@ -1742,6 +1910,7 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       id: 'status',
       header: EXCEPTION_QUEUE_TEXT.columnStatus,
       sortable: true,
+      singleLine: true,
       render: (row) => (
         <StatusIndicator meaning={STATUS_MEANINGS[row.status]} label={sentenceOf(row.status)} />
       ),
@@ -1750,6 +1919,7 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       id: 'ownerId',
       header: EXCEPTION_QUEUE_TEXT.columnOwner,
       sortable: true,
+      singleLine: true,
       render: (row) => <MonoValue value={row.ownerId} kind="id" />,
     },
     {
@@ -1757,6 +1927,7 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       header: EXCEPTION_QUEUE_TEXT.columnAge,
       sortable: true,
       align: 'end',
+      singleLine: true,
       render: (row) => (
         <EvidenceRef ref={row.id}>
           {formatHours(row.ageHours)}
@@ -1766,6 +1937,7 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
     {
       id: 'freshness',
       header: EXCEPTION_QUEUE_TEXT.columnFreshness,
+      singleLine: true,
       render: (row) => (
         <span className={FRESHNESS_CELL_CLASSES}>
           {/* The source's name is identity and the state is the status this cell reports, so the
@@ -1787,6 +1959,8 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
     {
       id: 'actions',
       header: EXCEPTION_QUEUE_TEXT.columnActions,
+      singleLine: true,
+      pinned: true,
       render: (row) => (
         <span className={ROW_ACTIONS_CLASSES}>
           <RowAction
@@ -1903,6 +2077,164 @@ interface WriteReport {
   readonly detail?: string;
 }
 
+/* ---------------------------------------------------------------------------------------------
+ * The queue's own view state — held outside the component so a route change keeps it
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * What the reader of the queue has chosen, kept for the session rather than for one mount.
+ *
+ * Three members, and they are the whole of this screen's interaction state: the six filters as the
+ * controls hold them, the ordering the reader chose and the views saved in this session. The reads are
+ * React Query's, the text in the name field is that field's, which row's dismissal is open belongs to the
+ * dialog, and the day the queue is narrowed to belongs to the route entry that states it — none of those
+ * is a choice a reader would expect to survive leaving the page.
+ *
+ * WHY IT IS NOT `useState`. The shell unmounts this screen when the reader navigates away, so a hook's
+ * state dies with the hook: a filter, a sort and a panel of saved views were all discarded by a
+ * client-side route change, which made a saved view nearly unusable (QA5-F40). A zustand store created
+ * in this module outlives the component and is read back when the route returns.
+ *
+ * WHY IT IS THIS MODULE'S OWN STORE AND NOT THE SHELL'S. AAP 0.6.1 gives the shell store the shell's
+ * own vocabulary — the active role, the scope filters, the selected node, wall mode and the simulation
+ * popover — and `src/app/providers.tsx` documents that division. A queue's filter set is keyed by the
+ * members `ExceptionRow` carries and a saved view is a name the planner typed; neither is the shell's to
+ * hold, and this screen imports no shell module (rule P-2).
+ *
+ * Created with no persistence middleware: theme and density are the only preferences this application
+ * writes to browser storage (platform-contracts.md §1), so a reload starts from a first visit again.
+ */
+interface QueueViewState {
+  /** The six filters as the controls hold them. */
+  filters: FilterValues;
+
+  /** The ordering the reader chose, or `null` while the service applies SCR-02's own order. */
+  sort: TableSort | null;
+
+  /** The views saved in this session, in the order the planner saved them. */
+  views: readonly SavedView[];
+
+  /** Replaces the six filters. */
+  setFilters(filters: FilterValues): void;
+
+  /** Replaces the ordering, or clears it back to the service's own order. */
+  setSort(sort: TableSort | null): void;
+
+  /** Replaces the session's saved views. */
+  setViews(views: readonly SavedView[]): void;
+
+  /**
+   * Seeds the view from the query the route handed in: an arrival that states a day replaces the filter
+   * set with that narrowing, and one that states no day keeps the filters the reader already holds.
+   */
+  seedFromQuery(arrival: Partial<ExceptionQuery> | undefined): void;
+
+  /** Returns the three members to a first visit's values, leaving the setters in place. */
+  resetView(): void;
+}
+
+/**
+ * The view a first visit starts in, freshly allocated on every call.
+ *
+ * A function rather than a constant, because {@link FilterValues} is an object: a shared one would let a
+ * consumer's in-place change reach the value `resetView` restores, and the reset would then restore a
+ * filter that was never the opening one.
+ */
+function initialQueueView(): Pick<QueueViewState, 'filters' | 'sort' | 'views'> {
+  return { filters: { ...NO_FILTERS }, sort: null, views: [] };
+}
+
+/**
+ * The queue's view state, read through a zustand hook so the component re-renders on the members it
+ * selects rather than on every change.
+ *
+ * {@link QueueViewState.resetView} merges the opening values over the current state, so the setters
+ * survive a reset and a subscriber sees the members return to them.
+ */
+const useQueueViewStore: UseBoundStore<StoreApi<QueueViewState>> = create<QueueViewState>()((set) => ({
+  ...initialQueueView(),
+
+  setFilters: (filters) => {
+    set({ filters });
+  },
+
+  setSort: (sort) => {
+    set({ sort });
+  },
+
+  setViews: (views) => {
+    set({ views });
+  },
+
+  /*
+   * TWO ARRIVALS, TWO RULES. An arrival that states no day is the reader coming back to the queue, so
+   * the filter set they built is theirs and survives: only the members the arrival states (a plant or a
+   * product the shell pre-applied) replace what it names, and the rest keep their choice (QA5-F40).
+   *
+   * An arrival that states a day is SCR-01's per-day series asking for that day's records — a narrowing
+   * of the whole queue rather than an addition to filters chosen on another screen — so it replaces the
+   * filter set and clears every filter it does not state. Without that, a status chosen earlier narrows
+   * the day to nothing and the row a reader activated opens an empty queue beside the count they read
+   * (T-01, AAP 0.12.4's SCR-01 row). The ordering is the reader's in both cases: it never hides a row.
+   * The day itself is the screen's, seeded from the entry this arrival came in on.
+   */
+  seedFromQuery: (arrival) => {
+    if (arrival === undefined) {
+      return;
+    }
+
+    set((state) => {
+      const stated = filterValuesOf(arrival);
+      const held = arrival.date === undefined ? state.filters : NO_FILTERS;
+
+      return {
+        filters: {
+          type: stated.type === '' ? held.type : stated.type,
+          plantId: stated.plantId === '' ? held.plantId : stated.plantId,
+          severity: stated.severity === '' ? held.severity : stated.severity,
+          status: stated.status === '' ? held.status : stated.status,
+          ownerId: stated.ownerId === '' ? held.ownerId : stated.ownerId,
+          supplierId: stated.supplierId === '' ? held.supplierId : stated.supplierId,
+        },
+        sort: arrival.sort === undefined ? state.sort : tableSortOf(arrival.sort),
+      };
+    });
+  },
+
+  resetView: () => {
+    set(initialQueueView());
+  },
+}));
+
+/**
+ * Returns the queue's view state to the one a first visit starts in.
+ *
+ * The state outlives every mount on purpose, so the suites that drive this screen call this between
+ * cases: without it a filter set or a saved view one case chose would still be in force in the next,
+ * which is the same leak the store exists to make impossible at run time. `src/app/role-switcher.test.tsx`
+ * resets the shell store the same way.
+ */
+export function resetQueueViewState(): void {
+  useQueueViewStore.getState().resetView();
+}
+
+/**
+ * Invalidates every cached entry of each read a recorded write moved.
+ *
+ * Every entry is keyed `[method, ...args]` (AAP 0.6.2), so naming a member invalidates every entry of
+ * that read under every argument list — TanStack Query's default match is by key prefix — and the row is
+ * the one table in `src/services/write-reads.ts` rather than a list kept here, so this screen and the
+ * write channel that feeds the cache name the same reads.
+ *
+ * @param queryClient The client this screen obtained with `useQueryClient()`.
+ * @param reads The port members the write moved. An empty list invalidates nothing.
+ */
+function invalidateReads(queryClient: QueryClient, reads: readonly CachedRead[]): void {
+  for (const read of reads) {
+    void queryClient.invalidateQueries({ queryKey: [read] });
+  }
+}
+
 /** Props of {@link ExceptionQueueScreen}. Every member is optional, so the route supplies what it has. */
 export interface ExceptionQueueScreenProps {
   /**
@@ -1910,13 +2242,18 @@ export interface ExceptionQueueScreenProps {
    *
    * The port intersects it with the acting role's plant scope before it answers (AAP 0.12.4, 0.8), so
    * this screen passes it through and never applies it. Absent, the read is made over all plants and all
-   * products, which is the empty selection's meaning rather than a restriction to none.
+   * products, which is the empty selection's meaning rather than a restriction to none. The one plant it
+   * names, when it names exactly one, is also what the plant filter states until the reader chooses one
+   * themselves, so the filter and the read report one selection rather than two (see the module note).
    */
   readonly scope?: Scope;
 
   /**
    * Filters the shell wants pre-applied — a date chosen on the overview's series, a plant chosen from its
-   * risk bars. They seed the filter state once, so a member the shell did not state stays unconstrained.
+   * risk bars. They seed the stored view once, on arrival, under the two rules the store's own
+   * {@link QueueViewState.seedFromQuery} states: a stated day is that series asking for that day's
+   * records and replaces the filter set, while an arrival that states no day keeps the filters the reader
+   * built beside it.
    */
   readonly initialQuery?: Partial<ExceptionQuery>;
 
@@ -1973,18 +2310,68 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
 
   const resolvedScope = scope ?? NO_SCOPE;
   const initialLimit = initialQuery?.limit;
+  const shellPlantId = shellPlantOf(scope);
 
-  const [filters, setFilters] = useState<FilterValues>(() => filterValuesOf(initialQuery));
-  const [sort, setSort] = useState<TableSort | null>(() => tableSortOf(initialQuery?.sort));
+  /*
+   * The route's arrival seeds the stored view once per mount, before anything below reads it.
+   *
+   * A lazy `useState` initialiser is the one hook that runs exactly once per mount and before the first
+   * read the render below issues. An effect would mount on the view of an earlier visit — reading the
+   * whole queue for a reader SCR-01's series sent here with a day, and narrowing it only afterwards. The
+   * seed is a function of the arrival alone, so a repeated call writes the same state; and it is taken
+   * before the store is subscribed to below, so no subscriber observes a state this render is still
+   * building.
+   */
+  useState(() => {
+    useQueueViewStore.getState().seedFromQuery(initialQuery);
+  });
+
+  const filters = useQueueViewStore((state) => state.filters);
+  const sort = useQueueViewStore((state) => state.sort);
+  const views = useQueueViewStore((state) => state.views);
+  const setFilters = useQueueViewStore((state) => state.setFilters);
+  const setSort = useQueueViewStore((state) => state.setSort);
+  const setViews = useQueueViewStore((state) => state.setViews);
+
+  /*
+   * The day the queue is narrowed to, seeded from the entry that stated it and held for as long as this
+   * screen is mounted. It is the entry's rather than the store's because it names a narrowing a reader
+   * performed on another screen, not a filter they keep here: the overview's plant bar opens the same
+   * queue, and a day chosen from its series an hour ago must not narrow the population that gesture
+   * produces (T-01).
+   */
   const [day, setDay] = useState<IsoDate | null>(() => initialQuery?.date ?? null);
-  const [views, setViews] = useState<readonly SavedView[]>([]);
+
+  /*
+   * Whether the reader has chosen the plant themselves, "All plants" included.
+   *
+   * The plant filter is the one filter the shell can also set, so it has two sources and needs the order
+   * between them: the reader's own choice wins from the moment they make one, and until then the filter
+   * states the plant the shell's selection names. A stored filter that already names a plant is such a
+   * choice, and so is a query the shell pinned a plant in, which is why the flag starts from the value
+   * the view holds once the arrival has been seeded into it (AAP 0.2.1, QA5-F40).
+   */
+  const [plantFilterTouched, setPlantFilterTouched] = useState(
+    () => useQueueViewStore.getState().filters.plantId !== '',
+  );
   const [viewName, setViewName] = useState('');
   const [viewMessage, setViewMessage] = useState<string | null>(null);
   const [dismissTarget, setDismissTarget] = useState<ExceptionRow | null>(null);
   const [report, setReport] = useState<WriteReport | null>(null);
   const [pendingExceptionId, setPendingExceptionId] = useState<ExceptionId | null>(null);
 
-  const query = buildExceptionQuery(filters, sort, initialLimit, day);
+  /*
+   * The plant the read is narrowed by, and the filter state the controls show: the reader's own choice
+   * once they have made one, otherwise the plant the shell's scope names. One value feeds both the
+   * control and the query, so the select and the query it builds always name the same plant — neither
+   * states "All plants" while the other names one (rule P-8) — and where the filter names none, the
+   * shell's plant selection narrows the read in its place.
+   */
+  const shownPlantId = plantFilterTouched ? filters.plantId : (shellPlantId ?? '');
+  const shownFilters: FilterValues =
+    filters.plantId === shownPlantId ? filters : { ...filters, plantId: shownPlantId };
+
+  const query = buildExceptionQuery(shownFilters, sort, initialLimit, day);
 
   /*
    * The queue read. Retries are off on purpose: a refusal recorded in the records' own permissions fails
@@ -2009,6 +2396,17 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
   const options = useMemo(
     () => (listQuery.data === undefined ? NO_OPTIONS : filterOptionsOf(listQuery.data.data)),
     [listQuery.data],
+  );
+
+  /*
+   * The options the plant filter offers, which always include the plant the shell names: the rows this
+   * read returns are the ones the port admitted, and an exception can be admitted for reaching the
+   * selection from a plant it is recorded at elsewhere, so the selection's own plant need not appear
+   * among them (see `filterOptionsWith`).
+   */
+  const filterOptions = useMemo(
+    () => filterOptionsWith(options, shellPlantId),
+    [options, shellPlantId],
   );
 
   /*
@@ -2086,8 +2484,10 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
    * Assigns one exception to the acting persona, once, through the port.
    *
    * The assignee is the persona the provider reports, which is the persona the adapter is enforcing, so
-   * this screen names no user of its own (rule P-6). A recorded assignment invalidates the queue's cache
-   * entries before the report says it happened, so the table behind the report shows the record as it now
+   * this screen names no user of its own (rule P-6). A recorded assignment invalidates the reads the
+   * write moved before the report says it happened — the row's owner on the queue, the exception's own
+   * detail, the overview's tiles and changed-since list, the ribbon's urgent set and the trail, all named
+   * once in `WRITE_READS.assignException` — so the table behind the report shows the record as it now
    * stands; a refused one changes nothing and reports the service's own sentence.
    */
   const assignToMe = (row: ExceptionRow): void => {
@@ -2103,7 +2503,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
     void (async () => {
       try {
         const assigned = await service.assignException(row.id, assignee);
-        void queryClient.invalidateQueries({ queryKey: ['listExceptions'] });
+        invalidateReads(queryClient, WRITE_READS.assignException);
         setReport({
           meaning: 'pass',
           headline: EXCEPTION_QUEUE_TEXT.assigned,
@@ -2132,11 +2532,13 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
   };
 
   /**
-   * Records what a completed dismissal means for the queue: the read it moved is invalidated and the
-   * report says the dismissal happened. Called by the dialog only once the port has resolved the write.
+   * Records what a completed dismissal means for the queue: the reads the write moved are invalidated —
+   * the row's status, the overview's open-exception tile, the ribbon, the exception's detail and the
+   * trail, from `WRITE_READS.dismissException` — and the report says the dismissal happened. Called by
+   * the dialog only once the port has resolved the write.
    */
   const handleDismissed = (): void => {
-    void queryClient.invalidateQueries({ queryKey: ['listExceptions'] });
+    invalidateReads(queryClient, WRITE_READS.dismissException);
     setReport({ meaning: 'pass', headline: EXCEPTION_QUEUE_TEXT.dismissed });
   };
 
@@ -2152,13 +2554,13 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
    * first activation reverses the rows and the second restores them.
    */
   const handleSort = (columnId: string): void => {
-    setSort((current) => {
-      const inEffect = current ?? QUEUE_DEFAULT_ORDER;
+    const inEffect = sort ?? QUEUE_DEFAULT_ORDER;
 
-      return inEffect.columnId === columnId
+    setSort(
+      inEffect.columnId === columnId
         ? { columnId, direction: inEffect.direction === 'asc' ? 'desc' : 'asc' }
-        : { columnId, direction: 'asc' };
-    });
+        : { columnId, direction: 'asc' },
+    );
   };
 
   /**
@@ -2167,9 +2569,9 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
    * The read is keyed by the query it was made with, so dropping the member from the query is the whole
    * of the read: the cache entry the narrowed answer lives under is not the one the unfiltered query
    * names, so React Query asks the port for that answer and this screen filters nothing itself (rule P-2).
-   * The day is not restored by anything on this page — a saved view holds the six filters and no date —
-   * and the shell is told, so the entry that carried the day stops stating a narrowing no control on the
-   * page accounts for and a reload of it opens the whole queue.
+   * Nothing on this page puts the day back on its own — a saved view carries the day it was saved under,
+   * not the one being cleared — and the shell is told, so the entry that carried the day stops stating a
+   * narrowing no control on the page accounts for and a reload of it opens the whole queue.
    */
   const clearDay = (): void => {
     setDay(null);
@@ -2195,10 +2597,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
 
     try {
       const created = createSavedView(viewName, query);
-      setViews((current) => [
-        ...current.filter((view) => view.id !== created.id),
-        created,
-      ]);
+      setViews([...views.filter((view) => view.id !== created.id), created]);
       setViewName('');
       setViewMessage(null);
     } catch {
@@ -2206,17 +2605,41 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
     }
   };
 
-  /** Reapplies one saved view over the queue's current query. */
+  /**
+   * Restores the whole filter set one saved view stands for: its six filters, its ordering and the day.
+   *
+   * Nothing of the queue's current query is laid under it (`./saved-views`), so a filter the view does not
+   * carry is cleared rather than left to narrow the saved set to nothing — severity saved on its own
+   * shows the saved rows again even though the reader had since chosen a status too.
+   */
   const applyView = (view: SavedView): void => {
-    const applied = applySavedView(view, query);
+    const applied = applySavedView(view);
 
+    /* The view's filter set is the reader's choice, so the plant it states — one plant, or "all plants"
+       when it states none — is what the control shows from here on, rather than the plant the shell's
+       selection names (see `shownPlantId`). */
+    setPlantFilterTouched(true);
     setFilters(filterValuesOf(applied));
     setSort(tableSortOf(applied.sort));
+    setDay(applied.date ?? null);
   };
 
-  /** Drops one view from the session's list; nothing outside this component holds it. */
+  /**
+   * Records the plant the reader chose, which outranks the shell's plant from then on.
+   *
+   * The flag is set beside the value rather than derived from it, because choosing "All plants" is as
+   * explicit an instruction as choosing one plant: from that point the filter states the reader's
+   * choice even while the shell's selection still names a plant, which is what makes the control true to
+   * itself (rule P-8, AAP 0.2.1).
+   */
+  const choosePlant = (plantId: string): void => {
+    setPlantFilterTouched(true);
+    setFilters({ ...filters, plantId });
+  };
+
+  /** Drops one view from the session's list, which the module's own store holds. */
   const removeView = (view: SavedView): void => {
-    setViews((current) => current.filter((candidate) => candidate.id !== view.id));
+    setViews(views.filter((candidate) => candidate.id !== view.id));
   };
 
   const columns = columnsFor({
@@ -2277,7 +2700,12 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
 
       <Panel label={EXCEPTION_QUEUE_TEXT.filterGroup}>
         {day === null ? null : <ActiveDayRow day={day} onClear={clearDay} />}
-        <FilterBar values={filters} options={options} onChange={setFilters} />
+        <FilterBar
+          values={shownFilters}
+          options={filterOptions}
+          onChange={setFilters}
+          onPlantChange={choosePlant}
+        />
       </Panel>
 
       {report === null ? null : (

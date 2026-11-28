@@ -74,14 +74,19 @@
  * is a native button at least 24×24 px with a pressed state and the 2 px `--color-focus-ring`
  * indicator, table content that scrolls inside a focusable, named group so a keyboard user can reach
  * a column off the viewport, and every status pairing an icon with a visible label — no meaning rests
- * on colour alone (rule B-3). Selection is fully controlled: the component keeps no copy of it, and
- * when no `onSelectScenario` is supplied no select control is rendered at all rather than an inert
- * one (rule P-8).
+ * on colour alone (rule B-3). A column's colour swatch, where the screen supplies one, is decorative
+ * and hidden from assistive technology: the column is still named and operated in words, and the
+ * swatch only repeats the colour the chart paints that option's bars in, so a column whose option the
+ * chart draws no bar for carries no swatch at all. Selection is fully controlled: the component keeps
+ * no copy of it, and when no `onSelectScenario` is supplied no select control is rendered at all rather
+ * than an inert one (rule P-8).
  */
 import type { ReactElement, ReactNode } from 'react';
 
 import { Button } from '../../components/button';
 import { EvidenceRef } from '../../components/evidence-drawer';
+import type { BarTone } from '../../components/grouped-bar-chart';
+import { CHART_TONE_CLASSES } from '../../components/horizontal-bar-chart';
 import { MonoValue } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { runOutReading } from '../../components/run-out-reading';
@@ -277,6 +282,26 @@ const ROW_HEADER_CLASS =
 
 /** A measure cell: the value the row names, top-aligned so a wrapped neighbour never moves it. */
 const CELL_CLASS = 'border-b border-hairline px-3 py-2 align-top';
+
+/**
+ * The swatch a column header shows for its option: the 12 px mark with the control radius that a
+ * legend row and a header cell both use, sized in `rem` through Tailwind's spacing scale so it keeps
+ * its proportion to the text beside it.
+ *
+ * It is decorative and is marked `aria-hidden` at the call site: the column's own name is the text that
+ * carries the meaning, so the colour is a second cue for a sighted reader and never the only one (rule
+ * B-3). Its colour comes from the one chart tone table, so a header swatch and the bars in the plot
+ * resolve one role token rather than two copies of it. It is drawn only for an option the caller names
+ * a tone for, which is an option the chart draws a bar for, so no column keys a colour to a mark that is
+ * not on the plot.
+ */
+const SWATCH_CLASSES = 'inline-block size-3 shrink-0 rounded-control';
+
+/**
+ * The box holding a column's swatch and its name: one row, so the swatch sits on the line the name
+ * does and a wrapped name keeps the swatch at its start.
+ */
+const NAME_ROW_CLASSES = 'flex min-w-0 items-center gap-2';
 
 /**
  * The select control on a scenario's header: a native button at least 24×24 px (rule B-3's target
@@ -653,6 +678,20 @@ export interface ComparisonMatrixProps {
    * dead affordance (rule P-8), and the column names are then plain text.
    */
   readonly onSelectScenario?: ((scenarioId: ScenarioId) => void) | undefined;
+
+  /**
+   * The role family an option's bars are painted in, so its column header can repeat that colour as a
+   * swatch beside the option's name, and `undefined` for an option the chart draws no bar for.
+   *
+   * Optional, and answerable per option: absent — or absent for one option — no swatch is drawn there,
+   * and the column states its option in words alone. The caller supplies it from the same series it
+   * hands the chart, so a header swatch and the bars in the plot cannot name two different tones, and
+   * an option with no bar in the plot has no colour here to repeat: the caller answers `undefined` for
+   * it, exactly as the figure prints no legend row for it, rather than this component reading the
+   * record to decide. It carries no figure and no meaning of its own — the name is the meaning, and
+   * the swatch is a second cue for it (rule B-3).
+   */
+  readonly toneOf?: ((scenarioId: ScenarioId) => BarTone | undefined) | undefined;
 }
 
 /**
@@ -669,6 +708,7 @@ export function ComparisonMatrix({
   caption,
   selectedScenarioId,
   onSelectScenario,
+  toneOf,
 }: ComparisonMatrixProps): ReactElement {
   const { scenarios, rejected } = scenarioSet;
   const tableCaption =
@@ -697,6 +737,11 @@ export function ComparisonMatrix({
                 const isRecommended = scenarioSet.recommendedId === scenario.id;
                 const isSelected = selectedScenarioId === scenario.id;
 
+                /* The colour the plot paints this option's bars in, or nothing where it draws none. The
+                   caller answers it from the series it hands the chart, so the bare `undefined` arm is
+                   an option with no bar rather than a tone this component guessed (rule B-3). */
+                const tone = toneOf?.(scenario.id);
+
                 return (
                   <th
                     key={scenario.id}
@@ -705,25 +750,39 @@ export function ComparisonMatrix({
                     className={COLUMN_HEADER_CLASS}
                   >
                     <div className="flex flex-col items-start gap-1">
-                      {onSelectScenario === undefined ? (
-                        <span className={isSelected ? SELECTED_NAME_CLASS : undefined}>
-                          {scenario.name}
-                        </span>
-                      ) : (
-                        <Button
-                          type="button"
-                          aria-pressed={isSelected}
-                          onClick={() => {
-                            onSelectScenario(scenario.id);
-                          }}
-                          className={joinClasses(
-                            SELECT_BUTTON_CLASS,
-                            isSelected ? SELECTED_NAME_CLASS : undefined,
-                          )}
-                        >
-                          {scenario.name}
-                        </Button>
-                      )}
+                      {/* The option's colour, repeated from the bars the chart draws for it, so a reader
+                          can key the column to its series without reading the plot. A column whose option
+                          the chart draws no bar for carries none: a swatch there would key a colour to a
+                          mark that does not exist, exactly the row the figure's legend withholds. The
+                          swatch is decorative and hidden from assistive technology: the column's own name
+                          is the meaning, and the select control below it is untouched by it (rule B-3). */}
+                      <div className={NAME_ROW_CLASSES}>
+                        {tone === undefined ? null : (
+                          <span
+                            aria-hidden="true"
+                            className={joinClasses(SWATCH_CLASSES, CHART_TONE_CLASSES[tone].swatch)}
+                          />
+                        )}
+                        {onSelectScenario === undefined ? (
+                          <span className={isSelected ? SELECTED_NAME_CLASS : undefined}>
+                            {scenario.name}
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => {
+                              onSelectScenario(scenario.id);
+                            }}
+                            className={joinClasses(
+                              SELECT_BUTTON_CLASS,
+                              isSelected ? SELECTED_NAME_CLASS : undefined,
+                            )}
+                          >
+                            {scenario.name}
+                          </Button>
+                        )}
+                      </div>
                       {/* The option's own identifier, so every column is identifiable by the
                           reference the rest of the screen quotes — the recommendation block, the
                           set-aside list, an evidence reference and the audit trail — rather than by

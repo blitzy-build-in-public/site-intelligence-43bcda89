@@ -1001,6 +1001,127 @@ describe('DataTable', () => {
     ]);
   });
 
+  it('wraps no cell of a column marked single-line, so the row keeps the density token height', () => {
+    const columns = [
+      {
+        id: 'identifier',
+        header: 'Identifier',
+        singleLine: true,
+        render: (row: Row) => row.key,
+      },
+      { id: 'state', header: 'State', render: (row: Row) => row.name },
+    ] as const satisfies readonly TableColumn<Row>[];
+    renderTable({ columns });
+
+    // A row's `height` is only a minimum, so a cell that wraps grows the row past `--row-height` and
+    // the density switch stops changing anything. A single-line cell also takes its value's own
+    // width, which is what stops an identifier breaking at its hyphens.
+    for (const row of bodyRows()) {
+      const [identifierCell, stateCell] = within(row).getAllByRole('cell');
+      if (identifierCell === undefined || stateCell === undefined) {
+        throw new Error('the table rendered fewer cells than the caller declared columns');
+      }
+      expect(identifierCell).toHaveClass('whitespace-nowrap');
+      expect(stateCell).not.toHaveClass('whitespace-nowrap');
+    }
+  });
+
+  it('pins a column to the scroll container end, following only a row that opens something', () => {
+    const columns = [
+      { id: 'identifier', header: 'Identifier', render: (row: Row) => row.key },
+      { id: 'action', header: 'Action', pinned: true, render: (row: Row) => row.name },
+    ] as const satisfies readonly TableColumn<Row>[];
+    const { rerender } = renderTable({ columns });
+
+    // A column of row controls stays reachable at rest however wide the table gets: the header and
+    // every cell are held at the container's inline end, above the cells that scroll under them, on
+    // the ground role the table itself stands on. The pin is `md`-scoped because below that
+    // breakpoint it would cover most of a phone-width container.
+    const pinnedHeader = screen.getByRole('columnheader', { name: 'Action' });
+    expect(pinnedHeader).toHaveClass('md:sticky');
+    expect(pinnedHeader).toHaveClass('md:end-0');
+    expect(pinnedHeader).toHaveClass('md:z-10');
+    expect(pinnedHeader).toHaveClass('md:bg-ground');
+    expect(pinnedHeader).toHaveClass('md:border-s');
+    // A header cell belongs to no activatable row, so it carries no row fill.
+    expect(pinnedHeader).not.toHaveClass('md:group-hover:bg-surface-2');
+
+    for (const row of bodyRows()) {
+      const cells = within(row).getAllByRole('cell');
+      const pinnedCell = cells[cells.length - 1];
+      if (pinnedCell === undefined) {
+        throw new Error('the table rendered no cell for the pinned column');
+      }
+      expect(pinnedCell).toHaveClass('md:sticky');
+      expect(pinnedCell).toHaveClass('md:end-0');
+      expect(pinnedCell).toHaveClass('md:bg-ground');
+      // The fills key on the `group` an activatable row carries, so the row's feedback runs across
+      // the pin instead of stopping where the pin begins.
+      expect(row).toHaveClass('group');
+      expect(pinnedCell).toHaveClass('md:group-hover:bg-surface-2');
+      expect(pinnedCell).toHaveClass('md:group-active:bg-surface-1');
+    }
+
+    rerender(
+      <DataTable<Row>
+        columns={columns}
+        rows={ROWS}
+        getRowKey={(row) => row.key}
+        caption={CAPTION}
+        sort={null}
+        onSort={noop}
+        emptyMessage={EMPTY_MESSAGE}
+      />,
+    );
+
+    // A row that opens nothing advertises nothing: it carries no `group`, so the pinned cell keeps
+    // the ground role rather than answering a hover the row does not honour.
+    for (const row of bodyRows()) {
+      expect(row).not.toHaveClass('group');
+    }
+  });
+
+  it('keeps the pinned column clear of a focus ring through the scroll container only while a column is pinned', () => {
+    const pinnedColumns = [
+      { id: 'identifier', header: 'Identifier', render: (row: Row) => row.key },
+      { id: 'action', header: 'Action', pinned: true, render: (row: Row) => row.name },
+    ] as const satisfies readonly TableColumn<Row>[];
+    const { rerender } = renderTable({ columns: pinnedColumns });
+
+    /*
+      A pin covers the container's inline end, so the container keeps that width free as scroll
+      padding: the browser's own focus scrolling then puts a control it would otherwise leave resting
+      under the pin clear of it. Without the padding the control's 2 px ring is painted beneath an
+      opaque cell and the reader sees no indicator at all (rule B-3, WCAG 2.2 SC 2.4.11).
+    */
+    const container = screen.getByRole('table').parentElement;
+    if (!(container instanceof HTMLElement)) {
+      throw new Error('the table rendered no scroll container');
+    }
+    expect(container).toHaveClass('relative');
+    expect(container).toHaveClass('overflow-x-auto');
+    expect(container).toHaveClass('md:scroll-pe-72');
+
+    // A table that pins nothing has no pin to clear, so the container keeps its whole width and
+    // scrolls a focused control to its own edge.
+    rerender(
+      <DataTable<Row>
+        columns={COLUMNS}
+        rows={ROWS}
+        getRowKey={(row) => row.key}
+        caption={CAPTION}
+        sort={null}
+        onSort={noop}
+        emptyMessage={EMPTY_MESSAGE}
+      />,
+    );
+
+    expect(screen.getByRole('table').parentElement).not.toHaveClass(
+      'md:scroll-pe-72',
+    );
+  });
+
+
   for (const density of DENSITIES) {
     it(`sizes its rows from the --row-height token under ${density} density`, () => {
       setRootAttribute('data-density', density);

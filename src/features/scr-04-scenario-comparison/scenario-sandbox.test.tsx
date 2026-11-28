@@ -49,6 +49,11 @@
  *    publishes the rule alone, with nothing standing in its place; and no `min`, `max`, `step` or
  *    `aria-value*` attribute appears on either field, because no record the panel can reach carries a
  *    bound (rule P-6, rule B-3).
+ * 10. A LEVER FAR OUTSIDE ITS BOUND, ECHOED READABLY. A value typed into a field and refused by the
+ *    constraint check comes back in the grouped notation the interface prints numbers in, never in
+ *    the exponent form `String()` gives a large one: the sentence naming the values the measurement
+ *    was taken at states the typed digits, and no `1e+30` appears anywhere in the panel (AAP §0.8,
+ *    AAP §0.12.3, rule P-6).
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary the
  * component may read through (rule P-2), so no seed module, adapter, domain module or shell is
@@ -63,8 +68,10 @@
  * THE FIXTURE IS INPUT, NOT AN EXPECTED RESULT (rule P-6). Every value below is data handed to the
  * mocked call, so a case can only pass by finding what the component actually rendered. The folder is
  * inside the figure scan, so identifiers are opaque placeholders (`scn-alpha`, `exc-alpha`) rather
- * than record-shaped references, the lever values typed by a case are small plain integers, and every
- * amount is asserted through the imported `formatMoney` rather than as a currency literal. The
+ * than record-shaped references, the lever values typed by a case are plain integers apart from the
+ * one value a case states far outside its bound — that one is typed as its own thirty digits, because
+ * the exponent form a large number stringifies to is exactly what the case exists to rule out — and
+ * every amount is asserted through the imported `formatMoney` rather than as a currency literal. The
  * constraint messages are record text — the service's own wording for a breach — built here from the
  * bound fixture so the two cannot drift apart.
  *
@@ -93,7 +100,7 @@ import type { UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
-import { formatMoney } from '../../components/mono-value';
+import { formatMoney, formatQuantity } from '../../components/mono-value';
 import { MEANING_COLOUR_CLASSES, STATUS_LABEL_CLASS } from '../../components/status-indicator';
 import { SIM_LABELS } from '../../types';
 import type {
@@ -125,6 +132,7 @@ import {
   SCENARIO_SANDBOX_TEXT,
   ScenarioSandbox,
   invalidLeverText,
+  measuredAtText,
   sandboxDisabledReason,
 } from './scenario-sandbox';
 import type { ScenarioSandboxProps } from './scenario-sandbox';
@@ -241,6 +249,19 @@ const EDITED_LEVERS: Levers = { airSets: 8, transferSets: 9 };
 
 /** One more air-freight value, typed after the debounce window has passed (case 1). */
 const LATER_AIR_SETS = 4;
+
+/**
+ * The digits a case types into the air-freight field to stand far outside every bound the case states.
+ *
+ * Thirty nines are deliberately beyond the range in which a double prints in decimal notation — a
+ * magnitude beyond a trillion billions stringifies in exponent form — so the value the request carries
+ * is one a raw interpolation would render as `1e+30`. The case reads the number back with `Number`,
+ * exactly as the field's own parse does, rather than stating the value a second time.
+ */
+const BEYOND_BOUND_DIGITS = '9'.repeat(30);
+
+/** The value those digits name, converted the way the field converts the reader's text. */
+const BEYOND_BOUND_VALUE = Number(BEYOND_BOUND_DIGITS);
 
 /** The permission a `'permission'` refusal names, from the contracts §7.1 vocabulary. */
 const REQUIRED_PERMISSION: Permission = 'scenario.create';
@@ -395,6 +416,27 @@ function makeBreachedScenario(): Scenario {
     constraintMessages: BREACH_MESSAGES,
     confidence: { level: 'low', reason: 'The duplicate breaches a bound, so its measures do not stand.' },
   });
+}
+
+/** The one breach a value far above the air lever's maximum reports, in the record's own wording. */
+const BEYOND_BOUND_MESSAGES: readonly string[] = [
+  `airSets is above its maximum of ${String(AIR_SETS_BOUND.max)}.`,
+];
+
+/**
+ * The measurement the port returns for a lever far outside its bound: still a `Scenario`, with the
+ * check failed and the record's own message, which is the path AAP §0.12.3 fixes for a breach — never
+ * a `Problem`.
+ *
+ * The levers are the position the case typed, so the sentence under the result states the value the
+ * request carried rather than a number of this fixture's own; the measures nobody renders for a
+ * failed check are the breached fixture's, since a failing option shows no figure at all.
+ *
+ * @param levers - The position the case typed into the two fields.
+ * @returns The failing option the service would answer with.
+ */
+function makeBeyondBoundScenario(levers: Levers): Scenario {
+  return { ...makeBreachedScenario(), levers, constraintMessages: [...BEYOND_BOUND_MESSAGES] };
 }
 
 /** The `Problem` a refused call throws when the records cannot support the request. */
@@ -629,10 +671,21 @@ function lastRequest(): readonly [ExceptionId, Levers] {
 
 /** Replaces one field's value the way a pointer user edits it: select the contents, then type. */
 async function replaceLeverValue(user: UserEvent, field: keyof Levers, value: number): Promise<void> {
+  await replaceLeverText(user, field, String(value));
+}
+
+/**
+ * Replaces one field's value with the characters a case writes out, the way a pointer user types them.
+ *
+ * A number field holds the reader's own text, so a case about that text has to enter it as it stands:
+ * `String(value)` is the wrong input for a value whose exponent form the case exists to rule out, and
+ * the field is where the reader's typing enters the component.
+ */
+async function replaceLeverText(user: UserEvent, field: keyof Levers, text: string): Promise<void> {
   const input = leverField(field);
 
   await interact(() => user.clear(input));
-  await interact(() => user.type(input, String(value)));
+  await interact(() => user.type(input, text));
 }
 
 /** Fills both lever fields with the values a case states. */
@@ -1152,7 +1205,50 @@ describe('a sandbox with nothing to duplicate', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 9. The bounds the case sets, published before a value is typed
+ * 9. A lever far outside its bound, echoed readably
+ * ------------------------------------------------------------------------------------------- */
+
+describe('a lever far outside its bound', () => {
+  it('echoes the value the reader typed in decimal notation, never in exponent form', async () => {
+    const base = makeBaseScenario();
+    const typed: Levers = {
+      airSets: BEYOND_BOUND_VALUE,
+      transferSets: base.levers.transferSets,
+    };
+    const measured = makeBeyondBoundScenario(typed);
+
+    solveScenario.mockResolvedValue(resultOf(measured));
+
+    const user = userSession();
+    renderSandbox({ scenario: base });
+
+    await replaceLeverText(user, 'airSets', BEYOND_BOUND_DIGITS);
+    await activate(user, recomputeControl());
+    await settleRecomputeDelay();
+
+    /* The request carried the value the reader typed, converted as the field converts it, and the
+       answer is the measurement AAP §0.12.3 requires of a breach — a `Scenario`, not a `Problem`. */
+    expect(solveScenario).toHaveBeenCalledTimes(1);
+    expect(lastRequest()[1]).toEqual(typed);
+
+    const panel = screen.getByRole('region', { name: SCENARIO_SANDBOX_TEXT.panelLabel });
+    const sentence = within(panel).getByText(measuredAtText(measured.levers));
+
+    /* The sentence states each value in the grouped shape `formatQuantity` gives every number the
+       interface prints, so the digits sit on screen as the reader typed them rather than as the
+       exponent form a raw interpolation produces (AAP §0.8, rule P-6). */
+    expect(sentence).toBeVisible();
+    expect(sentence).toHaveTextContent(`airSets ${formatQuantity(measured.levers.airSets)}`);
+    expect(sentence).toHaveTextContent(`transferSets ${formatQuantity(measured.levers.transferSets)}`);
+
+    /* Nothing in the panel — the sentence, the record's messages or the control — carries the value
+       in the exponent form, which is the only shape the check above could otherwise let through. */
+    expect(panel).not.toHaveTextContent(String(BEYOND_BOUND_VALUE));
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 10. The bounds the case sets, published before a value is typed
  * ------------------------------------------------------------------------------------------- */
 
 describe('the bounds the case holds the levers to', () => {

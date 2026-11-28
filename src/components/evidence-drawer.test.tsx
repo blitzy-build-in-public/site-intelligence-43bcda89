@@ -9,27 +9,30 @@
  * something (WCAG 2.2 SC 2.5.3, rule B-3); it carries `aria-haspopup="dialog"` and is reached and
  * operated from the keyboard alone. Activation renders a `role="dialog"` element named by its own
  * heading and portalled out of the element that holds the trigger, because a fixed-position container
- * nested in a paragraph is markup a browser reparses. Its modality claim follows its presentation
- * (AAP §0.12.4): jsdom implements no media query at all, so every case here renders the overlay that
- * covers the viewport and claims `aria-modal`, and the one case that stubs the docked media query
- * renders the panel docked beside a page that stays readable, which claims none. The column a docked
- * drawer occupies is reserved on the document element for as long as it is open — the attribute the
- * stylesheet pads the body from — and ref-counted, so the two drawers a case opens together hold it
- * until the last of them closes, while the overlay reserves nothing at all. The record's four
- * sections are asserted as named regions with the record's own value, formula,
- * provenance, freshness, links, confidence, missing inputs and documents inside them, and a record
- * that carries no content for a section is asserted to render no region at all rather than an empty
- * one — the drawer substitutes nothing for a field the record does not support. The instant a source
- * last answered is compared character for character, offset included, because an instant that was
- * reformatted would name a different moment from the one the stale banner and the disabled controls
- * quote (AAP §0.2.1, T-13). Focus moves into the dialog on open, `Tab` and `Shift+Tab` cycle inside
- * it in both directions, `Escape` closes it through the caller and returns focus to the triggering
- * figure, and the failure path shows the service's own message with a retry that repeats the read
- * instead of substituting a figure. The 420 px dock from the 1280 px breakpoint and the full-viewport
- * overlay below it are read from the dialog's class list and resolved there — jsdom has no layout, so
- * that case asserts the geometry the classes ask a browser for rather than a utility's spelling — and
- * the role-token surfaces are asserted the same way: no palette value, colour function or elevation
- * appears in the markup, and both themes render the same four sections.
+ * nested in a paragraph is markup a browser reparses. It is a modal dialog in both of its
+ * presentations (AAP §0.12.4): it claims `aria-modal` in each, and the page behind it is marked inert
+ * for as long as it is mounted, so a case asserts both halves — the attribute on the dialog, and the
+ * mark on the element that holds the trigger, taken on open and given back on close, while a mark that
+ * was already on the page before a drawer opened is left in place. jsdom implements no media query at
+ * all, so the overlay that covers the viewport is what every case but two renders; the case that stubs
+ * the docked media query renders the panel docked beside a page that stays visible, and asserts the
+ * same modality there. The column a docked drawer occupies is reserved on the document element for as
+ * long as it is open — the attribute the stylesheet pads the body from — and ref-counted, so the two
+ * drawers a case opens together hold it until the last of them closes, while the overlay reserves
+ * nothing at all. The record's four sections are asserted as named regions with the record's own
+ * value, formula, provenance, freshness, links, confidence, missing inputs and documents inside them,
+ * and a record that carries no content for a section is asserted to render no region at all rather
+ * than an empty one — the drawer substitutes nothing for a field the record does not support. The
+ * instant a source last answered is compared character for character, offset included, because an
+ * instant that was reformatted would name a different moment from the one the stale banner and the
+ * disabled controls quote (AAP §0.2.1, T-13). Focus moves into the dialog on open, `Tab` and
+ * `Shift+Tab` cycle inside it in both directions, `Escape` closes it through the caller and returns
+ * focus to the triggering figure, and the failure path shows the service's own message with a retry
+ * that repeats the read instead of substituting a figure. The 420 px dock from the 1280 px breakpoint
+ * and the full-viewport overlay below it are read from the dialog's class list and resolved there —
+ * jsdom has no layout, so that case asserts the geometry the classes ask a browser for rather than a
+ * utility's spelling — and the role-token surfaces are asserted the same way: no palette value,
+ * colour function or elevation appears in the markup, and both themes render the same four sections.
  *
  * THE SERVICE IS MOCKED AT THE PROVIDER, the one boundary the component layer is allowed to read
  * through (rule P-2). The specifier below is exactly the one `evidence-drawer.tsx` imports, because
@@ -56,6 +59,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -349,6 +353,14 @@ const DOCKED_WIDTH_PX = 420;
  */
 const DOCKED_COLUMN_ATTRIBUTE = 'data-evidence-docked';
 
+/**
+ * The attribute a drawer's portal host carries: the mark that takes the page out of the accessibility
+ * tree reads it to tell a drawer's own container from the page it covers (rule B-3). Two drawers are
+ * open together in the docked-column case below, and both hosts have to stay reachable while the page
+ * between them is inert.
+ */
+const DRAWER_HOST_ATTRIBUTE = 'data-evidence-drawer-host';
+
 /** The root font size in a browser's default, which a `rem` length resolves against. */
 const ROOT_FONT_SIZE_PX = 16;
 
@@ -620,9 +632,15 @@ describe('EvidenceRef', () => {
 });
 
 describe('EvidenceDrawer', () => {
-  /** Renders the drawer directly, as a screen that owns the open flag would. */
-  function renderDrawer(onClose: () => void = () => undefined): void {
-    render(withQueryCache(<EvidenceDrawer evidenceRef={REFERENCE} onClose={onClose} />));
+  /**
+   * Renders the drawer directly, as a screen that owns the open flag would.
+   *
+   * The result is handed back because the modal contract is asserted on two elements: the dialog, and
+   * the container the page's own markup is rendered into, which is a sibling of the drawer's portal
+   * host under `document.body` and is therefore the page the drawer marks inert.
+   */
+  function renderDrawer(onClose: () => void = () => undefined): RenderResult {
+    return render(withQueryCache(<EvidenceDrawer evidenceRef={REFERENCE} onClose={onClose} />));
   }
 
   it("renders the record's four sections with the record's own content", async () => {
@@ -868,25 +886,33 @@ describe('EvidenceDrawer', () => {
     expect(dockedAt('xl:w-auto')).toBeUndefined();
   });
 
-  it('claims no modality for the docked panel and keeps its role, name, focus and Escape', async () => {
+  it('claims modality in the docked panel, inerts the page behind it and keeps its role, name, focus and Escape', async () => {
     const user = userEvent.setup();
-    const onClose = vi.fn();
     const queries = stubDockedViewport();
-    renderDrawer(onClose);
+    const { container } = render(
+      withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>),
+    );
+    const trigger = screen.getByRole('button');
+
+    await user.click(trigger);
 
     const dialog = await screen.findByRole('dialog', { name: TEXT.title });
 
     /* The query is stated in the unit the class list's `xl:` variants resolve against — Tailwind's
-       `80rem` — so the modality claim and the panel's shape break at the same font-relative width. A
-       pixel query would part company with those classes at any default font size but 16 px. */
+       `80rem` — so the docked shape and the query that reports it break at the same font-relative
+       width. A pixel query would part company with those classes at any default font size but 16 px. */
     expect(queries.length).toBeGreaterThan(0);
     expect([...new Set(queries)]).toEqual(['(min-width: 80rem)']);
 
-    /* At the docked breakpoint the panel sits inside a host that takes no pointer events, so the
-       page beside it stays readable and operable. The attribute is absent — not `"false"`, which
-       would still make a modality distinction — so nothing tells assistive technology that the
-       rest of the page is inert (AAP §0.12.4, rule B-3). */
-    expect(dialog).not.toHaveAttribute('aria-modal');
+    /* Docked or not, the panel is modal: `Tab` cycles inside it in both presentations, which the loop
+       below asserts, so the accessibility tree has to say what the keyboard already does. */
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+
+    /* The page beside the docked panel stays visible — its column is reserved, not covered — but it is
+       inert for as long as the drawer is open, so a screen reader cannot walk into the page the dialog
+       sits beside (AAP §0.12.4, rule B-3). The mark is asserted as the attribute, because jsdom
+       implements no `inert` property. */
+    expect(container).toHaveAttribute('inert');
 
     /* The docked presentation keeps everything the keyboard contract rests on: the dialog takes focus
        on open, Tab stays inside it, and Escape releases it through the caller. */
@@ -897,7 +923,14 @@ describe('EvidenceDrawer', () => {
     }
 
     await user.keyboard('{Escape}');
-    expect(onClose).toHaveBeenCalledTimes(1);
+
+    /* Escape releases both halves: the dialog leaves, the page behind it is reachable again, and focus
+       is back on the figure that opened it. */
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: TEXT.title })).toBeNull();
+    });
+    expect(container).not.toHaveAttribute('inert');
+    expect(trigger).toHaveFocus();
   });
 
   it('reserves the docked column while a drawer is docked, and gives it back when the last one closes', async () => {
@@ -920,8 +953,9 @@ describe('EvidenceDrawer', () => {
     /* From the breakpoint up the panel occupies a column of its own, which the page beside it
        reserves through the attribute the stylesheet pads the body from. It is read on the document
        element because the reservation has to reach a body the drawer does not render, and two
-       figures may be open at once: the docked drawer claims no modality, so nothing closes the first
-       when the second opens. */
+       figures may be open at once: each `EvidenceRef` mounts its own drawer, and the background mark
+       skips every drawer's portal host, so the second opens onto a page the first has already marked
+       inert without either dialog being taken out with it. */
     stubDockedViewport();
     render(
       withQueryCache(
@@ -942,6 +976,17 @@ describe('EvidenceDrawer', () => {
     expect(screen.getAllByRole('dialog', { name: TEXT.title })).toHaveLength(2);
     expect(document.documentElement).toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
 
+    /* Both hosts stay reachable while the page is inert: the mark skips every drawer's portal host, so
+       the second drawer opening cannot take the first out with the page it marks. */
+    for (const open of screen.getAllByRole('dialog', { name: TEXT.title })) {
+      const host = open.parentElement;
+
+      expect(host, 'the drawer is portalled into a host of its own').toHaveAttribute(
+        DRAWER_HOST_ATTRIBUTE,
+      );
+      expect(host).not.toHaveAttribute('inert');
+    }
+
     /* The first drawer to close gives back its own hold and no more: the column stays reserved for
        the drawer still open beside the page, which is what a ref count buys over a flag. */
     await user.click(elementAt(screen.getAllByRole('button', { name: TEXT.closeLabel }), 0));
@@ -958,6 +1003,63 @@ describe('EvidenceDrawer', () => {
       expect(screen.queryByRole('dialog', { name: TEXT.title })).toBeNull();
     });
     expect(document.documentElement).not.toHaveAttribute(DOCKED_COLUMN_ATTRIBUTE);
+  });
+
+  it('marks the page behind the overlay inert on open and gives it back on close', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>),
+    );
+
+    /* jsdom implements no media query, so this is the overlay that covers the viewport — and it is the
+       presentation the mark has to reach as well, because the drawer is modal below the breakpoint
+       too. The container the figure is rendered into is the page's own markup, a sibling of the
+       drawer's portal host under `document.body`. */
+    await user.click(screen.getByRole('button'));
+
+    const dialog = await screen.findByRole('dialog', { name: TEXT.title });
+
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(container).toHaveAttribute('inert');
+
+    await user.click(screen.getByRole('button', { name: TEXT.closeLabel }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: TEXT.title })).toBeNull();
+    });
+    expect(container).not.toHaveAttribute('inert');
+  });
+
+  it('leaves an element that was already inert before the drawer opened inert after it closes', async () => {
+    const user = userEvent.setup();
+
+    /* Another root of the page's own, marked before the drawer exists: the release that runs on close
+       takes back the marks this code set and nobody else's. */
+    const alreadyInert = document.createElement('div');
+    alreadyInert.setAttribute('inert', '');
+    document.body.append(alreadyInert);
+
+    try {
+      const { container } = render(
+        withQueryCache(<EvidenceRef ref={REFERENCE}>{FIGURE}</EvidenceRef>),
+      );
+
+      await user.click(screen.getByRole('button'));
+      await screen.findByRole('dialog', { name: TEXT.title });
+
+      expect(container).toHaveAttribute('inert');
+      expect(alreadyInert).toHaveAttribute('inert');
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: TEXT.title })).toBeNull();
+      });
+      expect(container).not.toHaveAttribute('inert');
+      expect(alreadyInert).toHaveAttribute('inert');
+    } finally {
+      alreadyInert.remove();
+    }
   });
 
   it.each(THEMES)('renders the same four sections under the %s theme', async (theme) => {

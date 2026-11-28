@@ -121,6 +121,9 @@ import { useCallback, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
+import { create } from 'zustand';
+import type { StoreApi, UseBoundStore } from 'zustand';
+
 import { PageHeader } from '../../components/page-header';
 import {
   deriveScreenState,
@@ -439,7 +442,8 @@ function aggregateRef(key: string, scope: Scope): string {
  * What each of the ribbon's six tiles shows beyond its figure: the caption this screen owns for that
  * aggregate key, the reference the figure opens — composed for the selection the tiles were read
  * under — and, where the figure needs it, the presentation rule the tile applies, so the median
- * hours are presented as whole hours while the aggregate keeps its unrounded value.
+ * hours reach the reader at the precision the aggregate computed — unrounded, as AAP §0.8 fixes
+ * that reading — rather than as a whole hour the tile's own evidence drawer would contradict.
  *
  * Keyed by `RibbonTile.id`, the aggregate keys `src/domain/aggregation/urgency.ts` emits, so a tile
  * is matched to its caption by identity rather than by position and a key the payload does not carry
@@ -471,7 +475,7 @@ function ribbonPresentation(scope: Scope): CanvasRibbonProps['presentation'] {
     'median-hours-to-approved-plan': {
       label: FILEMAP_CANVAS_TEXT.tileMedianHours,
       evidenceRef: aggregateRef('median-hours-to-approved-plan', scope),
-      kind: 'hours',
+      kind: 'measured-hours',
     },
     'plants-in-scope': {
       label: FILEMAP_CANVAS_TEXT.tilePlantsInScope,
@@ -748,7 +752,7 @@ export interface FilemapCanvasScreenProps {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The two lenses, named once
+ * The two lenses, named once, and the lens in view kept outside the component
  * ------------------------------------------------------------------------------------------- */
 
 /** Which lens the canvas is drawing; the two members are the switch's two controls. */
@@ -757,7 +761,53 @@ type LensId = 'map' | 'graph';
 /** The lens the canvas opens on: the map, because it places the network before the graph bands it. */
 const DEFAULT_LENS: LensId = 'map';
 
+/**
+ * The lens in view, held in this module rather than in the component's own state.
+ *
+ * The shell unmounts the canvas when the reader leaves `/canvas`, so a lens chosen in `useState` was
+ * discarded by every client-side route change and the screen came back on the map however the reader had
+ * left it (QA5-F40). A zustand store created here outlives the component, so the reader returns to the
+ * lens they were reading.
+ *
+ * Only the lens lives here. Wall mode is a presentation request the shell owns the navigation for, the
+ * screen's own selection is the fallback for a shell that holds none, and the armed preview names a
+ * response option of the selection this visit read — the three belong to this visit and to the records it
+ * saw, so they stay in the component. Nor is this the shell's store: the props note above records that
+ * this screen may not read the shell's stores (AAP 0.18.1), and AAP 0.6.1 gives that one the active role,
+ * the scope, the selected node, wall mode and the simulation popover rather than any screen's lens.
+ *
+ * Created with no persistence middleware: theme and density are the only preferences this application
+ * writes to browser storage (platform-contracts.md §1), so a reload opens on the map again.
+ */
+interface CanvasViewState {
+  /** The lens the canvas is drawing. */
+  lens: LensId;
 
+  /** Switches the lens the canvas draws. */
+  setLens(lens: LensId): void;
+}
+
+/** The canvas's view state, read through a zustand hook so the screen re-renders on the lens alone. */
+const useCanvasViewStore: UseBoundStore<StoreApi<CanvasViewState>> = create<CanvasViewState>()(
+  (set) => ({
+    lens: DEFAULT_LENS,
+
+    setLens: (lens) => {
+      set({ lens });
+    },
+  }),
+);
+
+/**
+ * Returns the canvas's view state to the one a first visit starts in.
+ *
+ * The state outlives every mount on purpose, so a suite that drives this screen calls this between cases:
+ * without it the lens one case switched to would still be in force in the next.
+ * `src/app/role-switcher.test.tsx` resets the shell store the same way.
+ */
+export function resetCanvasViewState(): void {
+  useCanvasViewStore.setState({ lens: DEFAULT_LENS });
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The screen
@@ -784,9 +834,10 @@ const DEFAULT_LENS: LensId = 'map';
  * `getAtlas()` is the seventh read and the only optional one: its refusal degrades the map lens to
  * the first-party network, so its failure is never the screen's failure.
  *
- * Nothing here writes, so a re-render can move no record; the state the component owns is the
- * reader's own — the lens in view, wall mode, a selection the shell has not taken over, and the
- * response option the reader armed in the preview switch.
+ * Nothing here writes, so a re-render can move no record; the state the component owns is the reader's
+ * own — wall mode, a selection the shell has not taken over, and the response option the reader armed in
+ * the preview switch — beside the lens in view, which lives in the module store above so a route change
+ * keeps it (QA5-F40).
  *
  * @param props - The shell's scope, the selection it holds and the two callbacks it offers. See
  *   {@link FilemapCanvasScreenProps}: every member is optional.
@@ -799,7 +850,8 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
 
   const scope = props.scope ?? NO_SCOPE;
 
-  const [lens, setLens] = useState<LensId>(DEFAULT_LENS);
+  const lens = useCanvasViewStore((state) => state.lens);
+  const setLens = useCanvasViewStore((state) => state.setLens);
   const [wallMode, setWallMode] = useState(false);
   const [ownSelection, setOwnSelection] = useState<string | null>(null);
   const [armedPreviewId, setArmedPreviewId] = useState<string | null>(null);
@@ -1118,7 +1170,8 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
                 className={LENS_SWITCH_CLASSES}
               >
                 <ActionButton
-                  variant={lens === 'map' ? 'primary' : 'secondary'}
+                  variant={lens === 'map' ? 'selected' : 'secondary'}
+                  pressed={lens === 'map'}
                   onClick={() => {
                     setLens('map');
                   }}
@@ -1126,7 +1179,8 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
                   {FILEMAP_CANVAS_TEXT.mapLens}
                 </ActionButton>
                 <ActionButton
-                  variant={lens === 'graph' ? 'primary' : 'secondary'}
+                  variant={lens === 'graph' ? 'selected' : 'secondary'}
+                  pressed={lens === 'graph'}
                   onClick={() => {
                     setLens('graph');
                   }}

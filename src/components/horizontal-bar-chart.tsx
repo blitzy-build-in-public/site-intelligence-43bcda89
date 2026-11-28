@@ -10,6 +10,17 @@
  * own: a chart that repeated one of them would put two titles, two tables or two labels on one
  * figure.
  *
+ * WHAT IT SAYS ABOUT ITSELF, AND THE SCALE IT SHOWS. The surface composes its own `<title>` and
+ * `<desc>` from its own props — the caller's axis label names the graphic, and the description states
+ * how a bar's length is scaled and where its category and its value are printed — so the figure is
+ * described to assistive technology even where the frame's caption says nothing about the drawing.
+ * A caller that wants the magnitude decodable from the plot, rather than only from the number printed
+ * at each bar's end, passes `axisTicks`: one entry per guide, each carrying its position on the axis
+ * and the label to paint under the track. The label arrives already formatted, exactly as a bar's
+ * `valueLabel` does, so the axis and the bar state one amount one way (rule P-6), and the surface's
+ * height grows by the band those labels need instead of drawing them over the last row or outside the
+ * box.
+ *
  * WHAT ARRIVES ALREADY COMPUTED. The chart computes nothing it displays (rule P-6). `value` is a
  * magnitude used for geometry alone, and `valueLabel` is the text a reader sees — the string
  * `./mono-value.tsx` renders for the same value, supplied by the caller, because an SVG `<text>`
@@ -53,6 +64,15 @@
  * The selected mark is marked by a thicker stroke and `aria-current` as well as by nothing else, so
  * its state never rests on colour alone.
  *
+ * WHAT A MARK SAYS WHEN IT IS POINTED AT OR FOCUSED (rule B-3). The ring is held in React state rather
+ * than by a hover variant, and `./chart-readout.tsx` prints the category and the datum's own formatted
+ * value beside the row it belongs to: `pointerenter`, `pointerdown` and `focus` make one row active and
+ * `pointerleave` and `blur` clear it. That is not a preference — every hover variant this project's
+ * theme layer emits ships inside `@media (hover: hover)`, so a CSS-only reveal is inert wherever the
+ * engine never matches it and cannot be observed in a component test at all; the variants stay beside
+ * the state as an extra cue. The read-out prints only the strings the caller formatted, so a pointer
+ * reader and a screen reader are shown one reading of the datum rather than two (rule P-6).
+ *
  * WHAT IT DOES WHEN IT CANNOT DRAW. An empty `bars` array renders nothing at all, exactly as
  * `./legend.tsx` renders nothing for an empty legend: the seven states are the calling screen's
  * `StateBoundary` to render (AAP §0.12.4), and a blank axis would present one of them badly. A `max`
@@ -63,6 +83,7 @@ import { useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
 import type { SimLabel } from '../types';
+import { ChartReadout } from './chart-readout';
 import { EvidenceDrawer } from './evidence-drawer';
 import type { StatusMeaning } from './status-indicator';
 
@@ -75,12 +96,26 @@ import type { StatusMeaning } from './status-indicator';
  * through this object instead of retyping them.
  *
  * `groupLabel` is the surface's accessible name when the caller supplies no `xAxisLabel`. It names
- * the graphic only; the chart's title, its description and its simulation label are `ChartFrame`'s
- * (see the module note), so none of them is repeated here.
+ * the graphic only; the frame's caption, the figure's title in it and its simulation label are
+ * `ChartFrame`'s (see the module note), so none of them is repeated here. The two description strings
+ * are the surface's own account of its drawing: they state what a bar's length encodes and where its
+ * value is printed, and neither carries a figure, an amount or an identifier (rule P-6).
  */
 export const HORIZONTAL_BAR_CHART_TEXT = {
   /** The accessible name of the surface when the caller supplies no axis label of its own. */
   groupLabel: 'Horizontal bar chart',
+
+  /** What the surface's `<desc>` states about the drawing it makes, ticks or no ticks. */
+  surfaceDescription:
+    'One bar per category, every bar grown from the same baseline and scaled against one axis maximum, with its category named at the start of its row and its value printed at the end of it.',
+
+  /**
+   * What the description adds when the caller supplied `axisTicks`: the axis those labels belong to.
+   *
+   * It is added only then, because a description that promised a labelled axis the surface was not
+   * given would describe a drawing that is not on screen.
+   */
+  tickDescription: 'The axis the bars are measured against is labelled beneath them.',
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
@@ -326,6 +361,24 @@ export interface HorizontalBarDatum {
 }
 
 /**
+ * One guide of the value axis: where it sits on the axis, and the words painted under the track for
+ * it.
+ *
+ * `value` is a position on the same axis the bars are scaled against, so it is geometry and nothing
+ * else; `label` is the text a reader sees and arrives formatted by the caller, which is why the
+ * surface needs no number format of its own and the axis and the bars cannot state one amount two
+ * ways (rule P-6). A caller that derives its ticks from the axis maximum it already passes keeps the
+ * two in step by construction.
+ */
+export interface HorizontalBarAxisTick {
+  /** Where on the axis this guide sits, in the bars' own units. Never displayed. */
+  readonly value: number;
+
+  /** The guide as the caller formatted it, painted centred under the track at this value's position. */
+  readonly label: string;
+}
+
+/**
  * What the caller of {@link HorizontalBarChart} supplies: one datum per category, each carrying
  * the magnitude its geometry uses, the formatted text a reader sees and the reference its mark
  * opens, plus an axis maximum held constant so two readings of one value draw at one length. A
@@ -335,6 +388,17 @@ export interface HorizontalBarDatum {
 export interface HorizontalBarChartProps {
   /** The bars, in the order they are read. Required; an empty array renders nothing. */
   readonly bars: readonly HorizontalBarDatum[];
+
+  /**
+   * The value axis' guides, painted as hairlines down the track with their labels beneath it.
+   *
+   * Optional: without it the surface draws no axis, which is what a caller whose magnitude is already
+   * printed at every bar's end — and whose figure need not be decodable from length alone — supplies.
+   * With it the drawing's height grows by the band the labels need, so nothing is painted over a row
+   * or outside the box. `value` is read on this surface's own axis, so a tick beyond `max` sits at the
+   * track's end exactly as an oversized bar does.
+   */
+  readonly axisTicks?: readonly HorizontalBarAxisTick[] | undefined;
 
   /**
    * The axis maximum, supplied by the caller rather than derived from `bars`.
@@ -396,7 +460,19 @@ const TRACK_START = LABEL_COLUMN_WIDTH;
 /** How wide the track is: what is left of the viewBox once both columns are reserved. */
 const TRACK_WIDTH = CHART_WIDTH - LABEL_COLUMN_WIDTH - VALUE_COLUMN_WIDTH;
 
-/** One row's height, on the 4 px grid and equal to the compact row height of specification §4.3. */
+/* BLITZY [A11Y] WCAG 2.2 SC 2.5.8 Equivalent exception: a row is as tall as the row spacing allows,
+   and at a narrow panel that is fewer than 24 CSS px. The chart is composed inside `./chart-frame.tsx`,
+   whose "View as table" view reaches the same values at full size, which is the equivalent the
+   exception asks for. The row's width is never the problem: the target spans the whole drawing. */
+/**
+ * One row's height, on the 4 px grid and equal to the compact row height of specification §4.3.
+ *
+ * THE ROW IS THE MARK'S WHOLE TARGET, so this length is also the height a pointer or a focus target
+ * gets. It cannot be enlarged without overlapping the row above and below it, which would hand one
+ * datum's share of the drawing to another: two adjacent rows would each answer for the other's
+ * category, and a reader aiming at one would open the other. The target is therefore the row, and the
+ * chart relies on the equivalent control every frame carries.
+ */
 const ROW_HEIGHT = 32;
 
 /** The bar's thickness inside its row, which leaves the row's padding above and below. */
@@ -418,6 +494,21 @@ const LABEL_CHARACTER_BUDGET = 24;
 /** The mark drawn in place of the characters a shortened label drops. */
 const LABEL_ELLIPSIS = '…';
 
+/**
+ * The band under the last row that holds the value axis' labels, and how far their baseline sits
+ * below the plot.
+ *
+ * The drawing's height grows by the whole band when the caller supplies ticks, so a label is never
+ * painted over the last row nor clipped by the viewBox: the rows keep their own heights and the axis
+ * is added beneath them. The band is deep enough for the 12 px label step plus the row gap of the 4 px
+ * grid around it.
+ */
+const AXIS_BAND_HEIGHT = 22;
+const TICK_LABEL_BASELINE = 16;
+
+/** The stroke width of a tick's guide, in view-box units: a hairline, thinner than any mark. */
+const TICK_GUIDE_WIDTH = 1;
+
 /* ---------------------------------------------------------------------------------------------
  * Class lists, role tokens only
  * ------------------------------------------------------------------------------------------- */
@@ -427,6 +518,12 @@ const LABEL_ELLIPSIS = '…';
  * proportions above survive a narrow panel.
  */
 const SURFACE_CLASSES = 'block h-auto w-full';
+
+/**
+ * The box the surface and its read-out share: `relative`, so a read-out placed at a share of the
+ * `viewBox` lands on the row it describes without either of them being measured.
+ */
+const SURFACE_WRAPPER_CLASSES = 'relative';
 
 /** The baseline the bars grow from, in the decorative hairline role, at hairline weight. */
 const BASELINE_CLASSES = 'stroke-hairline stroke-1';
@@ -457,13 +554,21 @@ export const CONTROL_RADIUS_CLASSES = '[rx:var(--radius-control)]';
 const MARK_CLASSES = 'group cursor-pointer';
 
 /**
- * The mark's own focus indication, in the theme's focus-ring role at 2 px: invisible until the mark
- * has keyboard focus, and drawn above the bar so the bar cannot cover it. An SVG element is not
- * given a focus ring by the browser, which is why the ring is a drawn element rather than an
- * `outline` alone.
+ * The mark's own focus indication, in the theme's focus-ring role at 2 px, drawn above the bar so the
+ * bar cannot cover it. An SVG element is not given a focus ring by the browser, which is why the ring
+ * is a drawn element rather than an `outline` alone.
+ *
+ * WHICH STATE PAINTS IT. The row the pointer is over, or the keyboard is on, is held in React state by
+ * the component below, and that state paints the ring through {@link FOCUS_RING_VISIBLE_CLASSES} and
+ * leaves it invisible through {@link FOCUS_RING_HIDDEN_CLASSES}. The three variants stay beside the
+ * state as an extra cue for the engines that apply them; none of them is what makes the ring correct,
+ * because every hover variant this project emits lives inside `@media (hover: hover)` and a reader on a
+ * device that reports no hover would otherwise never see the row they are pointing at.
  */
-const FOCUS_RING_CLASSES =
-  'pointer-events-none fill-none stroke-focus-ring stroke-2 opacity-0 group-focus-visible:opacity-100';
+const FOCUS_RING_BASE_CLASSES =
+  'pointer-events-none fill-none stroke-focus-ring stroke-2 group-focus-visible:opacity-100 group-hover:opacity-100 group-active:opacity-100 motion-safe:transition-opacity motion-safe:duration-150';
+const FOCUS_RING_HIDDEN_CLASSES = 'opacity-0';
+const FOCUS_RING_VISIBLE_CLASSES = 'opacity-100';
 
 /** The mark's second focus cue, for the engines that paint an outline on a focused SVG group. */
 const MARK_FOCUS_CLASSES = 'focus-visible:outline-2 focus-visible:outline-focus-ring';
@@ -499,9 +604,28 @@ const LABEL_CLASSES = 'fill-text-secondary text-13';
  */
 const VALUE_CLASSES = 'fill-text-primary font-mono text-13 tabular-nums';
 
+/**
+ * A tick's guide: the decorative hairline role at one unit, so the axis reads as a scale without
+ * competing with the bars it measures. No colour is chosen here — the role token is (AAP §0.5.3).
+ */
+const TICK_GUIDE_CLASSES = 'stroke-hairline';
+
+/**
+ * A tick's label: the secondary text role in the mono face, because an amount is set in tabular
+ * figures and the axis must read at least as quietly as the category labels beside it. The text
+ * itself arrives formatted by the caller (rule P-6).
+ */
+const TICK_CLASSES = 'fill-text-secondary font-mono text-12';
+
 /* ---------------------------------------------------------------------------------------------
  * The component
  * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The ticks a caller that supplies no axis gets: none, held once so every such render shares one
+ * identity and the surface's own geometry is computed from a value rather than from an `undefined`.
+ */
+const NO_TICKS: readonly HorizontalBarAxisTick[] = [];
 
 /**
  * Renders one horizontal bar per datum, scaled from the caller's `max`.
@@ -516,23 +640,52 @@ const VALUE_CLASSES = 'fill-text-primary font-mono text-13 tabular-nums';
  * The selection (`activeId`) only marks a datum the screen has already chosen: this surface keeps no
  * selection of its own beyond the reference whose evidence is open, and it never decides what a
  * screen should filter on.
+ *
+ * The drawing states its own scale when the caller supplies {@link HorizontalBarChartProps.axisTicks}:
+ * a hairline guide down the track at each tick's position on the same axis the bars are scaled
+ * against, and the caller's own formatted label beneath the track. The graphic also carries a
+ * `<title>` and a `<desc>` composed from its props, so a reader who cannot see the bars is told what
+ * they encode and where their values are printed.
  */
 export function HorizontalBarChart({
   bars,
   max,
+  axisTicks,
   xAxisLabel,
   onActivate,
   activeId,
 }: HorizontalBarChartProps): ReactElement | null {
   const [openEvidenceRef, setOpenEvidenceRef] = useState<string | null>(null);
+  const [pointedId, setPointedId] = useState<string | null>(null);
 
   if (bars.length === 0) {
     return null;
   }
 
   const divisor = Number.isFinite(max) && max > 0 ? max : 0;
-  const height = bars.length * ROW_HEIGHT;
+  const ticks = axisTicks ?? NO_TICKS;
+  /** The height the rows themselves occupy: the plot every guide spans and every bar is drawn in. */
+  const plotHeight = bars.length * ROW_HEIGHT;
+  /** The viewBox height: the plot, plus the band the axis labels need when there are any. */
+  const surfaceHeight = ticks.length === 0 ? plotHeight : plotHeight + AXIS_BAND_HEIGHT;
+  const surfaceTitle = xAxisLabel ?? HORIZONTAL_BAR_CHART_TEXT.groupLabel;
+  const surfaceDescription =
+    ticks.length === 0
+      ? HORIZONTAL_BAR_CHART_TEXT.surfaceDescription
+      : `${HORIZONTAL_BAR_CHART_TEXT.surfaceDescription} ${HORIZONTAL_BAR_CHART_TEXT.tickDescription}`;
+
+  /**
+   * Whether activating a mark really opens the evidence drawer beside the drawing: `activate` opens it
+   * only when the caller supplies no `onActivate`, because a caller that supplies one acts on the mark
+   * itself (the overview narrows its queue). `aria-haspopup` is therefore stated only where a drawer
+   * is what activation produces (rule P-8).
+   */
   const opensDrawer = onActivate === undefined;
+
+  /** The row whose mark the pointer is over or the keyboard is on, with its position in the axis. */
+  const pointed = bars.flatMap((datum, index) =>
+    datum.id === pointedId ? [{ datum, index }] : [],
+  )[0];
 
   /**
    * Activates a mark for one gesture: reports the datum where the caller owns the activation, and
@@ -546,6 +699,20 @@ export function HorizontalBarChart({
     }
 
     setOpenEvidenceRef(datum.evidenceRef);
+  }
+
+  /** Makes one row the active one: what the pointer entering it, pressing it or focusing it sets. */
+  function activateRow(id: string): void {
+    setPointedId(id);
+  }
+
+  /**
+   * Clears the active row, but only for the mark that still holds it: a pointer crossing from one row
+   * to another reports the leaving row first, and clearing unconditionally would blank the read-out the
+   * entering row is about to set.
+   */
+  function releaseRow(id: string): void {
+    setPointedId((current) => (current === id ? null : current));
   }
 
   /**
@@ -571,94 +738,172 @@ export function HorizontalBarChart({
 
   return (
     <>
-      <svg
-        className={SURFACE_CLASSES}
-        viewBox={`0 0 ${CHART_WIDTH} ${height}`}
-        preserveAspectRatio="xMidYMin meet"
-        role="group"
-        aria-label={xAxisLabel ?? HORIZONTAL_BAR_CHART_TEXT.groupLabel}
-        focusable="false"
-      >
-        <line
-          className={BASELINE_CLASSES}
-          x1={TRACK_START}
-          y1={0}
-          x2={TRACK_START}
-          y2={height}
-        />
-        {bars.map((datum, index) => {
-          const rowTop = index * ROW_HEIGHT;
-          const rowMiddle = rowTop + ROW_HEIGHT / 2;
-          const tone = datum.tone ?? DEFAULT_CHART_TONE;
-          const isActive = datum.id === activeId;
+      <div className={SURFACE_WRAPPER_CLASSES}>
+        <svg
+          className={SURFACE_CLASSES}
+          viewBox={`0 0 ${String(CHART_WIDTH)} ${String(surfaceHeight)}`}
+          preserveAspectRatio="xMidYMin meet"
+          role="group"
+          aria-label={surfaceTitle}
+          focusable="false"
+        >
+          {/* The graphic's own name and description, composed from this surface's props: the caller's
+              axis label names it, and the description states what a bar's length encodes and where its
+              value is printed. An SVG `title` and `desc` are where that belongs — the frame's caption
+              sits outside this element and is the figure's title, not the drawing's. */}
+          <title>{surfaceTitle}</title>
+          <desc>{surfaceDescription}</desc>
+          <line
+            className={BASELINE_CLASSES}
+            x1={TRACK_START}
+            y1={0}
+            x2={TRACK_START}
+            y2={plotHeight}
+          />
+          {/* The value axis, when the caller supplied one: a hairline at each tick's position on the
+              bars' own axis, and the caller's formatted label beneath the track. The guides sit under
+              the bars so a bar always paints over the scale it is measured against, and the whole group
+              is hidden from assistive technology because each bar already announces its own value. */}
+          {ticks.length === 0 ? null : (
+            <g aria-hidden="true">
+              {ticks.map((tick, index) => {
+                const tickPosition = tickPositionOf(tick.value, divisor);
 
-          return (
-            <g
-              key={datum.id}
-              className={`${MARK_CLASSES} ${MARK_FOCUS_CLASSES}`}
-              role="button"
-              tabIndex={0}
-              aria-label={markName(datum)}
-              aria-haspopup={opensDrawer ? 'dialog' : undefined}
-              aria-current={isActive ? 'true' : undefined}
-              onClick={() => {
-                activate(datum);
-              }}
-              onKeyDown={(event) => {
-                handleKeyDown(event, datum);
-              }}
-            >
-              <rect
-                x={0}
-                y={rowTop}
-                width={CHART_WIDTH}
-                height={ROW_HEIGHT}
-                fill={POINTER_TARGET_FILL}
-                aria-hidden="true"
-              />
-              <text
-                className={LABEL_CLASSES}
-                x={0}
-                y={rowMiddle}
-                dominantBaseline="middle"
-                aria-hidden="true"
-              >
-                {drawnLabel(datum.label)}
-              </text>
-              <rect
-                className={joinClassNames(
-                  CHART_TONE_CLASSES[tone].fill,
-                  isActive ? ACTIVE_BAR_CLASSES : undefined,
-                  CONTROL_RADIUS_CLASSES,
-                )}
-                x={TRACK_START}
-                y={rowTop + BAR_OFFSET}
-                width={barWidth(datum.value, divisor)}
-                height={BAR_HEIGHT}
-                aria-hidden="true"
-              />
-              <text
-                className={VALUE_CLASSES}
-                x={CHART_WIDTH}
-                y={rowMiddle}
-                textAnchor="end"
-                dominantBaseline="middle"
-                aria-hidden="true"
-              >
-                {datum.valueLabel}
-              </text>
-              <rect
-                className={joinClassNames(FOCUS_RING_CLASSES, CONTROL_RADIUS_CLASSES)}
-                x={0}
-                y={rowTop}
-                width={CHART_WIDTH}
-                height={ROW_HEIGHT}
-                aria-hidden="true"
-              />
+                return (
+                  <g key={`tick-${String(index)}`}>
+                    {tick.value > 0 ? (
+                      <line
+                        className={TICK_GUIDE_CLASSES}
+                        x1={tickPosition}
+                        y1={0}
+                        x2={tickPosition}
+                        y2={plotHeight}
+                        strokeWidth={TICK_GUIDE_WIDTH}
+                      />
+                    ) : null}
+                    <text
+                      className={TICK_CLASSES}
+                      x={tickPosition}
+                      y={plotHeight + TICK_LABEL_BASELINE}
+                      textAnchor="middle"
+                    >
+                      {tick.label}
+                    </text>
+                  </g>
+                );
+              })}
             </g>
-          );
-        })}
-      </svg>
+          )}
+          {bars.map((datum, index) => {
+            const rowTop = index * ROW_HEIGHT;
+            const rowMiddle = rowTop + ROW_HEIGHT / 2;
+            const tone = datum.tone ?? DEFAULT_CHART_TONE;
+            const isActive = datum.id === activeId;
+            const isPointed = datum.id === pointedId;
+
+            return (
+              <g
+                key={datum.id}
+                className={`${MARK_CLASSES} ${MARK_FOCUS_CLASSES}`}
+                role="button"
+                tabIndex={0}
+                aria-label={markName(datum)}
+                aria-haspopup={opensDrawer ? 'dialog' : undefined}
+                aria-current={isActive ? 'true' : undefined}
+                onPointerEnter={() => {
+                  activateRow(datum.id);
+                }}
+                onPointerDown={() => {
+                  activateRow(datum.id);
+                }}
+                onPointerLeave={() => {
+                  releaseRow(datum.id);
+                }}
+                onFocus={() => {
+                  activateRow(datum.id);
+                }}
+                onBlur={() => {
+                  releaseRow(datum.id);
+                }}
+                onClick={() => {
+                  activate(datum);
+                }}
+                onKeyDown={(event) => {
+                  handleKeyDown(event, datum);
+                }}
+              >
+                <rect
+                  x={0}
+                  y={rowTop}
+                  width={CHART_WIDTH}
+                  height={ROW_HEIGHT}
+                  fill={POINTER_TARGET_FILL}
+                  aria-hidden="true"
+                />
+                <text
+                  className={LABEL_CLASSES}
+                  x={0}
+                  y={rowMiddle}
+                  dominantBaseline="middle"
+                  aria-hidden="true"
+                >
+                  {drawnLabel(datum.label)}
+                </text>
+                <rect
+                  className={joinClassNames(
+                    CHART_TONE_CLASSES[tone].fill,
+                    isActive ? ACTIVE_BAR_CLASSES : undefined,
+                    CONTROL_RADIUS_CLASSES,
+                  )}
+                  x={TRACK_START}
+                  y={rowTop + BAR_OFFSET}
+                  width={barWidth(datum.value, divisor)}
+                  height={BAR_HEIGHT}
+                  aria-hidden="true"
+                />
+                <text
+                  className={VALUE_CLASSES}
+                  x={CHART_WIDTH}
+                  y={rowMiddle}
+                  textAnchor="end"
+                  dominantBaseline="middle"
+                  aria-hidden="true"
+                >
+                  {datum.valueLabel}
+                </text>
+                <rect
+                  className={joinClassNames(
+                    FOCUS_RING_BASE_CLASSES,
+                    isPointed ? FOCUS_RING_VISIBLE_CLASSES : FOCUS_RING_HIDDEN_CLASSES,
+                    CONTROL_RADIUS_CLASSES,
+                  )}
+                  x={0}
+                  y={rowTop}
+                  width={CHART_WIDTH}
+                  height={ROW_HEIGHT}
+                  aria-hidden="true"
+                />
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* The read-out for the active row: the category and the datum's own formatted value, anchored
+            at the end of that row's bar so it describes the mark a pointer is on, at any width. The
+            anchor is a share of the drawing's whole height, which is the box the read-out is placed
+            over, so the axis band below the rows moves neither of them. */}
+        {pointed === undefined ? null : (
+          <ChartReadout
+            anchor={{
+              x: TRACK_START + barWidth(pointed.datum.value, divisor),
+              y: pointed.index * ROW_HEIGHT + ROW_HEIGHT / 2,
+              viewBoxWidth: CHART_WIDTH,
+              viewBoxHeight: surfaceHeight,
+            }}
+            lines={[{ label: pointed.datum.label, value: pointed.datum.valueLabel }]}
+          />
+        )}
+      </div>
       {openEvidenceRef === null ? null : (
         <EvidenceDrawer evidenceRef={openEvidenceRef} onClose={closeEvidence} />
       )}
@@ -710,6 +955,24 @@ function barWidth(value: number, divisor: number): number {
   const share = Math.min(Math.max(value, 0), divisor) / divisor;
 
   return share * TRACK_WIDTH;
+}
+
+/**
+ * Where one axis tick sits along the track, in user units.
+ *
+ * It is the same share of the axis {@link barWidth} draws a bar with, so a bar that ends at a tick
+ * reads its own value against it and the axis cannot measure a different scale from the bars. A tick
+ * at or below zero sits on the baseline, a tick beyond the caller's maximum is held at the track's
+ * end, and no positive axis places every tick on the baseline rather than dividing by nothing.
+ */
+function tickPositionOf(value: number, divisor: number): number {
+  if (divisor <= 0 || !Number.isFinite(value)) {
+    return TRACK_START;
+  }
+
+  const share = Math.min(Math.max(value, 0), divisor) / divisor;
+
+  return TRACK_START + share * TRACK_WIDTH;
 }
 
 /**

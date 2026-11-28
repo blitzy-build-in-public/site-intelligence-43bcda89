@@ -28,7 +28,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 
 import { DEMO_CLOCK } from '../types';
-import { MONO_VALUE_CLASSES, MonoValue, formatHours } from './mono-value';
+import {
+  MONO_VALUE_CLASSES,
+  MonoValue,
+  formatHours,
+  formatMeasuredHours,
+  formatQuantity,
+} from './mono-value';
 import type { MonoValueKind } from './mono-value';
 
 /** The currency code the one money formatter prints, named once so no case retypes it. */
@@ -245,6 +251,68 @@ describe('MonoValue', () => {
 
     it('does not re-parse a numeric string, so an unformatted duration is never inferred', () => {
       expect(formatHours('26.5')).toBe('26.5');
+    });
+  });
+
+  /*
+   * A measured figure keeps the precision the domain fixes for it: AAP §0.8 states the Overview's
+   * median hours to an approved plan as the middle value of the qualifying history records, unrounded,
+   * so the tile may not print the nearest whole hour beside a drawer that states the computed one. The
+   * rule keeps as much of the value as it states, up to two decimals, in the same locale the money and
+   * age rules read with. Each expectation is written out rather than produced by the formatter under
+   * test, for the reason the hours cases give.
+   */
+  describe('measured hours', () => {
+    it.each([
+      { value: 11.25, hours: '11,25', reading: 'a duration of a quarter hour' },
+      { value: 26.666666666666668, hours: '26,67', reading: 'a duration with a repeating fraction' },
+      { value: 18.5, hours: '18,5', reading: 'a duration of exactly half an hour' },
+      { value: 11, hours: '11', reading: 'a whole-hour duration' },
+      { value: 0, hours: '0', reading: 'a duration of no hours at all' },
+      { value: 1234.5, hours: '1.234,5', reading: 'a duration in the thousands of hours' },
+    ])('presents $reading at the precision the aggregate states', ({ value, hours }) => {
+      expect(formatMeasuredHours(value)).toBe(hours);
+    });
+
+    it.each([
+      { value: Number.NaN, expected: 'NaN', reading: 'not a number' },
+      { value: Number.POSITIVE_INFINITY, expected: 'Infinity', reading: 'infinite' },
+    ])(
+      'returns the raw input when the measured duration is $reading, never a formatted value',
+      ({ value, expected }) => {
+        expect(formatMeasuredHours(value)).toBe(expected);
+      },
+    );
+
+    it('does not re-parse a numeric string, so an unformatted duration is never inferred', () => {
+      expect(formatMeasuredHours('26.5')).toBe('26.5');
+    });
+  });
+
+  /*
+   * A quantity is the count a reader typed, echoed back beside the measurement taken at it. It is
+   * grouped like every other number the interface prints and never reaches the reader in the exponent
+   * form `String` produces for a large value, which is what a lever beyond its bound would otherwise
+   * read as.
+   */
+  describe('quantity', () => {
+    it.each([
+      { value: 1e30, quantity: '1.000.000.000.000.000.000.000.000.000.000', reading: 'a lever far beyond its bound' },
+      { value: 900, quantity: '900', reading: 'a lever inside its bound' },
+      { value: 600, quantity: '600', reading: 'a lever at its maximum' },
+      { value: 0, quantity: '0', reading: 'a lever pulled to nothing' },
+      { value: 12.5, quantity: '12,5', reading: 'a fractional quantity' },
+      { value: 1234567, quantity: '1.234.567', reading: 'a quantity in the millions' },
+    ])('presents $reading in decimal notation with grouping', ({ value, quantity }) => {
+      expect(formatQuantity(value)).toBe(quantity);
+    });
+
+    it('returns a non-numeric string untouched rather than a grouped zero', () => {
+      expect(formatQuantity('not a quantity')).toBe('not a quantity');
+    });
+
+    it('does not re-parse a numeric string, so a typed field is never reinterpreted', () => {
+      expect(formatQuantity('12.5')).toBe('12.5');
     });
   });
 

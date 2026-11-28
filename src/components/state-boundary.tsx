@@ -65,6 +65,7 @@ import { useId } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import type { Permission, Role, ScreenState, SourceId, Timestamp } from '../types';
+import { INSET_SURFACE_CLASSES } from './card';
 import { ForbiddenCard } from './forbidden-card';
 import { MonoValue } from './mono-value';
 import { StatusIndicator } from './status-indicator';
@@ -212,14 +213,15 @@ const STACK_CLASSES = 'flex min-w-0 flex-col gap-3';
 const NOTICE_STACK_CLASSES = 'flex min-w-0 flex-col gap-2';
 
 /**
- * The notice surface: the second raised surface inside the decorative hairline at the card radius,
- * as the freshness pill and the card primitive paint their own surfaces. Every value is a role
- * token, so Command and Paper each resolve their own measured pairing, and the token layer exposes no
- * elevation utility, so no shadow can be added here (rule B-3, and specification §4.3's no-shadow
- * rule).
+ * The notice surface: the inset box `./card.tsx` names as the third surface role, laid out in the
+ * column this notice stacks its headline, its detail and its control in. The box itself — the card
+ * radius, the decorative hairline, the second raised surface and its one padding — is
+ * `INSET_SURFACE_CLASSES`, so a notice here and a notice in `./evidence-drawer.tsx` cannot drift
+ * apart, and only the stack belongs to this component. Every value stays a role token, so Command
+ * and Paper each resolve their own measured pairing, and the token layer exposes no elevation
+ * utility, so no shadow can be added here (rule B-3, and specification §4.3's no-shadow rule).
  */
-const NOTICE_CLASSES =
-  'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-2 px-3 py-2';
+const NOTICE_CLASSES = `flex min-w-0 flex-col gap-1 ${INSET_SURFACE_CLASSES}`;
 
 /**
  * The region a caller's own empty rendering stands in, when it supplied one.

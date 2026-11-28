@@ -234,7 +234,14 @@ export function ChartFrame<Row>({
         </span>
         <span className="flex shrink-0 flex-wrap items-center gap-3">
           {simLabel === undefined ? null : (
-            <StatusIndicator meaning="simulated" label={simLabel} />
+            /* The label wears the 13 px step of the type scale, so the same specification §5.3 string
+               reads the same size on a chart frame as on `./metric-tile.tsx`, which sets this step on
+               the identical label: `StatusIndicator` paints no type size of its own, so its host
+               supplies it, and the two surfaces that show a simulation label agree on the one they
+               supply rather than leaving the caption at the 16 px body step it would inherit. */
+            <span className="text-13">
+              <StatusIndicator meaning="simulated" label={simLabel} />
+            </span>
           )}
           <ViewAsTableToggle
             viewing={viewing}

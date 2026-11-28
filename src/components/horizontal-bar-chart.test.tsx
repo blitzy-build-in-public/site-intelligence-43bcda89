@@ -13,9 +13,14 @@
  * reference — outside the graphic, where HTML belongs — where this surface owns the activation, and
  * the `onActivate` report that replaces it where the calling screen does; a zero value drawn at zero
  * length with its mark still focusable and its labels intact; a value beyond the caller's axis held
- * inside the track; the bar and its focus ring
+ * inside the track; a value axis drawn beneath the bars with the caller's own formatted labels, its
+ * guides at each tick's share of the same track, and the drawing grown to hold them, or no axis at
+ * all where the caller supplies none; the title and description the graphic composes from its props;
+ * the bar and its focus ring
  * rounded from the control radius token rather than a literal radius (AAP §0.5.3); the focus ring
- * drawn on the mark that holds keyboard focus and hidden on the rest (rule B-3); the one tone table
+ * drawn on the mark that holds keyboard focus and hidden on the rest (rule B-3); the read-out a mark
+ * answers with on focus and on pointer entry, naming the category and the caller's own formatted
+ * value, with the row's ring revealed while it is active; the one tone table
  * in which every chart surface resolves a role token and its four utilities, drawn one datum per
  * tone with no literal colour anywhere in the graphic (AAP §0.5.3); the mark's simulation label
  * spoken rather than spelled by the chart (rule P-1); a long category label shortened in the drawing
@@ -33,7 +38,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
@@ -50,6 +55,7 @@ import {
 import type {
   ChartTone,
   ChartToneClasses,
+  HorizontalBarAxisTick,
   HorizontalBarChartProps,
   HorizontalBarDatum,
 } from './horizontal-bar-chart';
@@ -129,6 +135,19 @@ const BARS: readonly HorizontalBarDatum[] = [ALPHA, BETA, GAMMA];
 
 /** The axis maximum every {@link BARS} entry is drawn against. */
 const MAX = 40;
+
+/**
+ * The value axis the tick cases draw, positioned on the same axis as {@link BARS}.
+ *
+ * Every label is a plain word rather than a formatted amount: this surface formats nothing, so the
+ * strings below are the caller's own and a chart that formatted, rounded or re-labelled one fails the
+ * cases that read them back (rule P-6).
+ */
+const AXIS_TICKS = [
+  { value: 0, label: 'none' },
+  { value: MAX / 2, label: 'half' },
+  { value: MAX, label: 'the whole axis' },
+] as const satisfies readonly HorizontalBarAxisTick[];
 
 /** The accessible names {@link BARS} must carry: the category, then the value the caller formatted. */
 const ALPHA_NAME = 'Alpha plant: forty units';
@@ -263,6 +282,48 @@ function drawnValueOf(mark: HTMLElement): string {
   return drawnValueTextOf(mark).textContent ?? '';
 }
 
+/** The graphic a render drew, once a case has established that it drew one. */
+function surfaceOf(container: HTMLElement): Element {
+  const svg = container.querySelector('svg');
+
+  if (svg === null) {
+    throw new Error('the chart drew no graphic');
+  }
+
+  return svg;
+}
+
+/**
+ * The value axis the surface drew: the group holding the guides and their labels.
+ *
+ * It is the graphic's only `aria-hidden` group, which is the mark of a guide rather than of a figure:
+ * the axis is hidden from assistive technology because each bar already announces its own value.
+ */
+function axisOf(svg: Element): Element | null {
+  return svg.querySelector('g[aria-hidden="true"]');
+}
+
+/**
+ * The lowest edge of the drawing's rows: where the last row's own pointer target ends.
+ *
+ * It is read from the marks the surface drew rather than from a constant, so a case can tell where the
+ * rows stop and the axis band begins without knowing the surface's row height.
+ */
+function plotBottomOf(): number {
+  return Math.max(
+    ...screen.getAllByRole('button').map((mark) => {
+      const row = pointerTargetOf(mark);
+
+      return Number(row.getAttribute('y')) + Number(row.getAttribute('height'));
+    }),
+  );
+}
+
+/** The drawing's `viewBox`, as the four numbers it states. */
+function viewBoxOf(svg: Element): readonly number[] {
+  return (svg.getAttribute('viewBox') ?? '').split(' ').map(Number);
+}
+
 beforeEach(() => {
   getEvidence.mockResolvedValue(RESULT);
 });
@@ -348,6 +409,109 @@ describe('HorizontalBarChart', () => {
 
     expect(full).toBeGreaterThan(0);
     expect(half).toBeCloseTo(full / 2, 6);
+  });
+
+  it('draws the caller’s value axis beneath the bars, inside the drawing’s own box', () => {
+    const { container } = renderBars({ axisTicks: AXIS_TICKS });
+    const svg = surfaceOf(container);
+    const axis = axisOf(svg);
+
+    if (axis === null) {
+      throw new Error('the chart drew no axis');
+    }
+
+    /* Every label is the caller's own string, painted in the caller's own order. */
+    expect(
+      Array.from(axis.querySelectorAll('text')).map((node) => node.textContent ?? ''),
+    ).toEqual(AXIS_TICKS.map((tick) => tick.label));
+
+    /* Each label sits below the last row, in the band the drawing grew to hold it. */
+    const plotBottom = plotBottomOf();
+
+    for (const label of Array.from(axis.querySelectorAll('text'))) {
+      expect(Number(label.getAttribute('y'))).toBeGreaterThan(plotBottom);
+    }
+
+    /* And the whole drawing stays inside its own view box, the axis band included: the labels are not
+       clipped by the box the surface was drawn into. */
+    const box = viewBoxOf(svg);
+    const width = box[2] ?? 0;
+    const height = box[3] ?? 0;
+
+    expect(height).toBeGreaterThan(plotBottom);
+
+    for (const element of Array.from(svg.querySelectorAll('*'))) {
+      for (const name of ['x', 'y', 'x1', 'x2', 'y1', 'y2'] as const) {
+        const drawn = element.getAttribute(name);
+
+        if (drawn === null) {
+          continue;
+        }
+
+        const coordinate = Number(drawn);
+
+        expect(Number.isFinite(coordinate)).toBe(true);
+        expect(coordinate).toBeGreaterThanOrEqual(0);
+        expect(coordinate).toBeLessThanOrEqual(
+          name.startsWith('y') ? height : width,
+        );
+      }
+
+      for (const name of ['width', 'height'] as const) {
+        const extent = element.getAttribute(name);
+
+        if (extent === null) {
+          continue;
+        }
+
+        expect(Number(extent)).toBeGreaterThanOrEqual(0);
+        expect(Number(extent)).toBeLessThanOrEqual(name === 'width' ? width : height);
+      }
+    }
+  });
+
+  it('places a guide at the value each tick names, on the axis the bars are drawn against', () => {
+    const { container } = renderBars({ axisTicks: AXIS_TICKS });
+    const axis = axisOf(surfaceOf(container));
+
+    if (axis === null) {
+      throw new Error('the chart drew no axis');
+    }
+
+    /* The track as the bars draw it: the bar filling the axis gives its own start and its own width. */
+    const fullBar = barOf(screen.getByRole('button', { name: ALPHA_NAME }));
+    const trackStart = Number(fullBar.getAttribute('x'));
+    const trackWidth = Number(fullBar.getAttribute('width'));
+
+    /* The zero tick is the baseline the bars already grow from, so only the guides above zero are new
+       marks — and each one sits at its own value's share of that same track. */
+    expect(
+      Array.from(axis.querySelectorAll('line')).map((line) => Number(line.getAttribute('x1'))),
+    ).toEqual([trackStart + trackWidth / 2, trackStart + trackWidth]);
+  });
+
+  it('draws no axis, and claims none, when the caller supplies no ticks', () => {
+    const { container } = renderBars();
+    const svg = surfaceOf(container);
+    const height = viewBoxOf(svg)[3] ?? 0;
+
+    expect(axisOf(svg)).toBeNull();
+    expect(height).toBe(plotBottomOf());
+
+    /* The description states what the drawing encodes and promises no axis it was not given. */
+    expect(svg.querySelector('desc')?.textContent).toBe(
+      HORIZONTAL_BAR_CHART_TEXT.surfaceDescription,
+    );
+  });
+
+  it('describes the drawing it makes, naming the axis it was given', () => {
+    const xAxisLabel = 'Revenue at risk per exception';
+    const svg = surfaceOf(renderBars({ xAxisLabel, axisTicks: AXIS_TICKS }).container);
+    const description = svg.querySelector('desc')?.textContent ?? '';
+
+    expect(svg.querySelector('title')?.textContent).toBe(xAxisLabel);
+    expect(description).toContain(HORIZONTAL_BAR_CHART_TEXT.surfaceDescription);
+    expect(description).toContain(HORIZONTAL_BAR_CHART_TEXT.tickDescription);
   });
 
   it('rounds the bar and its focus ring from the control radius token, not a literal radius', () => {
@@ -667,3 +831,76 @@ describe('HorizontalBarChart', () => {
     }
   });
 });
+
+/* ---------------------------------------------------------------------------------------------
+ * The read-out a mark answers with
+ * ------------------------------------------------------------------------------------------- */
+
+/** The class utilities of one element, split so a variant cannot be mistaken for the state itself. */
+function utilitiesOf(element: Element | null | undefined): readonly string[] {
+  return (element?.getAttribute('class') ?? '').split(' ');
+}
+
+describe('the read-out a mark answers with', () => {
+  it('names the category and its own formatted value on keyboard focus, and clears on blur', () => {
+    renderBars();
+
+    const mark = screen.getByRole('button', { name: ALPHA_NAME });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    fireEvent.focus(mark);
+
+    /* The read-out prints the caller's own strings: no amount is formatted here (rule P-6). */
+    const readout = screen.getByRole('tooltip');
+    expect(within(readout).getByText(ALPHA.label)).toBeInTheDocument();
+    expect(within(readout).getByText(ALPHA.valueLabel)).toBeInTheDocument();
+
+    fireEvent.blur(mark);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('answers a pointer that enters a row as well as one that focuses it', () => {
+    renderBars();
+
+    const mark = screen.getByRole('button', { name: BETA_NAME });
+
+    fireEvent.pointerOver(mark);
+
+    const readout = screen.getByRole('tooltip');
+    expect(within(readout).getByText(BETA.label)).toBeInTheDocument();
+    expect(within(readout).getByText(BETA.valueLabel)).toBeInTheDocument();
+
+    /* A pointer crossing to the next row reports the leaving row first, and the entering row wins. */
+    const next = screen.getByRole('button', { name: 'Gamma plant: ten units' });
+    fireEvent.pointerOut(mark);
+    fireEvent.pointerOver(next);
+
+    expect(within(screen.getByRole('tooltip')).getByText(GAMMA.valueLabel)).toBeInTheDocument();
+
+    fireEvent.pointerOut(next);
+
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('reveals the row’s ring while the mark is active, on that row alone', () => {
+    renderBars();
+
+    const first = screen.getByRole('button', { name: ALPHA_NAME });
+    const second = screen.getByRole('button', { name: BETA_NAME });
+
+    /* At rest every ring is invisible, whatever hover variants it also carries. */
+    expect(utilitiesOf(focusRingOf(first))).toContain('opacity-0');
+
+    fireEvent.pointerOver(first);
+
+    expect(utilitiesOf(focusRingOf(first))).toContain('opacity-100');
+    expect(utilitiesOf(focusRingOf(first))).not.toContain('opacity-0');
+    expect(utilitiesOf(focusRingOf(second))).toContain('opacity-0');
+
+    fireEvent.pointerOut(first);
+
+    expect(utilitiesOf(focusRingOf(first))).toContain('opacity-0');
+  });
+});
+

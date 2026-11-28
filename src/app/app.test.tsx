@@ -63,7 +63,7 @@
  * hashes, and the shell renders only what a DOM provides.
  */
 
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Fragment, createElement } from 'react';
 import type { ReactNode } from 'react';
@@ -83,6 +83,7 @@ import {
 import type { NavItem } from './nav-items';
 import { AppProviders, useShellStore } from './providers';
 import { SCOPE_FILTERS_TEXT } from './scope-filters';
+import { SIMULATION_CONTROLS_TEXT } from './simulation-controls';
 
 /* ---------------------------------------------------------------------------------------------
  * The service boundary, replaced — rule P-2
@@ -99,10 +100,12 @@ interface ServiceProviderStubProps {
  *
  * `ServiceProvider` passes its children straight through, so the shell mounts without the adapter's
  * bootstrap. The port stub is deliberately narrow: it answers only the members `FreshnessStrip`,
- * `ScopeFilters`, `SearchField` and `SimulationControls` call, each with a promise that never settles,
- * because the bar's own content is not what this suite asserts. A port member added to one of those
- * children therefore fails here as "not a function" instead of silently reaching a real adapter, and
- * widening the stub is a deliberate act rather than an accident.
+ * `ScopeFilters`, `SearchField` and `SimulationControls` call, and the reads among them never settle,
+ * because the bar's own content is not what this suite asserts. `resetDemo` is the one member that
+ * resolves, because one case presses the reset control and asserts the status message a completed reset
+ * leaves behind. A port member added to one of those children therefore fails here as "not a function"
+ * instead of silently reaching a real adapter, and widening the stub is a deliberate act rather than an
+ * accident.
  *
  * `useDemonstration` and `useActiveUser` answer `null`: this suite binds no demonstration capability
  * and no seeded persona, which is the state the role switcher explains in its own words (rule P-8) and
@@ -112,11 +115,15 @@ vi.mock('../services/service-provider', () => {
   /** A read that never settles: no figure and no record is produced for this suite. */
   const pending = (): Promise<never> => new Promise<never>(() => undefined);
 
+  /* The one demonstration control this suite drives is the reset, and a reader has to be able to
+     complete it for the announcement it leaves behind to be asserted; the other members stay pending. */
+  const completed = (): Promise<{ readonly data: true }> => Promise.resolve({ data: true });
+
   const service = {
     getSourceCatalogue: pending,
     getTopology: pending,
     searchIdentifiers: pending,
-    resetDemo: pending,
+    resetDemo: completed,
     setSimulation: pending,
   };
 
@@ -291,12 +298,25 @@ function precedes(first: Element, second: Element): boolean {
  * Isolation
  * ------------------------------------------------------------------------------------------- */
 
-beforeEach(() => {
+/**
+ * Returns the shell store to a first-time visitor's state, so a case reads nothing of the one before it.
+ *
+ * The store's own `resetShell` does this and no application control calls it: `Reset demo data`
+ * restores the adapter's records and leaves the reader's persona, scope, selection and wall mode
+ * standing, so a reset of the store is nobody's behaviour but a suite's. Isolation still has to happen:
+ * a persona, a scope or an open popover left behind by the case before it would be read back as this
+ * one's own.
+ */
+function clearShellState(): void {
   useShellStore.getState().resetShell();
+}
+
+beforeEach(() => {
+  clearShellState();
 });
 
 afterEach(() => {
-  useShellStore.getState().resetShell();
+  clearShellState();
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.removeAttribute('data-density');
 });
@@ -583,6 +603,43 @@ describe('AppShell — the shell states no barred claim (rules P-4, P-7)', () =>
     }
 
     expect(text.toLowerCase()).not.toContain(BARRED_PRODUCT_NAME.toLowerCase());
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The reset's announcement — rule B-3, WCAG 2.2 SC 4.1.3
+ * ------------------------------------------------------------------------------------------- */
+
+describe('AppShell — a completed reset announces itself (rule B-3)', () => {
+  it('reports the reset in a status region that outlives the panel it closed', async () => {
+    const user = userEvent.setup();
+    renderShell('/exceptions');
+
+    /* The panel is reached the way a reader reaches it, from the badge the shell mounts on every
+       route, and the reset is pressed in the panel: no store call and no test hook is used. */
+    await user.click(screen.getByRole('button', { name: new RegExp(`^${BADGE_LABEL}`) }));
+
+    const dialog = screen.getByRole('dialog');
+
+    await user.click(
+      within(dialog).getByRole('button', {
+        name: SIMULATION_CONTROLS_TEXT.resetLabel,
+      }),
+    );
+
+    /* The reset closes the panel it was taken from, so the press leaves no dialog behind. */
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    /* What is left is the status message: the outcome is programmatically determinable rather than
+       being the disappearance of a dialog that a reader who cannot see the screen never meets
+       (WCAG 2.2 SC 4.1.3). It is visually hidden, because the panel's closing is all a sighted reader
+       needs, and it says nothing a figure or a record identifier would (rule P-6). */
+    const announcement = screen.getByText(SIMULATION_CONTROLS_TEXT.resetCompleted);
+
+    expect(announcement).toHaveAttribute('role', 'status');
+    expect(announcement).toHaveClass('sr-only');
   });
 });
 

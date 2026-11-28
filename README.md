@@ -97,7 +97,7 @@ Every state a screen can be in comes from one popover, `src/app/simulation-contr
 - the seven screen states: loading, empty, stale, partial, offline, forbidden and conflict;
 - the tampered audit event, which edits the recorded result of `AUD-000142` without recomputing its hash, so "Verify chain" reports the break at sequence 142 and repairs nothing;
 - the empty queue, which leaves the exception queue with no rows to match;
-- `Reset demo data`, which puts the session back to the seeded baseline.
+- `Reset demo data`, which restores the seeded records, restores the audit trail hashed from them, lifts every trigger and closes its own panel. It leaves the reader where they are: the persona the role switcher selected, the top-bar scope filters, the canvas selection and the row density are the reader's own and survive the reset, and the outcome is announced in a status region for a reader who cannot see the panel close.
 
 Every trigger goes through the service interface (`setSimulation` and `resetDemo`), so it changes what the backend answers rather than which branch a component takes. No query parameter, no global and no flag changes behaviour: this popover and the role switcher are the product's only demonstration levers, and the tests drive them the way a reader does.
 

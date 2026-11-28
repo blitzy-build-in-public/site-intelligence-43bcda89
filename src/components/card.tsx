@@ -88,3 +88,21 @@ export function Card({ children, title, actions, as = 'section' }: CardProps) {
     </Element>
   );
 }
+
+/**
+ * The third surface role: the box the two surfaces above contain.
+ *
+ * `Card` owns the titled surface on `--color-surface-1` and `Panel` owns the grouped one on
+ * `--color-surface-2`, and neither names the small bordered box that sits inside them — the notice
+ * that reports an outcome, the bounded facts block inside a card, the alert tile that repeats one
+ * finding. Every site composes this one constant instead of restating the box, so a single padding
+ * and a single radius govern all of them: the card radius, the decorative hairline, the second
+ * raised surface, and the 12 px step of the 4 px grid. A site adds its own layout (`flex`, `gap-*`)
+ * and its own type utilities on top; nothing here sets a type step, a text role or an arrangement of
+ * what it contains.
+ *
+ * Like the two surfaces, the value comes from role tokens only, so Command and Paper each resolve
+ * their own measured pairing and no elevation is added: the token layer exposes no shadow utility,
+ * and an inset box is bounded by its hairline rather than raised by one (specification §4.3).
+ */
+export const INSET_SURFACE_CLASSES = 'rounded-card border border-hairline bg-surface-2 p-3';

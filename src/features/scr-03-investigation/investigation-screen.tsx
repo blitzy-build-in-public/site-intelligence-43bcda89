@@ -13,11 +13,15 @@
  *
  * WHERE THE DATA COMES FROM. One read of `getExceptionDetail` through `useService()` supplies the
  * whole payload, and the option set is read beside it so the projection can plot the option the
- * service designates rather than a baseline alone. Nothing in this file reaches a seed record, the
- * mock adapter, the API client or a domain module, and no fixture is imported: the port is the only
- * data boundary a screen has (rule P-2). The two writes this screen offers — assign to me and record
- * a note — go through the port's own methods and invalidate this screen's cache entries, so the
- * activity beneath them re-reads rather than showing what the cache held before the write.
+ * service designates rather than a baseline alone. The persona roster is read beside those two
+ * through the demonstration capability's optional `listPersonas` — the member the shell's role
+ * switcher names the same personas from, read here under this screen's own cache key — so the owner
+ * the exception identifies is shown as the person the records hold for that identifier. Nothing in
+ * this file reaches a seed record, the mock adapter, the API client or a domain module, and no
+ * fixture is imported: the port is the only data boundary a screen has (rule P-2). The two writes
+ * this screen offers — assign to me and record a note — go through the port's own methods and
+ * invalidate this screen's cache entries, so the activity beneath them re-reads rather than showing
+ * what the cache held before the write.
  *
  * WHO MAY WRITE IS STATED BEFORE THE ATTEMPT. Both writes are the adapter's own calls, and it refuses
  * either one for a persona that does not hold `exception.work` over the exception's plant. Both controls
@@ -81,11 +85,12 @@
  * Rules served: B-1, B-2, B-3, P-1, P-2, P-3, P-4, P-5, P-6, P-7, P-8.
  */
 import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
-import { Card } from '../../components/card';
+import { Card, INSET_SURFACE_CLASSES } from '../../components/card';
 import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
 import { EvidenceRef } from '../../components/evidence-drawer';
@@ -116,7 +121,13 @@ import {
   CONTROL_STRUCTURE_CLASSES,
   SECONDARY_CONTROL_CLASSES,
 } from '../../components/tooltip';
-import { useActiveUser, useRolesHolding, useService } from '../../services/service-provider';
+import {
+  useActiveUser,
+  useDemonstration,
+  useRolesHolding,
+  useService,
+} from '../../services/service-provider';
+import { WRITE_READS, type CachedRead } from '../../services/write-reads';
 /*
  * `EXCEPTION_QUEUE_PATH` is the queue this screen returns to when the route names no exception it may
  * read. It has one declaration, in `src/types/routes.ts`, shared with the navigation table, the shell's
@@ -833,9 +844,14 @@ const DETAIL_CLASSES = 'min-w-0 break-words text-13 text-text-secondary';
 /** The type step a simulated label takes inside a region that is already named. */
 const LABEL_CLASSES = 'text-13';
 
-/** The report a completed or refused write leaves behind, on the first raised surface. */
-const REPORT_CLASSES =
-  'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-1 px-3 py-2';
+/**
+ * The report a completed or refused write leaves behind: the inset box `src/components/card.tsx`
+ * names as the third surface role, stacked so the outcome's indicator and its sentence sit one 4 px
+ * step apart. The box's boundary, radius, surface and padding come from `INSET_SURFACE_CLASSES`, so
+ * this report wears the same surface as the exception queue's own report region and the two shared
+ * notices instead of hand-rolling a fourth box of its own.
+ */
+const REPORT_CLASSES = `flex min-w-0 flex-col gap-1 ${INSET_SURFACE_CLASSES}`;
 
 /** The group holding a table and the label and sentence that qualify its figures. */
 const TABLE_GROUP_CLASSES = 'flex min-w-0 flex-col gap-2';
@@ -875,6 +891,23 @@ const QUEUE_LINK_CLASSES = [
   SECONDARY_CONTROL_CLASSES,
   'self-start',
 ].join(' ');
+
+/**
+ * Invalidates every cached entry of each read a recorded write moved.
+ *
+ * Every entry is keyed `[method, ...args]` (AAP 0.6.2), so naming a member invalidates every entry of
+ * that read under every argument list — TanStack Query's default match is by key prefix — and the row is
+ * the one table in `src/services/write-reads.ts`, so this screen and the write channel that feeds the
+ * cache name the same reads.
+ *
+ * @param queryClient The client this screen obtained with `useQueryClient()`.
+ * @param reads The port members the write moved. An empty list invalidates nothing.
+ */
+function invalidateReads(queryClient: QueryClient, reads: readonly CachedRead[]): void {
+  for (const read of reads) {
+    void queryClient.invalidateQueries({ queryKey: [read] });
+  }
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The note form
@@ -1156,6 +1189,7 @@ interface WriteReport {
 export function InvestigationScreen(_props: InvestigationScreenProps): ReactElement {
   const service = useService();
   const activeUser = useActiveUser();
+  const demonstration = useDemonstration();
   /*
    * The roles the permission a write needs reaches, read from the roster the service reports so a
    * disabled control can name who may act (rule P-8). `null` while that answer is unknown: the sentence
@@ -1195,9 +1229,43 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
     retry: false,
   });
 
+  /*
+   * The roster the owner is named from. `listPersonas` is optional on the demonstration capability —
+   * a deployment knows its caller from the session that reached it — so the read runs only when the
+   * bound adapter holds it, and it is bound once here rather than narrowed again inside the query.
+   *
+   * The value cached is the persona list, not the `Result` envelope the call resolves, and it is
+   * keyed under this screen's own `'investigation'` qualifier. One member serves several readers —
+   * this screen, the approval detail, the governance screens and the shell's role switcher
+   * (`src/app/role-switcher.tsx`) — so a key names its reader as well as its member: a key's value
+   * shape belongs to the reader that caches it, and naming the reader is what keeps one reader's
+   * shape from reaching another.
+   */
+  const readPersonas =
+    demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);
+
+  const personasQuery = useQuery<readonly ActiveUser[], unknown>({
+    queryKey: ['listPersonas', 'investigation'],
+    queryFn: readPersonas === undefined ? skipToken : async () => (await readPersonas()).data,
+    retry: false,
+  });
+
   const result = detailQuery.data;
   const detail = result?.data;
   const scenarioSet = scenarioQuery.data?.data;
+
+  /*
+   * The owner, named as the person the record's identifier stands for. The exception states its
+   * `ownerId` and nothing that reads as a person, and the roster is the only source of a persona's
+   * name (rule P-2), so the text shown is a join of two records rather than a value of this module's
+   * own — presented the way the role switcher presents a persona, the name and then the role it acts
+   * in (`src/app/role-switcher.tsx`), so the facts and the switcher describe one persona one way.
+   * Until the roster answers, when the bound adapter carries none, or when the roster does not name
+   * that identifier, this is `undefined` and the record's own identifier stays what the facts show:
+   * the alternative is a name this module would have to invent (rules P-6, P-7).
+   */
+  const owner = personasQuery.data?.find((persona) => persona.id === detail?.exception.ownerId);
+  const ownerName = owner === undefined ? undefined : `${owner.name} · ${owner.role}`;
 
   /*
    * The read's own facts, plus this screen's reading of its payload. The route comes first: an address
@@ -1309,9 +1377,11 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
    * Assigns the exception to the acting persona, once, through the port.
    *
    * The assignee is the persona the provider reports, which is the persona the adapter is enforcing, so
-   * this screen names no user of its own (rule P-6). A recorded assignment invalidates this screen's
-   * reads so the activity beneath it shows the event the write appended; a refused one changes nothing
-   * and reports the service's own sentence.
+   * this screen names no user of its own (rule P-6). A recorded assignment invalidates the reads the
+   * write moved — this exception's detail so the activity beneath it shows the event the append recorded,
+   * the queue's owner column, the overview's tiles and the ribbon, all named once in
+   * `WRITE_READS.assignException` — and a refused one changes nothing and reports the service's own
+   * sentence.
    */
   const assignToMe = (): void => {
     if (detail === undefined || exceptionId === undefined || activeUser === null || assigning) {
@@ -1326,7 +1396,7 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
     void (async () => {
       try {
         const assigned = await service.assignException(exceptionId, assignee);
-        await queryClient.invalidateQueries({ queryKey: ['getExceptionDetail'] });
+        invalidateReads(queryClient, WRITE_READS.assignException);
         setAssigning(false);
         setReport({
           meaning: 'pass',
@@ -1355,11 +1425,13 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
   };
 
   /**
-   * Records what a completed note means for this screen: the reads the write moved are invalidated and
-   * the report says the note was recorded. Called by the form only once the port has resolved it.
+   * Records what a completed note means for this screen: the reads the write moved are invalidated —
+   * this exception's detail, the queue row that summarises it, the overview and the ribbon, from
+   * `WRITE_READS.noteException` — and the report says the note was recorded. Called by the form only
+   * once the port has resolved it.
    */
   const handleNoted = (): void => {
-    void queryClient.invalidateQueries({ queryKey: ['getExceptionDetail'] });
+    invalidateReads(queryClient, WRITE_READS.noteException);
     setNoteOpen(false);
     setReport({ meaning: 'pass', headline: INVESTIGATION_TEXT.noted });
   };
@@ -1468,7 +1540,11 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
                   <div className={FACT_CLASSES}>
                     <dt className={TERM_CLASSES}>{INVESTIGATION_TEXT.ownerLabel}</dt>
                     <dd className={VALUE_ROW_CLASSES}>
-                      <MonoValue value={detail.exception.ownerId} kind="id" />
+                      {ownerName === undefined ? (
+                        <MonoValue value={detail.exception.ownerId} kind="id" />
+                      ) : (
+                        <span className={BODY_CLASSES}>{ownerName}</span>
+                      )}
                     </dd>
                   </div>
                 </dl>

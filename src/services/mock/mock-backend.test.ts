@@ -57,7 +57,10 @@
  * 22. the evidence behind any figure, mark, node, arc or pin: a composed aggregate reference answered
  *     from the aggregate read's own output, a narrowed selection read the way the adapter reads a
  *     `Scope`, one reference per node family the canvas and the impact chain carry, a radar series
- *     kept apart from the client's own reading by its provenance, and the three typed refusals.
+ *     kept apart from the client's own reading by its provenance, an exception the queue admits through
+ *     a plant it also reaches opening its evidence for the persona the row was shown to — and still
+ *     refused where every plant it touches lies outside that persona's scope — and the three typed
+ *     refusals.
  * 23. the evidence a governance figure opens: a declared outbound endpoint and every policy resolving
  *     to the record each one states, with the label the record itself decides;
  * 24. the queue's day filter: the exceptions SCR-01's series counted on one day and no others, read
@@ -69,16 +72,23 @@
  *     read of one record served so the act it carries can be attempted, the decision it demonstrates
  *     refused rather than merged and left undecided, the control's lift answering those reads again, and
  *     the demonstration controls never refused;
- * 27. a request against a set-aside exception: refused with the status the record stands in, and
+ * 27. the missing inputs a record’s evidence reports: the gap one exception states, reported on the
+ *     approval, the purchase order and the customer order that carry it, read from that exception’s
+ *     own detail rather than from a list the suite types;
+ * 28. the figure a reference names inside an approval: the record’s own reference answering exactly
+ *     as it did, each compared measure answering with the value the comparison read reports, each
+ *     closing-stock reading answering with the date and the units it states, the two amounts opening
+ *     two different drawers, and a fragment the read does not answer refused;
+ * 29. a request against a set-aside exception: refused with the status the record stands in, and
  *     neither an approval record nor an audit event written for it;
- * 28. the evidence behind one step of a plan's write-back: the composed reference
- *     `write-back:<ownerId>/<sequence>` answered with the step's own record, system and state, for an
+ * 30. the evidence behind one step of a plan’s write-back: the composed reference
+ *     `write-back:<ownerId>/<sequence>` answered with the step’s own record, system and state, for an
  *     approval and for an option measured at call time, with the malformed, unknown-owner and
  *     unknown-position refusals;
- * 29. the queue's record filters and its page: each filter decided on the member the exception record
+ * 31. the queue’s record filters and its page: each filter decided on the member the exception record
  *     carries, the plant a row reaches as well as the one it lands on, and a page taken from the order
  *     the whole queue states;
- * 30. the free-text ceiling: the one bound the audited writes apply to the prose they store, refused as
+ * 32. the free-text ceiling: the one bound the audited writes apply to the prose they store, refused as
  *     a `'validation'` failure naming the field, the ceiling and the length submitted, with the record,
  *     the history and the trail left as they stood — and a text of exactly the ceiling accepted.
  */
@@ -117,11 +127,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   ActiveUser,
   Approval,
+  ApprovalOutcome,
   ApprovalStatus,
   Atlas,
   AuditQuery,
   DocumentBody,
   EvidencePin,
+  ExceptionDetail,
   ExceptionId,
   ExceptionQuery,
   ExceptionRow,
@@ -157,6 +169,8 @@ import {
   SOURCE_IDS,
   SOURCE_LABELS,
 } from '../../types';
+import { plantsTouchedBy } from '../../domain/aggregation/exceptions';
+import { formatMoney, formatQuantity } from '../../components/mono-value';
 import { hasPermission, plantScopeFor, rolesWith } from '../../domain/policy/permissions';
 import { buildChokepointBrief } from '../exports/chokepoint-brief';
 import { buildEvidencePack } from '../exports/evidence-pack';
@@ -355,6 +369,25 @@ const SEEDED_QUESTION =
 
 /** A question outside the six, which must return the seeded notice rather than a composed answer. */
 const UNSEEDED_QUESTION = 'Which option should be taken while the line keeps running as it is?';
+
+/**
+ * The identifier the fourth suggested question carries: the one whose answer states the deferral.
+ *
+ * The case reads the question's prompt from the list the port publishes rather than restating it, so
+ * the panel and the answer it is checked against cannot disagree about which question was asked.
+ */
+const DEFERRAL_QUESTION_ID = 'Q4';
+
+/**
+ * The deferral reading the fourth answer states, as AAP 0.8 fixes it.
+ *
+ * An expected value rather than a record: the sentence's `EUR ` marker is the seeded template's own
+ * text and the amount is the transfer's computed side effect, so a template that lost its marker — or
+ * a builder that filled the amount from the wrong member — still composes a sentence but fails here.
+ * AAP 0.8 states the figure with the currency first and the digits comma-grouped, which is the shape
+ * `src/components/mono-value.tsx` records for an amount inside a record's own sentence.
+ */
+const EXPECTED_DEFERRAL_READING = 'the value that deferral carries is EUR 108,000.';
 
 /** The substring every document identifier carries, used to search for the seeded documents. */
 const DOCUMENT_TERM = 'DOC-';
@@ -604,6 +637,40 @@ async function settlesWithin(run: Promise<unknown>, milliseconds: number): Promi
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * The text a drawer states one overview aggregate's figure in: an amount through the interface's money
+ * formatter, and every other aggregate's count, duration or percent as the number itself.
+ *
+ * A payload's `value` and `inputs` are display strings the service tier composes (contracts §3, AAP
+ * §0.12.2), and that tier holds its own copy of the money rule because a handler may not import
+ * `src/components` (AAP §0.18.1). Comparing the payload's text with `formatMoney`'s output for the same
+ * figure is therefore what keeps the two renderings one convention (contracts §1): the drawer a revenue
+ * tile opens reads `3.916.800 EUR at risk` beside the tile's `3.916.800 EUR`.
+ *
+ * @param key - The aggregate the reference named, such as `revenue-at-risk`.
+ * @param figure - The figure the aggregate read reported for it.
+ * @returns The text the drawer opens with.
+ */
+function aggregateFigureText(key: string, figure: number): string {
+  return key === 'revenue-at-risk' ? formatMoney(figure) : String(figure);
+}
+
+/**
+ * The text a measure's own evidence states the measure in: an amount through the interface's money
+ * formatter, and every other measure as the number the comparison read reported.
+ *
+ * A measure's member name is what says which it is — the contracts' money members end in `Eur` — and
+ * the payload states each in the interface's shape (contracts §1, AAP §0.8), so a case comparing the
+ * drawer's text with the raw member would assert a rendering the interface does not print.
+ *
+ * @param member - The measure's member name, such as `addedCostEur` or `unitsLate`.
+ * @param figure - The number the comparison read reported for it.
+ * @returns The text the measure's evidence opens with.
+ */
+function measureFigureText(member: string, figure: number): string {
+  return member.endsWith('Eur') ? formatMoney(figure) : String(figure);
 }
 
 /**
@@ -1978,10 +2045,15 @@ describe('the reset', () => {
     await used.setSimulation('tampered-audit', true);
     await actAs(used, HEAD_OF_SUPPLY_CHAIN);
 
+    /* The persona is the one thing a reset leaves standing, so the session it is compared with acts as
+       that same persona: the queues, the figures and the approvals two sessions return are comparable
+       only while both are authorised as the same person and scoped to the same plants. */
+    await actAs(pristine, HEAD_OF_SUPPLY_CHAIN);
+
     await used.resetDemo();
 
-    // Both sessions now act as the persona a first visit does, so their readings are comparable: the
-    // queues agree only if the reset restored that persona along with the records.
+    // Both sessions act as the persona the reset kept, so their readings are comparable: the queues
+    // agree only if the reset restored the records and nothing else of the session that changed them.
     const resetQueue = (await used.listExceptions({}, NO_SCOPE)).data;
     const pristineQueue = (await pristine.listExceptions({}, NO_SCOPE)).data;
     const resetOverview = (await used.getOverview(NO_SCOPE)).data;
@@ -1997,22 +2069,22 @@ describe('the reset', () => {
       (await pristine.getOverview(NO_SCOPE)).meta.freshness,
     );
 
-    await actAs(used, AUDITOR);
-    await actAs(pristine, AUDITOR);
-
+    /* The persona the session kept holds `audit.read`, so the chain is verified as it stands rather
+       than by switching again. It is the seeded trail exactly: the events the session appended before
+       the reset, the role switch that moved the persona among them, went with the records they
+       recorded, while the persona those reads are authorised as did not. */
     const resetReport = (await used.verifyAuditChain()).data;
-    const pristineReport = (await pristine.verifyAuditChain()).data;
 
     expect(resetReport.breaks).toEqual([]);
-    expect(resetReport.eventsChecked).toBe(pristineReport.eventsChecked);
+    expect(resetReport.eventsChecked).toBe(SEEDED_EVENT_COUNT);
   }, CASE_TIMEOUT_MS);
 
-  it('reports the persona the session acts as, and the seeded persona again once it has reset', async () => {
+  it('reports the persona the session acts as, and keeps it once it has reset', async () => {
     const backend = await readyBackend();
 
     // The read and the switch are two views of one value, which is what the boundary seeds the shell
     // from: whatever a caller can read here is the persona every other call is authorised against, so a
-    // switch has to move both and a reset has to put both back.
+    // switch has to move both.
     const opening = (await backend.getActiveUser()).data;
     const switched = (await backend.switchRole(AUDITOR)).data;
     const afterSwitch = (await backend.getActiveUser()).data;
@@ -2022,9 +2094,30 @@ describe('the reset', () => {
 
     await backend.resetDemo();
 
-    // The reset puts the adapter back to the persona a first visit acts as, so the read reports that
-    // persona rather than the one the switch selected.
-    expect((await backend.getActiveUser()).data).toEqual(opening);
+    // The persona is the reader's own choice through the role switcher rather than a seeded record, so
+    // the reset restores the records and leaves the read reporting the person it switched to.
+    expect((await backend.getActiveUser()).data).toEqual(switched);
+  }, CASE_TIMEOUT_MS);
+
+  it('keeps the persona a role switch selected while the reset clears the rest of the session', async () => {
+    const backend = await readyBackend();
+    const target = firstOf(await queueOf(backend), 'exception row');
+
+    // A write the seeded persona may make and the auditor may not, so the two halves of the session are
+    // distinguishable after the reset: the record the write touched and the authority that made it.
+    await backend.noteException(target.id, NOTE_TEXT);
+
+    const switched = (await backend.switchRole(AUDITOR)).data;
+
+    await backend.resetDemo();
+
+    /* The person survives, so the call the seeded persona was allowed to make is refused again: a reset
+       that quietly signed the reader back in as the seeded persona would answer it instead. */
+    expect((await backend.getActiveUser()).data).toEqual(switched);
+
+    const refused = await refusalOf(() => backend.noteException(target.id, NOTE_TEXT));
+
+    expect(refused.type).toBe('permission');
   }, CASE_TIMEOUT_MS);
 
   it('leaves the chain whole when a reset lands while an audited write is in flight', async () => {
@@ -2162,6 +2255,31 @@ describe('the assistant', () => {
     }
   }, CASE_TIMEOUT_MS);
 
+  it('states the deferred value with the currency marker the seeded sentence carries', async () => {
+    const backend = await readyBackend();
+    const catalogue = (await backend.getModelCatalogue()).data;
+    const questions = (await backend.listSuggestedQuestions()).data;
+    const deferral = questions.find((question) => question.id === DEFERRAL_QUESTION_ID);
+
+    if (deferral === undefined) {
+      throw new Error('The assistant lists no deferral question, so the case cannot run.');
+    }
+
+    const answer = (
+      await backend.askAssistant({
+        question: deferral.prompt,
+        modelId: catalogue.defaultModelId,
+        contextRefs: [],
+      })
+    ).data;
+
+    // The amount is the transfer lever's computed side effect and the marker is the seeded template's
+    // own text, so the answer states money the way every other surface does rather than a bare grouped
+    // number (AAP 0.8, rule P-6).
+    expect(answer.text).toContain(EXPECTED_DEFERRAL_READING);
+    expect(answer.partial).toBe(false);
+  }, CASE_TIMEOUT_MS);
+
   it('returns the seeded notice for a question outside the six, with no citations', async () => {
     const backend = await readyBackend();
     const catalogue = (await backend.getModelCatalogue()).data;
@@ -2197,6 +2315,17 @@ describe('the assistant', () => {
  */
 const EXPECTED_TRADE_OFF =
   'Spends EUR 21,300 and defers 900 Brno service kits (EUR 108,000) by 10 days to avoid EUR 2,257,000 of delayed revenue.';
+
+/**
+ * A lever position far outside every bound the case states, written as the digits a reader types.
+ *
+ * The digits are the point rather than the magnitude: a sandbox field carries the reader's own text,
+ * and a value this large is what a raw interpolation stringifies in exponent form. Thirty nines are
+ * beyond the range in which a double prints in decimal notation, and the case reads the number back
+ * with `Number` — the conversion the control itself applies — rather than stating the value twice.
+ * It is a request's own input to the solver, never a figure the interface shows (rule P-6).
+ */
+const BEYOND_BOUND_DIGITS = '9'.repeat(30);
 
 describe('the comparison option set', () => {
   it('serves the four seeded positions as measured columns, one recommended and one rejected', async () => {
@@ -2301,6 +2430,32 @@ describe('the comparison option set', () => {
 
     expect(refused.type).toBe('not-found');
     expect(refused.message).toContain(unanswered);
+  }, CASE_TIMEOUT_MS);
+
+  it('names a position far outside its bounds in the interface’s own number shape', async () => {
+    const backend = await readyBackend();
+    const lodged = (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data;
+    const subject = firstOf(lodged, 'pending approval').exceptionId;
+    const set = (await backend.getScenarioSet(subject)).data;
+    const inBounds = firstOf(set.scenarios, 'measured option');
+    const airSets = Number(BEYOND_BOUND_DIGITS);
+    const levers: Levers = { airSets, transferSets: inBounds.levers.transferSets };
+
+    const measured = (await backend.solveScenario(subject, levers)).data;
+
+    // The breach is the record's own report rather than a refused call (AAP 0.12.3), which is what
+    // leaves the echoed position a served option name the comparison screen can print beside it.
+    expect(measured.constraintCheck).toBe('fail');
+    expect(measured.constraintMessages.length).toBeGreaterThan(0);
+    expect(measured.levers).toEqual(levers);
+
+    /* Each value is stated in the grouped, unitless shape `formatQuantity` states, so a column names a
+       readable decimal position and never the exponent form `String()` writes a large number in. The
+       expected text is built from that function, so the copy of the rule the handler holds cannot drift
+       from the one the screen prints (AAP §0.8, AAP §0.18.1). */
+    expect(measured.name).toContain(formatQuantity(airSets));
+    expect(measured.name).toContain(formatQuantity(levers.transferSets));
+    expect(measured.name).not.toContain(String(airSets));
   }, CASE_TIMEOUT_MS);
 
   /**
@@ -2518,14 +2673,18 @@ describe("the port's remaining reads", () => {
 
     // Five of the six report an overview aggregate or the length of one of its collections, so the
     // ribbon adds no figure of its own and the same scope yields the same values through both reads
-    // (rule P-6). The sixth counts the rows the same scope returns, which the queue case covers.
+    // (rule P-6). The sixth counts the plants the resolved scope names, which the topology read
+    // reports for the same persona and the same selection.
     expect(tileValueOf(tiles, 'open-exceptions')).toBe(overview.openExceptions);
     expect(tileValueOf(tiles, 'revenue-at-risk')).toBe(overview.revenueAtRiskEur);
     expect(tileValueOf(tiles, 'customer-orders-at-risk')).toBe(overview.customerOrdersAtRisk);
     expect(tileValueOf(tiles, 'median-hours-to-approved-plan')).toBe(
       overview.medianHoursToApprovedPlan,
     );
-    expect(tileValueOf(tiles, 'plants-in-scope')).toBe(overview.byPlant.length);
+
+    const topology = (await backend.getTopology(NO_SCOPE)).data;
+
+    expect(tileValueOf(tiles, 'plants-in-scope')).toBe(topology.plants.length);
   }, CASE_TIMEOUT_MS);
 
   it.each([
@@ -2593,19 +2752,22 @@ describe("the port's remaining reads", () => {
 
     const overview = (await backend.getOverview(NO_SCOPE)).data;
     const tiles = [
-      { ref: 'overview:open-exceptions', figure: overview.openExceptions },
-      { ref: 'overview:revenue-at-risk', figure: overview.revenueAtRiskEur },
-      { ref: 'overview:customer-orders-at-risk', figure: overview.customerOrdersAtRisk },
-      { ref: 'overview:median-hours-to-approved-plan', figure: overview.medianHoursToApprovedPlan },
+      { key: 'open-exceptions', figure: overview.openExceptions },
+      { key: 'revenue-at-risk', figure: overview.revenueAtRiskEur },
+      { key: 'customer-orders-at-risk', figure: overview.customerOrdersAtRisk },
+      { key: 'median-hours-to-approved-plan', figure: overview.medianHoursToApprovedPlan },
     ] as const;
 
     for (const tile of tiles) {
-      const evidence = (await backend.getEvidence(tile.ref)).data;
+      const evidence = (await backend.getEvidence(`overview:${tile.key}`)).data;
 
-      // The value opens with the aggregate's own number, so the drawer and the tile report one figure
-      // computed by one function rather than two that could drift apart (rule P-6). A computed figure
-      // carries the computed label and the rule that produced it (rule P-1).
-      expect(evidence.value.startsWith(`${tile.figure} `)).toBe(true);
+      // The value opens with the aggregate's own figure as the drawer states it, so the drawer and the
+      // tile report one figure computed by one function rather than two that could drift apart (rule
+      // P-6). A money figure is compared against the interface's money formatter, which the service
+      // tier may not import and holds its own copy of (AAP §0.18.1, contracts §1); a count or a
+      // duration reads as the number itself. A computed figure carries the computed label and the rule
+      // that produced it (rule P-1).
+      expect(evidence.value.startsWith(`${aggregateFigureText(tile.key, tile.figure)} `)).toBe(true);
       expect(evidence.provenance).toBe('computed');
       expect(evidence.label).toBe(SIM_LABELS[1]);
       expect(evidence.formula).not.toBe('');
@@ -2616,7 +2778,7 @@ describe("the port's remaining reads", () => {
       // plant, and its payload states the member empty rather than a plant it was not computed from.
       expect(Array.isArray(evidence.upstream)).toBe(true);
 
-      if (tile.ref !== 'overview:median-hours-to-approved-plan') {
+      if (tile.key !== 'median-hours-to-approved-plan') {
         expect(evidence.upstream.length).toBeGreaterThan(0);
       }
 
@@ -2632,7 +2794,7 @@ describe("the port's remaining reads", () => {
     const plantEvidence = (await backend.getEvidence(`overview:plant/${row.plantId}/revenue-at-risk`))
       .data;
 
-    expect(plantEvidence.value.startsWith(`${row.revenueAtRiskEur} `)).toBe(true);
+    expect(plantEvidence.value.startsWith(`${formatMoney(row.revenueAtRiskEur)} `)).toBe(true);
     expect(plantEvidence.value).toContain(row.plantName);
     expect(plantEvidence.provenance).toBe('computed');
 
@@ -2681,7 +2843,10 @@ describe("the port's remaining reads", () => {
     for (const tile of tiles) {
       const evidence = (await backend.getEvidence(`canvas:${tile.id}`)).data;
 
-      expect(evidence.value.startsWith(`${tile.value} `)).toBe(true);
+      // The drawer opens with the tile's own figure as it states it: the revenue tile's amount through
+      // the interface's money formatter, every other tile's count, duration or percent as the number
+      // itself (contracts §1).
+      expect(evidence.value.startsWith(`${aggregateFigureText(tile.id, tile.value)} `)).toBe(true);
       expect(evidence.provenance).toBe('computed');
       expect(evidence.label).toBe(SIM_LABELS[1]);
       expect(evidence.formula).not.toBe('');
@@ -2733,7 +2898,7 @@ describe("the port's remaining reads", () => {
     for (const tile of tiles) {
       const evidence = (await backend.getEvidence(`overview:${tile.key}${plantSelection}`)).data;
 
-      expect(evidence.value.startsWith(`${tile.figure} `)).toBe(true);
+      expect(evidence.value.startsWith(`${aggregateFigureText(tile.key, tile.figure)} `)).toBe(true);
 
       // The payload names the population it was computed over, and that population is the filtered
       // scope: the plant list is the one plant the reference named, not the persona's whole scope.
@@ -2751,7 +2916,7 @@ describe("the port's remaining reads", () => {
       await backend.getEvidence(`overview:day/${point.date}/open${plantSelection}`)
     ).data;
 
-    expect(rowEvidence.value.startsWith(`${filteredRow.revenueAtRiskEur} `)).toBe(true);
+    expect(rowEvidence.value.startsWith(`${formatMoney(filteredRow.revenueAtRiskEur)} `)).toBe(true);
     expect(rowEvidence.value).toContain(filteredRow.plantName);
     expect(pointEvidence.value.startsWith(`${point.open} `)).toBe(true);
     expect(pointEvidence.inputs).toContain(`selection = plants ${row.plantId}; products all`);
@@ -2764,7 +2929,9 @@ describe("the port's remaining reads", () => {
       await backend.getEvidence(`overview:revenue-at-risk?products=${productId}`)
     ).data;
 
-    expect(productEvidence.value.startsWith(`${productOverview.revenueAtRiskEur} `)).toBe(true);
+    expect(productEvidence.value.startsWith(`${formatMoney(productOverview.revenueAtRiskEur)} `)).toBe(
+      true,
+    );
     expect(productEvidence.inputs).toContain(`selection = plants all; products ${productId}`);
 
     // The canvas ribbon composes the same grammar, so every one of its six tiles opens the figure the
@@ -2776,7 +2943,7 @@ describe("the port's remaining reads", () => {
     for (const tile of ribbon) {
       const evidence = (await backend.getEvidence(`canvas:${tile.id}${plantSelection}`)).data;
 
-      expect(evidence.value.startsWith(`${tile.value} `)).toBe(true);
+      expect(evidence.value.startsWith(`${aggregateFigureText(tile.id, tile.value)} `)).toBe(true);
     }
   }, CASE_TIMEOUT_MS);
 
@@ -2788,14 +2955,6 @@ describe("the port's remaining reads", () => {
     const overview = (await backend.getOverview(NO_SCOPE)).data;
     const row = firstOf(overview.byPlant, 'by-plant row');
     const productId = firstOf(productsOf(await queueOf(backend)), 'product of the queue');
-    const outside = overview.byPlant.find((candidate) => candidate.plantId !== row.plantId);
-
-    if (outside === undefined) {
-      throw new Error(
-        'Every by-plant row names the same plant, so the case cannot observe a reference outside the ' +
-          'selection it states.',
-      );
-    }
 
     /* Each reference below states a selection the drawer cannot read: an empty value, an empty segment,
        a parameter stated twice, a plant the record set does not hold, a product it does not hold, and a
@@ -2828,16 +2987,34 @@ describe("the port's remaining reads", () => {
     expect(unknownParameter.type).toBe('validation');
     expect(unknownParameter.message).toContain('query parameter plant');
 
-    // A row the reference's own selection excludes is refused as well, so the drawer never opens on a
-    // neighbouring plant's figure.
+    /*
+     * A plant the reference's own selection carries no row for is refused as well, so the drawer never
+     * opens on a neighbouring plant's figure. The rows the selection returns are the aggregate's own
+     * answer — AAP 0.2.1's one-scope rule counts each admitted exception at the plant its record states,
+     * so a plant can be absent from them even while it holds exceptions that reach the selection — and
+     * the plant the reference names is one of those absent.
+     */
+    const selection: Scope = { plants: [row.plantId], products: [] };
+    const narrowedOverview = (await backend.getOverview(selection)).data;
+    const absent = (await backend.getTopology(NO_SCOPE)).data.plants
+      .map((node) => node.id)
+      .find(
+        (plantId) => !narrowedOverview.byPlant.some((candidate) => candidate.plantId === plantId),
+      );
+
+    if (absent === undefined) {
+      throw new Error(
+        'Every plant the network names carries a by-plant row under a one-plant selection, so the case ' +
+          'cannot observe a reference its own selection excludes.',
+      );
+    }
+
     const problem = await refusalOf(() =>
-      backend.getEvidence(
-        `overview:plant/${outside.plantId}/revenue-at-risk?plants=${row.plantId}`,
-      ),
+      backend.getEvidence(`overview:plant/${absent}/revenue-at-risk?plants=${row.plantId}`),
     );
 
     expect(problem.type).toBe('not-found');
-    expect(problem.message).toContain(outside.plantId);
+    expect(problem.message).toContain(absent);
   }, CASE_TIMEOUT_MS);
 
   it('answers the material and the production line the impact chain draws, from their own records', async () => {
@@ -4106,8 +4283,9 @@ describe('the policy exception request', () => {
     await backend.resetDemo();
     await actAs(backend, ADMINISTRATOR);
 
-    // A reset restores the seeded records, the chain and the persona, and clears the session's own
-    // pending requests beside them, so the policy answers with none of them again.
+    // A reset restores the seeded records and the chain and clears the session's own pending requests
+    // beside them, so the policy answers with none of them again. The read below is made as the
+    // administrator the reset left in place, which is the persona a policy may be read as.
     expect((await backend.getPolicy(policy.id)).data.pendingExceptions).toEqual([]);
   }, CASE_TIMEOUT_MS);
 });
@@ -4736,7 +4914,7 @@ describe('the evidence behind a composed figure, a node and a radar series', () 
 
     const revenueTile = (await backend.getEvidence('overview:revenue-at-risk')).data;
 
-    expect(revenueTile.value).toContain(String(overview.revenueAtRiskEur));
+    expect(revenueTile.value).toContain(formatMoney(overview.revenueAtRiskEur));
 
     // The total's components are the by-plant rows the read delivered, quoted rather than summed here.
     for (const row of overview.byPlant) {
@@ -4757,7 +4935,7 @@ describe('the evidence behind a composed figure, a node and a radar series', () 
       `overview:plant/${row.plantId}/revenue-at-risk`,
     )).data;
 
-    expect(rowEvidence.value).toContain(String(row.revenueAtRiskEur));
+    expect(rowEvidence.value).toContain(formatMoney(row.revenueAtRiskEur));
     expect(rowEvidence.value).toContain(row.plantName);
     expect(rowEvidence.upstream).toEqual([row.plantId]);
 
@@ -4769,7 +4947,7 @@ describe('the evidence behind a composed figure, a node and a radar series', () 
 
     expect(countEvidence.value).toContain(String(row.openExceptions));
     expect(countEvidence.value).toContain(row.plantName);
-    expect(countEvidence.value).not.toContain(String(row.revenueAtRiskEur));
+    expect(countEvidence.value).not.toContain(formatMoney(row.revenueAtRiskEur));
 
     const opened = (await backend.getEvidence(`overview:day/${point.date}/open`)).data;
 
@@ -4799,8 +4977,8 @@ describe('the evidence behind a composed figure, a node and a radar series', () 
 
     // The drawer's figure is the one the same aggregate reports for the same filters: one resolver
     // narrows both, so the two cannot disagree (AAP 0.2.1).
-    expect(narrowed.value).toContain(String(narrowedOverview.revenueAtRiskEur));
-    expect(narrowed.value).not.toContain(String(overview.revenueAtRiskEur));
+    expect(narrowed.value).toContain(formatMoney(narrowedOverview.revenueAtRiskEur));
+    expect(narrowed.value).not.toContain(formatMoney(overview.revenueAtRiskEur));
 
     // The selection the reference carried is stated in the payload, so a reader sees what narrowed it.
     expect(narrowed.inputs.join(' ')).toContain(`plants ${row.plantId}`);
@@ -4815,7 +4993,7 @@ describe('the evidence behind a composed figure, a node and a radar series', () 
     for (const tile of tiles) {
       const evidence = (await backend.getEvidence(`canvas:${tile.id}`)).data;
 
-      expect(evidence.value).toContain(String(tile.value));
+      expect(evidence.value).toContain(aggregateFigureText(tile.id, tile.value));
       expect(evidence.provenance).toBe('computed');
       expect(evidence.label).toBe(SIM_LABELS[1]);
       expect(evidence.inputs.join(' ')).toContain('canvas:');
@@ -4933,6 +5111,127 @@ describe('the evidence behind a composed figure, a node and a radar series', () 
     expect(missingSubject.type).toBe('not-found');
     expect(missingSubject.message).toContain(`plant/${absentPlant}/revenue-at-risk`);
   }, CASE_TIMEOUT_MS);
+
+  it('states a money input and a lever echo in the interface’s own number formats', async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+
+    const approvalEvidence = (await backend.getEvidence(lodged.id)).data;
+
+    /* A payload's `value` and `inputs` are display strings the service tier composes, so a money member
+       reaches a reader grouped with its currency rather than as a bare machine number: the approval's
+       drawer reads `addedCostEur = 21.300 EUR` for the amount the inbox prints as `21.300 EUR` one
+       panel away (contracts §1, AAP §0.8). Both sides are built from `formatMoney`, the interface's one
+       money formatter, so the copy of the rule this tier holds cannot drift from it (AAP §0.18.1). */
+    expect(approvalEvidence.inputs).toContain(`addedCostEur = ${formatMoney(lodged.addedCostEur)}`);
+    expect(approvalEvidence.inputs).toContain(
+      `protectedRevenueEur = ${formatMoney(lodged.protectedRevenueEur)}`,
+    );
+
+    const set = (await backend.getScenarioSet(lodged.exceptionId)).data;
+    const option = set.scenarios.find((candidate) => candidate.id === lodged.scenarioId);
+
+    if (option === undefined) {
+      throw new Error(
+        'The lodged approval names no option of its exception’s set, so the case cannot run.',
+      );
+    }
+
+    const optionEvidence = (await backend.getEvidence(option.id)).data;
+
+    // The levers are the values a reader typed, echoed beside the measurement taken at them: a large
+    // one is grouped in decimal notation rather than printed in the exponent form a raw interpolation
+    // gives it, in the shape `formatQuantity` states.
+    expect(optionEvidence.inputs).toContain(
+      `levers = airSets ${formatQuantity(option.levers.airSets)}, ` +
+        `transferSets ${formatQuantity(option.levers.transferSets)}`,
+    );
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The evidence behind an exception the queue admits through a plant it also reaches — AAP 0.2.1,
+ * principle PR-6
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One admission rule decides which plants an exception concerns, for the queue and for its evidence.
+ *
+ * The queue admits an exception when any plant it touches — the plant the record is laid on or one it
+ * reaches through `alsoAffectsPlantIds` — is inside the acting persona's plant scope, so a planner
+ * watching a plant sees the disruption that reaches it. The evidence family admits the same exception
+ * over the same plants: a row the queue showed opens the drawer's four sections for the persona it was
+ * shown to, which is what principle PR-6 requires of every figure a screen displays and what AAP 0.2.1's
+ * one reading of a scope means for the two surfaces.
+ */
+describe('the evidence behind an exception the queue admits through a plant it also reaches', () => {
+  it('opens the drawer for a row whose recorded plant lies outside the persona and reaches one inside', async () => {
+    const backend = await readyBackend();
+    const persona = (await backend.getActiveUser()).data;
+    const rows = await queueOf(backend);
+
+    /*
+     * The row the finding describes: the queue shows it, and the plant the record is laid on is not one
+     * the persona's scope covers, so an evidence read that narrowed by that plant alone would refuse a
+     * figure the screen had just displayed.
+     */
+    const reached = firstOf(
+      rows.filter((row) => !persona.plantIds.includes(row.plantId)),
+      'queue row admitted through a plant its exception also reaches',
+    );
+
+    const evidence = (await backend.getEvidence(reached.id)).data;
+
+    // The four sections, for the record the row stood for (AAP 0.12.2's `Evidence`, principle PR-6).
+    expect(evidence.provenance).toBe('first_party');
+    expect(evidence.label).toBe(SIM_LABELS[0]);
+    expect(evidence.value).toContain(reached.severity);
+    expect(evidence.value).toContain(reached.status);
+    expect(evidence.formula.length).toBeGreaterThan(0);
+    expect(evidence.inputs.length).toBeGreaterThan(0);
+    expect(evidence.upstream).toContain(reached.plantId);
+    expect(evidence.confidence.reason.length).toBeGreaterThan(0);
+    expect(Array.isArray(evidence.downstream)).toBe(true);
+    expect(Array.isArray(evidence.missingInputs)).toBe(true);
+    expect(Array.isArray(evidence.documents)).toBe(true);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses an exception whose every plant, recorded and also affected, lies outside the persona', async () => {
+    const backend = await readyBackend();
+    const manager = await actAs(backend, PLANT_MANAGER);
+    const state = await createMockState();
+
+    /*
+     * The record the refusal describes, chosen from the record set rather than typed: every plant it
+     * touches — the one it is laid on and each one it also affects — lies outside the persona's scope,
+     * so no plant width can admit it.
+     */
+    const unreachable = firstOf(
+      state.records.exceptions.filter(
+        (exception) =>
+          exception.alsoAffectsPlantIds.length > 0 &&
+          plantsTouchedBy(exception).every((plantId) => !manager.plantIds.includes(plantId)),
+      ),
+      'exception whose every plant lies outside the acting persona’s scope',
+    );
+    const plants = plantsTouchedBy(unreachable);
+    const problem = await refusalOf(() => backend.getEvidence(unreachable.id));
+
+    expect(problem.type).toBe('permission');
+    expect(problem.requiredPermission).toBe('evidence.read');
+    expect(problem.message).toContain(unreachable.id);
+
+    // The refusal names every plant the exception touches, so a reader learns which of them stand outside
+    // the scope instead of only that something was refused (rule P-8).
+    for (const plantId of plants) {
+      expect(problem.message).toContain(plantId);
+    }
+
+    expect(problem.message).toContain(manager.id);
+  }, CASE_TIMEOUT_MS);
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -5042,6 +5341,78 @@ describe("the queue's day filter", () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
+ * 27. The missing inputs a record's evidence reports — AAP 0.12.2's `Evidence.missingInputs`,
+ *     AAP 0.12.4's fourth drawer section
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One exception whose own record states a missing input, found by reading the queue.
+ *
+ * The subject is searched for rather than named, so the case types no identifier of its own (rule
+ * P-6): the first exception the acting persona may read whose detail reports a gap is the one the
+ * three record families below inherit from, and the list they are asserted against is that detail's
+ * own — the same list the investigation screen prints beside the exception.
+ *
+ * @param backend - The session to read.
+ * @returns One exception's investigation payload.
+ * @throws Error - No exception in scope reports a missing input.
+ */
+async function exceptionMissingInputOf(backend: MockBackend): Promise<ExceptionDetail> {
+  for (const row of await queueOf(backend)) {
+    const detail = (await backend.getExceptionDetail(row.id)).data;
+
+    if (detail.missingInputs.length > 0) {
+      return detail;
+    }
+  }
+
+  throw new Error('No exception in scope reports a missing input, so the case cannot run.');
+}
+
+describe("the missing inputs a record's evidence reports", () => {
+  it('states on the approval, the purchase order and the customer order the gap their exception states', async () => {
+    const backend = await readyBackend();
+
+    // The head of supply chain reads every plant's exceptions and approvals and holds
+    // `evidence.read`, so one session reaches all three families this case asserts on.
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const detail = await exceptionMissingInputOf(backend);
+    const exception = detail.exception;
+    const orderId = firstOf(exception.affectedLines, `affected line of ${exception.id}`).orderId;
+    const approval = firstOf(
+      (await backend.listApprovals({}, NO_SCOPE)).data.filter(
+        (candidate) => candidate.exceptionId === exception.id,
+      ),
+      `approval answering ${exception.id}`,
+    );
+
+    /*
+     * The approval names one exception, so its payload reports that exception's list and nothing
+     * else: this is the comparison the fourth drawer section and the panel beside it must agree on.
+     */
+    expect((await backend.getEvidence(approval.id)).data.missingInputs).toEqual(
+      detail.missingInputs,
+    );
+
+    /*
+     * An order is named by several exceptions, so its payload reports every gap the records place on
+     * it and at least the one its own exception states. The expected list is the read's, so no input
+     * of the seeded set is retyped here (rule P-6).
+     */
+    const orderEvidence = (await backend.getEvidence(exception.purchaseOrderId)).data;
+    const customerOrderEvidence = (await backend.getEvidence(orderId)).data;
+
+    expect(orderEvidence.missingInputs.length).toBeGreaterThan(0);
+    expect(orderEvidence.missingInputs).toEqual(expect.arrayContaining(detail.missingInputs));
+    expect(customerOrderEvidence.missingInputs.length).toBeGreaterThan(0);
+    expect(customerOrderEvidence.missingInputs).toEqual(
+      expect.arrayContaining(detail.missingInputs),
+    );
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
  * 27. A request against a set-aside exception — refused with the status the record stands in
  * ------------------------------------------------------------------------------------------- */
 
@@ -5090,6 +5461,183 @@ describe('a request against a set-aside exception', () => {
     );
 
     expect(newest.action).toBe(DISMISS_ACTION);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 28. The figure a reference names inside an approval — AAP 0.12.2's `Evidence.value`, rule P-6
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Every scalar measure one side of the comparison reports, keyed by the member name it is held under.
+ *
+ * Read from the payload rather than listed in the suite, so a case walks exactly the measures the
+ * solver reports and types neither a member name nor a figure (rule P-6). The members that are not
+ * scalars — the closing-stock series, the per-order results, the levers and the confidence — are
+ * objects and are left out by the guard.
+ *
+ * @param result - One side of the comparison, as `getApprovalOutcome` reports it.
+ * @returns The measure values by member name.
+ */
+function scalarMeasuresOf(result: SolverResult): Map<string, number> {
+  return new Map(
+    Object.entries(result).filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
+  );
+}
+
+/**
+ * One approval whose plan the records can measure, with that measurement.
+ *
+ * The seeded approvals include plans whose exception carries no solver case, and `getApprovalOutcome`
+ * refuses those rather than measuring them against another disruption (AAP 0.8, rule P-6), so the case
+ * walks the inbox and takes the first approval the read answers. The approval, its exception and its
+ * comparison all come from the reads, so the suite names none of them.
+ *
+ * @param backend - The session to read.
+ * @returns The measurable approval and the comparison it was measured at.
+ * @throws Error - No approval in scope can be measured, or a read failed for a cause other than the
+ *   missing case.
+ */
+async function measurableApprovalOf(
+  backend: MockBackend,
+): Promise<{ readonly approval: Approval; readonly outcome: ApprovalOutcome }> {
+  for (const approval of (await backend.listApprovals({}, NO_SCOPE)).data) {
+    try {
+      return { approval, outcome: (await backend.getApprovalOutcome(approval.id)).data };
+    } catch (error) {
+      if (!isProblem(error) || error.type !== 'validation') {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error('No approval in scope can be measured, so the case cannot run.');
+}
+
+describe('the figure a reference names inside an approval', () => {
+  it('answers the approval itself as it always has, and each measure as the comparison reports it', async () => {
+    const backend = await readyBackend();
+    const { approval, outcome } = await measurableApprovalOf(backend);
+    const plannedReadings = scalarMeasuresOf(outcome.planned);
+    const resultingReadings = scalarMeasuresOf(outcome.resulting);
+
+    /*
+     * A reference carrying no fragment is the payload this family has always answered — the record's
+     * own status and the option it names — so a caller that never adopted the fragment grammar reads
+     * what it read before.
+     */
+    const record = (await backend.getEvidence(approval.id)).data;
+
+    expect(record.value).toBe(`${approval.status} on option ${approval.scenarioId}`);
+    expect(plannedReadings.size).toBeGreaterThan(0);
+
+    for (const [member, planned] of plannedReadings) {
+      const resulting = resultingReadings.get(member);
+
+      if (resulting === undefined) {
+        throw new Error(`The resulting side of ${approval.id} reports no ${member}.`);
+      }
+
+      const plannedFigure = (await backend.getEvidence(`${approval.id}#planned.${member}`)).data;
+      const resultingFigure = (await backend.getEvidence(`${approval.id}#resulting.${member}`)).data;
+
+      /*
+       * Each figure states the column it was read in and the number that read reported, so the two
+       * columns of one measure cannot open the same drawer and nothing here is derived from an
+       * expectation of the suite's own (rule P-6).
+       */
+      expect(plannedFigure.value).toContain('planned');
+      expect(plannedFigure.value).toContain(measureFigureText(member, planned));
+      expect(resultingFigure.value).toContain('resulting');
+      expect(resultingFigure.value).toContain(measureFigureText(member, resulting));
+      expect(plannedFigure.value).not.toBe(resultingFigure.value);
+
+      /* A compared figure is the solver's own measurement under the label the screens print (rule
+         P-1), and it fills the drawer's sections: what it was measured from, and the record upstream
+         of it (AAP 0.12.2). */
+      expect(plannedFigure.provenance).toBe('computed');
+      expect(plannedFigure.label).toBe(SIM_LABELS[1]);
+      expect(resultingFigure.label).toBe(SIM_LABELS[1]);
+      expect(plannedFigure.inputs.length).toBeGreaterThan(0);
+      expect(plannedFigure.upstream).toContain(approval.id);
+    }
+  }, CASE_TIMEOUT_MS);
+
+  it("states the record's two amounts as figures of their own, so two amounts open two drawers", async () => {
+    const backend = await readyBackend();
+    const { approval } = await measurableApprovalOf(backend);
+
+    const addedCost = (await backend.getEvidence(`${approval.id}#addedCostEur`)).data;
+    const protectedRevenue = (await backend.getEvidence(`${approval.id}#protectedRevenueEur`)).data;
+
+    /* Two figures of one approval, each stating the amount it was opened from: the reproduction the
+       finding records, read as the payload rather than as the drawer's markup (AAP 0.12.2). */
+    expect(addedCost.value).not.toBe(protectedRevenue.value);
+    expect(addedCost.value).toContain(formatMoney(approval.addedCostEur));
+    expect(protectedRevenue.value).toContain(formatMoney(approval.protectedRevenueEur));
+    expect(addedCost.provenance).toBe('computed');
+    expect(protectedRevenue.label).toBe(SIM_LABELS[1]);
+  }, CASE_TIMEOUT_MS);
+
+  it('states one closing-stock reading, with the date whose close it belongs to', async () => {
+    const backend = await readyBackend();
+    const { approval, outcome } = await measurableApprovalOf(backend);
+    const point = firstOf(
+      outcome.planned.dailyClosingStock,
+      `closing-stock reading of ${approval.id}`,
+    );
+
+    const planned = (
+      await backend.getEvidence(`${approval.id}#planned.dailyClosingStock/${point.date}`)
+    ).data;
+
+    /* The card prints one row per date, so a reading names the date it belongs to as well as the units
+       it holds — the date and the number both come from the comparison read, never from this suite
+       (rule P-6, AAP 0.12.2's `Evidence.value`). */
+    expect(planned.value).toContain(point.date);
+    expect(planned.value).toContain(`${point.units}`);
+    expect(planned.provenance).toBe('computed');
+    expect(planned.label).toBe(SIM_LABELS[1]);
+    expect(planned.inputs).toContain(`date = ${point.date}`);
+    expect(planned.upstream).toContain(approval.id);
+
+    /* The other column's reading at the same date is a different figure of the same series. */
+    const resulting = (
+      await backend.getEvidence(`${approval.id}#resulting.dailyClosingStock/${point.date}`)
+    ).data;
+
+    expect(resulting.value).toContain('resulting');
+    expect(resulting.value).toContain(point.date);
+
+    /* A date neither column states is refused rather than answered with a neighbouring reading. */
+    const problem = await refusalOf(() =>
+      backend.getEvidence(`${approval.id}#planned.dailyClosingStock/not-a-date`),
+    );
+
+    expect(problem.type).toBe('not-found');
+    expect(problem.message).toContain('not-a-date');
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a fragment the read does not answer, naming the reference and the members it accepts', async () => {
+    const backend = await readyBackend();
+    const { approval } = await measurableApprovalOf(backend);
+    const refusals = [
+      `${approval.id}#not-a-member`,
+      `${approval.id}#settled.unitsLate`,
+      `${approval.id}#planned.not-a-measure`,
+    ] as const;
+
+    for (const ref of refusals) {
+      const problem = await refusalOf(() => backend.getEvidence(ref));
+
+      expect(problem.type).toBe('not-found');
+      expect(problem.message).toContain(ref);
+
+      /* The refusal names the members the read does accept, so a caller can correct the reference
+         rather than guess at it, and it never answers with a neighbouring figure. */
+      expect(problem.message).toContain('addedCostEur');
+      expect(problem.message).toContain('lineIdleDays');
+    }
   }, CASE_TIMEOUT_MS);
 });
 

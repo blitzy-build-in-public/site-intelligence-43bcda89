@@ -24,14 +24,22 @@
  * family calls the same predicate so the two cannot answer differently.
  *
  * WHAT IT COMPUTES AND WHAT IT ONLY REPORTS — rule P-6. It computes no business figure. Every number
- * an evidence payload states is a field of the record that carries it or an aggregate read's own
- * output, quoted as that read reports it, and the `formula` member names the contracts §4 rule or §5
- * aggregate that owns the figure instead of re-deriving it. The one exception is the package readiness
+ * an evidence payload states is a field of the record that carries it or a read's own output — an
+ * aggregate's, or the post-approval comparison `getApprovalOutcome` measures — quoted as that read
+ * reports it, and the `formula` member names the contracts §4 rule or §5 aggregate that owns the
+ * figure instead of re-deriving it. The one exception is the package readiness
  * figure entities §3 defines as a computed value: it is produced by `wholePercent`, the single
  * whole-percent rule the codebase holds, from the package's own element count, and this module never
  * divides by a constant of its own. No currency amount, no record identifier and no expected result is
- * typed here, nothing imports `tests/fixtures/`, and no figure is formatted here beyond stating an
- * amount with its currency and a count as it arrived.
+ * typed here, and nothing imports `tests/fixtures/`. The one thing it does format is the text of a
+ * figure: an amount is stated in the interface's one money shape — the currency code, a thousands
+ * separator and at most two decimals (contracts §1, AAP §0.8) — because `Evidence.value` and
+ * `Evidence.inputs` are display strings the record already carries (contracts §3, AAP §0.12.2) and the
+ * drawer prints them unchanged. The shape has one owner in `src/types/figure-text.ts`, which this
+ * module imports: a handler may not import `src/components` (AAP §0.18.1, rule P-2), so the rule the
+ * drawer's text is written with lives where both tiers reach it rather than in either of them, and
+ * `src/services/mock/mock-backend.test.ts` compares an amount this module states with `formatMoney`'s
+ * output for the same figure so the two renderings cannot drift apart.
  *
  * THE RESOLUTION ORDER, STATED ONCE — `getEvidence`. A reference selects its family by its own shape:
  * a composed figure by its root, a write-back step by its `write-back:` root, an atlas series by
@@ -121,6 +129,17 @@
  * a customer every plant its orders ship from — so a node's plant scope is decided over the plants the
  * records place it in rather than by one subject, which is what `assertNodeReach` does.
  *
+ * THE THREE FAMILIES OF ONE EXCEPTION SHARE ITS PLANTS — AAP 0.2.1's one-scope rule, principle PR-6. An
+ * exception, the scenarios that answer it and the approvals of those scenarios all concern one
+ * disruption, and a disruption is not confined to the plant its record is laid on: `alsoAffectsPlantIds`
+ * names the plants it reaches. That list is what the exception queue admits a row by, so it is what the
+ * evidence behind that row is admitted by too — `assertExceptionReach` reads `plantsTouchedBy`, the
+ * domain module's own answer to which plants one exception concerns, and admits the record when any of
+ * them lies inside the acting persona's plant scope. A drawer narrowed by the recorded plant alone
+ * refused a figure the queue had just displayed, which is the one thing "every figure opens its
+ * evidence" cannot allow. Nothing else is widened: a record outside every plant the exception touches is
+ * still refused, and the refusal names each of them.
+ *
  * THE SCENARIO FAMILY ANSWERS TWO KINDS OF OPTION — AAP 0.12.4, rule PR-6. An option a screen shows is
  * either a record the dataset ships or one the adapter measures from an exception's own solver case, and
  * both are figures with a record behind them: the shipped sets are read here and the measured set is
@@ -128,6 +147,21 @@
  * Without the second answer every comparison column of the measured exception — the case AAP 0.7 and
  * AAP 0.8 fix, and the option the sandbox duplicates — would open the drawer's failure region instead of
  * its four sections.
+ *
+ * THE APPROVAL FAMILY ANSWERS A FIGURE INSIDE THE RECORD — AAP 0.12.2's `Evidence.value`, rule P-6.
+ * SCR-05 prints two amounts off the approval record, seven measures of the comparison the approval was
+ * measured from and one reading per date of that comparison's closing-stock series, and every one of
+ * those figures opens its own evidence, so the family reads a fragment after the record's identifier:
+ * `<approval id>#<member>` names one of the record's own euro members (`addedCostEur`,
+ * `protectedRevenueEur`); `<approval id>#<column>.<member>` names one measure of the post-approval
+ * comparison, where the column is `planned` or `resulting` and the member is one of the seven
+ * `SolverResult` scalars the outcome card compares; and
+ * `<approval id>#<column>.dailyClosingStock/<date>` names the units that column's series leaves at the
+ * close of one date. A reference stating no fragment keeps answering exactly as it did, so a caller
+ * that never composes one is unaffected. A measure or reading is re-read through `getApprovalOutcome` —
+ * the read that produces the card — rather than re-derived here, and a fragment, member or date the
+ * read does not answer is refused as `'not-found'` naming the reference and the values the read
+ * accepts, so a drawer never states a figure the card did not print.
  *
  * THE RECORD SET ATTRIBUTES A VENDOR TO THE EXTERNAL PERSONA — AAP 0.2.1, read rather than invented.
  * Rule P-6 forbids typing a record and rule P-7 confines the product's parties to the seeded set, so
@@ -161,9 +195,9 @@
  *   changes no outcome; the two redactions are applied here, in the service.
  * - P-5: every payload states the provenance of the one record it reports — `market_intelligence` for a
  *   crossing, a competitor's site or network and a competitor's radar reading, `first_party` for a node,
- *   a client plant and the client's own self-assessment series, `computed` for a composed aggregate —
- *   and no payload carries a member from the other family, so nothing here can blend a market figure
- *   with a first-party one in a single number.
+ *   a client plant and the client's own self-assessment series, `computed` for a composed aggregate and
+ *   for an approval's compared measure — and no payload carries a member from the other family, so
+ *   nothing here can blend a market figure with a first-party one in a single number.
  * - P-6, P-7: it types no figure, amount or record identifier, reads no fixture, and names no company,
  *   person or vendor of its own; every name it returns is a field of a seeded record.
  * - B-1, B-2: it reads memory and nothing else — no address, no fetch, no environment read, no
@@ -174,6 +208,7 @@
  * Imports — the permission matrix, the one rounding rule, the shared vocabulary and the siblings
  * ------------------------------------------------------------------------------------------- */
 
+import { plantsTouchedBy } from '../../../domain/aggregation/exceptions';
 import { computeLedger } from '../../../domain/aggregation/ledger';
 import { resolveScope } from '../../../domain/aggregation/scope';
 import type { ScopeFilterInput } from '../../../domain/aggregation/scope';
@@ -186,6 +221,8 @@ import {
   LEDGER_WINDOW_DAYS,
   SIM_LABELS,
   SOURCE_LABELS,
+  formatMoney,
+  formatQuantity,
 } from '../../../types';
 import type {
   ActiveUser,
@@ -206,6 +243,7 @@ import type {
   EvidencePin,
   EvidenceRuleId,
   IsoDate,
+  Levers,
   LineId,
   ListQuery,
   MaterialId,
@@ -245,6 +283,7 @@ import type {
   Supplier,
 } from '../seed-loader';
 import { demonstrationForbiddenReason, isSimulationOn } from '../simulation';
+import { getApprovalOutcome } from './approvals';
 import { getAtlas } from './atlas';
 import { appendAuditEvent, assertFreeTextLength, listLimitOf } from './audit';
 import { getOverview } from './exceptions';
@@ -403,8 +442,87 @@ const COMPETITOR_PREFIX = 'CMP-';
 /** `SER-…`, one radar series, optionally followed by `#<axis id>` for the one score a vertex draws. */
 const SERIES_PREFIX = 'SER-';
 
-/** The separator between a series identifier and the axis a single radar reading sits on. */
+/**
+ * The `#` that separates a record identifier from the fragment naming one figure inside it.
+ *
+ * Two families carry a fragment: a radar series names the axis a single vertex sits on, and an
+ * approval names one of the figures SCR-05 prints off it, in the grammar this module's header states.
+ * Neither family's plain identifier stopped answering when the fragment was added.
+ */
 const AXIS_SEPARATOR = '#';
+
+/* ---------------------------------------------------------------------------------------------
+ * The vocabulary of an approval figure — the figures SCR-05 prints off one approval (contracts §3)
+ * ------------------------------------------------------------------------------------------- */
+
+/** The two euro members the approval record states itself, and the fragments it answers directly. */
+const APPROVAL_MONEY_MEMBERS = ['addedCostEur', 'protectedRevenueEur'] as const;
+
+/**
+ * The seven `SolverResult` scalars the outcome card compares, which are the members a `planned` or
+ * `resulting` fragment may name (contracts §3, AAP 0.12.4's SCR-05 row).
+ */
+const OUTCOME_MEASURE_MEMBERS = [
+  'unitsLate',
+  'maxDaysLate',
+  'ordersOnTime',
+  'ordersTotal',
+  'addedCostEur',
+  'lineIdleDays',
+  'revenueDelayedEur',
+] as const;
+
+/** The column of the plan as approved: the solve at the option's own levers. */
+const PLANNED_COLUMN = 'planned';
+
+/** The column of the state the write-backs left: the solve at the levers the change reached. */
+const RESULTING_COLUMN = 'resulting';
+
+/** The `.` between a comparison's column and the measure read in it. */
+const MEASURE_SEPARATOR = '.';
+
+/** One euro member the approval record states itself. */
+type ApprovalMoneyMember = (typeof APPROVAL_MONEY_MEMBERS)[number];
+
+/** One measure of the post-approval comparison: a scalar member of `SolverResult`. */
+type OutcomeMeasureKey = (typeof OUTCOME_MEASURE_MEMBERS)[number];
+
+/** The column a compared figure was read in. */
+type OutcomeColumn = typeof PLANNED_COLUMN | typeof RESULTING_COLUMN;
+
+/**
+ * The name each figure is stated by in a payload's value, so the drawer names the row the outcome
+ * card prints rather than the member the record happens to hold it under.
+ *
+ * The words are the card's own row labels. They are stated here rather than imported because a
+ * service module may not reach into a feature module (rule P-2): the drawer's value is the service's
+ * own sentence, and the card's labels are the names a reader sees beside the figures it opens.
+ */
+const FIGURE_TEXT: Readonly<Record<ApprovalMoneyMember | OutcomeMeasureKey, string>> = {
+  addedCostEur: 'Added cost',
+  protectedRevenueEur: 'Protected revenue',
+  unitsLate: 'Units late',
+  maxDaysLate: 'Maximum days late',
+  ordersOnTime: 'Orders on time',
+  ordersTotal: 'Orders measured',
+  lineIdleDays: 'Line idle days',
+  revenueDelayedEur: 'Revenue delayed',
+};
+
+/**
+ * The member of a comparison's column that states the daily closing-stock series, and the separator
+ * before the date a single reading belongs to.
+ *
+ * The card prints one row per date for that series, so a reading is addressed by the member, the
+ * `/`, and the date whose close it states: `<column>.dailyClosingStock/<IsoDate>`.
+ */
+const OUTCOME_SERIES_MEMBER = 'dailyClosingStock';
+
+/** The separator between the series member and the date a single reading belongs to. */
+const SERIES_DATE_SEPARATOR = '/';
+
+/** The name the closing-stock readings are stated by, matching the card's own block title. */
+const OUTCOME_SERIES_TEXT = 'Daily closing stock';
 
 /**
  * `PLT-…`, one plant — a node of the FileMap canvas, the record itself, and the client site the
@@ -733,6 +851,32 @@ function isNodeRef(resolved: ResolvedRef): resolved is NodeRef {
 }
 
 /**
+ * Whether a resolved reference is one of the five families whose plants are the plants of one exception.
+ *
+ * The exception itself, a scenario that answers it, an approval of it, one figure inside that approval and
+ * a step of a plan's write-back all belong to one disruption, so all five are admitted over the plants
+ * that exception touches rather than over one plant of their own. Written as a type guard over the
+ * union's own discriminant, so `assertExceptionReach` can take that five-family member and nothing else:
+ * the compiler then proves no record of another family is admitted by an exception's reach, and no
+ * exception by another family's rule.
+ *
+ * @param resolved - The record the reference named.
+ * @returns Whether it is an exception, a scenario, an approval, an approval's figure or a write-back step.
+ */
+function isExceptionRef(resolved: ResolvedRef): resolved is ExceptionRef {
+  switch (resolved.family) {
+    case 'exception':
+    case 'scenario':
+    case 'approval':
+    case 'approval-figure':
+    case 'write-back':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Refuses the call when a canvas node lies outside the persona's effective plant scope everywhere the
  * records place it.
  *
@@ -770,6 +914,85 @@ function assertNodeReach(ctx: HandlerContext, resolved: NodeRef): void {
     EVIDENCE_READ,
     `Node ${resolved.record.id} reaches ${plants.join(', ')}, and none of those plants lies inside the plant scope of the acting persona (${ctx.actor.id}), so its evidence is not readable here.`,
   );
+}
+
+/**
+ * Refuses the call when every plant an exception-derived record touches lies outside the persona's
+ * effective plant scope.
+ *
+ * An exception is not confined to the plant its own record is laid on: `alsoAffectsPlantIds` names the
+ * plants the disruption reaches, and `plantsTouchedBy` is the records' own answer to which plants an
+ * exception therefore concerns. That list is the one the exception queue admits a row by
+ * (`src/domain/aggregation/exceptions.ts`), and the evidence family admits the same record over the same
+ * list, so a row the queue showed opens its drawer for the persona the row was shown to instead of being
+ * refused by the one plant the record is laid on (AAP 0.2.1's one-scope rule; principle PR-6, "every
+ * figure opens its evidence").
+ *
+ * A scenario and an approval belong to one exception, so both are admitted over that exception's plants:
+ * the option a screen printed and the plan a screen approved stand where the disruption they answer
+ * stands. The intersection is decided by the contracts §7.1 matrix through `hasPermission`, evaluated
+ * with each plant in turn, so the answer is the role's plant scope, the persona's seeded scope and the
+ * plants the exception touches — the authority every scoped list and aggregate is narrowed by, rather
+ * than a second scope table.
+ *
+ * An exception the records hold nowhere leaves its scenario or approval with no plant to narrow it by, so
+ * the permission's own decision stands, which is the reading `hasPermission` documents for a `null`
+ * subject. The refusal names the exception, every plant it touches and the persona it acts as, so a
+ * reader is told which records stand outside their scope instead of being told that something was
+ * refused (rule P-8) — the wording `assertNodeReach` uses for a node that reaches several plants.
+ *
+ * @param ctx - The call's context: the persona the check is made for and the records the exception is read from.
+ * @param resolved - The exception, scenario or approval the reference named.
+ * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
+ */
+function assertExceptionReach(ctx: HandlerContext, resolved: ExceptionRef): void {
+  const exception = exceptionBehind(ctx.state.records, resolved);
+
+  if (exception === undefined) {
+    return;
+  }
+
+  const plants = plantsTouchedBy(exception);
+
+  if (
+    plants.some((plantId) => hasPermission(ctx.actor.role, EVIDENCE_READ, { plantId }, ctx.actor))
+  ) {
+    return;
+  }
+
+  throw permissionProblem(
+    ctx,
+    EVIDENCE_READ,
+    `Exception ${exception.id} touches ${plants.join(', ')}, and none of those plants lies inside the plant scope of the acting persona (${ctx.actor.id}), so its evidence is not readable here.`,
+  );
+}
+
+/**
+ * The exception an exception-derived record answers, or `undefined` when the records hold it nowhere.
+ *
+ * An exception names itself; a scenario and an approval name the exception they answer, which is the
+ * relation contracts §3 fixes for both (`Scenario.exceptionId`, `Approval.exceptionId`); and a step of a
+ * write-back belongs to the plan it writes back, so it answers the exception of the approval or the
+ * option that holds it. Resolved through the record each one carries rather than through a second list,
+ * so the plants a scenario, an approval or a write-back step is admitted over cannot describe a
+ * different disruption from the one it answers.
+ *
+ * @param records - The session's record set.
+ * @param resolved - The exception, scenario, approval or write-back step the reference named.
+ * @returns The exception behind it, or `undefined` when the record set holds no such exception.
+ */
+function exceptionBehind(
+  records: SeedRecordSet,
+  resolved: ExceptionRef,
+): OperationalException | undefined {
+  if (resolved.family === 'exception') {
+    return resolved.record;
+  }
+
+  const exceptionId =
+    resolved.family === 'write-back' ? resolved.owner.exceptionId : resolved.record.exceptionId;
+
+  return records.exceptions.find((candidate) => candidate.id === exceptionId);
 }
 
 /**
@@ -855,15 +1078,41 @@ function assertDocumentBodyReadable(ctx: HandlerContext, document: DocumentBody)
 }
 
 /**
+ * Whether the acting persona may read the simulated market-intelligence pack — the single owner of the
+ * check {@link assertPackReach} states.
+ *
+ * Two refusals answer `false`. The forbidden trigger withholds the pack as it withholds every read of
+ * this family, and a role without `competitive.read` does not reach it at all (AAP 0.12.3). The
+ * permission is evaluated with no subject because the pack is not plant-scoped, so the role's matrix
+ * alone decides it.
+ *
+ * Exported for the identifier search, which indexes the pack's crossing and competitor families only
+ * where this predicate answers `true`: the hit a reader is offered for a mark and the record behind
+ * that mark are then released by one rule rather than by two that could drift apart (the reasoning
+ * {@link mayReadDocumentBody} states for its own two callers).
+ *
+ * @param ctx - The call's context: the persona the pack would be released to.
+ * @returns `true` when the pack is readable for this call, `false` when it is withheld.
+ */
+export function mayReachPack(ctx: HandlerContext): boolean {
+  if (isSimulationOn(ctx.state, 'forbidden')) {
+    return false;
+  }
+
+  return hasPermission(ctx.actor.role, COMPETITIVE_READ, null, ctx.actor);
+}
+
+/**
  * Refuses the call when the acting persona may not read the simulated market-intelligence pack.
  *
  * A crossing, a competitor's site or network and a radar reading are records of the atlas read, and
  * `getAtlas` withholds that whole read from a role without `competitive.read` (AAP 0.12.3). Asking the
  * same question here is what keeps a reference from reaching a record the corresponding list read would
  * have withheld: the evidence behind a competitor's mark is exactly as readable as the mark itself. The
- * permission is evaluated with no subject because the pack is not plant-scoped, so the role's matrix
- * alone decides it. The forbidden trigger refuses it as it refuses every read of this family, so the
- * state the simulation popover demonstrates is the state a real refusal produces.
+ * verdict is {@link mayReachPack}'s, so this refusal and the identifier search's family gate cannot
+ * disagree about who may reach the pack; the two refusals are stated here because each names the
+ * condition that produced it — the forbidden state the popover demonstrates, or a role the matrix
+ * leaves without the permission (rule P-8).
  *
  * @param ctx - The call's context: the persona the check is made for.
  * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
@@ -877,7 +1126,7 @@ function assertPackReach(ctx: HandlerContext): void {
     );
   }
 
-  if (!hasPermission(ctx.actor.role, COMPETITIVE_READ, null, ctx.actor)) {
+  if (!mayReachPack(ctx)) {
     throw permissionProblem(
       ctx,
       COMPETITIVE_READ,
@@ -1104,24 +1353,81 @@ const AGGREGATE_FORMULAS: Readonly<Record<OverviewAggregateKey, string>> = {
     "(contracts §5). The figure is the overview aggregate read's own output: this payload quotes it " +
     'and recomputes nothing.',
   [PLANTS_IN_SCOPE_KEY]:
-    'The plants in scope are the plants the resolved scope carries a risk-by-plant row for, which is ' +
-    "the grouping contracts §5's by-plant aggregate builds. The figure is the aggregate read's own " +
-    'output: this payload quotes it and recomputes nothing.',
+    'The plants in scope are the plants the resolved scope names — the top bar\'s plant selection ' +
+    'intersected with the acting role\'s plant scope — which is the population every list read and ' +
+    'every aggregate is computed over (AAP 0.12.1, "Scope resolution"). The figure is the resolved ' +
+    'scope\'s own plant list, not the number of risk-by-plant rows: those rows also carry a plant an ' +
+    'admitted exception is recorded at, which the selection need not name.',
 };
 
 /**
- * The text of one amount, as an evidence payload states it: the number and the currency.
+ * The text of one amount, as an evidence payload states it: the figure in the interface's one money
+ * shape.
  *
- * Presentation belongs to `src/components/mono-value.tsx`, the interface's one money formatter, which
- * a service module may not reach (rule P-2). The drawer therefore states the aggregate's own number
- * with `EUR` beside it and groups nothing, so the figure a reader compares is the one the read
- * reported rather than a second rendering of it.
+ * `Evidence.value` and `Evidence.inputs` are display strings the record already carries (contracts §3,
+ * AAP §0.12.2), so a drawer prints what this function composed and a figure that reached it as a bare
+ * number could not be formatted afterwards. The figure a reader compares is still the one the record
+ * or the aggregate read reported, stated the way every surface states it: the Overview's revenue tile
+ * prints `3.916.800 EUR` and its drawer reads `3.916.800 EUR at risk` (contracts §1, AAP §0.8).
  *
- * @param amount - The amount the aggregate reported.
- * @returns The amount and its currency, ungrouped.
+ * Only a finite amount is formatted, as `formatMoney` states: an amount with no formatted form keeps
+ * its own text rather than becoming a formatted `NaN` or a substituted zero, so a defect shows on
+ * screen as a value a reader can trace (rule P-6). Nothing is rounded here — two decimals is the
+ * contract's own precision rather than a width this module chooses.
+ *
+ * @param amount - The amount the record or the aggregate reported.
+ * @returns The amount with the currency code and at most two decimals, or the input as text.
  */
 function amountText(amount: number): string {
-  return `${amount} EUR`;
+  return formatMoney(amount);
+}
+
+/**
+ * One `inputs` entry for a money member: the member's own name and its amount in the interface's money
+ * shape, so no `*Eur` member reaches a payload as a bare machine number (contracts §1).
+ *
+ * The entry keeps the `name = value` grammar every other input uses, in the position the payload states
+ * it, so a reader scanning the list meets one form and the drawer's list renders it unchanged.
+ *
+ * @param name - The member's name, as the record spells it.
+ * @param amount - The member's exact amount.
+ * @returns The entry, in the payload's input form.
+ */
+function moneyInput(name: string, amount: number): string {
+  return `${name} = ${amountText(amount)}`;
+}
+
+/**
+ * The text of one grouped number that carries no unit, for a value a payload echoes rather than an
+ * amount — a lever a reader typed, stated in decimal notation and grouped to at most two decimals.
+ *
+ * The contract is {@link amountText}'s otherwise: only a finite number is formatted, and a value with
+ * no formatted form keeps its own text (rule P-6).
+ *
+ * @param value - The number the record states.
+ * @returns The grouped number to at most two decimals, or the input as text.
+ */
+function quantityText(value: number): string {
+  return formatQuantity(value);
+}
+
+/**
+ * The two levers one option was measured at, in the payload's input form.
+ *
+ * These are the values a reader typed into the sandbox, and one of them written raw reaches the drawer
+ * in the exponent form a large number prints as (`1e+30`), which no surface of the interface shows.
+ * Each is stated in the grouped, unitless shape `formatQuantity` gives every number the interface
+ * prints, so the echo of a value the constraint check refuses stays legible beside the message that
+ * refuses it (rule P-6, AAP §0.12.2).
+ *
+ * @param levers - The option's levers.
+ * @returns The entry, in the payload's input form.
+ */
+function leversText(levers: Levers): string {
+  return (
+    `levers = airSets ${quantityText(levers.airSets)}, ` +
+    `transferSets ${quantityText(levers.transferSets)}`
+  );
 }
 
 /**
@@ -1383,18 +1689,17 @@ function listOf(ctx: HandlerContext, ref: string, name: string, value: string): 
 }
 
 /**
- * One composed aggregate reference, resolved to the drawer's payload and to the plant it concerns.
+ * One composed aggregate reference, resolved to the drawer's payload.
  *
- * The plant is carried beside the payload because a `plant/<plantId>/…` reference is a plant-scoped
- * figure, and `getEvidence` narrows every plant-scoped subject through `assertPlantReach` exactly as
- * it narrows a record family (contracts §7.1).
+ * The payload is the whole answer, because a composed figure's admission is decided where the figure is
+ * read rather than by a plant carried back beside it: `aggregateOf` refuses a `plant/<plantId>/…` key the
+ * resolved selection carries no row for, and every aggregate read enforces the family's read permission
+ * itself, so no single-plant subject survives to narrow a figure the reader's own screen drew (AAP 0.2.1's
+ * one-scope rule; see `subjectOf`).
  */
 interface AggregateFigure {
   /** The payload the drawer renders. */
   readonly evidence: Evidence;
-
-  /** The plant the figure belongs to, or `null` when it belongs to no single plant. */
-  readonly plantId: PlantId | null;
 }
 
 /**
@@ -1418,9 +1723,10 @@ function overviewAggregateEvidence(
   root: AggregateRoot,
   selection: ScopeFilterInput,
   key: SharedAggregateKey,
+  scopePlants: readonly PlantId[],
 ): Evidence {
   return {
-    value: overviewAggregateValue(overview, key),
+    value: overviewAggregateValue(overview, key, scopePlants),
     provenance: 'computed',
     label: SIMULATED_CALCULATION,
     formula: AGGREGATE_FORMULAS[key],
@@ -1428,9 +1734,16 @@ function overviewAggregateEvidence(
       ...aggregateInputs(root, selection),
       ...(key === MEDIAN_HOURS_KEY
         ? [`${MEDIAN_HOURS_KEY} = ${overview.medianHoursToApprovedPlan}`]
-        : overview.byPlant.map(plantRowInput)),
+        : key === PLANTS_IN_SCOPE_KEY
+          ? [`${PLANTS_IN_SCOPE_KEY} = ${scopePlants.join(', ')}`]
+          : overview.byPlant.map(plantRowInput)),
     ],
-    upstream: key === MEDIAN_HOURS_KEY ? [] : overview.byPlant.map((row) => row.plantId),
+    upstream:
+      key === MEDIAN_HOURS_KEY
+        ? []
+        : key === PLANTS_IN_SCOPE_KEY
+          ? [...scopePlants]
+          : overview.byPlant.map((row) => row.plantId),
     downstream: copiedByOtherSurface(root, key),
     confidence: recordConfidence(),
     missingInputs: [],
@@ -1441,15 +1754,27 @@ function overviewAggregateEvidence(
 /**
  * The value one of the overview's aggregates states, with its unit, as the read reports it.
  *
- * A money figure carries the currency and no grouping, the median carries its hours, the plant count
- * its plants and the two exception counts their exceptions, so a drawer's `value` reads as the figure
- * the screen showed rather than as a number without a unit (AAP §0.12.2's `Evidence.value`).
+ * A money figure is stated in the interface's one money shape — grouped, with the currency code and at
+ * most two decimals, exactly as the tile beside the drawer prints it (contracts §1, AAP §0.8) — the
+ * median carries its hours, the plant count its plants and the two exception counts their exceptions,
+ * so a drawer's `value` reads as the figure the screen showed rather than as a number without a unit
+ * (AAP §0.12.2's `Evidence.value`).
+ *
+ * The plant count is the resolved scope's own, not the number of by-plant rows: those rows also cover
+ * the plants an admitted exception is recorded at, which the selection need not name
+ * (`src/domain/aggregation/overview.ts`), and a sentence that counted them would state a number the
+ * tile labelled "plants in scope" does not carry.
  *
  * @param overview - The aggregate read's payload.
  * @param key - The aggregate the reference named.
+ * @param scopePlants - The plants the resolved scope names.
  * @returns The value sentence.
  */
-function overviewAggregateValue(overview: Overview, key: SharedAggregateKey): string {
+function overviewAggregateValue(
+  overview: Overview,
+  key: SharedAggregateKey,
+  scopePlants: readonly PlantId[],
+): string {
   switch (key) {
     case OPEN_EXCEPTIONS_KEY:
       return `${overview.openExceptions} open exceptions`;
@@ -1463,7 +1788,7 @@ function overviewAggregateValue(overview: Overview, key: SharedAggregateKey): st
         'unrounded'
       );
     case PLANTS_IN_SCOPE_KEY:
-      return `${overview.byPlant.length} plants in scope`;
+      return `${scopePlants.length} plants in scope`;
   }
 }
 
@@ -1644,7 +1969,7 @@ async function criticalExceptionsEvidence(
  * @param key - The key the reference named.
  * @param selection - The selection the reference stated.
  * @param ref - The reference, for the refusals' messages.
- * @returns The payload and the plant the figure belongs to, if any.
+ * @returns The payload the figure the reference names resolves to.
  * @throws Problem - `'not-found'` when the key names a subject the read does not carry;
  *   `'permission'` when the persona may not read the family the aggregate belongs to.
  */
@@ -1659,7 +1984,6 @@ async function aggregateOf(
     case 'aggregate': {
       if (key.key === CRITICAL_EXCEPTIONS_KEY) {
         return {
-          plantId: null,
           evidence: await criticalExceptionsEvidence(ctx, ref, composed.root, selection),
         };
       }
@@ -1667,8 +1991,13 @@ async function aggregateOf(
       const overview = await getOverview(ctx, selection);
 
       return {
-        plantId: null,
-        evidence: overviewAggregateEvidence(overview, composed.root, selection, key.key),
+        evidence: overviewAggregateEvidence(
+          overview,
+          composed.root,
+          selection,
+          key.key,
+          resolveScope(selection, ctx.actor.role).plants,
+        ),
       };
     }
 
@@ -1684,7 +2013,6 @@ async function aggregateOf(
       }
 
       return {
-        plantId: row.plantId,
         evidence: plantRowEvidence(ctx.state.records, row, key.reading, composed.root, selection),
       };
     }
@@ -1701,7 +2029,6 @@ async function aggregateOf(
       }
 
       return {
-        plantId: null,
         evidence: dayPointEvidence(point, key.series, composed.root, selection),
       };
     }
@@ -1758,15 +2085,47 @@ interface RadarReading {
 }
 
 /**
+ * The one figure a fragment names inside an approval record.
+ *
+ * Two kinds, because SCR-05 prints two kinds of figure off that one record: the euro members the
+ * approval states itself, and one measure of the comparison `getApprovalOutcome` measures for it. A
+ * compared figure carries the levers of the solve it was read from, so the payload states which
+ * measurement it reports — the plan's own levers for the `planned` column, the levers the change
+ * reached for `resulting` — without a second read of the comparison.
+ */
+type ApprovalFigure =
+  | {
+      readonly kind: 'record-member';
+      readonly member: ApprovalMoneyMember;
+      readonly amount: number;
+    }
+  | {
+      readonly kind: 'outcome-measure';
+      readonly column: OutcomeColumn;
+      readonly member: OutcomeMeasureKey;
+      readonly value: number;
+      readonly levers: Levers;
+    }
+  | {
+      readonly kind: 'outcome-series';
+      readonly column: OutcomeColumn;
+      readonly date: IsoDate;
+      readonly units: number;
+      readonly levers: Levers;
+    };
+
+/**
  * The record an evidence reference resolved to.
  *
  * A discriminated union over the families the resolution order names, so the payload builder below can
  * switch over the family and the compiler proves every family is handled: a family added to the union
  * without a builder case does not compile. The record is the session's own record by reference, read
  * and never modified here; the composed aggregate family carries the payload its own read produced,
- * because the figure it names is an aggregate's output rather than a record's field, and the atlas
- * families carry what the record alone cannot answer — the network a competitor's site belongs to, and
- * the one axis a radar reference named — both resolved here so the builders below stay total.
+ * because the figure it names is an aggregate's output rather than a record's field; the approval
+ * family's fragment carries the figure the reference named, which the record's members do not state
+ * on their own; and the atlas families carry what the record alone cannot answer — the network a
+ * competitor's site belongs to, and the one axis a radar reference named — both resolved here so the
+ * builders below stay total.
  */
 type ResolvedRef =
   | { readonly family: 'aggregate'; readonly figure: AggregateFigure }
@@ -1785,6 +2144,11 @@ type ResolvedRef =
   | { readonly family: 'exception'; readonly record: OperationalException }
   | { readonly family: 'scenario'; readonly record: Scenario }
   | { readonly family: 'approval'; readonly record: Approval }
+  | {
+      readonly family: 'approval-figure';
+      readonly record: Approval;
+      readonly figure: ApprovalFigure;
+    }
   | { readonly family: 'audit-event'; readonly record: AuditEvent }
   | { readonly family: 'pin'; readonly record: EvidencePin }
   | { readonly family: 'document'; readonly record: DocumentBody }
@@ -1848,6 +2212,20 @@ function isPackFamily(resolved: ResolvedRef): boolean {
 type NodeRef = Extract<
   ResolvedRef,
   { readonly family: 'plant' | 'supplier' | 'origin' | 'customer' }
+>;
+
+/**
+ * The four arms of {@link ResolvedRef} whose plants are the plants of one exception.
+ *
+ * Separated from the union for the reason {@link NodeRef} is: an exception, a scenario that answers one,
+ * an approval of one and a step of a plan's write-back are admitted over every plant that exception
+ * touches through `alsoAffectsPlantIds`, which no other family needs, and the compiler then proves
+ * `assertExceptionReach` is never handed a record of another family and no other family is narrowed by
+ * an exception's reach.
+ */
+type ExceptionRef = Extract<
+  ResolvedRef,
+  { readonly family: 'exception' | 'scenario' | 'approval' | 'approval-figure' | 'write-back' }
 >;
 
 /**
@@ -2054,8 +2432,15 @@ function resolveWriteBackRef(ctx: HandlerContext, ref: string): WriteBackStepRef
  * The messages of the refusals quote the reference the caller sent, never a neighbour's identifier:
  * an unresolvable drawer reports what it could not resolve.
  *
- * The function is asynchronous because a composed aggregate reference is answered by re-reading the
- * aggregate that computes it; every other family resolves from the records already in hand.
+ * The approval family is the one family whose reference may carry a fragment. `<approval id>` alone is
+ * the record's own payload, and `<approval id>#<fragment>` names one figure inside it, which
+ * `approvalFigureOf` parses in the grammar this module's header states. The approval is resolved
+ * either way, so the plant scope and the permission check `getEvidence` applies to a figure are the
+ * ones its record gets.
+ *
+ * The function is asynchronous because a composed aggregate reference and an approval's compared
+ * figure are answered by re-reading the read that computes them; every other family resolves from the
+ * records already in hand.
  *
  * @param ctx - The call's context, whose records are searched and whose trace the failure carries.
  * @param ref - The reference the displayed element carries.
@@ -2129,16 +2514,30 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
   }
 
   if (ref.startsWith(APPROVAL_PREFIX)) {
-    const found = records.approvals.find((candidate) => candidate.id === ref);
+    const separatorAt = ref.indexOf(AXIS_SEPARATOR);
+    const approvalId = separatorAt < 0 ? ref : ref.slice(0, separatorAt);
+    const fragment = separatorAt < 0 ? null : ref.slice(separatorAt + AXIS_SEPARATOR.length);
+    const found = records.approvals.find((candidate) => candidate.id === approvalId);
 
-    if (found !== undefined) {
+    if (found === undefined) {
+      throw notFoundProblem(
+        ctx,
+        `The record set holds no approval with the identifier ${ref}, so the evidence behind it cannot be resolved.`,
+      );
+    }
+
+    // No fragment is the reference this family has always answered: the record's own payload.
+    if (fragment === null) {
       return { family: 'approval', record: found };
     }
 
-    throw notFoundProblem(
-      ctx,
-      `The record set holds no approval with the identifier ${ref}, so the evidence behind it cannot be resolved.`,
-    );
+    // A fragment names one figure inside the record, in the grammar this module's header states, and
+    // the record stays the resolved record so the plant scope and the permission check are unchanged.
+    return {
+      family: 'approval-figure',
+      record: found,
+      figure: await approvalFigureOf(ctx, found, ref, fragment),
+    };
   }
 
   if (ref.startsWith(AUDIT_PREFIX)) {
@@ -2398,8 +2797,191 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
 
   throw notFoundProblem(
     ctx,
-    `The deployment record declares no outbound endpoint named ${ref}, so the evidence behind it cannot be resolved. No record family answers the reference ${ref}. A reference names a package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a customer order, a purchase order, a policy, an outbound endpoint, a shared chokepoint, a competitor site or network, a radar series reading, a plant, a supplier, a tier-2 origin, a customer, a material, a production line or a product; or it names a computed figure as ${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, one radar series as ${ATLAS_SERIES_PREFIX}<seriesId>, or one step of a plan's write-back as ${WRITE_BACK_REF_GRAMMAR}.`,
+    `The deployment record declares no outbound endpoint named ${ref}, so the evidence behind it cannot be resolved. No record family answers the reference ${ref}. A reference names a package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a customer order, a purchase order, a policy, an outbound endpoint, a shared chokepoint, a competitor site or network, a radar series reading, a plant, a supplier, a tier-2 origin, a customer, a material, a production line or a product; or it names a computed figure as ${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, one radar series as ${ATLAS_SERIES_PREFIX}<seriesId>, one figure inside an approval as ${APPROVAL_PREFIX}<approval id>${AXIS_SEPARATOR}<member>, or one step of a plan's write-back as ${WRITE_BACK_REF_GRAMMAR}.`,
   );
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The figure a fragment names inside a record — AAP 0.12.2 `Evidence.value`, rule P-6
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Whether a fragment names one of the approval record's own euro members.
+ *
+ * @param value - The fragment the reference carried.
+ * @returns `true` for `addedCostEur` or `protectedRevenueEur`.
+ */
+function isApprovalMoneyMember(value: string): value is ApprovalMoneyMember {
+  return APPROVAL_MONEY_MEMBERS.some((member) => member === value);
+}
+
+/**
+ * Whether a fragment names the plan's column of the post-approval comparison.
+ *
+ * @param value - The fragment's column.
+ * @returns `true` for `planned` or `resulting`.
+ */
+function isOutcomeColumn(value: string): value is OutcomeColumn {
+  return value === PLANNED_COLUMN || value === RESULTING_COLUMN;
+}
+
+/**
+ * Whether a fragment names one of the measures the outcome card compares.
+ *
+ * @param value - The fragment's member.
+ * @returns `true` for one of the seven `SolverResult` scalars.
+ */
+function isOutcomeMeasureKey(value: string): value is OutcomeMeasureKey {
+  return OUTCOME_MEASURE_MEMBERS.some((member) => member === value);
+}
+
+/**
+ * Whether a compared measure is stated in euro.
+ *
+ * The two `*Eur` members of `SolverResult` are quoted through `amountText` with their currency; the
+ * other five are counts and are stated as the number the solver rounded (contracts §3).
+ *
+ * @param member - The measure the figure names.
+ * @returns `true` for `addedCostEur` and `revenueDelayedEur`.
+ */
+function isMoneyMeasure(member: OutcomeMeasureKey): boolean {
+  return member === 'addedCostEur' || member === 'revenueDelayedEur';
+}
+
+/**
+ * Reads the one figure an approval reference's fragment names.
+ *
+ * The grammar is the one this module's header states: a record member is quoted from the approval's
+ * own field, and a compared measure is read from `getApprovalOutcome` — the read the outcome card is
+ * built from — so the drawer states the figure the card printed rather than a second computation of
+ * it (AAP 0.12.2's `Evidence.value`, rule P-6). The measure is taken by its member name from the
+ * column's own `SolverResult`, and the levers that solve ran at travel with it so the payload can say
+ * which measurement it reports.
+ *
+ * @param ctx - The call's context, whose persona and records the comparison read is made for.
+ * @param approval - The approval the reference named.
+ * @param ref - The whole reference, quoted by a refusal.
+ * @param fragment - What followed the record's identifier and its `#`.
+ * @returns The figure the fragment names.
+ * @throws Problem - `'not-found'` naming the reference and the members the read accepts when the
+ *   fragment names no figure, when the column is not one of the comparison's two, or when the
+ *   comparison reports no finite reading for the member; and the failure the comparison read itself
+ *   raises for an approval it cannot measure.
+ */
+async function approvalFigureOf(
+  ctx: HandlerContext,
+  approval: Approval,
+  ref: string,
+  fragment: string,
+): Promise<ApprovalFigure> {
+  if (isApprovalMoneyMember(fragment)) {
+    return { kind: 'record-member', member: fragment, amount: approval[fragment] };
+  }
+
+  const separatorAt = fragment.indexOf(MEASURE_SEPARATOR);
+  const column = separatorAt < 0 ? fragment : fragment.slice(0, separatorAt);
+  const member = separatorAt < 0 ? '' : fragment.slice(separatorAt + MEASURE_SEPARATOR.length);
+
+  if (!isOutcomeColumn(column)) {
+    throw notFoundProblem(ctx, figureGrammarRefusal(approval, ref));
+  }
+
+  const seriesDate = seriesDateOf(member);
+
+  if (seriesDate !== null) {
+    return closingStockFigureOf(ctx, approval, ref, column, seriesDate);
+  }
+
+  if (!isOutcomeMeasureKey(member)) {
+    throw notFoundProblem(ctx, figureGrammarRefusal(approval, ref));
+  }
+
+  const outcome = await getApprovalOutcome(ctx, approval.id);
+  const reading = column === PLANNED_COLUMN ? outcome.planned : outcome.resulting;
+  const value = reading[member];
+
+  if (!Number.isFinite(value)) {
+    throw notFoundProblem(
+      ctx,
+      `The comparison of the approval reference ${ref} reports no finite ${member}, so the figure behind it cannot be resolved. The members it reports are ${OUTCOME_MEASURE_MEMBERS.join(', ')}.`,
+    );
+  }
+
+  return { kind: 'outcome-measure', column, member, value, levers: reading.levers };
+}
+
+/**
+ * The date a fragment names when it addresses one reading of the closing-stock series, or `null` when
+ * it names something else.
+ *
+ * @param member - The part of the fragment after the comparison's column and its `.`.
+ * @returns The date the fragment states, or `null` for a fragment that names no series reading.
+ */
+function seriesDateOf(member: string): IsoDate | null {
+  const prefix = `${OUTCOME_SERIES_MEMBER}${SERIES_DATE_SEPARATOR}`;
+
+  return member.startsWith(prefix) && member.length > prefix.length
+    ? member.slice(prefix.length)
+    : null;
+}
+
+/**
+ * The refusal every fragment the read does not answer states, so one sentence names the whole grammar.
+ *
+ * @param approval - The approval the reference named.
+ * @param ref - The whole reference the caller sent.
+ * @returns The refusal message.
+ */
+function figureGrammarRefusal(approval: Approval, ref: string): string {
+  return (
+    `The approval reference ${ref} names no figure of that approval, so the evidence behind it cannot ` +
+    `be resolved. A reference names one of the record's own amounts as ${approval.id}${AXIS_SEPARATOR}` +
+    `<member>, with member one of ${APPROVAL_MONEY_MEMBERS.join(', ')}; one measure of the comparison ` +
+    `the approval was measured from as ${approval.id}${AXIS_SEPARATOR}<column>.<member>, with column ` +
+    `one of ${PLANNED_COLUMN}, ${RESULTING_COLUMN} and member one of ` +
+    `${OUTCOME_MEASURE_MEMBERS.join(', ')}; or one closing-stock reading as ` +
+    `${approval.id}${AXIS_SEPARATOR}<column>.${OUTCOME_SERIES_MEMBER}${SERIES_DATE_SEPARATOR}<date>, ` +
+    `with the date the one whose close the reading states.`
+  );
+}
+
+/**
+ * Reads one closing-stock reading of the approval's comparison at the date the fragment names.
+ *
+ * The series is `getApprovalOutcome`'s own output for the column, so the drawer states the units the
+ * solver projected rather than a second computation of them (AAP 0.12.2's `Evidence.value`, rule P-6).
+ * A date either solve does not reach is refused with the dates it does reach, because a reading the
+ * card never printed must not be answerable.
+ *
+ * @param ctx - The call's context, whose persona and records the comparison read is made for.
+ * @param approval - The approval the reference named.
+ * @param ref - The whole reference, quoted by a refusal.
+ * @param column - The comparison's column the reading stands in.
+ * @param date - The date whose close the fragment names.
+ * @returns The closing-stock figure.
+ * @throws Problem - `'not-found'` when the column's series states no reading for the date, and the
+ *   failure the comparison read itself raises for an approval it cannot measure.
+ */
+async function closingStockFigureOf(
+  ctx: HandlerContext,
+  approval: Approval,
+  ref: string,
+  column: OutcomeColumn,
+  date: IsoDate,
+): Promise<ApprovalFigure> {
+  const outcome = await getApprovalOutcome(ctx, approval.id);
+  const reading = column === PLANNED_COLUMN ? outcome.planned : outcome.resulting;
+  const series = reading.dailyClosingStock;
+  const point = series.find((candidate) => candidate.date === date);
+
+  if (point === undefined || !Number.isFinite(point.units)) {
+    throw notFoundProblem(
+      ctx,
+      `The ${column} column of the comparison in the approval reference ${ref} states no closing stock for ${date}, so the reading behind it cannot be resolved. The dates that column states are ${series.map((candidate) => candidate.date).join(', ')}.`,
+    );
+  }
+
+  return { kind: 'outcome-series', column, date, units: point.units, levers: reading.levers };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -2408,41 +2990,64 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
 
 /**
  * The plant-scoped subject a resolved record presents to the permission matrix, or `null` when the
- * record is not plant-scoped.
+ * record names no plant of its own.
  *
- * A record that names a plant is narrowed by it, so a persona cannot read the evidence of a plant
- * outside its scope. The records that reach a plant indirectly are resolved to the plant the records
- * give them: a scenario and an approval to the plant of the exception they answer, a step of a
- * write-back to the plant of the record that holds it — an approval, or the option an approval was
- * requested for — a pin to its own node when that node is a plant, and a production line to the plant
- * it belongs to (AAP 0.12.2: a line belongs to one plant). A package, an audit event, a document, a material and a product name no plant,
- * and neither does a radar series, which reports a market reading rather than a record placed at a
- * plant, so none of them is plant-scoped and the permission alone decides whether it is readable —
- * which is the reading `hasPermission` documents for a `null` subject. A composed aggregate names a
- * plant only when its key is a plant's reading. The four market-intelligence families name no plant
- * either: the pack describes competitors rather than a record of the client's own, which is the reading
- * `./atlas.ts` documents for the atlas read itself, so they are never narrowed by a plant scope and are
- * refused by `assertPackReach` instead. The declared configuration is group-wide by construction — the
- * ledger's endpoints and the policy set are the same records for every plant — so a policy and an
- * outbound endpoint name no plant either. Four of the canvas's five node families — plant, supplier,
- * origin and customer — are the one case a single subject cannot state, and they are answered below
- * rather than here. A material is the fifth family and names no plant, so it takes the `null` case
- * already stated for it above.
+ * A record that names one plant is narrowed by it, so a persona cannot read the evidence of a plant
+ * outside its scope: a customer order, a purchase order and a production line each belong to one plant
+ * (AAP 0.12.2), and a pin is narrowed by its own node when that node is a plant. A package, an audit
+ * event, a document, a material and a product name no plant, and neither does a radar series, which
+ * reports a market reading rather than a record placed at a plant, so none of them is plant-scoped and
+ * the permission alone decides whether it is readable — which is the reading `hasPermission` documents
+ * for a `null` subject. A composed aggregate names a plant only when its key is a plant's reading. The
+ * four market-intelligence families name no plant either: the pack describes competitors rather than a
+ * record of the client's own, which is the reading `./atlas.ts` documents for the atlas read itself, so
+ * they are never narrowed by a plant scope and are refused by `assertPackReach` instead. The declared
+ * configuration is group-wide by construction — the ledger's endpoints and the policy set are the same
+ * records for every plant — so a policy and an outbound endpoint name no plant either.
  *
- * @param ctx - The call's context, whose records resolve the indirect plants.
+ * The families whose plants one subject cannot state are answered with `null` here and narrowed by their
+ * own rule in `getEvidence`: the four canvas nodes by `assertNodeReach`, which reads every plant the
+ * records place a node in; the exception, the scenario that answers one, the approval of one, a figure
+ * inside an approval and a step of a write-back of one by `assertExceptionReach`, which reads every plant
+ * the exception they belong to touches — the set the exception queue admits the row by (AAP 0.2.1,
+ * principle PR-6); and a composed aggregate where its figure is resolved, which the `'aggregate'` case
+ * below states.
+ *
+ * @param ctx - The call's context, whose records place a pin's node.
  * @param resolved - The record the reference named.
- * @returns The plant-scoped subject, or `null` when the record names no plant.
+ * @returns The plant-scoped subject, or `null` when the record names no plant of its own.
  */
 function subjectOf(ctx: HandlerContext, resolved: ResolvedRef): ScopedSubject | null {
   const records = ctx.state.records;
 
   switch (resolved.family) {
     case 'aggregate':
-      return resolved.figure.plantId === null ? null : { plantId: resolved.figure.plantId };
+      /*
+       * A composed figure is admitted where it is resolved rather than here. `aggregateOf` answers a
+       * `plant/<plantId>/…` key only when the resolved selection carries a risk-by-plant row for that
+       * plant, refusing it as `'not-found'` otherwise, and every aggregate read goes through
+       * `getOverview`, which enforces the family's read permission itself. A second, single-plant check
+       * on top of that would refuse a figure the reader's own screen drew — the by-plant row of a plant
+       * whose exceptions reach the reader's scope from a plant outside it (AAP 0.2.1's one-scope rule).
+       */
+      return null;
     case 'write-back':
-      return plantOfException(records, resolved.owner.exceptionId);
+      /*
+       * A step belongs to the plan it writes back — an approval, or the option an approval was requested
+       * for — so it stands where the disruption that plan answers stands, and `assertExceptionReach`
+       * admits it over every plant that exception touches (see the family guard above).
+       */
+      return null;
     case 'exception':
-      return { plantId: resolved.record.plantId };
+    case 'scenario':
+    case 'approval':
+      /*
+       * All three belong to one exception, whose reach is every plant it touches rather than the one it
+       * is laid on, so `assertExceptionReach` decides them over that whole set. Narrowing a scenario or
+       * an approval to the exception's own plant here would refuse the option a screen printed, and the
+       * plan a screen approved, wherever the row was admitted through a plant the exception also reaches.
+       */
+      return null;
     case 'customer-order':
       return { plantId: resolved.record.plantId };
     case 'purchase-order':
@@ -2451,11 +3056,12 @@ function subjectOf(ctx: HandlerContext, resolved: ResolvedRef): ScopedSubject | 
       return records.plants.some((plant) => plant.id === resolved.record.nodeRef)
         ? { plantId: resolved.record.nodeRef }
         : null;
-    case 'scenario':
-      return plantOfException(records, resolved.record.exceptionId);
-    case 'approval':
-      return plantOfException(records, resolved.record.exceptionId);
-    case 'plant':
+    case 'approval-figure':
+      /*
+       * A figure inside an approval answers the same exception the approval does, so `assertExceptionReach`
+       * admits it over every plant that exception touches, exactly as the approval itself is admitted.
+       */
+      return null;
     case 'plant':
     case 'supplier':
     case 'origin':
@@ -2483,22 +3089,6 @@ function subjectOf(ctx: HandlerContext, resolved: ResolvedRef): ScopedSubject | 
     case 'outbound-endpoint':
       return null;
   }
-}
-
-/**
- * The plant of the exception a scenario or an approval answers.
- *
- * @param records - The session's record set.
- * @param exceptionId - The exception the record names.
- * @returns The plant-scoped subject of that exception, or `null` when the records hold it nowhere.
- */
-function plantOfException(
-  records: SeedRecordSet,
-  exceptionId: OperationalException['id'],
-): ScopedSubject | null {
-  const exception = records.exceptions.find((candidate) => candidate.id === exceptionId);
-
-  return exception === undefined ? null : { plantId: exception.plantId };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -2531,6 +3121,8 @@ function evidenceFor(ctx: HandlerContext, resolved: ResolvedRef): Evidence {
       return scenarioEvidence(ctx, resolved.record);
     case 'approval':
       return approvalEvidence(ctx, resolved.record);
+    case 'approval-figure':
+      return approvalFigureEvidence(ctx, resolved.record, resolved.figure);
     case 'audit-event':
       return auditEventEvidence(ctx, resolved.record);
     case 'pin':
@@ -2686,7 +3278,9 @@ function exceptionEvidence(ctx: HandlerContext, exception: OperationalException)
  * computed in this session carries `Simulated calculation` (AAP 0.10, rule P-1). Nothing is
  * recomputed: every measure in the payload is the record's own, and the formula names the contracts §4
  * rules the solver applied. The missing inputs an option inherits are its exception's, because the
- * case's unread inputs are the exception's (AAP 0.8).
+ * case's unread inputs are the exception's (AAP 0.8). The lever echo and the two money measures are
+ * stated in the interface's own quantity and money shapes, so the drawer reads a column the way the
+ * column beside it prints the same figure (contracts §1).
  *
  * @param ctx - The call's context, whose records supply the exception an option answers.
  * @param scenario - The option the reference named.
@@ -2710,12 +3304,12 @@ function scenarioEvidence(ctx: HandlerContext, scenario: Scenario): Evidence {
       '1 to 11, taken from the opening stock of the case, its line rate, its delayed order and the ' +
       'levers of the option; the constraint check names every lever outside its bound.',
     inputs: [
-      `levers = airSets ${scenario.levers.airSets}, transferSets ${scenario.levers.transferSets}`,
+      leversText(scenario.levers),
       `ordersOnTime = ${scenario.ordersOnTime}`,
       `ordersTotal = ${scenario.ordersTotal}`,
-      `addedCostEur = ${scenario.addedCostEur}`,
+      moneyInput('addedCostEur', scenario.addedCostEur),
       `lineIdleDays = ${scenario.lineIdleDays}`,
-      `revenueDelayedEur = ${scenario.revenueDelayedEur}`,
+      moneyInput('revenueDelayedEur', scenario.revenueDelayedEur),
       `runOut = day ${scenario.runOut.day}, fraction of that day ${scenario.runOut.fractionOfDay}`,
       `constraintCheck = ${scenario.constraintCheck}`,
       ...scenario.constraintMessages,
@@ -2735,9 +3329,12 @@ function scenarioEvidence(ctx: HandlerContext, scenario: Scenario): Evidence {
  * The evidence behind one approval: where the plan stands and the write-backs it sets in motion.
  *
  * The two euro members are the record's own, so the plan's cost against the revenue it protects reads
- * as the comparison measured them. Every write-back is simulated, and the payload says so in the
- * formula and lists each step's recorded state; the fixed `Simulated write-back` label is applied by
- * the component that renders a step (AAP 0.10).
+ * as the comparison measured them, in the interface's one money shape (contracts §1). Every write-back
+ * is simulated, and the payload says so in the formula and lists each step's recorded state; the fixed
+ * `Simulated write-back` label is applied by the component that renders a step (AAP 0.10). The approval
+ * states no missing input of its own: the inputs the plan is missing are its exception's, which is the
+ * record the detail screen reads them from, so the drawer and the panel beside it state one list
+ * (AAP 0.12.2's `Evidence.missingInputs`).
  *
  * @param ctx - The call's context: the records the approval references and the chain behind it.
  * @param approval - The approval the reference named.
@@ -2759,8 +3356,8 @@ function approvalEvidence(ctx: HandlerContext, approval: Approval): Evidence {
       'is simulated: no system behind it is contacted, and the tracker labels every step.',
     inputs: [
       `status = ${approval.status}`,
-      `addedCostEur = ${approval.addedCostEur}`,
-      `protectedRevenueEur = ${approval.protectedRevenueEur}`,
+      moneyInput('addedCostEur', approval.addedCostEur),
+      moneyInput('protectedRevenueEur', approval.protectedRevenueEur),
       `requestedBy = ${approval.requestedBy}`,
       `outcomeReviewed = ${approval.outcomeReviewed}`,
       ...(approval.decidedBy === undefined ? [] : [`decidedBy = ${approval.decidedBy}`]),
@@ -2773,7 +3370,52 @@ function approvalEvidence(ctx: HandlerContext, approval: Approval): Evidence {
     upstream: uniqueRefs([approval.exceptionId, approval.scenarioId, approval.requestedBy]),
     downstream: uniqueRefs(events),
     confidence: recordConfidence(),
-    missingInputs: [],
+    missingInputs: missingInputsOf(records, [approval.exceptionId]),
+    documents: documentsCiting(records, approval.exceptionId),
+  };
+}
+
+/**
+ * The evidence behind one figure SCR-05 prints off an approval: the measure, the column it was read
+ * in and the solve behind it.
+ *
+ * The payload states what was clicked rather than the record as a whole, so two figures of one
+ * approval open two different drawers (AAP 0.12.2's `Evidence.value`). It carries `computed` and the
+ * fixed `Simulated calculation` label the screens print over the same figures (rule P-1), names the
+ * contracts §4 rule that owns the measure and which solve it came from, and lists the inputs the
+ * figure rests on — the measure, its value and the approval's own references — with the approval, its
+ * option and its exception as the records upstream of it, so the drawer's third section renders for a
+ * figure as it does for every other computed one. The confidence is the exception's own where the
+ * figure is a measure of the comparison, because that record states how far the case can be trusted,
+ * and the record's own reading otherwise; the missing inputs are the exception's, which is the list
+ * the approval's own payload and its detail screen state (AAP 0.12.2).
+ *
+ * @param ctx - The call's context, whose records supply the exception behind the approval.
+ * @param approval - The approval the reference named.
+ * @param figure - The figure its fragment named.
+ * @returns The figure's evidence payload.
+ */
+function approvalFigureEvidence(
+  ctx: HandlerContext,
+  approval: Approval,
+  figure: ApprovalFigure,
+): Evidence {
+  const records = ctx.state.records;
+  const exception = records.exceptions.find((candidate) => candidate.id === approval.exceptionId);
+
+  return {
+    value: figureValueText(figure),
+    provenance: 'computed',
+    label: SIMULATED_CALCULATION,
+    formula: figureFormula(figure),
+    inputs: figureInputs(approval, figure),
+    upstream: uniqueRefs([approval.id, approval.scenarioId, approval.exceptionId]),
+    downstream: [],
+    confidence:
+      figure.kind === 'outcome-measure' && exception !== undefined
+        ? exception.confidence
+        : recordConfidence(),
+    missingInputs: missingInputsOf(records, [approval.exceptionId]),
     documents: documentsCiting(records, approval.exceptionId),
   };
 }
@@ -2856,6 +3498,125 @@ function writeBackStepEvidence(ctx: HandlerContext, resolved: WriteBackStepRef):
     missingInputs: exception === undefined ? [] : [...exception.missingInputs],
     documents: documentsCiting(records, owner.exceptionId),
   };
+}
+
+/**
+ * One figure as the payload's value states it: the measure, the column it was read in and the figure
+ * itself.
+ *
+ * The measure is named by the label the outcome card prints on its row, so a reader comparing the
+ * drawer with the card reads the same words; an amount goes through `amountText` and a count is stated
+ * as the number the solver rounded (rule P-6). A record member states its own name alone, because it
+ * is a value of the record rather than a column of the comparison, and a closing-stock reading states
+ * the date whose close it belongs to as well as the number, because the series prints one row per date
+ * and the number alone would name no row.
+ *
+ * @param figure - The figure the reference named.
+ * @returns The sentence the drawer's value row prints.
+ */
+function figureValueText(figure: ApprovalFigure): string {
+  switch (figure.kind) {
+    case 'record-member':
+      return `${FIGURE_TEXT[figure.member]}: ${amountText(figure.amount)}`;
+    case 'outcome-measure':
+      return `${FIGURE_TEXT[figure.member]}, ${figure.column}: ${measureText(figure.member, figure.value)}`;
+    case 'outcome-series':
+      return `${OUTCOME_SERIES_TEXT}, ${figure.column}, ${figure.date}: ${figure.units} units at close`;
+  }
+}
+
+/**
+ * One compared measure as a payload states it: money through `amountText`, a count as the number the
+ * solver rounded.
+ *
+ * @param member - The measure the figure names.
+ * @param value - The reading the comparison reported for it.
+ * @returns The figure with its currency where the measure is an amount.
+ */
+function measureText(member: OutcomeMeasureKey, value: number): string {
+  return isMoneyMeasure(member) ? amountText(value) : `${value}`;
+}
+
+/**
+ * The rule behind one figure and the solve it was read from.
+ *
+ * A record member is a measure the solver computed for the option and the record carries; a compared
+ * measure is read from the comparison's own column, so the formula names which solve that column is —
+ * the plan's own levers, or the levers the simulated write-backs reached, as the comparison itself
+ * states them (AAP 0.2.2, rule P-6).
+ *
+ * @param figure - The figure the reference named.
+ * @returns The formula sentence the drawer prints.
+ */
+function figureFormula(figure: ApprovalFigure): string {
+  if (figure.kind === 'record-member') {
+    return (
+      `${FIGURE_TEXT[figure.member]} is one of the measures the solver computes for the option under ` +
+      'contracts §4 rules 1 to 11, and the approval record carries the figure the comparison measured ' +
+      "for it. This payload quotes the record's own member rather than computing it again."
+    );
+  }
+
+  const solve =
+    figure.column === PLANNED_COLUMN
+      ? "the plan's own levers"
+      : 'the levers the simulated write-backs reached';
+  const measurement =
+    `the ${figure.column} column is the solve at ${solve}, taken from the case the approval's ` +
+    `exception names, with air sets ${figure.levers.airSets} and transferred sets ` +
+    `${figure.levers.transferSets}`;
+
+  if (figure.kind === 'outcome-series') {
+    return (
+      `${OUTCOME_SERIES_TEXT} is the series the solver projects under contracts §4 rules 1 to 11, ` +
+      `re-read from the approval's own comparison: ${measurement}. The reading stated is the units ` +
+      `that solve leaves at the close of ${figure.date}, and this payload recomputes none of them.`
+    );
+  }
+
+  return (
+    `${FIGURE_TEXT[figure.member]} is one of the measures the solver computes under contracts §4 rules ` +
+    `1 to 11, re-read from the approval's own comparison: ${measurement}. This payload states that ` +
+    'measurement and recomputes it nowhere.'
+  );
+}
+
+/**
+ * The record values one figure rests on, which the drawer's third section lists.
+ *
+ * Non-empty by construction: the measure and its value are stated with the approval's own references
+ * beside them, because the drawer omits that section when every list is empty and a figure without its
+ * inputs would read as one with nothing behind it (AAP 0.12.2).
+ *
+ * @param approval - The approval the figure belongs to.
+ * @param figure - The figure the reference named.
+ * @returns The input lines the payload carries.
+ */
+function figureInputs(approval: Approval, figure: ApprovalFigure): string[] {
+  const stated = [
+    `approvalId = ${approval.id}`,
+    `scenarioId = ${approval.scenarioId}`,
+    `exceptionId = ${approval.exceptionId}`,
+    figure.kind === 'outcome-series'
+      ? `measure = ${OUTCOME_SERIES_MEMBER}`
+      : `measure = ${figure.member}`,
+  ];
+
+  if (figure.kind === 'record-member') {
+    return [...stated, `value = ${amountText(figure.amount)}`];
+  }
+
+  const reading =
+    figure.kind === 'outcome-series'
+      ? [`date = ${figure.date}`, `value = ${figure.units} units at close`]
+      : [`value = ${measureText(figure.member, figure.value)}`];
+
+  return [
+    ...stated,
+    `column = ${figure.column}`,
+    ...reading,
+    `levers = airSets ${figure.levers.airSets}, transferSets ${figure.levers.transferSets}`,
+  ];
 }
 
 /**
@@ -2995,7 +3756,9 @@ function documentEvidence(records: SeedRecordSet, document: DocumentBody): Evide
  *
  * The downstream list is read from the records that answer this order — the exceptions whose affected
  * lines name it and the measured options whose per-order results name it — so the reader sees which
- * figures the order feeds. The revenue-at-risk rule of contracts §5 is named rather than applied.
+ * figures the order feeds. The revenue-at-risk rule of contracts §5 is named rather than applied, and
+ * the missing inputs are the ones those exceptions could not read, because the units at risk are only
+ * as complete as the records that place them (AAP 0.12.2's `Evidence.missingInputs`).
  *
  * @param ctx - The call's context, whose records supply the exceptions and options that answer the order.
  * @param order - The order the reference named.
@@ -3026,7 +3789,7 @@ function customerOrderEvidence(ctx: HandlerContext, order: CustomerOrder): Evide
       `productId = ${order.productId}`,
       `plantId = ${order.plantId}`,
       `quantity = ${order.quantity}`,
-      `unitPriceEur = ${order.unitPriceEur}`,
+      moneyInput('unitPriceEur', order.unitPriceEur),
       `dueDate = ${order.dueDate}`,
       `originalDueDate = ${order.originalDueDate}`,
       `status = ${order.status}`,
@@ -3034,7 +3797,7 @@ function customerOrderEvidence(ctx: HandlerContext, order: CustomerOrder): Evide
     upstream: uniqueRefs([order.customerId, order.productId, order.plantId]),
     downstream: uniqueRefs([...exceptions, ...scenarios]),
     confidence: recordConfidence(),
-    missingInputs: [],
+    missingInputs: missingInputsOf(records, exceptions),
     documents: documentsCiting(records, order.id),
   };
 }
@@ -3044,7 +3807,10 @@ function customerOrderEvidence(ctx: HandlerContext, order: CustomerOrder): Evide
  *
  * The order is what the case's supply schedule rests on, so its downstream list names the exceptions
  * that carry it as their delayed order and the solver cases whose measurement depends on it. Every
- * value in the payload is a field of the record.
+ * value in the payload is a field of the record. The inputs it reports as missing are those the
+ * exceptions carrying it could not read — an order states no gap of its own, and the exception's own
+ * banner names the same gap, so a drawer that answered with none would contradict the screen beside it
+ * (AAP 0.12.2's `Evidence.missingInputs`).
  *
  * @param ctx - The call's context, whose records supply the exceptions and cases that answer the order.
  * @param order - The purchase order the reference named.
@@ -3072,7 +3838,7 @@ function purchaseOrderEvidence(ctx: HandlerContext, order: PurchaseOrder): Evide
       `materialId = ${order.materialId}`,
       `plantId = ${order.plantId}`,
       `quantity = ${order.quantity}`,
-      `unitCostEur = ${order.unitCostEur}`,
+      moneyInput('unitCostEur', order.unitCostEur),
       `orderedDate = ${order.orderedDate}`,
       `originalDueDate = ${order.originalDueDate}`,
       `currentDueDate = ${order.currentDueDate}`,
@@ -3081,7 +3847,7 @@ function purchaseOrderEvidence(ctx: HandlerContext, order: PurchaseOrder): Evide
     upstream: uniqueRefs([order.supplierId, order.materialId, order.plantId]),
     downstream: uniqueRefs([...exceptions, ...cases]),
     confidence: recordConfidence(),
-    missingInputs: [],
+    missingInputs: missingInputsOf(records, exceptions),
     documents: documentsCiting(records, order.id),
   };
 }
@@ -3622,7 +4388,7 @@ function materialEvidence(records: SeedRecordSet, material: Material): Evidence 
         : [`alternateSupplierId = ${material.alternateSupplierId}`]),
       `originId = ${material.originId}`,
       `quantityPerUnit = ${material.quantityPerUnit}`,
-      `unitCostEur = ${material.unitCostEur}`,
+      moneyInput('unitCostEur', material.unitCostEur),
       `leadTimeDays = ${material.leadTimeDays}`,
       ...material.productIds.map((productId) => `product ${productId}`),
     ],
@@ -3673,7 +4439,7 @@ function productEvidence(records: SeedRecordSet, product: Product): Evidence {
       `id = ${product.id}`,
       `name = ${product.name}`,
       `productClass = ${product.productClass}`,
-      `priceEur = ${product.priceEur}`,
+      moneyInput('priceEur', product.priceEur),
       ...product.lineIds.map((lineId) => `line ${lineId}`),
     ],
     upstream: uniqueRefs([...product.lineIds, ...materials]),
@@ -3988,22 +4754,27 @@ function outboundEndpointEvidence(
  * record is known; a market-intelligence reference is refused to a persona that may not read the atlas
  * pack, so a reference cannot reach a record `getAtlas` would have withheld; a canvas node — which
  * reaches several plants rather than belonging to one — is narrowed over every plant the records place
- * it in, by `assertNodeReach`; a pin is refused when `listVisiblePins` would not have released it, so a
- * reference cannot reach a pin the read filter withholds; and a customer-confidential document is
- * withheld from a persona that may not read its body, exactly as `getDocument` withholds it.
+ * it in, by `assertNodeReach`; an exception, a scenario or an approval is narrowed over every plant the
+ * exception it belongs to touches, by `assertExceptionReach`, which is the set the exception queue admits
+ * the record by; a pin is refused when `listVisiblePins` would not have released it, so a reference
+ * cannot reach a pin the read filter withholds; and a customer-confidential document is withheld from a
+ * persona that may not read its body, exactly as `getDocument` withholds it.
  *
  * A composed aggregate reference is answered from the aggregate read's own output (AAP 0.2.1 F12), so
  * the drawer states the figure the composing screen showed rather than a second computation of it, and
- * a `plant/<plantId>/…` key is narrowed by `assertPlantReach` like every other plant-scoped subject.
+ * its admission is decided where that figure is resolved: `aggregateOf` refuses a `plant/<plantId>/…` key
+ * as `'not-found'` when the resolved selection carries no such row, and every aggregate read enforces the
+ * family's read permission itself, so no second plant check narrows the figure below the one a reader's
+ * own screen drew.
  *
  * @param ctx - The call's context: the session's records and the persona the call acts as.
  * @param ref - The reference the displayed element carries.
  * @returns The evidence payload the drawer renders.
  * @throws Problem - `'permission'` when the persona may not read evidence, when the record lies outside
- *   its plant scope, when a pin is outside what the persona may see, when a customer-confidential
- *   document's body is withheld from it, or when it may not read the family an aggregate belongs to;
- *   `'not-found'` when no record or aggregate answers the reference; `'validation'` when a composed
- *   reference carries a query parameter the grammar does not answer.
+ *   every plant of the scope its family is admitted by, when a pin is outside what the persona may see,
+ *   when a customer-confidential document's body is withheld from it, or when it may not read the family
+ *   an aggregate belongs to; `'not-found'` when no record or aggregate answers the reference;
+ *   `'validation'` when a composed reference carries a query parameter the grammar does not answer.
  */
 export async function getEvidence(ctx: HandlerContext, ref: string): Promise<Evidence> {
   assertEvidenceRead(ctx);
@@ -4016,6 +4787,8 @@ export async function getEvidence(ctx: HandlerContext, ref: string): Promise<Evi
 
   if (isNodeRef(resolved)) {
     assertNodeReach(ctx, resolved);
+  } else if (isExceptionRef(resolved)) {
+    assertExceptionReach(ctx, resolved);
   } else {
     const subject = subjectOf(ctx, resolved);
 
@@ -4340,11 +5113,15 @@ function plantsServedBy(records: SeedRecordSet, supplierId: SupplierId): PlantId
  * whose own records attribute its vendor to it, because withholding another party's evidence is
  * recoverable and releasing it is not.
  *
+ * Exported for the identifier search, which narrows the node families it indexes by the same reach: a
+ * supplier, a tier-2 origin or a customer is offered to exactly the plant scopes whose pins the reads
+ * release, so the search and the reads cannot disagree about where a node lies.
+ *
  * @param records - The session's record set.
  * @param nodeRef - The node a pin is attached to.
  * @returns The plants the records place that node in, in record order.
  */
-function plantsOfNode(records: SeedRecordSet, nodeRef: string): PlantId[] {
+export function plantsOfNode(records: SeedRecordSet, nodeRef: string): PlantId[] {
   if (records.plants.some((plant) => plant.id === nodeRef)) {
     return [nodeRef];
   }
@@ -4412,8 +5189,12 @@ function vendorsFor(records: SeedRecordSet, actor: ActiveUser): SupplierId[] {
  *
  * `plantsByNode` fills as the read walks its pins, so a node several pins hang on is resolved from the
  * records once and that answer serves the rest of the same read only.
+ *
+ * Exported with {@link pinAudienceOf} for the identifier search, which resolves one audience per index
+ * it builds and hands it to {@link pinVisibleTo} for every pin it places: the index then narrows pins by
+ * the same rule, and at the same cost per read, as the pin list the pins come from.
  */
-interface PinAudience {
+export interface PinAudience {
   /** The suppliers the records attribute to the acting persona, declared vendors first. */
   readonly vendors: readonly SupplierId[];
 
@@ -4435,7 +5216,7 @@ interface PinAudience {
  * @param ctx - The call's context: the persona the audience is resolved for and the records it is read from.
  * @returns The audience for this call, with no node resolved yet.
  */
-function pinAudienceOf(ctx: HandlerContext): PinAudience {
+export function pinAudienceOf(ctx: HandlerContext): PinAudience {
   return { vendors: vendorsFor(ctx.state.records, ctx.actor), plantsByNode: new Map() };
 }
 
@@ -4482,12 +5263,16 @@ function plantsOfNodeOnce(
  * that set holds, and withheld otherwise. Both halves therefore close on the same empty set, because
  * withholding another party's evidence is recoverable and releasing it is not.
  *
+ * Exported for the identifier search, which offers a pin's identifier only where this predicate releases
+ * the pin itself: the vendor-scoped read AAP 0.2.1 names then decides the index and the list from one
+ * rule, so a persona is never offered an identifier that the read behind it refuses.
+ *
  * @param ctx - The call's context: the persona and the records its reach is resolved from.
  * @param pin - The pin under consideration.
  * @param audience - The persona's audience for this call, resolved once by `pinAudienceOf`.
  * @returns `true` when the pin may be released to this persona.
  */
-function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin, audience: PinAudience): boolean {
+export function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin, audience: PinAudience): boolean {
   const namesOwnVendor = pin.vendorId !== undefined && audience.vendors.includes(pin.vendorId);
 
   if (ctx.actor.role === EXTERNAL_SUPPLIER_ROLE) {

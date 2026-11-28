@@ -38,8 +38,8 @@
  * written to stay clear of the figures scan that covers `src/features/**`: identifiers are opaque
  * placeholders (`plant-alpha`, `record-beta`) rather than domain-identifier shapes, the series'
  * dates are derived from the imported demonstration clock instead of written out, and every amount
- * is asserted through the imported `formatMoney` rather than as a typed currency string while the
- * median tile's duration is asserted through the imported `formatHours`. The
+ * is asserted through the imported `formatMoney` rather than as a typed currency string, while the
+ * median tile's unrounded duration is asserted through the imported `formatMeasuredHours`. The
  * wording is a different matter: `SCREEN_TEXT` is module-private in the screen, so the captions this
  * suite drives by name are restated once in {@link UI} below — the device `audit-screen.test.tsx`
  * uses for the same reason — while every string an input or a sibling component owns (the §5.3
@@ -73,7 +73,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
-import { MONO_VALUE_CLASSES, formatHours, formatMoney } from '../../components/mono-value';
+import { MONO_VALUE_CLASSES, formatMeasuredHours, formatMoney } from '../../components/mono-value';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { CONTROL_STRUCTURE_CLASSES } from '../../components/tooltip';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
@@ -140,8 +140,11 @@ const UI = {
 
   /** The risk-by-plant group, what its figure label refers to, and its table's accessible name. */
   byPlantTitle: 'Risk by plant',
-  byPlantNote: 'Every count and amount beneath is a computed figure.',
+  byPlantLabelNote: 'Every count and amount beneath is a computed figure.',
   byPlantCaption: 'Open exceptions and revenue at risk, by plant',
+
+  /** The attribution rule the screen prints above the risk-by-plant rows. */
+  byPlantNote: 'Each exception is counted at the plant it is recorded at.',
 
   /** The risk-by-plant table's four column headers. */
   columnPlant: 'Plant',
@@ -152,6 +155,10 @@ const UI = {
   /** The revenue bars: the frame title and the axis the surface is named by. */
   revenueChartTitle: 'Revenue at risk by plant',
   revenueChartCaption: 'Revenue at risk by plant, as a table',
+
+  /** The sentence the revenue figure states about the scale its bars are read against. */
+  revenueChartDescription:
+    'One bar per plant, every bar scaled against the same maximum revenue at risk and printed at the end of its row in EUR, with the axis beneath the bars stating that maximum.',
 
   /** The series: the frame title and the two series names its marks are announced with. */
   seriesChartTitle: 'Exceptions opened and resolved per day',
@@ -386,7 +393,7 @@ const TILE_CASES = [
   { caption: UI.tileOpenExceptions, figure: String(OVERVIEW.openExceptions) },
   { caption: UI.tileRevenueAtRisk, figure: formatMoney(OVERVIEW.revenueAtRiskEur) },
   { caption: UI.tileCustomerOrdersAtRisk, figure: String(OVERVIEW.customerOrdersAtRisk) },
-  { caption: UI.tileMedianHours, figure: formatHours(OVERVIEW.medianHoursToApprovedPlan) },
+  { caption: UI.tileMedianHours, figure: formatMeasuredHours(OVERVIEW.medianHoursToApprovedPlan) },
 ] as const;
 
 /**
@@ -892,6 +899,34 @@ describe('OverviewScreen', () => {
     expect(at(barMarks(), 0, 'bar')).toHaveAttribute('tabindex', '0');
   });
 
+  it('labels the revenue axis from the axis maximum through the interface’s one money format', async () => {
+    renderScreen();
+    await settledTile(UI.tileOpenExceptions);
+
+    /* The maximum every bar is scaled against: the largest amount the payload reports. */
+    const axisMax = Math.max(...PLANTS.map((plant) => plant.revenue));
+    const svg = barMark(at(PLANTS, 0, 'plant')).closest('svg');
+
+    if (svg === null) {
+      throw new Error('the revenue chart drew no graphic');
+    }
+
+    const axis = svg.querySelector('g[aria-hidden="true"]');
+
+    if (axis === null) {
+      throw new Error('the revenue chart drew no value axis');
+    }
+
+    /* The figure states its own scale — the zero baseline and the maximum — and both are the money
+       formatter's own strings, the ones the bar ends and the table cells print (rule P-6). */
+    expect(
+      Array.from(axis.querySelectorAll('text')).map((node) => node.textContent ?? ''),
+    ).toEqual([formatMoney(0), formatMoney(axisMax)]);
+
+    /* The unit and the scale are stated in the figure's description as well as in its axis. */
+    expect(screen.getByText(UI.revenueChartDescription)).toBeVisible();
+  });
+
   it('replaces the opened and resolved series with a table of the same days, and back, from the keyboard', async () => {
     const user = userEvent.setup();
 
@@ -1031,6 +1066,21 @@ describe('OverviewScreen', () => {
         expect.arrayContaining(MONO_VALUE_CLASSES.base.split(' ')),
       );
     });
+  });
+
+  it('states above the risk-by-plant rows which plant each exception is counted at', async () => {
+    renderScreen();
+
+    const group = await screen.findByRole('region', { name: UI.byPlantTitle });
+
+    /*
+     * The rule the rows follow is stated where they are read: a plant's figure is the same whether or
+     * not the shell's Plant filter is narrowed to it, because an exception is counted at the plant its
+     * record names rather than at the plant that admitted it (AAP 0.2.1: a filtered queue and a filtered
+     * overview cannot disagree).
+     */
+    expect(within(group).getByText(UI.byPlantNote)).toBeVisible();
+    expect(within(group).getByRole('table', { name: UI.byPlantCaption })).toBeVisible();
   });
 
   it('names each of a plant row’s two figures in the reference its own trigger opens', async () => {

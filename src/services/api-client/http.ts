@@ -762,6 +762,7 @@ export const PAYLOADS = {
       title: true,
       productIds: true,
       plantId: true,
+      alsoAffectsPlantIds: true,
       severity: true,
       revenueAtRiskEur: true,
       daysToImpact: true,

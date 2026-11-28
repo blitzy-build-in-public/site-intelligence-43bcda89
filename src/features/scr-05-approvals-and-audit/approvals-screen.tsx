@@ -28,8 +28,9 @@
  *
  * WHERE THE FIGURES COME FROM. The two euro members are the approval record's own `addedCostEur` and
  * `protectedRevenueEur`, formatted by `MonoValue` and reachable through `EvidenceRef`, whose drawer
- * resolves the `APR-` reference to the evidence record `GET /evidence?ref=` returns for it (PR-6:
- * every figure opens its source, record, time, freshness and formula). No amount is typed here, and
+ * resolves a reference of the form `<APR- identifier>#<member>` to the one figure the cell printed,
+ * so two amounts of one approval open two drawers that each state what was clicked (PR-6: every
+ * figure opens its source, record, time, freshness and formula). No amount is typed here, and
  * `tests/source-checks/no-typed-figures.test.ts` scans this folder for exactly that (rule P-6).
  *
  * LABELLING — rule P-1. Each of the two computed columns names the `Simulated calculation` label in
@@ -450,8 +451,9 @@ const INBOX_DEFAULT_ORDER: TableSort = { columnId: 'approval', direction: 'asc' 
  *
  * Built per read because the freshness column reports the report the read carried; every other cell is
  * a member of the row's own record, formed by the component that owns that kind of value — an
- * identifier and an amount through `MonoValue`, an amount behind `EvidenceRef` so its evidence opens,
- * and a status through `StatusIndicator` so icon, label and colour are always present together.
+ * identifier and an amount through `MonoValue`, an amount behind `EvidenceRef` so its evidence opens
+ * with the member the cell formatted named beside the record's identifier, and a status through
+ * `StatusIndicator` so icon, label and colour are always present together.
  *
  * The plan cell states the record's two references — the option under approval and the exception it
  * answers — as the two identifier values they are, each rendered by `MonoValue`. They are never joined
@@ -483,7 +485,7 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
       sortable: true,
       align: 'end',
       render: (approval) => (
-        <EvidenceRef ref={approval.id}>
+        <EvidenceRef ref={`${approval.id}#addedCostEur`}>
           <MonoValue value={approval.addedCostEur} kind="money" />
         </EvidenceRef>
       ),
@@ -494,7 +496,7 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
       sortable: true,
       align: 'end',
       render: (approval) => (
-        <EvidenceRef ref={approval.id}>
+        <EvidenceRef ref={`${approval.id}#protectedRevenueEur`}>
           <MonoValue value={approval.protectedRevenueEur} kind="money" />
         </EvidenceRef>
       ),

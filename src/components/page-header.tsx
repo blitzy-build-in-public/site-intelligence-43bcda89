@@ -49,7 +49,11 @@ export function PageHeader({ title, description, eyebrow, actions }: PageHeaderP
         ) : null}
       </div>
       {actions ? (
-        <div className="flex flex-wrap items-center gap-2 text-text-primary">{actions}</div>
+        /* The actions slot is the header's trailing group, so it takes the end side whether it sits
+           beside the title or wraps onto a row of its own: `justify-between` places the two items
+           apart on one row, and cannot place a lone item at all, so a wrapped line would otherwise
+           read the primary action as a leading one. */
+        <div className="ms-auto flex flex-wrap items-center gap-2 text-text-primary">{actions}</div>
       ) : null}
     </header>
   );

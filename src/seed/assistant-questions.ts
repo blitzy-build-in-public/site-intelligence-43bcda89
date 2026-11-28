@@ -191,6 +191,10 @@ export const ASSISTANT_QUESTIONS: readonly AssistantQuestion[] = [
    * at the seeded quantity: the kits the transfer pushes past their own dates and the value that
    * deferral holds (AAP 0.8). Both are solver output, so neither is written here, and the
    * acknowledgement the sentence mentions is what SCR-05 requires before a plan can be approved.
+   *
+   * The sentence states the currency marker itself, as the trade-off template beside it does: the one
+   * prose formatter groups the amount and adds no currency code, so the marker is the sentence's own
+   * text and no amount in an answer is left unitless (AAP 0.8, rule P-6).
    */
   {
     id: 'Q4',
@@ -198,7 +202,7 @@ export const ASSISTANT_QUESTIONS: readonly AssistantQuestion[] = [
     outline:
       'States the side effect the transfer option carries — the service kits it pushes past their dates and the value that deferral holds — and the acknowledgement it requires.',
     template:
-      'Transferring the sets to Brno defers {kitsDelayed} Brno service kits past their own dates, and the value that deferral carries is {valueDeferredEur}. That side effect is the one a planner acknowledges before the plan can be approved.',
+      'Transferring the sets to Brno defers {kitsDelayed} Brno service kits past their own dates, and the value that deferral carries is EUR {valueDeferredEur}. That side effect is the one a planner acknowledges before the plan can be approved.',
     records: [
       { kind: 'exception', id: 'EXC-2026-1184' },
       { kind: 'solver-case', id: 'CASE-1184' },

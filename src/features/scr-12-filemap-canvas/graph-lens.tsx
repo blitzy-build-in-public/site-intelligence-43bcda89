@@ -61,10 +61,12 @@
  * map and graph of this application reaches a screen inside `src/components/chart-frame.tsx`, which
  * owns the `<figure>`, the `<figcaption>`, the "View as table" control and the simulation label, so
  * this file renders none of those and hands the frame the rows it needs instead: one row per node,
- * with its lane, its label, its family, its pin summary and its place on the traced path. The pin
- * summaries are the payload's own computed counts, which is why the frame carries the `Simulated
- * calculation` member of `SIM_LABELS` — the label is imported from the type surface and never written
- * here, so it cannot drift from specification 5.3.
+ * with its lane, its label, its family, its pin summary and its place on the traced path, and one row
+ * for every lane the drawing shows with no node in it — the Lines lane always, and any lane a narrowed
+ * payload empties — carrying the drawing's own empty-lane sentence. The pin summaries are the payload's
+ * own computed counts, which is why the frame carries the `Simulated calculation` member of
+ * `SIM_LABELS` — the label is imported from the type surface and never written here, so it cannot
+ * drift from specification 5.3.
  *
  * THE "OPEN PART" CONTROL IS NOT THIS FILE'S (rule P-8, AAP 0.12.4). `src/components/dependency-graph.tsx`
  * renders it once, disabled, carrying the exact stage string `Arrives in stage S4`; a copy here would
@@ -110,6 +112,7 @@ import {
   DEPENDENCY_GRAPH_TEXT,
   DependencyGraph,
 } from '../../components/dependency-graph';
+import type { DependencyGraphLane } from '../../components/dependency-graph';
 import type { GraphEmphasisDirection } from '../../components/dependency-graph';
 import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from '../../components/graph-vocabulary';
 
@@ -200,6 +203,23 @@ export const GRAPH_LENS_TEXT = {
     both: 'Upstream and downstream',
     none: 'Not on the path',
     noSelection: 'No node selected',
+  },
+
+  /**
+   * The words the table view uses for a lane the drawing shows and the payload places no node in.
+   *
+   * The drawing keeps every lane of `DEPENDENCY_GRAPH_LANES` on screen and states
+   * `DEPENDENCY_GRAPH_TEXT.emptyLane` inside a lane the payload carries no node of — the Lines lane
+   * always, because the topology holds no line record at all, and any other lane a narrowed payload
+   * empties. The row's node cell prints that same sentence, so one lane is described in one way whether
+   * it is read off the drawing or out of the table; the family cell states that no node family stands
+   * behind the lane, and the path cell that there is no node to place on a traced path, because the two
+   * columns cannot be left blank (rule B-3). The pin cell takes the drawing's own no-pins wording
+   * instead, because the pin vocabulary belongs to the drawing and is imported rather than restated.
+   */
+  emptyLane: {
+    family: 'No node family in this view',
+    path: 'No node to trace',
   },
 } as const;
 
@@ -356,8 +376,9 @@ interface LaneGroup {
  * The lanes come from `DEPENDENCY_GRAPH_LANES` rather than from a second list written here, so the
  * drawing's columns and this lens's table view cannot disagree about how many lanes there are or what
  * they are called. A lane the payload carries no node family for — the one stage whose records belong to
- * the stage that opens it — is skipped: the drawing already states that it holds "No nodes in this
- * view", and a table cannot show a lane it has no row for.
+ * the stage that opens it — is skipped here, because this list answers what the drawing lays out and what
+ * the traced path walks; the table view states such a lane from `DEPENDENCY_GRAPH_LANES` itself, in
+ * {@link buildRows}, so the lane the drawing fills with its empty-lane sentence also takes a row.
  */
 function laneGroups(topology: Topology): readonly LaneGroup[] {
   const groups: LaneGroup[] = [];
@@ -529,29 +550,38 @@ export function traceGraphPath(
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One row of the lens's table view: everything the drawing states about one node, as text.
+ * One row of the lens's table view: everything the drawing states about one mark, as text.
  *
- * The row holds no computed figure of its own (rule P-6): the lane, the label, the family and the pin
- * counts are the payload's, and the path word is the trace above in words. What the row adds is the
- * one thing the drawing cannot say to a reader who cannot see it — the emphasis, stated (rule B-3).
+ * A row states either a node of the payload or a lane the drawing shows without one, which is why its key
+ * is a row key rather than the node's identifier: a lane's row takes the lane's identifier, so a lane and
+ * a node can never collide and a re-render never remounts a row. The row holds no computed figure of its
+ * own (rule P-6): the lane, the label, the family and the pin counts are the payload's, and the path word
+ * is the trace above in words. What the row adds is the one thing the drawing cannot say to a reader who
+ * cannot see it — the emphasis, stated (rule B-3).
  */
 export interface GraphLensRow {
-  /** The node's own identifier: the row key, and the key the two lenses share as a selection. */
-  readonly nodeId: string;
+  /** The stable key of the row: the node's own identifier, or the lane identifier of an empty lane. */
+  readonly rowKey: string;
 
-  /** The lane heading the node sits under, as the drawing prints it. */
+  /** The lane heading the row sits under, as the drawing prints it. */
   readonly lane: string;
 
-  /** The node's name, exactly as the payload spells it (rule P-7). */
+  /** The node's name as the payload spells it (rule P-7), or the sentence an empty lane is stated with. */
   readonly label: string;
 
-  /** The node's family, in the word the drawing's accessible name uses for it. */
+  /** The node's family, in the word the drawing's accessible name uses for it, or why a lane has none. */
   readonly family: string;
 
-  /** The node's evidence pins, counted by state from the payload's own tally. */
+  /**
+   * The node's evidence pins, counted by state from the payload's own tally, or the drawing's own no-pins
+   * wording for a lane that holds no node.
+   */
   readonly pins: string;
 
-  /** Where the node lies relative to the selection: on the traced path, or off it. */
+  /**
+   * Where the node lies relative to the selection — on the traced path or off it — or the word a lane with
+   * no node prints in the same column.
+   */
   readonly path: string;
 }
 
@@ -587,23 +617,69 @@ function pathWordFor(nodeId: string, trace: GraphLensTrace): string {
 }
 
 /**
- * Every row of the table view: one per node, in lane order and then in the payload's own order.
+ * One lane the drawing shows without a node, as a row of the table view.
  *
- * A lane the payload carries no nodes for contributes no row rather than a placeholder one, for the
- * same reason the drawing states the empty lane inside the drawing: a row with no node would be a row
- * about nothing.
+ * The drawing keeps every lane of `DEPENDENCY_GRAPH_LANES` on screen and states
+ * {@link DEPENDENCY_GRAPH_TEXT.emptyLane} inside a lane the payload carries no node of: the Lines lane
+ * always, because the topology holds no line record at all, and any other lane a narrowed payload
+ * empties. The table states that lane with the drawing's own sentence, so a reader who cannot see the
+ * drawing learns the lane exists and holds nothing, instead of counting the lanes and finding one
+ * missing (success criterion 9). Its pin cell takes the drawing's own no-pins wording, because the pin
+ * vocabulary is the drawing's and is imported rather than restated here.
+ *
+ * @param lane The lane the drawing shows without a node.
+ * @returns The row.
+ */
+function emptyLaneRowOf(lane: DependencyGraphLane): GraphLensRow {
+  return {
+    rowKey: `lane:${lane.id}`,
+    lane: lane.label,
+    label: DEPENDENCY_GRAPH_TEXT.emptyLane,
+    family: GRAPH_LENS_TEXT.emptyLane.family,
+    pins: DEPENDENCY_GRAPH_TEXT.noPins,
+    path: GRAPH_LENS_TEXT.emptyLane.path,
+  };
+}
+
+/**
+ * Every row of the table view: one per node, in lane order and then in the payload's own order, and one
+ * for every lane the drawing shows with no node in it.
+ *
+ * The walk is over `DEPENDENCY_GRAPH_LANES` rather than over `laneGroups`, because the table owes a row
+ * to a lane the drawing shows even where that lane holds no node — `laneGroups` answers the drawing's own
+ * question, which lanes carry nodes to draw, and it is left untouched so the drawing's layout and the
+ * traced path stay exactly what they were. The lane order, the lane headings and the sentence an empty
+ * lane prints all come from the drawing, so the two representations of the payload cannot disagree about
+ * how many lanes there are, what they are called or which of them holds nothing.
+ *
+ * @param topology The payload the drawing draws and the table prints.
+ * @param trace The path the selection traced, which each node's path cell states in words.
+ * @returns One row per node, and one row per lane the drawing shows empty.
  */
 function buildRows(topology: Topology, trace: GraphLensTrace): readonly GraphLensRow[] {
-  return laneGroups(topology).flatMap((group) =>
-    group.nodes.map((node) => ({
-      nodeId: node.id,
-      lane: group.label,
-      label: node.label,
-      family: NODE_FAMILY_WORDS[node.kind],
-      pins: pinSummary(topology.pinsByNode[node.id]),
-      path: pathWordFor(node.id, trace),
-    })),
-  );
+  const rows: GraphLensRow[] = [];
+
+  for (const lane of DEPENDENCY_GRAPH_LANES) {
+    const nodes = lane.kind === null ? [] : nodesOfFamily(topology, lane.kind);
+
+    if (nodes.length === 0) {
+      rows.push(emptyLaneRowOf(lane));
+      continue;
+    }
+
+    for (const node of nodes) {
+      rows.push({
+        rowKey: node.id,
+        lane: lane.label,
+        label: node.label,
+        family: NODE_FAMILY_WORDS[node.kind],
+        pins: pinSummary(topology.pinsByNode[node.id]),
+        path: pathWordFor(node.id, trace),
+      });
+    }
+  }
+
+  return rows;
 }
 
 /**
@@ -622,9 +698,15 @@ const COLUMNS: readonly TableColumn<GraphLensRow>[] = [
   { id: 'path', header: GRAPH_LENS_TEXT.columns.path, render: (row) => row.path },
 ];
 
-/** The stable row key of the table view: the node's own identifier, so a re-render never remounts one. */
-function rowKey(row: GraphLensRow): string {
-  return row.nodeId;
+/**
+ * The stable row key of the table view: a node's own identifier, or the lane identifier of a lane the
+ * drawing shows empty, so a re-render never remounts a row.
+ *
+ * @param row The row to key.
+ * @returns Its key.
+ */
+function rowKeyOf(row: GraphLensRow): string {
+  return row.rowKey;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -763,7 +845,7 @@ export function GraphLens({
       caption: GRAPH_LENS_TEXT.tableCaption,
       columns: COLUMNS,
       rows: buildRows(topology, trace),
-      getRowKey: rowKey,
+      getRowKey: rowKeyOf,
     }),
     [topology, trace],
   );

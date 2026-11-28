@@ -7,9 +7,11 @@
  * identifier is set in the mono face; that severity and status each render as an icon *and* a visible
  * label inside their own indicator (rule B-3), and that the days-to-impact figure carries the exact
  * §5.3 label for a computed figure on the figure itself, with a trigger that opens its evidence
- * (rule P-1); that every node of the impact chain is a focusable control opening **that** node's own
- * evidence, that `Escape` returns focus to the node it was opened from, and that a node with no
- * evidence reference is static text with no focus stop (rule P-8); that the projection labels its zero
+ * (rule P-1); that the owner is shown as the person the roster records for that identifier, and as
+ * the identifier itself when the bound adapter names no roster; that every node of the impact chain
+ * is a focusable control opening **that** node's own evidence, that `Escape` returns focus to the
+ * node it was opened from, and that a node with no evidence reference is static text with no focus
+ * stop (rule P-8); that the projection labels its zero
  * reference and draws every reading the records state, a negative one included, because `LineChart`
  * never clamps one, that its two axes carry the names the canvas dock gives the same figure, and that
  * it shades the idle window the plotted series' own zero closing days span — the designated option's
@@ -77,6 +79,12 @@ import { STATUS_LABEL_CLASS } from '../../components/status-indicator';
 import { TIMELINE_DOCK_TEXT } from '../../components/timeline-dock';
 import { CONTROL_STRUCTURE_CLASSES } from '../../components/tooltip';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
+/*
+ * The capability's own type, imported as a type only: it is erased at compile time, so the module it
+ * is declared in is never loaded and the port stays the one boundary this suite reaches a record
+ * through (rule P-2).
+ */
+import type { DemonstrationControls } from '../../services/demonstration-controls';
 import {
   ALREADY_OWNER_REASON,
   APPROVAL_GATE_SOURCE,
@@ -409,6 +417,22 @@ const ELSEWHERE_SCOPED_USER: ActiveUser = {
   homeRoute: '/overview',
 };
 
+/**
+ * The one persona the roster holds: the exception's own owner identifier, under the name and role the
+ * records state for it (rule P-6).
+ *
+ * The identifier is the fixture's, so the screen can only satisfy a case by resolving the owner it was
+ * handed against the roster it was handed, and the role is one the contracts §3 vocabulary names.
+ */
+const OWNER_PERSONA: ActiveUser = {
+  id: OWNER_ID,
+  name: 'Fixture owner',
+  role: 'material-planner',
+  plantIds: [PLANT_ID],
+  permissions: ['exception.read'],
+  homeRoute: '/overview',
+};
+
 /** The payload a healthy read resolves to, built once and varied per case through {@link detail}. */
 function detail(overrides: Partial<ExceptionDetail> = {}): ExceptionDetail {
   return {
@@ -577,6 +601,31 @@ function evidenceEnvelope(): Result<Evidence> {
   };
 }
 
+/**
+ * The envelope the persona roster resolves to: one persona, the owner the exception's own
+ * identifier names, so a case proves the screen joined two records rather than printed a name.
+ */
+function rosterEnvelope(): Result<ActiveUser[]> {
+  return {
+    data: [{ ...OWNER_PERSONA }],
+    meta: { freshness: [...FRESH_SOURCES], simulated: true, traceId: TRACE_ID },
+  };
+}
+
+/**
+ * The demonstration capability a case supplies when the roster is to name the exception's owner.
+ *
+ * `listPersonas` is the member the screen reads. `getActiveUser` and `switchRole` are the capability's
+ * other two members and this screen calls neither — "assign to me" reads its persona from
+ * `useActiveUser()` — so each refuses rather than answering, and a later read of one is reported
+ * instead of passing on a fixture that quietly invented an identity.
+ */
+const ROSTER_DEMONSTRATION: DemonstrationControls = {
+  getActiveUser: () => Promise.reject(new Error('the investigation screen reads no acting persona')),
+  switchRole: () => Promise.reject(new Error('the investigation screen switches no role')),
+  listPersonas: () => Promise.resolve(rosterEnvelope()),
+};
+
 /** The permission the refused read names, from the contracts §7.1 vocabulary. */
 const REQUIRED_PERMISSION: Permission = 'exception.read';
 
@@ -636,9 +685,14 @@ const port = vi.hoisted(() => ({
  * when a persona exists, holds the permission the adapter's writes require over the exception's plant and
  * — for the assignment — does not already own the record. A case that wants a disabled control sets the
  * persona or the role list here rather than reaching into the screen.
+ *
+ * `demonstration` is the capability the screen names the owner through, and `null` is the shape an
+ * adapter without identity reports, so every case written before that read keeps the identifier the
+ * record states. A case about the owner's name supplies the roster for its own run.
  */
 const session = vi.hoisted(() => ({
   activeUser: null as ActiveUser | null,
+  demonstration: null as DemonstrationControls | null,
   rolesWithWork: null as Role[] | null,
 }));
 
@@ -649,14 +703,14 @@ const session = vi.hoisted(() => ({
  * Every hook the rendered tree can reach is exported, not only the ones the screen calls:
  * `evidence-drawer.tsx` reads `useService()`, the shell's provider is stubbed as a pass-through, the
  * persona roster is stubbed with the roles the screen names in a disabled control's sentence, and the
- * demonstration capability is stubbed with the module's own "none bound" value so a component that
- * starts reading it finds a shape rather than `undefined`.
+ * demonstration capability is stubbed with the module's own "none bound" value unless a case supplies
+ * one, so a component that starts reading it finds a shape rather than `undefined`.
  */
 vi.mock('../../services/service-provider', () => ({
   useService: () => port,
   useActiveUser: () => session.activeUser,
   useRolesHolding: () => session.rolesWithWork,
-  useDemonstration: () => null,
+  useDemonstration: () => session.demonstration,
   ServiceProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
@@ -958,6 +1012,9 @@ beforeEach(() => {
   });
 
   session.activeUser = ACTIVE_USER;
+  /* No demonstration capability by default: the shape an adapter without identity reports, so the
+     facts show the owner's own identifier unless a case supplies a roster to name them from. */
+  session.demonstration = null;
   session.rolesWithWork = [...ROLES_WITH_WORK];
 });
 
@@ -1004,9 +1061,30 @@ describe('SCR-03 investigation screen', () => {
       expect(within(facts).getByText(INVESTIGATION_TEXT.statusLabel)).toBeVisible();
       expectStatusOf(facts, STATUS_LABEL);
 
-      // The owner is the record's own identifier rather than a name this screen resolved.
+      // No roster is bound, so the owner is the record's own identifier rather than a resolved name.
       expect(within(facts).getByText(INVESTIGATION_TEXT.ownerLabel)).toBeVisible();
       expect(within(facts).getByText(EXCEPTION.ownerId)).toBeVisible();
+    });
+
+    it('names the owner as the person the roster records for that identifier, the way the role switcher does', async () => {
+      session.demonstration = ROSTER_DEMONSTRATION;
+
+      renderScreen();
+      await settledScreen();
+
+      const facts = screen.getByRole('region', { name: INVESTIGATION_TEXT.factsGroup });
+
+      /* The name and the role, joined as the role switcher joins them and derived from the roster the
+         case handed the screen rather than retyped, so the case compares the screen against its own
+         input (rule P-6). */
+      const owner = await within(facts).findByText(
+        `${OWNER_PERSONA.name} · ${OWNER_PERSONA.role}`,
+      );
+      expect(owner).toBeVisible();
+
+      /* Nothing is dropped either: once the roster names the person, the record's identifier is no
+         longer what the facts show in its place. */
+      expect(within(facts).queryByText(EXCEPTION.ownerId)).toBeNull();
     });
 
     it('labels the days-to-impact figure on the figure itself and opens its evidence from the keyboard', async () => {
