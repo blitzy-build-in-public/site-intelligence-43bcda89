@@ -165,7 +165,13 @@ export interface LineBand {
   readonly label: string;
 }
 
-/** Props of {@link LineChart}. */
+/**
+ * What the caller of {@link LineChart} supplies: the series to draw, each point already carrying
+ * the formatted value text its mark announces and the reference that point opens, beside the
+ * horizontal references, dated markers and shaded spans the reading needs. Those annotations must
+ * belong to the series and the dates beside them, because the chart draws geometry only and
+ * derives no reading of its own.
+ */
 export interface LineChartProps {
   /**
    * The series to draw, in the order they should be read. Required: a chart with no series draws its

@@ -646,7 +646,13 @@ function requestRowKeyOf(row: PendingRequestRow): string {
  * The screen — AAP 0.12.4 SCR-07, rules P-4 and P-1
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link PolicyDetailScreen}. */
+/**
+ * What the router hands SCR-07's policy detail: the shell's plant and product selection, and nothing
+ * else — the policy comes from the `:policyId` parameter, which the screen reads. The selection is
+ * required even though `getPolicy` takes no scope, because it is what keys the read: a change in the
+ * top bar re-reads the policy the way every other screen's reads do, while the payload stays the
+ * records the acting role may see (AAP 0.6.2, rule P-2).
+ */
 export interface PolicyDetailScreenProps {
   /**
    * The shell's plant and product selection.

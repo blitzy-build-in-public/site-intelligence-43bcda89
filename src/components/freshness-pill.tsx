@@ -91,7 +91,12 @@ const PILL_CLASSES = {
   detail: 'text-text-secondary',
 } as const;
 
-/** Props of {@link FreshnessPill}. */
+/**
+ * What the top bar's strip hands {@link FreshnessPill}: one modelled source's `SourceHealth`,
+ * taken whole, so a state can never be printed beside another source's instant. A caller that has
+ * an age passes one already derived from that same record in `src/domain/aggregation`; the pill
+ * measures nothing itself (AAP §0.2.1).
+ */
 export interface FreshnessPillProps {
   /**
    * The source's record as the service supplied it: its identity, the name to print, how current its

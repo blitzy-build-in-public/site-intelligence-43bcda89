@@ -365,7 +365,12 @@ export interface ProductHealthRow {
   readonly figures: readonly ProductHealthFigure[];
 }
 
-/** Props of {@link CanvasRightStack}. */
+/**
+ * The two groups the stack shows, each in the order the caller supplied, and what selecting an urgent
+ * row does. The urgency order and the row window are the port's, so the caller hands over the rows it
+ * read and this stack sorts, slices and recounts none of them; a caller that supplies no selection
+ * handler gets rows that open the exception's own page instead (rule P-8).
+ */
 export interface CanvasRightStackProps {
   /**
    * The urgent exceptions, exactly as the service ordered and limited them.
@@ -424,7 +429,12 @@ function Field({ caption, children }: FieldProps): ReactElement {
   );
 }
 
-/** Props of {@link UrgentExceptionCard}. */
+/**
+ * One exception as the service returned it, and what activating the card's control does with the
+ * record's own identifier. The card re-orders and rewrites nothing, so a caller passes the row it was
+ * given, and the handler either selects that exception where the screen keeps a shared selection or
+ * opens its page where it does not.
+ */
 interface UrgentExceptionCardProps {
   /** The row exactly as the service returned it. Read, never re-ordered or altered. */
   readonly exception: ExceptionRow;
@@ -521,7 +531,12 @@ function UrgentExceptionCard({ exception, onActivate }: UrgentExceptionCardProps
   );
 }
 
-/** Props of {@link ProductHealthCard}. */
+/**
+ * The health card shows one row of the display shape this component consumes: the identifier and name
+ * that row's record states, the state when the caller has one to state, and each figure with the
+ * caption, reference and label that figure's owner supplies — so a caller builds the row from records
+ * it holds rather than from numbers, captions or references of its own.
+ */
 interface ProductHealthCardProps {
   /** The product's row, in the display shape this component consumes. */
   readonly product: ProductHealthRow;

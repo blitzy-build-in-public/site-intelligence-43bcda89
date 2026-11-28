@@ -515,7 +515,11 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
  */
 const INBOX_QUERY: ListQuery = {};
 
-/** Props of {@link ApprovalsScreen}. */
+/**
+ * What the shell hands the inbox is only its plant and product selection, because the query the screen
+ * sends is fixed — it asks for every status — so the selection reaches the port as the read's scope and
+ * the rows are the service's answer rather than a filter applied here.
+ */
 export interface ApprovalsScreenProps {
   /**
    * The shell's plant and product selection.

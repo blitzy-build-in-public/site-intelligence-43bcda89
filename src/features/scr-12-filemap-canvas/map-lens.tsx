@@ -351,7 +351,13 @@ const NO_NODE_EVIDENCE: (node: TopologyNode) => string | undefined = () => undef
  * The component
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link MapLens}. */
+/**
+ * The network the lens draws and prints as a table, the selection it shares with the graph lens beside
+ * it, and the optional atlas overlay and evidence mapper. The selection only ever passes through, so a
+ * caller keeps handing the same pair to both lenses and neither holds a copy that could disagree; a
+ * caller that supplies no mapper leaves the drawing opening no drawer rather than one for a record it
+ * was never given (rule P-6).
+ */
 export interface MapLensProps {
   /**
    * The network to draw and to print as a table, exactly as `getTopology` returned it.

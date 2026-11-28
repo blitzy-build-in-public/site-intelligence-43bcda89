@@ -953,7 +953,11 @@ function DetailField({ label, children }: DetailFieldProps): ReactElement {
   );
 }
 
-/** Props of {@link AuditDetailDrawer}. */
+/**
+ * The event the trail's read returned and the dismissal the drawer reports. The drawer traps focus and
+ * closes on `Esc` or on its own control, but the caller holds the open event and the row that opened
+ * it, so it is the caller that clears that state and returns focus to the row.
+ */
 interface AuditDetailDrawerProps {
   /** The event whose detail is open, exactly as the trail read returned it. */
   readonly auditEvent: AuditEvent;
@@ -1094,7 +1098,11 @@ function AuditDetailDrawer({ auditEvent, onClose }: AuditDetailDrawerProps): Rea
  * The verification report
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link VerificationReportPanel}. */
+/**
+ * The report one activation of "Verify chain" returned, exactly as the service produced it: the panel
+ * prints that report's own count and the position of its first break, so a caller passes the last
+ * report rather than a summary of it, and no figure on the panel is one the report does not carry.
+ */
 interface VerificationReportPanelProps {
   /** The report the last activation returned, exactly as the service produced it. */
   readonly report: ChainReport;
@@ -1247,7 +1255,11 @@ const COLUMNS: readonly TableColumn<AuditEvent>[] = [
  */
 const TRAIL_READ = 'listAuditEvents';
 
-/** Props of {@link AuditScreen}. */
+/**
+ * The shell's plant and product selection reaches the trail keyed into its cache entry rather than into
+ * the request, because the trail is the role's to read and not a plant's: a selection change re-reads
+ * the events without changing which of them this role may see.
+ */
 export interface AuditScreenProps {
   /**
    * The shell's plant and product selection.

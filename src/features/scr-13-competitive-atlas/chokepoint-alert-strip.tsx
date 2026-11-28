@@ -63,7 +63,15 @@ import { StatusIndicator } from '../../components/status-indicator';
 import { SIM_LABELS } from '../../types';
 import type { Chokepoint, SimLabel } from '../../types';
 
-/** Props of {@link ChokepointAlertStrip}. */
+/**
+ * The crossings the pack serves, and the wording that names the band, introduces its list and
+ * states what it shows when the pack records none. The band prints one alert per crossing it is
+ * handed, in the order it was handed them, and reads nothing else about them: the overlap and the
+ * competitors' buffer days are the chokepoint table's columns, so a caller that narrowed or
+ * re-ordered the list has decided what a reader is alerted to (AAP 0.8). Each alert is market
+ * intelligence carrying the pack's own label, which is why the caller supplies no label of its own
+ * (rule P-5).
+ */
 export interface ChokepointAlertStripProps {
   /**
    * The crossings the atlas serves, in the order the service supplied them.

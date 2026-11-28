@@ -1195,7 +1195,14 @@ const LANE_STROKE = 1;
  * The component
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link MapCanvas}. */
+/**
+ * What the canvas screen hands the map lens: the topology it read through the port, the atlas
+ * payload when S3 supplies one, and the controls' state — zoom level, view preset and selected
+ * node — together with the handlers that report a reader's change. Every one of those is
+ * controlled rather than held here, so the graph lens beside the map is told the same level and
+ * the same selection (specification §6.2), and the mapper is required because a node drawn without
+ * one would be a mark a reader cannot inspect.
+ */
 export interface MapCanvasProps {
   /**
    * The topology the lens draws: the five node families, the lanes joining them and the pin counts of

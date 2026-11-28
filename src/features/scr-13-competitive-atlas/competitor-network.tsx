@@ -431,7 +431,14 @@ const RECEDED_LANE_STROKE = CLIENT_LANE_STROKE;
  * The public surface
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link CompetitorNetwork}. */
+/**
+ * What the atlas screen hands the network view: one record family per side of the overlay plus the
+ * crossings the pack records, which this component places in one fixed frame and draws as
+ * separately named and labelled groups. The two families arrive as separate props and no member
+ * here combines them, so no first-party value meets a market-intelligence one in a mark, a group or
+ * a figure (rule P-5, AAP 0.8). Selection is controlled, so the caller owns it and this component
+ * only reports what a reader activated.
+ */
 export interface CompetitorNetworkProps {
   /**
    * The market-intelligence competitor networks drawn over the client's own sites, in the order the
@@ -1745,7 +1752,15 @@ function markOf(placed: PlacedSite, emphasis: FamilyEmphasis): JSX.Element {
   );
 }
 
-/** Props of {@link InteractiveMark}: the scaffolding every activateable mark shares. */
+/**
+ * The scaffolding every activateable mark of this drawing supplies: the entity a press is
+ * attributed back to, the accessible name that states what the mark is and which family it belongs
+ * to, and the selected state the drawing reports. A mark carries no press handler of its own — its
+ * group carries the entity identifier and the drawing resolves one press to the mark nearest it —
+ * so the handler here serves the keyboard alone, as a native button's would. The name is supplied
+ * rather than derived here, so nothing about a mark's provenance rests on a hue a reader has to
+ * recognise (rule B-3).
+ */
 interface InteractiveMarkProps {
   /** The site or crossing the mark reports, which the drawing's press resolution reads back. */
   readonly entityId: string;
@@ -1811,7 +1826,15 @@ function InteractiveMark({
   );
 }
 
-/** Props of {@link SiteMark}. */
+/**
+ * One site of a drawn group, already placed: the frame point its mark and its printed name start
+ * from, the family whose shape and hue it takes, and the crossing a lane through it traverses,
+ * which its accessible name states. Family is read from the placed record rather than from the
+ * group it is drawn in, so the shape, the hue and the printed name cannot disagree about which side
+ * of the overlay the site is on. The mark reports its activation instead of selecting anything
+ * itself, and it carries the answer the caller's mapper already gave for this site, so a mark never
+ * claims a record the atlas cannot show (rule P-8).
+ */
 interface SiteMarkProps {
   /** The site, with the point the frame puts it at. */
   readonly placed: PlacedSite;
@@ -1896,7 +1919,13 @@ function SiteMark({
   );
 }
 
-/** Props of {@link ChokepointMark}. */
+/**
+ * One shared crossing the frame could place: the point its dashed halo is centred on and the
+ * crossing's own name, which it prints beneath that halo beside the imported market-intelligence
+ * label. A crossing belongs to neither family of the overlay, so it takes no slot and never recedes
+ * behind one. The mark opens only the record the caller's mapper resolved for it, so a press never
+ * promises evidence the pack cannot show (rule P-8).
+ */
 interface ChokepointMarkProps {
   /** The crossing, with the point its halo is centred on. */
   readonly crossing: PlacedChokepoint;
@@ -1988,7 +2017,14 @@ function ChokepointMark({
  * The drawing's groups — the client's network, one group per competitor, the crossings, the band
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link LaneArcs}. */
+/**
+ * One family's lanes, already resolved to the paths they are drawn as, with the slot whose hue and
+ * dash pattern they take — `null` stating the client's own network, whose arcs are solid. A lane
+ * carries no identity a reader can select and opens no record, so the caller supplies nothing for
+ * it to reach and it is drawn as structure rather than as a control (rule P-8). Line style
+ * separates the families as well as hue does, so a reader who cannot tell two hues apart still
+ * reads which network an arc belongs to (rule B-3).
+ */
 interface LaneArcsProps {
   /** The lanes to draw. */
   readonly lanes: readonly PlacedLane[];
@@ -2046,7 +2082,13 @@ function LaneArcs({ lanes, slot, emphasis }: LaneArcsProps): ReactNode {
   );
 }
 
-/** Props of {@link SiteMarks}: every site mark of one group, and what each of them reaches. */
+/**
+ * Every site mark of one group, and what each of them reaches: the selection, the crossing a lane
+ * through each site traverses, the caller's mapper and the emphasis the group's family is painted
+ * at. The marks are produced in the order the group's sites were placed, so the payload's order
+ * reaches the drawing unchanged, and all of them share one activation route, which is what keeps a
+ * site mark and a crossing mark behaving alike for a reader who meets either.
+ */
 interface SiteMarksProps {
   /** The sites to draw, in the payload's order. */
   readonly sites: readonly PlacedSite[];
@@ -2091,7 +2133,13 @@ function SiteMarks({
   ));
 }
 
-/** Props of {@link ClientNetworkGroup}. */
+/**
+ * The client's own network as the drawing placed it, plus what every mark inside the group reaches:
+ * the selection, the crossing each site's lanes traverse, the caller's mapper and the emphasis this
+ * family is painted at. The group is the first-party side of the overlay and is named with the
+ * imported self-assessment label rather than with one of the seven §5.3 labels, so no mark inside
+ * it carries a competitor tag and none can be read as market intelligence (AAP 0.10, rule P-5).
+ */
 interface ClientNetworkGroupProps {
   /** The client's placed network. */
   readonly network: PlacedClientNetwork;
@@ -2147,7 +2195,14 @@ function ClientNetworkGroup({
   );
 }
 
-/** Props of {@link CompetitorNetworkGroup}. */
+/**
+ * One competitor's network, placed and slotted: the lanes and site marks the frame could place for
+ * it, and the emphasis its family carries while the screen reports an entity in view. The slot is
+ * resolved from the competitor's identifier through `competitorSlotOf`, so a network keeps
+ * specification §4.2's shape and hue whatever order the payload lists the networks in, and its
+ * marks keep the payload's own order. Everything inside the group is one market-intelligence
+ * family, which is why the caller supplies nothing here to tag its marks with (rule P-5).
+ */
 interface CompetitorNetworkGroupProps {
   /** One competitor's placed network, with the slot that selects its shape and hue. */
   readonly placed: PlacedNetwork;
@@ -2206,7 +2261,13 @@ function CompetitorNetworkGroup({
   );
 }
 
-/** Props of {@link ChokepointGroup}. */
+/**
+ * The crossings the frame could place, drawn as one group ahead of the two site families so a halo
+ * lies under the marks placed on it, and named with the imported market-intelligence label. A
+ * crossing belongs to neither side of the overlay — it is the pack's own record of where lanes meet
+ * — so the group takes no slot and no emphasis from the caller, and the mapper alone decides
+ * whether pressing one opens a record (rule P-5).
+ */
 interface ChokepointGroupProps {
   /** The crossings the frame can place. */
   readonly crossings: readonly PlacedChokepoint[];
@@ -2254,7 +2315,14 @@ function ChokepointGroup({
   );
 }
 
-/** Props of {@link SeriesBand}. */
+/**
+ * The rows the band prints, one per drawn series: the client's own first, then one per competitor
+ * network, each already carrying the swatch its marks are drawn as, the name it prints with the
+ * competitor tag where one is required, and the imported label its figures carry. The band is the
+ * drawing's own statement of which series it shows and how each one is labelled (rule P-1), so it
+ * derives nothing and only decides where each row prints; an empty list draws no band at all rather
+ * than a heading over nothing.
+ */
 interface SeriesBandProps {
   /** One row per drawn series: the client's first, then one per competitor. */
   readonly rows: readonly SeriesRow[];
@@ -2270,7 +2338,13 @@ interface SeriesBandProps {
  * @param props The rows to print.
  * @returns The band, or `null` when no series is drawn.
  */
-/** Props of {@link SeriesSwatchMark}. */
+/**
+ * The shape one band row prints, which is the shape that series' marks carry, and the point of the
+ * band the swatch is centred on. Passing the series' own slot rather than a hue is what ties a row
+ * to its marks without colour being the only cue (rule B-3): the client's filled circle, the
+ * crossing's dashed ring and the three competitor shapes each print themselves, decoratively,
+ * because the row's text carries the meaning.
+ */
 interface SeriesSwatchProps {
   /** The shape the series is drawn as, which is the shape its marks carry. */
   readonly swatch: SeriesSwatch;

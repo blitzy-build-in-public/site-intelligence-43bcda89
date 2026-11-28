@@ -52,7 +52,12 @@ import type { WriteBack, WriteBackState } from '../../types';
  */
 export const WRITE_BACK_TAG = 'Simulated write-back. Not demonstrated on a live system.';
 
-/** The props of {@link WriteBackTracker}. */
+/**
+ * The steps an approval's write-back would perform, plus the retry the tracker reports upward rather
+ * than performs. A caller that supplies a retry handler lets a failed step be repeated through the
+ * service; one that supplies none gets no retry control at all rather than a dead one, and the caller
+ * owns the flag that says a retry is already running (rules P-2 and P-8).
+ */
 export interface WriteBackTrackerProps {
   /**
    * The approval's write-back steps, exactly as the service returned them.
@@ -174,7 +179,11 @@ function statusOfState(state: WriteBackState): StepStatus {
   }
 }
 
-/** The props of {@link RetryControl}. */
+/**
+ * The reference of the step whose retry this control is, the caller's handler for it and whether that
+ * retry is already running. The handler is required here because the caller renders no control without
+ * one, so this component never offers a retry it could not report upward.
+ */
 interface RetryControlProps {
   /** The step's own reference, passed back to the caller when the reader retries. */
   readonly recordRef: string;
@@ -228,7 +237,12 @@ function RetryControl({ recordRef, onRetry, isRetrying }: RetryControlProps): Re
   );
 }
 
-/** The props of {@link WriteBackStep}. */
+/**
+ * A write-back step as the record states it, the handler it may retry through and whether that retry is
+ * running. The handler is optional here, unlike on the control itself, because a caller that supplied
+ * none must still see the step's description and state without a control that could never act
+ * (rule P-8).
+ */
 interface WriteBackStepProps {
   /** The step record, unmodified. */
   readonly writeBack: WriteBack;

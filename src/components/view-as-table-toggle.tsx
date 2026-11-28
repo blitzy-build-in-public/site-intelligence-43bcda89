@@ -82,7 +82,13 @@ const CONTROL_CLASSES = [
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
 
-/** Props of {@link ViewAsTableToggle}. */
+/**
+ * What `ChartFrame` in `./chart-frame.tsx` hands the control that switches representations: which
+ * representation is on screen, the handler that asks for the other one, and the chart's own title so
+ * that two toggles on one screen are told apart. The parent owns that state and this control only
+ * reads it, so the label always names the representation a reader would get rather than the one in
+ * front of them (success criterion 9).
+ */
 export interface ViewAsTableToggleProps {
   /** Which representation is on screen now, owned by the parent. */
   readonly viewing: Viewing;

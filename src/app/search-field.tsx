@@ -657,7 +657,14 @@ export function SearchField(): ReactElement {
  * The answer, the notice and the retry — the three surfaces the popover can hold
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link HitListbox}. */
+/**
+ * What the answered search hands the listbox: the hits grouped by the record kind the service grouped
+ * them under, the ids that tie the popover to the input, and the position the arrow keys address.
+ *
+ * The ids are supplied rather than generated here because they are the field's own — the input's
+ * `aria-controls` and `aria-activedescendant` point at elements this component only names — and the
+ * position is the whole answer's rather than a group's, so the listbox derives no selection itself.
+ */
 interface HitListboxProps {
   /** The answer, grouped by record kind, in the order the kinds first appear. */
   readonly groups: readonly HitGroup[];
@@ -734,7 +741,13 @@ function HitListbox({
   );
 }
 
-/** Props of {@link Notice}. */
+/**
+ * What one line of popover state is asked to say: the sentence the field composed, whether that is the
+ * busy caption or the answer that nothing matched.
+ *
+ * The field decides which of the two it is, so one notice serves both without branching on the read's
+ * own state; it states the line in a polite live region and offers nothing to operate (rule B-3).
+ */
 interface NoticeProps {
   /** The sentence to show. */
   readonly text: string;
@@ -757,7 +770,14 @@ function Notice({ text }: NoticeProps): ReactElement {
   );
 }
 
-/** Props of {@link FailureNotice}. */
+/**
+ * What a failed read is reported through: the whole sentence the field composed from its own lead and
+ * the service's message, and the callback that asks the same read again (AAP §0.2.2).
+ *
+ * The retry is required, so a failure never reaches a reader without the control that repeats it,
+ * and the notice holds no state of its own: pressing it re-runs the read the field owns rather than
+ * a copy taken when the failure was rendered.
+ */
 interface FailureNoticeProps {
   /** The whole sentence: the field's lead, then the service's own message when it gave one. */
   readonly message: string;

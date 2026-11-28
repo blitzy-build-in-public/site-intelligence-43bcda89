@@ -877,7 +877,14 @@ function approvalGateReasonOf(gate: Freshness | undefined): string | null {
  * The screen — AAP 0.12.4 SCR-04, rules P-2, P-8 and P-1
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link ScenarioComparisonScreen}. */
+/**
+ * What the router hands SCR-04: the shell's plant and product selection, and nothing else — the
+ * exception comes from the `:exceptionId` parameter the screen reads itself. The selection is optional
+ * because a route can mount the screen before the top bar's filters resolve; it reaches both cache
+ * keys, and `listApprovals` takes it as its own second argument while `getScenarioSet` takes no scope
+ * argument, so the adapter applies the acting role's plant scope to the set it answers (AAP 0.12.4,
+ * AAP 0.18.1).
+ */
 export interface ScenarioComparisonScreenProps {
   /**
    * The shell's plant and product selection, passed in because a screen never reads the shell's stores

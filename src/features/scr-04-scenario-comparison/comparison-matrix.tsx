@@ -294,7 +294,11 @@ const SCROLL_CLASS =
  * The cells that carry more than one record field
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of the confidence cell. */
+/**
+ * What the confidence cell renders: the option's confidence as the record states it, the level and
+ * the reason together, so a reader never meets a level that nothing explains. Neither half is derived
+ * here (rule P-6).
+ */
 interface ConfidenceValuesProps {
   /** The level and the reason, taken together: a level without its reason explains nothing. */
   readonly confidence: Scenario['confidence'];
@@ -316,7 +320,11 @@ function ConfidenceValues({ confidence }: ConfidenceValuesProps): ReactElement {
   );
 }
 
-/** Props of the side-effect cell. */
+/**
+ * What the side-effect cell renders: the side effects the option carries, and the one reference every
+ * figure among them opens — the scenario's own record, because a side effect carries no reference of
+ * its own. Both arrive as the record states them, and neither is derived here (rule P-6).
+ */
 interface SideEffectValuesProps {
   /** The side effects the option carries, exactly as the record states them. */
   readonly sideEffects: readonly SideEffect[];
@@ -542,7 +550,11 @@ const MEASURE_ROWS: readonly MeasureRow[] = [
  * One option the set held back
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link RejectedOption}. */
+/**
+ * What the matrix hands one held-back option: the `Rejected` record alone, which names the option and
+ * the constraint that blocked it. Both members are shown and neither is derived or softened, so the
+ * caller passes the record as the set stated it (rule P-6).
+ */
 interface RejectedOptionProps {
   /** The option set aside and the constraint that blocked it, exactly as the record states them. */
   readonly rejected: Rejected;

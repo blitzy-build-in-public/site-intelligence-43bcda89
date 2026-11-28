@@ -391,7 +391,13 @@ export interface GrantExceptionApprover {
   readonly name: string;
 }
 
-/** Props of {@link GrantExceptionDialog}. */
+/**
+ * What the screen that owns the grant flow hands the dialog: the policy the exception is requested
+ * against, its display label, the personas offered as the second approver, and what closing does. The
+ * policy arrives rather than being read, because the dialog collects the three terms and records one
+ * pending request and nothing else (rule P-2); it calls `onClose` on `Esc`, on Cancel and once a
+ * request is recorded, and never after a call that failed (rule P-8).
+ */
 export interface GrantExceptionDialogProps {
   /** The policy the exception is requested against. */
   readonly policyId: PolicyId;

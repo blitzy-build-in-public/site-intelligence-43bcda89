@@ -189,7 +189,13 @@ export interface BarSeries {
   readonly values: readonly BarSeriesValue[];
 }
 
-/** Props of {@link GroupedBarChart}. */
+/**
+ * What the caller of {@link GroupedBarChart} supplies: the clusters and the series compared inside
+ * each one, every label already formatted by the module that computed the figure, and the axis
+ * maximum the bars are scaled against. The maximum is the caller's because only it knows whether a
+ * fixed ceiling applies, and a domain derived here would let a bar added later re-scale a figure
+ * already compared (AAP §0.12.4).
+ */
 export interface GroupedBarChartProps {
   /** The clusters along the axis, in the order they are drawn. Required: none renders no surface. */
   readonly groups: readonly BarGroup[];

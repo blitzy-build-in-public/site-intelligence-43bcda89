@@ -282,7 +282,12 @@ export type OverviewNarrowing =
   | { readonly kind: 'plant'; readonly plantId: PlantId }
   | { readonly kind: 'date'; readonly date: IsoDate };
 
-/** Props of {@link OverviewScreen}. */
+/**
+ * What the shell hands SCR-01: the plant and product selection every read is narrowed by, and the
+ * handler that carries a figure's narrowing to the exception queue. The scope is required because a
+ * screen reads no shell store of its own (AAP 0.18.1); the handler is not, because a bar opens its
+ * own evidence whether or not the shell can take the gesture (rule P-8).
+ */
 export interface OverviewScreenProps {
   /**
    * The shell's plant and product selection, passed in because a screen never reads the shell's

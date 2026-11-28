@@ -97,7 +97,13 @@ export type MonoValueKind = 'money' | 'id' | 'timestamp' | 'hash';
  */
 export type FigureFormat = MonoValueKind | 'hours';
 
-/** Props of {@link MonoValue}. */
+/**
+ * What every surface that prints one of the interface's own figures hands {@link MonoValue}: the
+ * value exactly as the service produced it, and the one convention that applies to it stated
+ * rather than inferred. The pair is the contract — a kind that does not match the value formats it
+ * by the wrong rule, and a value with no formatted form is shown raw rather than as a plausible
+ * zero (AAP §0.8, contracts §1).
+ */
 export interface MonoValueProps {
   /**
    * The value exactly as the service produced it: a `Money` number for `kind="money"`, and an

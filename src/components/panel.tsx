@@ -2,7 +2,11 @@ import { useId } from 'react';
 import type { ReactNode } from 'react';
 
 /**
- * Props for {@link Panel}.
+ * What a caller grouping content under a caption hands {@link Panel}: the content to place on the
+ * second surface and, where the group has a name, the caption that becomes that region's
+ * accessible name when the panel renders as a section. The caption is optional, and a panel given
+ * none carries no accessible name of its own, so a group that must be announced needs one
+ * supplied.
  */
 export interface PanelProps {
   /** The grouped content, rendered directly inside the surface. */

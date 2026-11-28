@@ -332,7 +332,12 @@ const NOTICE_CLASSES =
  * The reference: the wrapper a figure reaches a screen through
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link EvidenceRef}. */
+/**
+ * What a figure hands {@link EvidenceRef}: the reference it carries in the service's own form and
+ * the figure itself, already formatted by the module that computed it. Both describe one record,
+ * and the visible value has to be the figure a reader is pointing at rather than a label for the
+ * evidence behind it, because it starts the trigger's accessible name (AAP §0.12.4, contracts §9).
+ */
 export interface EvidenceRefProps {
   /**
    * The reference the figure carries, in the service's own form — the identifier `getEvidence`
@@ -528,7 +533,12 @@ function reserveDockedColumn(): () => void {
   };
 }
 
-/** Props of {@link EvidenceDrawer}. */
+/**
+ * What a mount point hands {@link EvidenceDrawer} directly, for a screen that owns the open state:
+ * the reference `getEvidence` resolves, the handler that closes the panel, and, where a trigger
+ * announced the dialog, its id. The caller keeps that open flag, because the drawer never decides
+ * to close — the close control, `Escape` and the caller's own state all end in one `onClose`.
+ */
 export interface EvidenceDrawerProps {
   /**
    * The reference whose evidence is shown: the identifier `getEvidence` resolves, printed in the
@@ -739,7 +749,12 @@ export function EvidenceDrawer({ evidenceRef, onClose, id }: EvidenceDrawerProps
  * The record, as the four sections the plan fixes
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of the section renderer. */
+/**
+ * What the drawer hands its one section renderer: the reference the record was opened by, the record
+ * itself, and the six sources' freshness as the result's metadata reported it, so every section
+ * lands on the same record and the freshness printed beside a value is the read's own rather than
+ * one section's copy of it.
+ */
 interface EvidenceSectionsProps {
   /** The reference the figure carries, printed as the record behind the value. */
   readonly evidenceRef: string;
@@ -942,7 +957,12 @@ function ReferenceList({ label, values }: ReferenceListProps): ReactElement | nu
  * The failure a read can end in
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link FailureRegion}. */
+/**
+ * What a failed read leaves {@link FailureRegion} to explain: the `Problem` the service raised,
+ * carried whole so its own sentence is the one printed, or `null` for a rejection that arrived in
+ * another shape and so has no member to print, and the handler that repeats the read the region's
+ * one control offers.
+ */
 interface FailureRegionProps {
   /**
    * The failure that ended the read: the `Problem` the service raised, carried whole so its own

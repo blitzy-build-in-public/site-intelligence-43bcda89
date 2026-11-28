@@ -57,7 +57,13 @@ import { MonoValue, formatHours } from './mono-value';
 import type { FigureFormat } from './mono-value';
 import { StatusIndicator } from './status-indicator';
 
-/** Props of {@link MetricTile}. */
+/**
+ * What the calling screen hands {@link MetricTile}: the caption and the exact §5.3 label it chose
+ * for this figure, the figure exactly as the service computed it, and the reference that opens its
+ * evidence. The label and the reference are required rather than optional, so a tile cannot reach
+ * a screen without a record behind it or without stating which fixed string it carries — this
+ * component chooses neither (AAP §0.10).
+ */
 export interface MetricTileProps {
   /**
    * The tile's caption, rendered as the card's heading.

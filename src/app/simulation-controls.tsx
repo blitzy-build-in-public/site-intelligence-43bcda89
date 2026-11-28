@@ -597,7 +597,14 @@ export function SimulationControls(): ReactElement | null {
  * The open panel — AAP 0.12.1, rule B-3
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of the open panel: the mirror this popover holds and what each control asks for. */
+/**
+ * What the open panel is given: the mirror of what this popover last sent the adapter, the failure it
+ * has to report, and one callback per control the panel offers.
+ *
+ * The mirror and the failure are the caller's, so the panel displays the state the port resolved and
+ * holds none of its own: every press below asks the caller for a change, and the visible state moves
+ * only when that change comes back accepted (AAP 0.12.1).
+ */
 interface SimulationDialogProps {
   /** The screen state in effect, or `null` when none is. */
   readonly activeState: ScreenState | null;
@@ -825,7 +832,15 @@ function SimulationDialog(props: SimulationDialogProps): ReactElement {
  * One trigger, as a toggle — rule P-8, rule B-3
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link TriggerToggle}. */
+/**
+ * What the panel asks of one toggle: which trigger it produces, whether the adapter last accepted it,
+ * and the sentence that explains why it cannot act while a change is in flight.
+ *
+ * The pressed state is reported rather than held, because the caller mirrors only what the port
+ * resolved, so a refused change leaves the control showing the adapter's answer and not what the
+ * reader clicked; and a control that cannot act says why in `busyReason` instead of being taken out of
+ * the panel (rule P-8, rule B-3).
+ */
 interface TriggerToggleProps {
   /** The state or trigger the control produces, in words. */
   readonly label: string;

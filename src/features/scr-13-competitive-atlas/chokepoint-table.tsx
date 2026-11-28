@@ -97,7 +97,15 @@ import type { Chokepoint, CompetitorId, Provenance, SimLabel } from '../../types
  */
 export type CompetitorNameResolver = (competitorId: CompetitorId) => string | undefined;
 
-/** Props of {@link ChokepointTable}. */
+/**
+ * The crossings the pack serves, and the wording the calling screen gives this table's caption, its
+ * empty case and the company name printed beside a competitor identifier. What arrives is already
+ * the pack's own record: the table prints each crossing's overlap, each competitor's buffer days
+ * and the pack's contention note in the order the list holds them and never re-orders, ranks or
+ * totals one (AAP 0.8), so a caller that sorted the crossings has changed what the reader sees. The
+ * name resolver is the one thing the table cannot own, because those names are record content and
+ * not this module's (rule P-7).
+ */
 export interface ChokepointTableProps {
   /**
    * The crossings the atlas serves, in the order the service supplied them.
@@ -215,7 +223,13 @@ interface CompetitorBuffer {
   readonly bufferDays: number;
 }
 
-/** Props of the two competitor cells, which read the same list of pairs. */
+/**
+ * The pairs both competitor cells read, so a competitor's identifier and its day count stay on one
+ * line of one row, and the resolver that answers the company name printed beside it. The pairs
+ * arrive in the record's own order and are never filtered, totalled or sorted here: a competitor
+ * the crossing's record does not name does not use the crossing, and a zero for it would claim a
+ * buffer the record does not hold (rule P-5).
+ */
 interface CompetitorCellsProps {
   /** The competitors using the crossing, in the record's own order. */
   readonly buffers: readonly CompetitorBuffer[];

@@ -642,7 +642,11 @@ export function sandboxDisabledReason(input: {
  * The parts of one outcome
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of the surfaces that render one measured option. */
+/**
+ * What a surface that renders one measured option takes: the option exactly as the service returned
+ * it. Its own members are the figures on screen, so the record is passed whole rather than as a
+ * selection of fields, and nothing here derives one member from another (rule P-6).
+ */
 interface ScenarioRecordProps {
   /** The option exactly as the service returned it. Nothing here derives a member from it. */
   readonly scenario: Scenario;
@@ -761,7 +765,13 @@ function ResultRegion({ scenario, evidenceRef }: MeasuredRegionProps): ReactElem
   );
 }
 
-/** Props of {@link FailureRegion}. */
+/**
+ * What the sandbox hands a call that settled without a measurement: the rejection it caught, wrapped
+ * so a `Problem` can be absent, and the retry that repeats the call at the values the fields hold now.
+ * The rejection arrives whole because the message, the permission, the roles that hold it and the
+ * trace identifier are the service's own account, and the component neither summarises nor invents any
+ * of them (rule P-8).
+ */
 interface FailureRegionProps {
   /** The settled failure: the service's `Problem`, or `null` when the rejection carried none. */
   readonly failure: SandboxFailure;

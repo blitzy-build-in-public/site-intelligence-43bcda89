@@ -248,7 +248,16 @@ interface ThemeContextValue {
 /** A `null` default: a consumer outside the provider is a mistake, and `useTheme` says so. */
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-/** Props of `ThemeProvider`. */
+/**
+ * What the shell wraps in the theme: the content rendered under it, and the density the persona in
+ * force starts on (AAP 0.12.4).
+ *
+ * `defaultDensity` is a starting point rather than an instruction, because a density the reader has
+ * chosen always outranks it, and it is optional because a shell with no persona yet has none to hand
+ * over: a caller omits it rather than passing `undefined`, which `exactOptionalPropertyTypes` keeps
+ * distinct. This provider is the only reader of the two persisted preferences, so no caller passes
+ * them (contracts §1).
+ */
 interface ThemeProviderProps {
   readonly children: ReactNode;
   /**

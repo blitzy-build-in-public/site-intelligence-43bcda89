@@ -882,7 +882,12 @@ function exportBlockerOf({
  * The screen — AAP 0.12.4 SCR-07, rules P-4 and P-1
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link SovereigntyScreen}. */
+/**
+ * What the router hands SCR-07: the shell's plant and product selection, and nothing else. Neither
+ * read takes it — the declared configuration and the policy set are group-wide — but it keys both
+ * cache entries, so a change in the top bar re-reads the page while the payload stays the records the
+ * acting role may see (AAP 0.18.1, rule P-2).
+ */
 export interface SovereigntyScreenProps {
   /**
    * The shell's plant and product selection, passed in because a screen never reads the shell's

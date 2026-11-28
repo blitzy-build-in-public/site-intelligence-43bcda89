@@ -79,7 +79,13 @@ import type { StatusMeaning } from '../../components/status-indicator';
 import { LEDGER_WINDOW_DAYS } from '../../types';
 import type { LedgerRow, SimLabel } from '../../types';
 
-/** Props of {@link OutboundLedger}. */
+/**
+ * What the sovereignty screen hands the ledger: the rows the aggregate produced, the two exact §5.3
+ * labels the columns carry, the region's name and the sentence an empty ledger shows. Both labels are
+ * required because a column cannot label itself — the four declared columns print the record's
+ * declaration and the two count columns a computed figure, and a reader must see which is which
+ * (rule P-1, rule P-4).
+ */
 export interface OutboundLedgerProps {
   /**
    * The ledger as the service computed it: one row per declared endpoint, in the order the service

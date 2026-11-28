@@ -151,7 +151,13 @@ const MEANING_ICONS = {
  */
 export const PENDING_CLOCK_ICON: ReactNode = <Clock aria-hidden="true" focusable="false" />;
 
-/** Props of {@link StatusIndicator}. */
+/**
+ * What every surface that reports a status hands {@link StatusIndicator}: the meaning to express
+ * and the words to show, taken by the caller from the record it read rather than from a vocabulary
+ * of this module's own. Both are required, so a status is never drawn as a colour without an icon
+ * and a label beside it (rule B-3), and the shared mapping from a pin's state onto a meaning stays
+ * the only one in the application (contracts §4.2).
+ */
 export interface StatusIndicatorProps {
   /** The meaning to express. Required: it selects both the icon and the status colour. */
   readonly meaning: StatusMeaning;

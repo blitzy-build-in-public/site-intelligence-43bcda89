@@ -237,7 +237,13 @@ const SKELETON_BAR_WIDTHS = ['w-full', 'w-2/3', 'w-1/3'] as const;
  * Props
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link StateBoundary}. */
+/**
+ * What every screen hands {@link StateBoundary}: the state its records are in and its content,
+ * with the facts a warning or a denial cannot be stated without — the source behind a stale read,
+ * and the evidence a permission `Problem` carries. The state is optional because a screen whose
+ * records are current and complete is in none of the seven that specification §8 fixes, and those
+ * two records become required by contract exactly when their states are passed (AAP §0.12.4).
+ */
 export interface StateBoundaryProps {
   /**
    * The state the screen's records are in, or absent when no exceptional state holds.

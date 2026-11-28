@@ -148,7 +148,13 @@ export const RADAR_CHART_TEXT = {
  * The public surface
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link RadarChart}. */
+/**
+ * What the atlas screen hands {@link RadarChart}: the axes and the series exactly as the market
+ * pack states them, the identifier of the series it holds in view, and the mapper that resolves a
+ * reading's evidence. Every series stays its own polygon with its own label, so no member here
+ * combines two of them (rule P-5), and the mapper is required because a vertex may not lose its
+ * evidence silently (AAP 0.5.2).
+ */
 export interface RadarChartProps {
   /**
    * The radar's axes, in the order every series' `values` align to. Required.

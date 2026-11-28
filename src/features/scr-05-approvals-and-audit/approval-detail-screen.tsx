@@ -827,7 +827,12 @@ export function decisionEligibilityReason(
  * The comment field — this screen's label and hint over the `TextAreaField` primitive
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link CommentField}. */
+/**
+ * The comment as the screen holds it and the single callback that moves it: this field owns only the
+ * copy a shared textarea primitive must not — the visible caption and the hint that states the
+ * requirement — so a keystroke has to reach the screen that will send the text to the port rather
+ * than be kept here (AAP §0.5.2).
+ */
 interface CommentFieldProps {
   /** The comment as it stands, held by the screen. */
   readonly value: string;
@@ -876,7 +881,11 @@ function CommentField({ value, onChange }: CommentFieldProps): ReactElement {
  * The three decisions, and the acknowledgement that gates the first of them
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link DecisionButton}. */
+/**
+ * One decision's wording, its rank and the sentence that stops it: the blocked reason is `null`
+ * exactly when the control may act, and the component picks `ActionButton`'s enabled or disabled
+ * shape from it, so the explanation reaches the reader in the same control that refuses (rule P-8).
+ */
 interface DecisionButtonProps {
   /** The control's visible label, which is also its accessible name. */
   readonly label: string;
@@ -920,7 +929,12 @@ function DecisionButton({
   );
 }
 
-/** Props of {@link AcknowledgementToggle}. */
+/**
+ * One side effect's acknowledgement, carried as the plant whose record names it together with the
+ * reader's answer: the control's accessible name is composed from that plant, so a caller supplies
+ * the plan's own plant rather than a sentence, and the answer itself stays with the screen that will
+ * send it with the decision.
+ */
 interface AcknowledgementToggleProps {
   /** The plant the side effect lands on, as the record names it. */
   readonly plantId: PlantId;
@@ -971,7 +985,12 @@ function AcknowledgementToggle({
   );
 }
 
-/** Props of {@link SideEffectItem}. */
+/**
+ * One side effect as the plan's option records it, with the plant the plan lands on when the exception
+ * behind it could be read. The plant is optional because its absence is what withholds the
+ * acknowledgement and blocks the approval, so a caller passes the read's own answer and never a
+ * substitute name for a record it does not hold.
+ */
 interface SideEffectItemProps {
   /** The side effect, unmodified. */
   readonly sideEffect: SideEffect;
@@ -1031,7 +1050,12 @@ function SideEffectItem({
  * The policy refusal — a `'policy'` `Problem`, AAP 0.12.3
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link PolicyBlockPanel}. */
+/**
+ * A `'policy'` refusal as the service reported it — the rule that refused, the service's own sentence,
+ * the alternative the rule permits and the event the refusal appended — so the panel reports what was
+ * refused and creates nothing, and a caller hands over the record rather than a rewording of it
+ * (AAP 0.12.3).
+ */
 interface PolicyBlockPanelProps {
   /** The refusal the service reported. */
   readonly block: PolicyBlockRecord;
@@ -1081,7 +1105,12 @@ function PolicyBlockPanel({ block }: PolicyBlockPanelProps): ReactElement {
  * The write-back preview — the steps in the record's own order, AAP 0.12.4, T-08
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link WriteBackPreview}. */
+/**
+ * The approval's write-back steps as the record states them, in its own order: the preview prints the
+ * array untouched, so what T-08 checks — the steps in the seed's order — is the record's sequence
+ * rather than this component's, and a caller that sorted or filtered before passing would break that
+ * (AAP 0.12.4).
+ */
 interface WriteBackPreviewProps {
   /** The approval's write-back steps, exactly as the service returned them. */
   readonly writeBacks: readonly WriteBack[];
@@ -1150,7 +1179,12 @@ function failureOf(...errors: readonly unknown[]): unknown {
   return null;
 }
 
-/** Props of {@link ApprovalDetailScreen}. */
+/**
+ * What the shell hands the approval detail: its plant and product selection, which rides in the reads'
+ * cache keys and nowhere else. The approval itself arrives from the route parameter, and the service
+ * intersects the selection with the acting role's plant scope, so a selection change is a new read
+ * rather than a detail left over from the previous one.
+ */
 export interface ApprovalDetailScreenProps {
   /**
    * The shell's plant and product selection.

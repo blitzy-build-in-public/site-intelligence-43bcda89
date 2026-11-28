@@ -36,7 +36,12 @@ import type { ReactElement } from 'react';
 import { SelectField } from '../../components/select-field';
 import type { ModelCatalogue, ModelEntry } from '../../types';
 
-/** The props of {@link ModelSelector}. */
+/**
+ * What the assistant panel hands the model selector: the catalogue to present, the entry it currently
+ * holds selected, and the handler that reports a new choice. The selection is fully controlled — the
+ * component keeps no copy and applies no default of its own — so the caller owns which entry is
+ * current, and it owes the reader the reason whenever it disables the control (rule P-8).
+ */
 export interface ModelSelectorProps {
   /**
    * The catalogue to present, in the order the service serves it. Every option is one of its

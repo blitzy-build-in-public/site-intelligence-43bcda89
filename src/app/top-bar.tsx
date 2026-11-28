@@ -190,7 +190,14 @@ function Wordmark(): ReactElement {
  * The bar
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link TopBar}. */
+/**
+ * What the shell hands the top bar: the simulated-data badge it places at position six of the nine the
+ * specification fixes, in the order AAP §0.12.1 sets (rule P-1).
+ *
+ * The badge arrives as an element because `SimulatedDataBadge` is mounted once in the whole
+ * application and in this position, so the prop is required with no default: a default here would make
+ * this module a second mounting point and put two badges on every route.
+ */
 export interface TopBarProps {
   /**
    * The persistent simulated-data badge, created by the shell so rule P-1 has one mounting point.

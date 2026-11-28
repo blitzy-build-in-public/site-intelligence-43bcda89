@@ -531,7 +531,12 @@ const KEEP_SUPPLIED_ROW_ORDER = (): void => {
  * The card
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link OutcomeCard}. */
+/**
+ * One approval's two measurements and the record they are about: the plan as approved, the state its
+ * simulated write-backs left, and the reference every reading on the card opens. The caller passes the
+ * `getApprovalOutcome` response through as it stands, because which levers the resulting side was
+ * measured at is the service's decision rather than a choice this card leaves open (AAP §0.2.2).
+ */
 export interface OutcomeCardProps {
   /**
    * The plan as approved, measured at the option's own levers.

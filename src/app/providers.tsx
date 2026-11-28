@@ -393,7 +393,14 @@ function ShellProviders({ children }: { readonly children: ReactNode }): ReactEl
   return <ThemeProvider {...densityProps}>{children}</ThemeProvider>;
 }
 
-/** Props of {@link AppProviders}. */
+/**
+ * What the composition root wraps: the shell — its navigation, its top bar and the router outlet —
+ * rendered inside the cache, the service boundary and the theme, in that order (AAP 0.12.1).
+ *
+ * One child and no configuration: the cache, the bound adapter and the persona's density are this
+ * module's to build, so a caller cannot arrive with a second client or point the shell at another
+ * adapter.
+ */
 export interface AppProvidersProps {
   /** The shell, its navigation and the router outlet. */
   readonly children: ReactNode;

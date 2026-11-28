@@ -49,7 +49,14 @@ import type { SimLabel } from '../types';
 import { MonoValue } from './mono-value';
 import { StatusIndicator } from './status-indicator';
 
-/** Props of {@link SimulatedDataBadge}. */
+/**
+ * What the shell hands {@link SimulatedDataBadge}: the exact §5.3 label the demonstration-wide
+ * badge carries and, while the popover is available to it, the handler that opens that popover
+ * together with the popover's own open state. The caller decides whether the badge is a control at
+ * all — without the handler the same content renders as a non-interactive span, so no dead control
+ * exists (rule P-8) — and it owns the label, which this module never spells, never re-cases and
+ * never defaults (AAP §0.10).
+ */
 export interface SimulatedDataBadgeProps {
   /**
    * The exact specification §5.3 label the badge carries, supplied by the shell.

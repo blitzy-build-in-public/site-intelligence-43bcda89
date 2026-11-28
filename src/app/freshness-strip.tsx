@@ -405,7 +405,14 @@ function contentOf(reading: StripReading): ReactElement {
   );
 }
 
-/** Props of {@link Notice}. */
+/**
+ * What the strip hands its one notice: the sentence to state, already composed from the wording above
+ * and the service's own message.
+ *
+ * The text arrives whole because the wording has one owner in `FRESHNESS_STRIP_TEXT`, so a notice
+ * cannot carry a second account of what happened to the read; it states the line in a polite live
+ * region and offers nothing else (rule B-3).
+ */
 interface NoticeProps {
   /** The sentence to show, already composed from the wording above and the service's own message. */
   readonly text: string;

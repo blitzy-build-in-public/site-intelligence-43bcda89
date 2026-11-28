@@ -153,7 +153,11 @@ const EMPTY_CLASSES = 'min-w-0 break-words text-13 text-text-secondary';
  * One node
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of the node view that {@link ImpactChain} renders once per record. */
+/**
+ * What one node of the chain renders: the record the service supplied, and whether the connector that
+ * marks it as following another node is drawn. The connector belongs to the node's position rather
+ * than to the node, so the list decides it from the index and this view states only what it is given.
+ */
 interface ImpactChainNodeViewProps {
   /** The node, exactly as the service supplied it. */
   readonly node: ImpactChainNode;
@@ -216,7 +220,12 @@ function ImpactChainNodeView({ node, showConnector }: ImpactChainNodeViewProps):
  * The chain
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link ImpactChain}. */
+/**
+ * What the investigation screen hands the chain: the service's node sequence, the §5.3 label its
+ * figures carry when the service states one, and the sentence an exception without a chain shows. The
+ * order is the record's — the nodes are rendered as the array arrives, never sorted, grouped or
+ * reduced — so the caller passes the sequence unsorted (AAP §0.12.4, rule P-6).
+ */
 export interface ImpactChainProps {
   /**
    * The chain exactly as the service supplied it, in the supplied order.

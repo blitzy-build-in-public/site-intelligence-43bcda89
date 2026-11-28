@@ -841,7 +841,12 @@ const NO_SCOPE: Scope = { plants: [], products: [] };
  * The note form
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link NoteForm}. */
+/**
+ * What the screen hands its note form: the exception a note is recorded against, and the two outcomes
+ * the caller reacts to. The form makes the port's call itself, so no request and no payload is
+ * supplied — only the identifier the write targets, the dismissal, and the signal that the write
+ * landed and the reads it moved are stale.
+ */
 interface NoteFormProps {
   /** The exception the note is recorded against. */
   readonly exceptionId: ExceptionId;
@@ -949,7 +954,13 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
  * The screen
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link InvestigationScreen}. */
+/**
+ * What the router hands SCR-03: the shell's plant and product selection, and nothing else — the
+ * exception itself comes from the `:exceptionId` parameter, which the screen reads. The selection is
+ * optional because a route mounted before the top bar's filters resolve supplies none, and the screen
+ * then reads under an unnarrowed scope; it earns its place in the cache key rather than in the call,
+ * since the port narrows by the acting role's plant scope (AAP 0.6.2, 0.12.4).
+ */
 export interface InvestigationScreenProps {
   /**
    * The shell's plant and product selection.

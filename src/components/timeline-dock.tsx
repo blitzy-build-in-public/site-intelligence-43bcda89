@@ -216,7 +216,13 @@ const STOCK_COLUMNS = [
  * The component
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link TimelineDock}. */
+/**
+ * What the canvas screen hands the bottom dock: the selected exception's identifier and title, the
+ * solver's projected closing-stock series with the reference each of its points opens, and the
+ * audit page it read newest first. Both payloads arrive whole because the dock calls no port and
+ * holds no state of its own — it prints the head of the page and the record's own wording as they
+ * arrived, and formats no figure of its own (AAP §0.12.4).
+ */
 export interface TimelineDockProps {
   /**
    * The identifier of the selected exception, in the service's own form.

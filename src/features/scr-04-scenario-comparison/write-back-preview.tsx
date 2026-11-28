@@ -45,7 +45,12 @@ import type { StatusMeaning } from '../../components/status-indicator';
 import { SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type { SimLabel, WriteBack, WriteBackState } from '../../types';
 
-/** Props of {@link WriteBackPreview}. */
+/**
+ * What a screen hands the write-back preview: the steps of one plan, as the contracts §3 `WriteBack`
+ * record states them. The array is the whole input and its order is the order shown, so the surface
+ * that owns the read decides what the list holds — a step it filters out, or reorders, is dropped or
+ * moved before it arrives, and nothing here adds, drops or recalculates a member (rule P-6).
+ */
 export interface WriteBackPreviewProps {
   /**
    * The write-back steps to present, exactly as the service supplied them.

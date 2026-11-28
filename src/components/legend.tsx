@@ -150,7 +150,12 @@ const COMPANION_TAG_CLASSES = 'min-w-0 break-words text-12 text-text-caption';
  * The component
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link Legend}. */
+/**
+ * What the calling chart or screen hands {@link Legend}: one entry per series it drew, in the
+ * order it drew them. The entry type carries the constraint — a `competitor` entry declares the
+ * exact §5.3 market-intelligence label as a required member, so a competitor series cannot be
+ * described to this component without one (AAP §0.10).
+ */
 export interface LegendProps {
   /**
    * The series to describe, in the order they should be read. Required: an empty legend says nothing,

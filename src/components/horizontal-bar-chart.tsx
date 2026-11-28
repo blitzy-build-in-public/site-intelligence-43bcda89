@@ -322,7 +322,13 @@ export interface HorizontalBarDatum {
   readonly simLabel?: SimLabel | undefined;
 }
 
-/** Props of {@link HorizontalBarChart}. */
+/**
+ * What the caller of {@link HorizontalBarChart} supplies: one datum per category, each carrying
+ * the magnitude its geometry uses, the formatted text a reader sees and the reference its mark
+ * opens, plus an axis maximum held constant so two readings of one value draw at one length. A
+ * supplied `activeId` marks the selection the screen holds rather than one this surface invents,
+ * and an empty array draws nothing (AAP §0.5.2, §0.12.4).
+ */
 export interface HorizontalBarChartProps {
   /** The bars, in the order they are read. Required; an empty array renders nothing. */
   readonly bars: readonly HorizontalBarDatum[];

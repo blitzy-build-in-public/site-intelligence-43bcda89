@@ -474,7 +474,15 @@ interface ServiceContextValue {
  */
 const ServiceContext = createContext<ServiceContextValue | null>(null);
 
-/** Props of {@link ServiceProvider}. */
+/**
+ * What the boundary wraps: the shell, its navigation and every route below it, held behind the
+ * skeleton until the in-browser adapter has prepared the seeded records and reported the persona it
+ * acts as (AAP 0.12.1).
+ *
+ * The one prop is the content, so a caller cannot supply the adapter, the cache or a starting persona:
+ * which adapter is bound is the binding point's decision, and the identity the tree below acts as is
+ * the adapter's own report rather than anything handed in here.
+ */
 export interface ServiceProviderProps {
   /** The shell, its routes and every screen, rendered once the start-up has settled. */
   readonly children: ReactNode;
@@ -515,7 +523,14 @@ export function ServiceProvider({ children }: ServiceProviderProps): ReactElemen
   );
 }
 
-/** Props of the internal gate that reads one attempt. */
+/**
+ * What the internal gate is given: the one start-up attempt to read, the retry the failure region
+ * offers, and the content to render once that attempt has settled as ready.
+ *
+ * The attempt is a promise `use()` tracks, so it is required and never a settled outcome: an outcome
+ * passed here would skip the suspension the provider's skeleton depends on, and the reader would meet
+ * a blank frame instead of the wait.
+ */
 interface ServiceGateProps {
   /** The attempt to read: the component suspends until it settles. */
   readonly attempt: Promise<BootstrapOutcome>;
@@ -545,7 +560,13 @@ function ServiceGate({ attempt, onRetry, children }: ServiceGateProps): ReactEle
   return <BoundServices startupUser={outcome.activeUser}>{children}</BoundServices>;
 }
 
-/** Props of the component that binds the context value around the shell. */
+/**
+ * What the component that binds the context is given: the start-up's own identity envelope, published
+ * as the acting-persona cache entry's initial value, and the shell to render inside the provider.
+ *
+ * The envelope is `null` when the bound adapter reported no persona at start-up, so the binding
+ * reports that absence rather than inventing an identity the adapter never named.
+ */
 interface BoundServicesProps {
   /**
    * The envelope the settled start-up read from the adapter, published as the acting-persona cache
@@ -707,7 +728,14 @@ export function WorkspaceSkeleton(): ReactElement {
   );
 }
 
-/** Props of {@link WorkspaceFailure}. */
+/**
+ * What a failed start-up is reported with: the `Problem` the adapter refused it with, printed in the
+ * service's own words, and the callback that runs the start-up again.
+ *
+ * Both are required because the region has no other source: it writes no message of its own, so the
+ * cause a reader reads is the service's, and the retry it offers re-runs the start-up and nothing else
+ * (rule P-8).
+ */
 interface WorkspaceFailureProps {
   /** The refusal the start-up settled to, printed as the service stated it. */
   readonly problem: Problem;

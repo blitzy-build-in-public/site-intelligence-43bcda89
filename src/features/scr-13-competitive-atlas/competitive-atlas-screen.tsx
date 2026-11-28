@@ -1062,7 +1062,14 @@ const ATLAS_SOURCE: SourceId = 'market-pack';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Props of {@link CompetitiveAtlasScreen}.
+ * What the shell hands the atlas: the plant and product selection the route element holds, which is
+ * the whole of this screen's input. The atlas read takes no scope — `getAtlas()` declares no
+ * argument, by the port's own signature — so the selection reaches the surface as the product class
+ * the atlas opens on, and only where it names a class the pack offers (see
+ * {@link resolveDefaultClass}); the surfaces after that narrow the payload from the reader's own
+ * choice of class (AAP §0.12.4). A shell that omits the selection still gets a screen that reads
+ * the atlas, states the class in view and exports the brief, but the reader then chooses the class
+ * themselves.
  */
 export interface CompetitiveAtlasScreenProps {
   /**

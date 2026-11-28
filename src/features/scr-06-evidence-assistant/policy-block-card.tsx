@@ -40,7 +40,13 @@ import { StatusIndicator } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
 import type { Problem } from '../../services/site-intelligence-service';
 
-/** Props of {@link PolicyBlockCard}. */
+/**
+ * What the assistant panel hands the refusal card: the `Problem` the service threw, and the two
+ * handlers a cause may offer — the one-click switch to the model the policy permits, and a retry. The
+ * card reads the cause from the `Problem` itself rather than being told it, so a caller cannot render
+ * one that disagrees with the decision taken; the retry is the handler a caller may omit, and its
+ * absence removes that control rather than leaving one that cannot act (rule P-8).
+ */
 export interface PolicyBlockCardProps {
   /**
    * The refusal exactly as the service threw it. Its `type` selects the rendering, its `message` is

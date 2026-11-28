@@ -121,7 +121,13 @@ export interface HintGeometry {
   readonly maxWidth: number | null;
 }
 
-/** The public props of {@link Tooltip}. */
+/**
+ * What a caller that explains a control hands {@link Tooltip}: the sentence the hint shows and the
+ * one trigger it describes, since the hint is placed from that trigger's measured box rather than
+ * anchored inside it. The caller keeps the hold — a held hint stays painted past the pointer and
+ * the focus after a refused activation, and only the caller can release it, through
+ * `onDismissHeld`, when the reader presses `Escape` (rule P-8).
+ */
 export interface TooltipProps {
   /** The explanation. Required, because a hint with nothing to say has no reason to exist. */
   readonly label: string;

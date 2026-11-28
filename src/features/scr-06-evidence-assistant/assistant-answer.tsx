@@ -233,7 +233,12 @@ const QUERY_CLASSES = 'break-words text-text-secondary';
  * The component
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link AssistantAnswer}. */
+/**
+ * What the assistant panel hands one answer: the `Answer` record whole, never a set of loose fields,
+ * so the prose, the chips beneath it and the model the disclosure names always belong to the same
+ * answer. Every element rendered is one of its members, and a member that arrives empty renders
+ * nothing, so the caller supplies no wording, label or fallback of its own (AAP §0.12.2, rule P-6).
+ */
 export interface AssistantAnswerProps {
   /**
    * The answer exactly as the service returned it: its text, its citations, its queries, its model,

@@ -97,7 +97,12 @@ const TRACE_ID_CLASSES = 'select-all break-all';
 /** The caller's action slot. This component places the control and does not draw one. */
 const ACTION_CLASSES = 'flex flex-wrap items-center gap-2 pt-1 text-text-primary';
 
-/** Props of {@link ForbiddenCard}. */
+/**
+ * What a refused call hands {@link ForbiddenCard}: member for member the evidence a `'permission'`
+ * failure carries — the permission the acting role lacks, the roles that hold it, the trace id
+ * and, where the service supplied one, its own sentence. The refusal arrives whole, so the card
+ * reports the outcome it was handed and composes no account of the cause itself (AAP §0.6.2).
+ */
 export interface ForbiddenCardProps {
   /**
    * The permission the acting role lacks, from `Problem.requiredPermission` of a `'permission'`

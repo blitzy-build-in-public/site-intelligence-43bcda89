@@ -175,7 +175,13 @@ interface RibbonTilePresentation {
   readonly kind?: MetricTileProps['kind'];
 }
 
-/** Props of {@link CanvasRibbon}. */
+/**
+ * The tiles the canvas read returned, in the service's order, and the presentation the calling screen
+ * adds to them. The projection is keyed by the aggregate's own identifier, so it matches each tile to
+ * the caption specification §7 gives it and to the reference that opens its evidence; the payload is
+ * rendered as it arrived, and a tile the projection leaves out renders nothing rather than a caption
+ * invented here (rule P-6).
+ */
 export interface CanvasRibbonProps {
   /**
    * The tiles the canvas read returned, in the order the aggregate states them.
