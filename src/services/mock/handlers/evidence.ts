@@ -1395,9 +1395,9 @@ const AGGREGATE_FORMULAS: Readonly<Record<OverviewAggregateKey, string>> = {
   [PLANTS_IN_SCOPE_KEY]:
     'The plants in scope are the plants the resolved scope names — the top bar\'s plant selection ' +
     'intersected with the acting role\'s plant scope — which is the population every list read and ' +
-    'every aggregate is computed over (AAP 0.12.1, "Scope resolution"). The figure is the resolved ' +
-    'scope\'s own plant list, not the number of risk-by-plant rows: those rows also carry a plant an ' +
-    'admitted exception is recorded at, which the selection need not name.',
+    'every aggregate is computed over. The figure is the resolved scope\'s own plant list, not the ' +
+    'number of risk-by-plant rows: those rows also carry a plant an admitted exception is recorded ' +
+    'at, which the selection need not name.',
 };
 
 /**
@@ -4261,9 +4261,8 @@ function supplierEvidence(records: SeedRecordSet, supplier: Supplier): Evidence 
     formula:
       'The supplier record states its site, its contracted lead time, the materials it is the primary ' +
       'supplier of and its monthly on-time delivery readings. The products and plants it reaches are ' +
-      'the ones those materials and the orders naming it resolve to (AAP §0.12.2), which is the reach ' +
-      'the graph lens bands its node by. This payload states the record and that rule and computes ' +
-      'neither.',
+      'the ones those materials and the orders naming it resolve to, which is the reach the graph lens ' +
+      'bands its node by. This payload states the record and that rule and computes neither.',
     inputs: [
       `id = ${supplier.id}`,
       `name = ${supplier.name}`,
@@ -4301,8 +4300,8 @@ function originEvidence(records: SeedRecordSet, origin: Origin): Evidence {
     formula:
       'The origin record states its site, its position and the suppliers it feeds. The lane the drawing ' +
       'carries from this node to a supplier lane is that relation and nothing else: the material each ' +
-      'origin-to-supplier lane exists for is the one the supplier buys through it (AAP §0.12.2). This ' +
-      'payload states the record and the relation and computes neither.',
+      'origin-to-supplier lane exists for is the one the supplier buys through it. This payload states ' +
+      'the record and the relation and computes neither.',
     inputs: [
       `id = ${origin.id}`,
       `name = ${origin.name}`,
@@ -4432,8 +4431,8 @@ function lineEvidence(records: SeedRecordSet, line: Line): Evidence {
     formula:
       'A line belongs to one plant and its nominal output per working day is the rate the solver ' +
       'measures a disturbed day against (contracts §4); the products it builds are the ones whose ' +
-      'records name it (AAP 0.12.2). This payload states the record and the relations it carries and ' +
-      'recomputes neither.',
+      'records name it. This payload states the record and the relations it carries and recomputes ' +
+      'neither.',
     inputs: [
       `id = ${line.id}`,
       `plantId = ${line.plantId}`,
@@ -4489,8 +4488,7 @@ function materialEvidence(records: SeedRecordSet, material: Material): Evidence 
     formula:
       'A material has one primary supplier and may have an alternate, names the products it goes into ' +
       'and the tier-2 origin behind its primary supplier, and states the quantity one finished unit ' +
-      'consumes (AAP 0.12.2). This payload states the record and the relations it carries and ' +
-      'recomputes neither.',
+      'consumes. This payload states the record and the relations it carries and recomputes neither.',
     inputs: [
       `id = ${material.id}`,
       `name = ${material.name}`,
@@ -4701,8 +4699,8 @@ function atlasSeriesEvidence(
     formula:
       "A resilience score is the market pack's own reading of one series against one axis: the axes " +
       "and the scores are the pack's records, aligned by position, and nothing here recomputes, " +
-      'normalises or totals them (AAP 0.8, contracts §3). One payload carries one series and no ' +
-      'figure combines a market-intelligence reading with a first-party one (rule P-5).',
+      'normalises or totals them (contracts §3). One payload carries one series and no figure ' +
+      'combines a market-intelligence reading with a first-party one (rule P-5).',
     inputs: [
       `seriesId = ${series.id}`,
       `provenance = ${series.provenance}`,
