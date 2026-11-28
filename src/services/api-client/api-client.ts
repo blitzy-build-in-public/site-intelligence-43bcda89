@@ -1091,15 +1091,20 @@ export class ApiClient implements SiteIntelligenceService {
    * Catalogue reads carried for interface conformance — stage S5, AAP 0.12.3
    *
    * The three members below exist so the port is complete for the stage that shows the sources, the
-   * production plan and the exit package: both adapters carry them, no screen in this build calls them,
-   * and the routes that would own them render the stage notice instead.
+   * production plan and the exit package: both adapters carry them. Two of the three have no caller in
+   * this build — no screen reads the plan grid or the exit package, and the route that would own the
+   * grid renders the stage notice instead. The source catalogue is the one that is read: the shell's
+   * freshness strip calls it through the port on every mount of the top bar, so whichever adapter is
+   * bound answers it, and this member answers a real caller once a real service is bound.
    * ----------------------------------------------------------------------------------------- */
 
   /**
    * Reads the six data sources through `GET /sources`, the path `paths.sourcesPath` holds.
    *
-   * The six sources' freshness reaches every other screen through each result's `meta`, so this read
-   * is the catalogue rather than the strip. The path entry asserts no §7.1 permission for it.
+   * The freshness strip reads this catalogue through the port, so the six pills it renders come from
+   * the payload this member returns, and the freshness qualifying every other figure reaches its
+   * screen through each result's `meta`: both halves of the same record travel this boundary. The path
+   * entry asserts no §7.1 permission for it.
    *
    * @returns The source catalogue the service returned.
    * @throws Problem - The failure the service reported, whose `type` names its cause.

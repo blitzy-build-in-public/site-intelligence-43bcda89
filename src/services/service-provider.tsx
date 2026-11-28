@@ -89,7 +89,8 @@ import { skipToken, useQuery } from '@tanstack/react-query';
 import { Suspense, createContext, use, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
-import type { ActiveUser } from '../types/entities';
+import type { ActiveUser, Role } from '../types/entities';
+import type { Permission } from '../types/primitives';
 import type { Problem, ProblemType, Result } from '../types/service';
 import { createService, getDemonstrationControls, whenServiceReady } from './create-service';
 import type { DemonstrationControls } from './demonstration-controls';
@@ -685,6 +686,128 @@ export function useDemonstration(): DemonstrationControls | null {
  */
 export function useActiveUser(): ActiveUser | null {
   return useServiceContext().activeUser;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The persona roster, read so a gate can name the roles that may act (rule P-8)
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The cache key of the persona-roster read: the capability member's own name first, and the consumer
+ * that reads it beside it.
+ *
+ * The member name leads so a whole-cache invalidation — the role switch's and the demonstration
+ * reset's — reaches this entry with every other read, and the second element keeps this entry
+ * distinct from the shell switcher's own roster read, which caches the same capability under a key of
+ * its own because it reads the roster to offer a choice rather than to explain a refusal.
+ */
+export const PERSONA_ROSTER_QUERY_KEY = ['listPersonas', 'permission-gates'] as const;
+
+/**
+ * The roles of the personas whose permissions include `permission`, in the roster's own order.
+ *
+ * The roster is the service's own account of the demonstration's personas, and each record's
+ * `permissions` member is the contracts §7.1 matrix as the adapter derived it for that role, so this
+ * derivation is a lookup over records rather than a second copy of the matrix (rule P-6, AAP 0.2.1).
+ * It is the answer a gate needs to satisfy rule P-8's "with the role that may act named": the same
+ * sentence the adapter's own refusal states is composed from these names.
+ *
+ * A role appears once however many personas hold it, which is what makes the list read as a role list
+ * rather than as a roster, and the roster's own order keeps it stable between calls so a tooltip reads
+ * the same way twice.
+ *
+ * @param roster - The personas the adapter reports, as `listPersonas` answered them.
+ * @param permission - The permission whose holders are wanted.
+ * @returns The roles holding it, in the roster's order; empty when no persona's role does.
+ */
+export function rolesHoldingIn(roster: readonly ActiveUser[], permission: Permission): Role[] {
+  const roles: Role[] = [];
+
+  for (const persona of roster) {
+    if (persona.permissions.includes(permission) && !roles.includes(persona.role)) {
+      roles.push(persona.role);
+    }
+  }
+
+  return roles;
+}
+
+/**
+ * The roster read, as a function this module can hand the cache, or `null` when the adapter carries
+ * none.
+ *
+ * The capability declares `listPersonas` as optional, and a method read off the object would lose the
+ * `this` its implementation dispatches through, so the reader is bound to the capability it came from
+ * rather than passed around as a bare reference.
+ *
+ * @param demonstration - The bound capability, or `null`.
+ * @returns A function resolving the roster, or `null` when there is no roster to read.
+ */
+function rosterReaderOf(
+  demonstration: DemonstrationControls | null,
+): (() => Promise<Result<ActiveUser[]>>) | null {
+  if (demonstration === null || demonstration.listPersonas === undefined) {
+    return null;
+  }
+
+  const listPersonas = demonstration.listPersonas;
+
+  return () => listPersonas.call(demonstration);
+}
+
+/**
+ * The roles that hold a permission, read from the persona roster, or `null` while that is unknown.
+ *
+ * This is the only route by which a screen may name the roles that may act. The permission matrix is a
+ * domain module, and AAP 0.18.1 keeps a screen on the service boundary and the shared components, so a
+ * feature cannot import the matrix; the roster the adapter publishes carries the same facts, because
+ * each persona's `permissions` member is that matrix as the adapter derived it. Nothing is enforced
+ * here: the adapter evaluates the matrix itself before every call, and a control this hook disables is
+ * an explanation of a refusal that would have happened anyway (rule P-8, AAP 0.6.2).
+ *
+ * @param permission - The permission whose holders the caller needs named.
+ * @returns The roles holding it, in the roster's order; `null` while that is unknown.
+ * @throws Error - When called outside `<ServiceProvider>`; the message is for a developer.
+ */
+export function useRolesHolding(permission: Permission): Role[] | null {
+  const roster = usePersonaRoster();
+
+  return roster === null ? null : rolesHoldingIn(roster, permission);
+}
+
+/**
+ * The personas the demonstration could act as, or `null` while that is unknown.
+ *
+ * The roster read is the demonstration capability's own member, and this boundary is the only place a
+ * screen may reach it from (rule P-2). A screen reads it for the two facts a gate cannot get anywhere
+ * else: the permissions each role holds — which is what {@link useRolesHolding} answers — and the
+ * plants each role's scope covers, which a gate needs to say whether any persona other than the
+ * requesting one could decide a plan at a record's plant. Both are the adapter's derived facts rather than
+ * a second copy of the matrix (rule P-6).
+ *
+ * `null` states one fact rather than a missing one — the answer is not known yet, because the bound
+ * adapter offers no roster or the read has not settled — and it is the signal a gate declines to
+ * block on, exactly as `decisionEligibilityReason` declines to block on a persona nobody has reported
+ * yet: a control disabled on a fact nobody knows would lie about what it can do. The roster is seed
+ * data that no write changes, so the entry never goes stale on its own; a role switch and a reset
+ * invalidate it with the rest of the cache.
+ *
+ * @returns The personas the adapter reports, in its own order; `null` while that is unknown.
+ * @throws Error - When called outside `<ServiceProvider>`; the message is for a developer.
+ */
+export function usePersonaRoster(): readonly ActiveUser[] | null {
+  const demonstration = useDemonstration();
+  const reader = rosterReaderOf(demonstration);
+
+  const roster = useQuery<Result<ActiveUser[]>>({
+    queryKey: PERSONA_ROSTER_QUERY_KEY,
+    queryFn: reader ?? skipToken,
+    enabled: reader !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  return roster.data?.data ?? null;
 }
 
 /* ---------------------------------------------------------------------------------------------

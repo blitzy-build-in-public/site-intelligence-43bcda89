@@ -14,21 +14,36 @@
  *
  * WHERE THE DATA COMES FROM, AND WHERE IT DOES NOT. Both reads go through `useService()` — rule P-2
  * binds every read to the one typed port, so this module imports no seed record, no mock or API-client
- * module, no domain module and no React Router: `listAuditEvents` returns the trail the filter admits
- * and `verifyAuditChain` returns the report. Verification is deliberately *not* performed here. In
- * particular this file does not import `src/domain/audit/*` and computes no digest of its own: the
- * hashes are the in-browser adapter's work, and a screen that recomputed one would be a second opinion
- * on the record instead of a report of the record.
+ * module, no domain module and no React Router: `listAuditEvents` returns the page of the trail the
+ * filter admits and `verifyAuditChain` returns the report. Verification is deliberately *not* performed
+ * here. In particular this file does not import `src/domain/audit/*` and computes no digest of its own:
+ * the hashes are the in-browser adapter's work, and a screen that recomputed one would be a second
+ * opinion on the record instead of a report of the record.
  *
- * WHAT THE SCREEN SHOWS OF THE CHAIN. One row per event: its stored sequence, its identifier, the
- * instant it was recorded, the actor type and actor, the action, the record it is about, its outcome
- * and, where a policy decided it, the policy. The default order is the service's own — the chain's
- * strictly increasing sequence — and the table's sort is presentation only: it reorders rows and never
- * renumbers, re-derives or hides a sequence, so the position a row prints is always the position the
- * chain gave it. Activating a row opens the detail drawer, which prints the event's own fields and its
- * `before` and `after` payloads side by side as escaped markup (never through
+ * WHAT THE SCREEN SHOWS OF THE CHAIN. One row per event of the page on screen: its stored sequence, its
+ * identifier, the instant it was recorded, the actor type and actor, the action, the record it is about,
+ * its outcome and, where a policy decided it, the policy. The default order is the service's own — the
+ * trail newest first, which `src/services/mock/handlers/audit.ts` answers with — and it is announced on
+ * the sequence column as this table's `defaultOrder` rather than applied here. The table's sort is
+ * presentation only: it reorders rows and never renumbers, re-derives or hides a sequence, so the
+ * position a row prints is always the position the chain gave it. Activating a row opens the detail
+ * drawer, which prints the event's own fields and its `before` and `after` payloads side by side as
+ * escaped markup (never through
  * `dangerouslySetInnerHTML`), traps focus while it is open, closes on `Esc` and returns focus to the
  * row that opened it.
+ *
+ * HOW MUCH OF THE CHAIN IS ON SCREEN, AND WHY IT IS ONE PAGE. The chain is not bounded: every audited
+ * write appends an event, and the seeded trail alone is more rows than one screen should render. The
+ * read therefore asks for one page of `AUDIT_PAGE_SIZE` events plus the single event that follows them,
+ * which is how the screen learns whether a further page exists without counting the chain; the table is
+ * handed that page and `DataTable` takes the same page size as its own bound, so no read can render more
+ * than one page however much it returned. The reader moves with the trail's own paging controls: the
+ * journey is a stack of the cursors this screen has sent, "Next page" continues from the last event of
+ * the page the read returned in its own order, "Previous page" pops back to where the reader came from,
+ * and a change to any filter returns the trail to its newest page. The table's sort reorders the page on
+ * screen and nothing else, so it never reaches the cursor and no event is skipped by paging in the order
+ * the reader sees. "Verify chain" is outside all of it: it walks the records the adapter holds rather
+ * than the page on screen, which is why it still reports the whole chain.
  *
  * WHAT THE VERIFICATION DOES AND DOES NOT CLAIM. "Verify chain" is an action, not a read on load: one
  * activation is one call, whose report is held in this component's state and shown as the number of
@@ -39,14 +54,16 @@
  * absent by omission: nothing here states that the chain resists tampering, prevents copying or
  * establishes anything about the store behind a browser page (rule P-4).
  *
- * HOW LONG A REPORT LIVES. Until the next activation replaces it, or until the records behind the
- * trail are re-issued — whichever comes first. A report describes the chain as it stood at the moment
+ * HOW LONG A REPORT LIVES. Until the next activation replaces it, or until the trail's read is
+ * re-issued under it — whichever comes first. A report describes the chain as it stood at the moment
  * of the check, and the application re-issues its reads whenever a record may have moved: every write,
- * every simulation trigger and `Reset demo data` invalidate the query cache. So this screen subscribes
- * to that cache and drops the report when the trail's own read is invalidated, rather than leaving a
- * verdict about an edited chain standing above the restored one it no longer describes. A reader's
- * filter change reads a different cache entry and invalidates nothing, so narrowing the trail never
- * discards a verdict.
+ * every simulation trigger and `Reset demo data` invalidate the query cache, and a persona switch both
+ * appends an audit event of its own and resets the reads the outgoing persona decided rather than
+ * invalidating them (`switchTo` in `src/app/role-switcher.tsx` calls `queryClient.resetQueries`). So
+ * this screen subscribes to that cache and drops the report when the trail's own read is invalidated,
+ * reset or destroyed, rather than leaving a verdict the chain has outrun standing above the trail it
+ * no longer describes. A reader's filter change reads a different cache entry and re-issues nothing on
+ * the one on screen, so narrowing the trail never discards a verdict.
  *
  * THE FIXED NOTE, AND WHY IT AND THE CLAIM SCAN HOLD TOGETHER. {@link AUDIT_CHAIN_NOTE} is the
  * sentence the "Verify chain" row of AAP §0.10 and the SCR-05 row of AAP §0.12.4 fix for this screen,
@@ -65,11 +82,12 @@
  * No file is exempt on either side, this one included.
  *
  * LABELLING (rules P-1 and P-4). The chain and its verification carry the exact `Simulated control`
- * string of specification §5.3 next to the instant of the check, and the persistent `Simulated data`
- * badge the shell mounts on every route covers the page. Every figure on screen comes from a record:
- * the checked count, the break's position and the total are the report's own members, the table's
- * cells are the events' own fields, and no number, currency amount or record identifier is typed into
- * this file (rule P-6, and `tests/source-checks/no-typed-figures.test.ts` scans this folder).
+ * string of specification §5.3 beside the reading the last check produced, and the persistent
+ * `Simulated data` badge the shell mounts on every route covers the page. Every figure on screen comes
+ * from a record: the checked count, the break's position and the total are the report's own members,
+ * the table's cells are the events' own fields, and no number, currency amount or record identifier is
+ * typed into this file (rule P-6, and `tests/source-checks/no-typed-figures.test.ts` scans this
+ * folder).
  *
  * THE SEVEN STATES. Every read-driven screen renders inside `StateBoundary` (AAP 0.12.4) and the state
  * is derived once, in `src/components/screen-state.ts`, from what the query settled to and from the
@@ -110,8 +128,9 @@
  * - P-6: no typed figure, amount or record identifier; every value is a record's own.
  * - P-7: every name on screen is a seeded persona, policy or record reference; no real company,
  *   customer, carmaker or cloud product is named and no placeholder prose stands in for a record.
- * - P-8: "Verify chain" and every control either act or are disabled with their reason, and the
- *   verification control states why it cannot run while a check is already in flight.
+ * - P-8: "Verify chain" and every control either act or are disabled with their reason, the
+ *   verification control states why it cannot run while a check is already in flight, and the trail's
+ *   paging controls state why there is nothing newer or nothing older to move to.
  * - B-3: WCAG 2.2 AA — the table's caption and scoped headers come from `DataTable`, every filter has a
  *   visible label, the drawer is an `aria-modal` dialog with a name that traps focus and returns it on
  *   `Esc`, the verification result is a `role="status"` region, targets are at least 24 by 24 px and
@@ -271,6 +290,26 @@ const SCREEN_TEXT = {
   /** The accessible name of the table. */
   tableCaption: 'Audit events, in chain order',
 
+  /** The control that shows the page of events newer than the ones on screen. */
+  previousPage: 'Previous page',
+
+  /** The control that shows the page of events older than the ones on screen. */
+  nextPage: 'Next page',
+
+  /**
+   * Why the backward page control cannot act: the page on screen already starts at the newest event
+   * the chain holds, so there is nothing newer to go back to (rule P-8).
+   */
+  newestPageReason:
+    'The events on screen are the newest the trail holds, so there is no page before this one.',
+
+  /**
+   * Why the forward page control cannot act: no event further back in the trail matches the filters in
+   * effect, which makes the page on screen the oldest those filters reach (rule P-8).
+   */
+  oldestPageReason:
+    'No event further back in the trail matches these filters, so this is the last page they reach.',
+
   /** The drawer's heading, before the event's own identifier. */
   drawerTitlePrefix: 'Audit event',
 
@@ -342,6 +381,25 @@ const SCREEN_TEXT = {
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
+ * The page of the trail one read asks for
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The number of events one page of the trail holds, and the greatest number this screen shows at once.
+ *
+ * The chain is not bounded — every audited write appends an event, and the seeded trail alone is more
+ * rows than one screen should render — so the read is paged rather than whole: the query asks for one
+ * page of this length plus the single event that follows it, which is how the screen learns whether a
+ * further page exists without counting the chain, and the table is handed no more than this page. One
+ * read therefore costs one page of the trail rather than the length of it.
+ *
+ * Exported so the colocated suite builds its pages from the constant rather than re-spelling the
+ * number: a suite that typed the page size would keep passing after the screen's page changed, which
+ * is the drift this export prevents.
+ */
+export const AUDIT_PAGE_SIZE = 50;
+
+/* ---------------------------------------------------------------------------------------------
  * The filters — `AuditQuery`'s own members, and nothing beside them
  * ------------------------------------------------------------------------------------------- */
 
@@ -411,15 +469,24 @@ function filterText(value: string): string | undefined {
 }
 
 /**
- * Builds the query the trail read is asked for from the filters as they stand.
+ * Builds the query the trail read is asked for, from the filters as they stand and the cursor the page
+ * on screen continues from.
  *
  * Only the members the reader actually set are sent: an absent member is an unfiltered one, which is
  * the meaning `AuditQuery`'s optional members already carry, and sending `undefined` would make the
- * cache key of two identical filters differ. `limit`, `cursor` and `sort` are deliberately absent —
- * they page and order a list rather than filter one, the chain is bounded and read whole, and the
- * table's ordering is applied to this read's own result without asking the service for a second one.
+ * cache key of two identical filters differ. The page travels with the filters because the trail is
+ * not bounded — every audited write appends an event to it — so `limit` asks for one page of
+ * `AUDIT_PAGE_SIZE` events plus the one that follows them, which is how the screen learns whether a
+ * further page exists without counting the chain; `cursor` is sent only when the reader has paged back
+ * through the trail, because the newest page continues from the chain's own start. `sort` stays
+ * absent: the reader's ordering is applied to the page this read returned (see {@link orderRows}), and
+ * asking the service for another order would page a trail the table never shows.
+ *
+ * @param filters - The filters as the reader set them.
+ * @param cursor - The position the previous page ended at, or `undefined` for the newest page.
+ * @returns The query, carrying the one page it asks for.
  */
-function buildAuditQuery(filters: AuditFilterValues): AuditQuery {
+function buildAuditQuery(filters: AuditFilterValues, cursor: string | undefined): AuditQuery {
   const actorId = filterText(filters.actorId);
   const action = filterText(filters.action);
   const objectRef = filterText(filters.objectRef);
@@ -427,6 +494,8 @@ function buildAuditQuery(filters: AuditFilterValues): AuditQuery {
   const to = filterText(filters.to);
 
   return {
+    limit: AUDIT_PAGE_SIZE + 1,
+    ...(cursor === undefined ? {} : { cursor }),
     ...(actorId === undefined ? {} : { actorId }),
     ...(action === undefined ? {} : { action }),
     ...(objectRef === undefined ? {} : { objectRef }),
@@ -505,9 +574,14 @@ function compareValues(left: string | number, right: string | number): number {
 /**
  * The rows in the order the table shows them.
  *
- * With no sort the read's own order stands — the chain's strictly increasing sequence, which is the
- * service's and not this screen's. With a sort the rows are ordered by that column, and rows whose keys
- * are equal keep the position the chain gave them, so the ordering is total and stable across renders.
+ * With no sort the page stands in the order the service served it — the trail newest first, which
+ * `src/services/mock/handlers/audit.ts` answers with and this screen's `defaultOrder` announces, and not
+ * an order this screen applies. With a sort the rows are ordered by that column, and rows whose keys are
+ * equal keep the position the page gave them, so the ordering is total and stable across renders.
+ *
+ * Both branches order the page this read returned, never the trail behind it: the cursor a page
+ * continues from is the last event of the read's own order, so an ordering applied here cannot make
+ * the next page skip or repeat an event.
  */
 function orderRows(
   rows: readonly AuditEvent[],
@@ -550,6 +624,15 @@ const REPORT_STACK_CLASSES = 'mt-3 flex min-w-0 flex-col gap-2';
 
 /** A report's supporting sentence, one step down the type scale in the secondary text role. */
 const DETAIL_CLASSES = 'min-w-0 break-words text-13 text-text-secondary';
+
+/** The trail: its label, its paging row and the table, one grid step apart. */
+const TRAIL_STACK_CLASSES = 'flex min-w-0 flex-col gap-2';
+
+/**
+ * The trail's paging row. It sits above the table and outside the table's own scroll box, so the
+ * controls that move the trail stay where the trail starts however wide the table is.
+ */
+const PAGING_ROW_CLASSES = 'flex min-w-0 flex-wrap items-start gap-3';
 
 /** The filter row: fields wrap rather than shrink below their label. */
 const FILTER_ROW_CLASSES = 'flex min-w-0 flex-wrap items-start gap-3';
@@ -595,7 +678,7 @@ const SCRIM_CLASSES = 'absolute inset-0 bg-ground/80';
  * hairline, scrollable on its own so a long payload does not push its close control out of reach.
  */
 const DRAWER_CLASSES =
-  'relative flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto border-s border-hairline bg-surface-1 p-4 text-14 text-text-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
+  'relative flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto border-s border-hairline bg-surface-1 p-4 text-14 text-text-primary focus-visible:outline-2 focus-visible:outline-focus-ring';
 
 /** The drawer's heading: the type scale's 20 px step, breakable so an identifier cannot overflow. */
 const DRAWER_TITLE_CLASSES = 'min-w-0 break-words text-20 font-medium text-text-primary';
@@ -657,32 +740,70 @@ function monoKindForKey(key: string): MonoValueKind | undefined {
  * The filter controls — this screen's labels over the `TextField` and `SelectField` primitives
  * ------------------------------------------------------------------------------------------- */
 
-/** Props of {@link FilterTextField}: one free-text filter, labelled and controlled. */
+/** Props of {@link FilterTextField}: one free-text filter, labelled and committed. */
 interface FilterTextFieldProps {
   /** The filter's visible label, which is also its control's accessible name. */
   readonly label: string;
 
-  /** The reader's current value. */
+  /** The value the trail is filtered on: the last one the reader committed, already trimmed. */
   readonly value: string;
 
-  /** Called with the control's value as it changes. */
-  readonly onChange: (value: string) => void;
+  /** Called with the trimmed value once the reader is done typing. */
+  readonly onCommit: (value: string) => void;
 
   /** An optional sentence explaining what the control accepts, tied to it by `aria-describedby`. */
   readonly hint?: string;
 }
 
 /**
- * One labelled free-text filter.
+ * One labelled free-text filter, which sends its value once the reader is done typing.
  *
  * `TextField` in `src/components` owns the `<input>` (AAP §0.5.2); this component is the one place a
  * filter's label, identifier and hint are joined to it, and the control keeps the 24 by 24 px target
- * and the theme's focus ring (rule B-3). It holds no state — the caller owns the value — so a render
- * never fights the reader's typing.
+ * and the theme's focus ring (rule B-3).
+ *
+ * THE VALUE IS COMMITTED ON BLUR AND ON `Enter`, NOT ON EVERY CHANGE. The committed filters are the
+ * trail read's cache key ({@link buildAuditQuery}), so a commit per keystroke would ask the service for
+ * one page of the trail per character typed and leave one cache entry behind each of them. One edit
+ * therefore issues one read, and the pattern is the queue's own `SupplierFilterField`
+ * (`src/features/scr-02-exception-queue/exception-queue-screen.tsx`): a debounce was the alternative and
+ * is not taken, because it would be a third timing pattern in the product for the same interaction
+ * where the house already commits on blur. The field keeps its own draft, so typing never fights a
+ * re-render of the trail, and the draft follows the committed value through the effect below: a commit
+ * that trims the text the reader left behind, or any other change to the filter, replaces the draft,
+ * while typing — which moves the draft alone and never `value` — leaves it as it was typed.
+ *
+ * THE FIELD IS NOT KEYED, AND THE DRAFT FOLLOWS THE VALUE BY AN EFFECT SO THAT IT NEED NOT BE. A `key`
+ * on the filter and the value it committed would rebuild the field on every commit, and the `<input>`
+ * the reader had just pressed `Enter` in would be replaced: focus would fall to the document body and
+ * the reader would have to click or tab back into the filter to carry on typing (rule B-3).
  */
-function FilterTextField({ label, value, onChange, hint }: FilterTextFieldProps): ReactElement {
+function FilterTextField({ label, value, onCommit, hint }: FilterTextFieldProps): ReactElement {
   const fieldId = useId();
   const hintId = `${fieldId}-hint`;
+  const [draft, setDraft] = useState(value);
+
+  /*
+   * The draft follows the committed value, and only that: the effect runs when `value` changes and never
+   * on the keystrokes that change the draft, so it replaces what the reader typed only where the commit
+   * itself changed the filter — the trim it applies, or any other change to the committed filters.
+   */
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = (): void => {
+    const next = draft.trim();
+
+    /*
+     * A blur that leaves the filter as it already was commits nothing: the read is keyed on the
+     * committed filters, so there is nothing to ask the service for, and the trail keeps the page the
+     * reader is on instead of returning to its newest one for an edit that changed no filter.
+     */
+    if (next !== value) {
+      onCommit(next);
+    }
+  };
 
   return (
     <div className={FIELD_CLASSES}>
@@ -692,8 +813,15 @@ function FilterTextField({ label, value, onChange, hint }: FilterTextFieldProps)
       <TextField
         id={fieldId}
         type="text"
-        value={value}
-        onChange={onChange}
+        value={draft}
+        onChange={setDraft}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit();
+          }
+        }}
         aria-describedby={hint === undefined ? undefined : hintId}
         className={CONTROL_CLASSES}
       />
@@ -1062,7 +1190,9 @@ function AuditDetailDrawer({ auditEvent, onClose }: AuditDetailDrawerProps): Rea
             <MonoValue value={auditEvent.actorId} kind="id" />
           </DetailField>
           <DetailField label={SCREEN_TEXT.action}>{auditEvent.action}</DetailField>
-          <DetailField label={SCREEN_TEXT.objectRef}>{auditEvent.objectRef}</DetailField>
+          <DetailField label={SCREEN_TEXT.objectRef}>
+            <MonoValue value={auditEvent.objectRef} kind="id" />
+          </DetailField>
           <DetailField label={SCREEN_TEXT.result}>
             <StatusIndicator
               meaning={RESULT_MEANINGS[auditEvent.result]}
@@ -1166,6 +1296,18 @@ const RESULT_FILTER_OPTIONS: readonly FilterChoice[] = [
 ];
 
 /**
+ * The order the trail's rows arrive in, which the table announces and never applies.
+ *
+ * The screen sends no `sort` and the service answers in its own default order —
+ * `src/services/mock/handlers/audit.ts`'s `DEFAULT_SORT_ORDER`: newest first, and the later chain
+ * position first where two events share an instant. That is the sequence column descending, so the
+ * sequence column is the one announced and a reader hears the order the rows are already in before
+ * touching a header. It applies nothing: no row is reordered, no read is repeated and no value reaches
+ * `onSort`.
+ */
+const TRAIL_DEFAULT_ORDER: TableSort = { columnId: 'sequence', direction: 'desc' };
+
+/**
  * The trail's columns, in the order the table shows them.
  *
  * Declared once at module scope because no column depends on a render's state: each cell is the
@@ -1216,7 +1358,7 @@ const COLUMNS: readonly TableColumn<AuditEvent>[] = [
     id: 'objectRef',
     header: SCREEN_TEXT.objectRef,
     sortable: true,
-    render: (auditEvent) => auditEvent.objectRef,
+    render: (auditEvent) => <MonoValue value={auditEvent.objectRef} kind="id" />,
   },
   {
     id: 'result',
@@ -1278,18 +1420,18 @@ export interface AuditScreenProps {
  * The audit trail of SCR-05.
  *
  * Two reads, both through `useService()` (rule P-2): the trail itself through `listAuditEvents`, in one
- * cache entry per filter combination, and — only when the reader asks for it — the chain's
+ * cache entry per filter combination and page, and — only when the reader asks for it — the chain's
  * verification through `verifyAuditChain`. The first read's settled facts decide the screen's state in
  * one place ({@link deriveScreenState}); the second is an action whose report is held here until the
  * next activation replaces it or the records behind the trail are re-issued, because a verification
  * that ran a moment ago is a statement about that moment and not about the records now. An
- * invalidation of the trail's read is the application saying those records may have moved, so a verdict
- * the records have outrun is dropped rather than shown above a chain it does not describe.
+ * invalidation, a reset or the removal of the trail's read is the application re-issuing it, so a
+ * verdict the records have outrun is dropped rather than shown above a chain it does not describe.
  *
  * Nothing on this screen writes: no event is appended, no record is edited and nothing is repaired by
  * the verification. The only state this component owns is what the reader chose — the filters, the
- * table's order, which event's detail is open and the last report — so a re-render can never change a
- * record.
+ * pages they paged through, the table's order, which event's detail is open and the last report — so a
+ * re-render can never change a record.
  *
  * @param _props - The shell's plant and product selection, accepted for the router's uniform route
  *   contract; no read on this screen is parameterised by it.
@@ -1301,6 +1443,14 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
   const queryClient = useQueryClient();
 
   const [filters, setFilters] = useState<AuditFilterValues>(NO_FILTERS);
+  /**
+   * The cursors the reader has paged through, oldest journey first: the last element is the position
+   * the page on screen continues from, and an empty stack is the newest page, which continues from the
+   * chain's own start. Held as the journey rather than as one cursor because going back needs the
+   * position the page before this one began at, and the port answers each page with its events alone
+   * — `Meta` carries no next-page cursor — so the journey is what the screen keeps.
+   */
+  const [cursors, setCursors] = useState<readonly string[]>([]);
   const [sort, setSort] = useState<TableSort | null>(null);
   const [openEvent, setOpenEvent] = useState<AuditEvent | null>(null);
   const [report, setReport] = useState<ChainReport | null>(null);
@@ -1308,7 +1458,13 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
   const [verifyFailure, setVerifyFailure] = useState<string | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
 
-  const auditQuery = useMemo(() => buildAuditQuery(filters), [filters]);
+  /**
+   * The position the page on screen continues from, or `undefined` for the newest page, which the
+   * service answers from the chain's own start.
+   */
+  const cursor = cursors[cursors.length - 1];
+
+  const auditQuery = useMemo(() => buildAuditQuery(filters, cursor), [filters, cursor]);
 
   /*
    * The trail read. Retries are off on purpose: a refusal recorded in the records' own permissions
@@ -1322,26 +1478,41 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
   });
 
   /*
-   * The report's lifetime, ended by the records moving under it. Every invalidation of the trail's read
-   * is the application's own statement that the records behind it may have moved: every write, every
-   * simulation trigger and `Reset demo data` re-issue the reads through this cache. A report describes
-   * the chain as it stood when the check ran, so it is dropped the moment that read is invalidated
-   * rather than left standing above a trail it no longer describes.
+   * The report's lifetime, ended by the trail's read being re-issued under it. A report describes the
+   * chain as it stood when the check ran, so it is dropped as soon as that read is asked to answer
+   * again, rather than left standing above a trail it may no longer describe. Three cache events
+   * re-issue it, and each is matched against the key of the trail's own read:
    *
-   * A filter change is not an invalidation — it reads a different cache entry — so narrowing the trail
-   * leaves the verdict in place. The subscription is returned as the effect's cleanup, so a screen that
-   * unmounts stops listening.
+   * - `invalidate`: every write, every simulation trigger and `Reset demo data` invalidate the reads
+   *   they touch, which is the application's own statement that a record may have moved.
+   * - `setState`: a persona switch re-issues the reads the outgoing persona decided by resetting them
+   *   rather than invalidating them — `switchTo` in `src/app/role-switcher.tsx` calls
+   *   `queryClient.resetQueries`, which returns each query to its initial state — and the switch
+   *   appends an audit event of its own before it navigates, so the chain a verdict taken under the
+   *   previous persona describes does grow. That reset arrives as a `setState` update.
+   * - `removed`: a query the cache destroys answers for nobody, so a verdict about its records would
+   *   describe an entry this screen no longer holds.
+   *
+   * The verdict is dropped rather than stamped with the instant it was checked: the demonstration has
+   * one clock, the `DEMO_CLOCK` constant of contracts §1, and the events an action appends are stamped
+   * beyond it — so a stamp read from that clock would claim a check instant earlier than the events the
+   * check verified. Clearing the reading when the records are re-issued is the truthful statement, and
+   * it is what the reader needs anyway: a verdict about a chain that has since grown is not a verdict
+   * about the chain on screen.
+   *
+   * A filter change is none of the three: it reads a different cache entry and re-issues nothing on the
+   * one on screen, so narrowing the trail leaves the verdict in place. The subscription is returned as
+   * the effect's cleanup, so a screen that unmounts stops listening.
    */
   useEffect(
     () =>
       queryClient.getQueryCache().subscribe((event) => {
-        if (event.type !== 'updated' || event.action.type !== 'invalidate') {
-          return;
-        }
+        const reissued =
+          event.type === 'removed' ||
+          (event.type === 'updated' &&
+            (event.action.type === 'invalidate' || event.action.type === 'setState'));
 
-        const invalidatedKey: readonly unknown[] = event.query.queryKey;
-
-        if (invalidatedKey[0] !== TRAIL_READ) {
+        if (!reissued || event.query.queryKey[0] !== TRAIL_READ) {
           return;
         }
 
@@ -1352,7 +1523,21 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
   );
 
   const result = eventsQuery.data;
-  const rows = useMemo(() => orderRows(result?.data ?? [], sort), [result, sort]);
+  /**
+   * The page the table is handed: at most `AUDIT_PAGE_SIZE` of the events the read returned.
+   *
+   * The read asks for one event more than a page, which is how the screen learns whether a further
+   * page exists without counting the chain. That extra event is the next page's first rather than this
+   * page's last, so it is left out here — and the table is given one page at most even if a read ever
+   * answered with more.
+   */
+  const page = useMemo(
+    () => (result?.data ?? []).slice(0, AUDIT_PAGE_SIZE),
+    [result],
+  );
+  /** Whether a further page of events exists behind the one on screen. */
+  const hasNextPage = (result?.data.length ?? 0) > AUDIT_PAGE_SIZE;
+  const rows = useMemo(() => orderRows(page, sort), [page, sort]);
   /*
    * The read's own facts, plus this screen's reading of its answer: the trail is written on the order
    * book's currency, so the stale notice names ERP first (AAP 0.2.1, T-13), and an empty trail is the
@@ -1374,28 +1559,68 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
     void eventsQuery.refetch();
   };
 
+  /**
+   * Applies a change to the filters and returns the trail to its newest page.
+   *
+   * A page position is a position in the trail the filters in effect admit, so a filter change makes
+   * the journey the reader took meaningless. The journey is dropped here, with the change, rather than
+   * in an effect afterwards: a render that carried a stale cursor into a differently filtered read
+   * would ask the service for a position that read does not hold, and the adapter refuses such a
+   * cursor rather than silently restarting the trail.
+   */
+  const changeFilters = (change: (current: AuditFilterValues) => AuditFilterValues): void => {
+    setFilters(change);
+    setCursors([]);
+  };
+
   const setActorId = (value: string): void => {
-    setFilters((current) => ({ ...current, actorId: value }));
+    changeFilters((current) => ({ ...current, actorId: value }));
   };
 
   const setAction = (value: string): void => {
-    setFilters((current) => ({ ...current, action: value }));
+    changeFilters((current) => ({ ...current, action: value }));
   };
 
   const setObjectRef = (value: string): void => {
-    setFilters((current) => ({ ...current, objectRef: value }));
+    changeFilters((current) => ({ ...current, objectRef: value }));
   };
 
   const setFrom = (value: string): void => {
-    setFilters((current) => ({ ...current, from: value }));
+    changeFilters((current) => ({ ...current, from: value }));
   };
 
   const setTo = (value: string): void => {
-    setFilters((current) => ({ ...current, to: value }));
+    changeFilters((current) => ({ ...current, to: value }));
   };
 
   const setResult = (value: string): void => {
-    setFilters((current) => ({ ...current, result: isAuditResult(value) ? value : '' }));
+    changeFilters((current) => ({ ...current, result: isAuditResult(value) ? value : '' }));
+  };
+
+  /**
+   * Shows the page of events behind the one on screen, continuing from the last event of the page the
+   * read returned.
+   *
+   * The position comes from the read's own order rather than from the rows the table displays, because
+   * the table's sort reorders the page it holds and nothing behind it: a cursor taken from the last
+   * displayed row would skip or repeat events wherever that ordering differs from the service's. No
+   * response carries a next-page cursor — `Meta` holds the freshness, the simulation flag and the trace
+   * — so the screen continues from the last event of the page it was served, which is the chain
+   * position the service's own cursor names.
+   */
+  const showNextPage = (): void => {
+    const last = page[page.length - 1];
+
+    if (last === undefined || !hasNextPage) {
+      return;
+    }
+
+    setCursors((current) => [...current, String(last.sequence)]);
+  };
+
+  /** Shows the page the reader came from, which is the journey they took without its last position. */
+  const showPreviousPage = (): void => {
+    setCursors((current) => current.slice(0, Math.max(current.length - 1, 0)));
   };
 
   const handleSort = (columnId: string): void => {
@@ -1495,22 +1720,29 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
       </Panel>
 
       <Panel label={SCREEN_TEXT.filterGroup}>
+        {/*
+          A text filter commits on blur or `Enter`, and its draft follows the value it committed through
+          the effect in {@link FilterTextField}. None of them is keyed: a key on the committed value would
+          rebuild the field on every commit and drop the focus of the reader who had just pressed `Enter`
+          (rule B-3). The outcome is the one enumerated filter and commits as soon as an option is chosen,
+          because a select reports a finished choice rather than text being typed.
+        */}
         <div className={FILTER_ROW_CLASSES}>
           <FilterTextField
             label={SCREEN_TEXT.actor}
             value={filters.actorId}
-            onChange={setActorId}
+            onCommit={setActorId}
           />
           <FilterTextField
             label={SCREEN_TEXT.action}
             value={filters.action}
-            onChange={setAction}
+            onCommit={setAction}
             hint={SCREEN_TEXT.actionHint}
           />
           <FilterTextField
             label={SCREEN_TEXT.objectRef}
             value={filters.objectRef}
-            onChange={setObjectRef}
+            onCommit={setObjectRef}
           />
           <FilterChoiceField
             label={SCREEN_TEXT.result}
@@ -1521,13 +1753,13 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
           <FilterTextField
             label={SCREEN_TEXT.from}
             value={filters.from}
-            onChange={setFrom}
+            onCommit={setFrom}
             hint={SCREEN_TEXT.fromHint}
           />
           <FilterTextField
             label={SCREEN_TEXT.to}
             value={filters.to}
-            onChange={setTo}
+            onCommit={setTo}
             hint={SCREEN_TEXT.toHint}
           />
         </div>
@@ -1547,8 +1779,31 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
           simulated element is labelled where it appears, so a reader who reads the trail without ever
           running the check still sees what they are reading (rules P-1 and P-4).
         */}
-        <div className="flex min-w-0 flex-col gap-2">
+        <div className={TRAIL_STACK_CLASSES}>
           <StatusIndicator meaning="simulated" label={CHAIN_LABEL} />
+          {/*
+            The trail is read a page at a time, so the reader needs the two controls that move it.
+            Each control is written once per state on purpose: `ActionButtonProps` is a discriminated
+            union, so a disabled control cannot be constructed without the sentence that says why, and
+            each branch passes its own literal rather than a flag — the reason can never go missing
+            (rule P-8).
+          */}
+          <div className={PAGING_ROW_CLASSES}>
+            {cursors.length === 0 ? (
+              <ActionButton disabled disabledReason={SCREEN_TEXT.newestPageReason}>
+                {SCREEN_TEXT.previousPage}
+              </ActionButton>
+            ) : (
+              <ActionButton onClick={showPreviousPage}>{SCREEN_TEXT.previousPage}</ActionButton>
+            )}
+            {hasNextPage ? (
+              <ActionButton onClick={showNextPage}>{SCREEN_TEXT.nextPage}</ActionButton>
+            ) : (
+              <ActionButton disabled disabledReason={SCREEN_TEXT.oldestPageReason}>
+                {SCREEN_TEXT.nextPage}
+              </ActionButton>
+            )}
+          </div>
           <DataTable
             columns={COLUMNS}
             rows={rows}
@@ -1556,8 +1811,10 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
             caption={SCREEN_TEXT.tableCaption}
             sort={sort}
             onSort={handleSort}
+            defaultOrder={TRAIL_DEFAULT_ORDER}
             onRowActivate={openDetail}
             emptyMessage={SCREEN_TEXT.empty}
+            pageSize={AUDIT_PAGE_SIZE}
           />
         </div>
       </StateBoundary>

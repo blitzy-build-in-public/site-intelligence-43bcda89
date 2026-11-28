@@ -26,13 +26,15 @@
  * bound, so the application cannot start half-bound: exactly one adapter is constructed, and it is
  * the one written on that line.
  *
- * WHY TWO OF THE THREE EXPORTS ARE NOT PORT MEMBERS. `SiteIntelligenceService` is the contracts §2
- * interface method for method, and it declares neither a readiness promise nor a role-setting member.
- * The role switch is a demonstration capability declared beside the port in
+ * WHY TWO OF THE THREE EXPORTS ARE NOT PORT MEMBERS. `SiteIntelligenceService` is the port, the
+ * application's one shared contract between screens and adapters, whose derivation from the contracts'
+ * capabilities is recorded at the port's own header. It declares neither a readiness promise nor a
+ * role-setting member. The role switch is a demonstration capability declared beside the port in
  * `src/services/demonstration-controls.ts`, and readiness is a property of one adapter's construction
  * rather than of the contract it satisfies. Both are therefore detected on the bound value rather than
- * added to an interface they would stop being verbatim, and both answer for an adapter carrying
- * neither: the capability accessor returns `null`, and readiness resolves immediately.
+ * added to an interface that would then carry members no caller of the port reads, and both answer for
+ * an adapter carrying neither: the capability accessor returns `null`, and readiness resolves
+ * immediately.
  *
  * WHAT IT DOES NOT DO. It reads no configuration, environment variable or credential and holds none,
  * because which adapter is bound is a code constant rather than a setting (rule B-2). It names no
@@ -154,7 +156,8 @@ export function getDemonstrationControls(
  * answer its first call.
  *
  * Declared here rather than on `SiteIntelligenceService`, because readiness is a property of one
- * adapter's construction and the port is the contracts §2 interface unchanged. The in-browser adapter
+ * adapter's construction and the port is the application's one shared contract between screens and
+ * adapters, derived from the contracts' capabilities as its own header records. The in-browser adapter
  * is the one that carries it: its constructor starts hashing the 200 seeded audit events through the
  * platform's own Web Crypto, and this is the promise that pass settles.
  */

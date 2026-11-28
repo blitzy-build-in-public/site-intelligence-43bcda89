@@ -23,7 +23,9 @@
  *    control rather than against the document (rule P-1, rule P-5).
  * 4. Every competitor name the screen paints — in the legend, in the entity selector, in the network
  *    drawing and in the chokepoint table — is followed by the imported `COMPETITOR_NAME_TAG`, and
- *    every competitor series carries the market-intelligence member of `SIM_LABELS`.
+ *    every competitor series carries the market-intelligence member of `SIM_LABELS`. Every other
+ *    series prints the label its own record states, so a computed first-party series is described as
+ *    the first-party figure it is rather than as a competitor's.
  * 5. A `'permission'` refusal renders the forbidden card with the permission the role lacks, the
  *    roles that hold it and the trace identifier of the refused call, and no data surface is shown
  *    as if it had been read (AAP §0.6.2, rule P-8).
@@ -35,16 +37,18 @@
  * 8. All seven states of specification §8 render for the outcome the screen derives them from —
  *    driven only by what the stubbed read and its `Result.meta` report, never by a flag name — and
  *    the retry the offline and conflict states offer reads the atlas again.
- * 9. The export and both selector groups are reached and operated from the keyboard alone, a control
- *    that cannot act states why in words a screen reader reads (rule B-3, rule P-8), and each caption
- *    naming the class or the entity in view is a status region that announces the change when the
- *    reader makes one (WCAG 2.2 SC 4.1.3).
+ * 9. The export and both selector groups are reached and operated from the keyboard alone, every chip
+ *    of both groups states its own chosen state with `aria-pressed`, a control that cannot act states
+ *    why in words a screen reader reads (rule B-3, rule P-8), and each caption naming the class or the
+ *    entity in view is a status region that announces the change when the reader makes one (WCAG 2.2
+ *    SC 4.1.3).
  * 10. Both themes draw the same surface, read through accessible names, roles and text rather than
  *     through a colour value (rule B-3).
- * 11. The product-class selector narrows every drawn surface — the radar series, the competitor
- *     networks, their sites and the crossings their lanes traverse — states the class in view in words
- *     beside its controls, restores the whole pack from "All product classes", and falls back to the
- *     class's own default entity when the chosen one leaves the view (AAP §0.12.4, rules B-3, P-8).
+ * 11. The product-class selector narrows every drawn surface — the alert band's alerts, the radar
+ *     series, the competitor networks, their sites and the crossings their lanes traverse — states the
+ *     class in view in words beside its controls, restores the whole pack from "All product classes",
+ *     and falls back to the class's own default entity when the chosen one leaves the view
+ *     (AAP §0.12.4, rules B-3, P-8).
  * 12. Every mark the screen draws opens the record behind it — a radar vertex the single reading it
  *     draws, a site mark and a crossing halo the identifier the payload gave it, and the chokepoint
  *     table's overlap and buffer-day figures the crossing of their own row — and the drawer shows that
@@ -69,7 +73,9 @@
  *     its identifier and its buffer days, from the name the payload holds (rules P-1, P-5, P-7).
  * 18. The chokepoint alert strip leads the content once the read settles — one alert per crossing the
  *     payload carried, in the payload's order, each carrying the market-intelligence label and no
- *     control at all (AAP 0.14.1's S3 row, AAP 0.7's S3 stage row, rules P-1, P-5 and P-8).
+ *     control at all (AAP 0.14.1's S3 row, AAP 0.7's S3 stage row, rules P-1, P-5 and P-8) — and it
+ *     lists only the crossings the class in view leaves while one is chosen, saying so in its own
+ *     description.
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a
  * screen may read through (rule P-2), so no seed module, no adapter, no HTTP client and nothing from
@@ -95,21 +101,26 @@
  * `COMPETITOR_NETWORK_TEXT`, `RADAR_CHART_TEXT`, `VIEW_AS_TABLE_LABELS`), so a reworded label reaches
  * one place and this suite fails rather than silently asserting wording the interface no longer shows.
  *
- * The competitor tag is imported, never compared as a literal. Rule P-5's literal wording fixes it
- * with one company word, while AAP §0.10's companion-string row pairs the same tag with a different
- * one. `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the rule's
- * own wording, naming the rule — the highest-ranked input, per AAP §0.1 — as the winner in that
- * constant's documentation. This suite imports the constant and compares against it, so it encodes
- * neither literal and follows the resolution wherever it moves.
+ * The competitor tag and the pack banner are imported, and exactly one case pins their wording.
+ * Rule P-5 fixes the tag with one company word, while AAP §0.10's companion-string row pairs the
+ * same tag with a different one; the rule ranks above that row, so the rule's wording holds.
+ * `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the rule's own
+ * wording, naming the rule — the highest-ranked input, per AAP §0.1 — as the winner in that
+ * constant's documentation. Every case below imports the constant and compares against it, which
+ * follows the resolution wherever it moves but cannot tell whether the constant still says what the
+ * rule and the plan fix; the case that pins both strings as literals closes that gap.
  *
  * `chokepoint-table.tsx` keeps its seven column headers in a module-private constant and exports no
  * accessor, so {@link CHOKEPOINT_COLUMNS} restates them once here: they are structural names rather
  * than specification strings, and a reworded header reaches exactly one place.
  *
- * jsdom implements neither `URL.createObjectURL` nor `URL.revokeObjectURL`, and the screen's download
- * path calls both directly, so the export case installs them as spies, stubs
+ * jsdom offers no download of its own, and the export cases are the whole of what the download path is
+ * asserted through, so those cases replace the object-URL members with spies and stub
  * `HTMLAnchorElement.prototype.click` so the file that would be offered is observed rather than
- * navigated to, and restores the globals afterwards.
+ * navigated to. The refusal case withholds the members instead, because this environment answers
+ * `URL.createObjectURL` from the global's prototype as well as from the global itself: deleting the
+ * global's member would expose the inherited one rather than leave the page without a factory. Every
+ * case hands the globals back afterwards.
  *
  * The claim vocabulary rule P-4 forbids is not typed here. `tests/source-checks` rejects it anywhere
  * under `src/`, and this folder sits inside that scan, so a case that wrote it into an assertion
@@ -328,6 +339,24 @@ const CLIENT_SERIES: AtlasSeries = {
   provenance: 'first_party',
   simLabel: CLIENT_SELF_ASSESSMENT_LABEL,
   values: [68, 54, 61, 87, 70],
+};
+
+/**
+ * A computed first-party series: a figure the application derived from the client's own records.
+ *
+ * `computed` is a first-party family value rather than a competitor's (AAP §0.8), and the series
+ * carries a label of its own — the `Simulated calculation` member of the fixed list — so a screen that
+ * derived a series' treatment from its provenance instead of reading the record would tag it with the
+ * competitor name and print the market-intelligence label over a first-party figure (rules P-1, P-5).
+ * It names no competitor network, like the client's own series, so the class filter never hides it.
+ */
+const COMPUTED_SERIES: AtlasSeries = {
+  id: 'series-computed',
+  competitorId: null,
+  label: 'Client computed score',
+  provenance: 'computed',
+  simLabel: SIM_LABELS[1],
+  values: [72, 66, 58, 81, 69],
 };
 
 /**
@@ -722,7 +751,7 @@ const CONFLICT: Problem = {
 };
 
 /* ---------------------------------------------------------------------------------------------
- * The browser's download path, stubbed because jsdom implements none of it
+ * The browser's download path, replaced because jsdom offers no download of its own
  * ------------------------------------------------------------------------------------------- */
 
 /** The object URL the stubbed factory hands back, which nothing resolves. */
@@ -735,10 +764,10 @@ const createObjectUrl = vi.fn<(value: Blob) => string>(() => OBJECT_URL);
 const revokeObjectUrl = vi.fn<(value: string) => void>();
 
 /**
- * Supplies both object-URL members jsdom leaves undefined, so the download path is reachable at all.
+ * Supplies both object-URL members, so the download path is reachable and observable.
  *
- * `Object.defineProperty` is used rather than `vi.spyOn` because there is no property to spy on;
- * {@link removeObjectUrlStubs} puts the globals back afterwards.
+ * `Object.defineProperty` is used rather than `vi.spyOn` because the members are replaced rather than
+ * wrapped; {@link withholdObjectUrlMembers} takes them away again.
  */
 function installObjectUrlStubs(): void {
   Object.defineProperty(URL, 'createObjectURL', {
@@ -753,10 +782,25 @@ function installObjectUrlStubs(): void {
   });
 }
 
-/** Removes the stubs, whether or not a case installed them. */
-function removeObjectUrlStubs(): void {
-  Reflect.deleteProperty(URL, 'createObjectURL');
-  Reflect.deleteProperty(URL, 'revokeObjectURL');
+/**
+ * Withholds both object-URL members, which is the engine that offers no way to save a file: no factory
+ * to build a URL with and none to revoke.
+ *
+ * They are shadowed with `undefined` rather than deleted because this environment answers
+ * `URL.createObjectURL` from the global's prototype as well as from the global itself, so a deleted own
+ * member would only expose the inherited one and the page would still have a factory.
+ */
+function withholdObjectUrlMembers(): void {
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    writable: true,
+    value: undefined,
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', {
+    configurable: true,
+    writable: true,
+    value: undefined,
+  });
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1036,9 +1080,12 @@ beforeEach(() => {
   revokeObjectUrl.mockClear();
 });
 
-/** Leaves `<html>` on the theme of whichever suite runs next, and no stub or attribute behind. */
+/**
+ * Leaves `<html>` on the theme of whichever suite runs next, and no object-URL factory of this one
+ * behind: every case but the offering one expects the page to have none.
+ */
 afterEach(() => {
-  removeObjectUrlStubs();
+  withholdObjectUrlMembers();
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.removeAttribute('data-density');
 });
@@ -1201,6 +1248,41 @@ describe('CompetitiveAtlasScreen', () => {
     ).toBeInTheDocument();
   });
 
+  /* Rule P-5 fixes the competitor tag character for character, and it ranks above AAP §0.10's
+     companion-string row, which pairs the same tag with the superseded company word — the precedence
+     `src/types/primitives.ts` records where the string is shipped. Every other case here reads both
+     strings from the constants that module exports, which keeps them consistent with the constant but
+     can never tell whether the constant still says what the rule and the plan fix. This is the one
+     place the pair is stated as literals: a constant reworded — to the superseded company word, or to
+     a banner whose closing words moved — fails here instead of passing in every suite, and the
+     rendered readings below fail as well if a surface stops printing the constant at all. */
+  it('pins the competitor tag and the pack banner as literals, and reads both back off the surfaces that carry them', async () => {
+    /* Rule P-5's tag, and the pack banner AAP §0.10 fixes, each as its own source words it. */
+    const pinnedTag = 'Synthetic company';
+    const pinnedBanner =
+      'Simulated market intelligence pack v2026.11. No first-party record is used in any competitor figure.';
+
+    expect(COMPETITOR_NAME_TAG).toBe(pinnedTag);
+    expect(ATLAS_PACK_BANNER).toBe(pinnedBanner);
+
+    renderScreen();
+
+    /* The banner the screen paints is that sentence, read off the note it renders outside the state
+       boundary rather than from the payload it was handed (AAP §0.12.4 SCR-13, rule P-1). */
+    expect(packBanner().textContent).toBe(pinnedBanner);
+
+    /* And a competitor name reaches a reader with the tag after it: the entity selector's control for
+       the first network is named and printed as the network's own name followed by the tag, so a
+       control that dropped or reworded the tag fails here as well (rule P-5). */
+    await radarCard();
+
+    const selector = screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel });
+    const network = at(COMPETITOR_NETWORKS, 0, 'first competitor network');
+    const control = within(selector).getByRole('button', { name: `${network.label} ${pinnedTag}` });
+
+    expect(within(control).getByText(pinnedTag, { exact: true })).toBeInTheDocument();
+  });
+
   it('follows every competitor name with the imported competitor tag wherever the screen paints one', async () => {
     renderScreen();
 
@@ -1272,6 +1354,67 @@ describe('CompetitiveAtlasScreen', () => {
         expect(within(competitors).getByText(competitorId)).toBeInTheDocument();
       }
     });
+  });
+
+  it('labels a series from its own record rather than from its provenance', async () => {
+    const user = userEvent.setup();
+
+    /* A computed first-party series joins the pack: it names no competitor network, and the label it
+       carries is the `Simulated calculation` member rather than the market-intelligence string a
+       competitor's figures require (AAP §0.8, rule P-1). */
+    port.getAtlas.mockResolvedValue(
+      envelope({ ...ATLAS, radarSeries: [...SERIES, COMPUTED_SERIES] }),
+    );
+
+    renderScreen();
+
+    const entityGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+    const computedChip = within(entityGroup).getByRole('button', {
+      name: new RegExp(`^${escapeRegExp(COMPUTED_SERIES.label)}`, 'u'),
+    });
+
+    /* The selector states the label the record carries, and tags no first-party series as a
+       competitor's (rule P-5). */
+    expect(collapsedTextOf(computedChip)).toContain(COMPUTED_SERIES.simLabel);
+    expect(collapsedTextOf(computedChip)).not.toContain(COMPETITOR_NAME_TAG);
+
+    /* The legend row beside the radar says the same thing about the same series. */
+    const card = await radarCard();
+    const computedRow = within(within(card).getByRole('list'))
+      .getByText(COMPUTED_SERIES.label, { exact: true })
+      .closest('li');
+
+    if (computedRow === null) {
+      throw new Error('the computed series was described by no legend row');
+    }
+
+    expect(collapsedTextOf(computedRow)).toContain(COMPUTED_SERIES.simLabel);
+    expect(collapsedTextOf(computedRow)).not.toContain(COMPETITOR_NAME_TAG);
+
+    /* And the radar's table view prints that same label in the column it gives the series. */
+    await user.click(
+      within(card).getByRole('button', {
+        name: `${VIEW_AS_TABLE_LABELS.showTable}: ${COMPETITIVE_ATLAS_TEXT.radarFigureTitle}`,
+      }),
+    );
+
+    const table = screen.getByRole('table', { name: COMPETITIVE_ATLAS_TEXT.radarTableCaption });
+    const headers = within(table).getAllByRole('columnheader').map(collapsedTextOf);
+    const computedHeader = at(
+      headers.filter((header) => header.includes(COMPUTED_SERIES.label)),
+      0,
+      'computed series column header',
+    );
+
+    expect(computedHeader).toBe(`${COMPUTED_SERIES.label} (${COMPUTED_SERIES.simLabel})`);
+
+    /* The pack's own market-intelligence series keeps the treatment its family requires: the
+       competitor tag together with the market-intelligence label (rule P-5). */
+    const competitor = at(COMPETITOR_SERIES, 0, 'competitor series');
+
+    expect(headers).toContain(`${competitor.label} (${COMPETITOR_NAME_TAG}; ${SIM_LABELS[5]})`);
   });
 
   it('paints one competitor in one hue on every surface when the payload orders its lists differently', async () => {
@@ -1728,6 +1871,77 @@ describe('CompetitiveAtlasScreen', () => {
         `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${FIRST_CLASS}. ${COMPETITIVE_ATLAS_TEXT.classCaptionDetail}`,
       ),
     ).toBeInTheDocument();
+  });
+
+  it('states the chosen chip of both selector groups programmatically', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const classGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.classGroupLabel,
+    });
+    const entityGroup = screen.getByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel,
+    });
+
+    /* Every chip of both groups carries the state attribute, so a reader is told which of its peers is
+       chosen rather than left to compare fills (rule B-3). */
+    for (const group of [classGroup, entityGroup]) {
+      const chips = within(group).getAllByRole('button');
+
+      expect(chips.length).toBeGreaterThan(1);
+
+      for (const chip of chips) {
+        expect(chip).toHaveAttribute('aria-pressed');
+      }
+    }
+
+    /* Exactly one chip of each group reads as pressed, and it is the class and the entity the atlas
+       opens with: every product class in view, and the client's own series (AAP §0.12.4). */
+    const pressedChipsIn = (group: HTMLElement): HTMLElement[] =>
+      within(group)
+        .getAllByRole('button')
+        .filter((chip) => chip.getAttribute('aria-pressed') === 'true');
+
+    expect(pressedChipsIn(classGroup).map(collapsedTextOf)).toStrictEqual([
+      COMPETITIVE_ATLAS_TEXT.allClassesLabel,
+    ]);
+
+    const openedEntity = pressedChipsIn(entityGroup);
+
+    expect(openedEntity).toHaveLength(1);
+    expect(collapsedTextOf(at(openedEntity, 0, 'pressed entity chip'))).toContain(
+      CLIENT_SERIES.label,
+    );
+
+    /* The state follows the reader's choice, and it returns with the control that undoes it, so the
+       chips state the selection the screen actually draws (rule P-8). */
+    await user.click(within(classGroup).getByRole('button', { name: FIRST_CLASS }));
+
+    expect(pressedChipsIn(classGroup).map(collapsedTextOf)).toStrictEqual([FIRST_CLASS]);
+
+    await user.click(
+      within(classGroup).getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.allClassesLabel }),
+    );
+
+    expect(pressedChipsIn(classGroup).map(collapsedTextOf)).toStrictEqual([
+      COMPETITIVE_ATLAS_TEXT.allClassesLabel,
+    ]);
+
+    /* And choosing a series moves the pressed state to that series and no other. */
+    const competitor = at(COMPETITOR_NETWORKS, 0, 'competitor network');
+
+    await user.click(
+      within(entityGroup).getByRole('button', {
+        name: new RegExp(`^${escapeRegExp(competitor.label)}`, 'u'),
+      }),
+    );
+
+    const chosenEntity = pressedChipsIn(entityGroup);
+
+    expect(chosenEntity).toHaveLength(1);
+    expect(collapsedTextOf(at(chosenEntity, 0, 'pressed entity chip'))).toContain(competitor.label);
   });
 
   it('explains a permission refusal with the permission, the roles that hold it and the trace id', async () => {
@@ -2254,6 +2468,50 @@ describe('CompetitiveAtlasScreen', () => {
     expect(within(band).queryByRole('link')).toBeNull();
   });
 
+  it('lists only the crossings in view in the alert band, and says what the class leaves it listing', async () => {
+    const user = userEvent.setup();
+
+    renderScreen();
+
+    const band = await screen.findByRole('region', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointAlertCardTitle,
+    });
+
+    /* Every crossing the pack holds is listed while every class is in view, and the band makes no
+       narrowing claim of its own. */
+    expect(within(band).getAllByRole('listitem')).toHaveLength(CHOKEPOINTS.length);
+    expect(collapsedTextOf(band)).not.toContain(COMPETITIVE_ATLAS_TEXT.chokepointAlertNarrowed);
+
+    const classGroup = screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel });
+
+    await user.click(within(classGroup).getByRole('button', { name: FIRST_CLASS }));
+
+    /* One class in view now governs the band as it governs the drawings and the tables: the band lists
+       the crossings a lane of an in-view network traverses, and no others (AAP §0.12.4). */
+    const alerts = within(band).getAllByRole('listitem');
+    const outOfView = CHOKEPOINTS.filter((crossing) => !FIRST_CLASS_CHOKEPOINTS.includes(crossing));
+
+    expect(FIRST_CLASS_CHOKEPOINTS.length).toBeLessThan(CHOKEPOINTS.length);
+    expect(alerts).toHaveLength(FIRST_CLASS_CHOKEPOINTS.length);
+
+    for (const crossing of outOfView) {
+      expect(within(band).queryByText(crossing.label, { exact: true })).toBeNull();
+    }
+
+    /* And the description says so, rather than claiming the whole pack is listed. */
+    expect(collapsedTextOf(band)).toContain(COMPETITIVE_ATLAS_TEXT.chokepointAlertDescription);
+    expect(collapsedTextOf(band)).toContain(COMPETITIVE_ATLAS_TEXT.chokepointAlertNarrowed);
+
+    /* "All product classes" puts the pack's crossings back in the band, so the narrowing a class
+       performs is reversible (rule P-8). */
+    await user.click(
+      within(classGroup).getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.allClassesLabel }),
+    );
+
+    expect(within(band).getAllByRole('listitem')).toHaveLength(CHOKEPOINTS.length);
+    expect(collapsedTextOf(band)).not.toContain(COMPETITIVE_ATLAS_TEXT.chokepointAlertNarrowed);
+  });
+
   it('offers the chokepoint brief the service composed as the file it named, unchanged', async () => {
     const user = userEvent.setup();
     const offered: { readonly href: string; readonly download: string }[] = [];
@@ -2308,6 +2566,38 @@ describe('CompetitiveAtlasScreen', () => {
     });
 
     expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+    expect(fetched).not.toHaveBeenCalled();
+  });
+
+  it('reports that this page cannot offer the brief where it has no object-URL factory', async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+    const fetched = vi.spyOn(globalThis, 'fetch');
+
+    /* The engine this case is about: one with no factory to build a file with. */
+    withholdObjectUrlMembers();
+
+    renderScreen();
+    await radarCard();
+
+    await user.click(screen.getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.exportAction }));
+
+    /* The brief was composed and recorded — the export itself did not fail — so the port answered once
+       and what is reported is the page's own limit. */
+    await waitFor(() => {
+      expect(port.exportChokepointBrief).toHaveBeenCalledTimes(1);
+    });
+
+    const notice = await screen.findByText(COMPETITIVE_ATLAS_TEXT.downloadUnavailable);
+
+    /* It is announced in the region the export's own failures use, so a reader meets one place for
+       everything the control could not do (rule P-8). */
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toBeVisible();
+
+    /* Nothing was offered at all: no anchor was activated, and nothing was requested to offer one
+       (rule B-1). */
+    expect(clickSpy).not.toHaveBeenCalled();
     expect(fetched).not.toHaveBeenCalled();
   });
 

@@ -20,8 +20,9 @@
  *
  * NOTHING HERE IS COMPUTED — rules P-6 and P-2. Every figure on this surface arrives from a port
  * member: the ribbon's six tiles from `getCanvasRibbon`, each exception's revenue at risk and the
- * urgency order from `listExceptions` asked with its own list parameters, the projected series and
- * the selected exception's title from `getExceptionDetail`, the events from `listAuditEvents`. This
+ * urgency order from `listExceptions` asked with its own list parameters, the baseline projection and
+ * the selected exception's title from `getExceptionDetail`, the option the dock plots over that
+ * baseline from `getScenarioSet`, the events from `listAuditEvents`. This
  * module sorts nothing, slices nothing, sums nothing, rounds nothing, formats nothing and reads no
  * clock; the two windows it asks for (four urgent rows, five events) are handed to the service so
  * the service's own ordering and limit apply rather than a screen-side truncation. The one selection
@@ -44,19 +45,25 @@
  * never the screen. The payload is forwarded to the map lens unchanged and is read for nothing else
  * here: this file authors no competitor string, prints no competitor figure beside a first-party one
  * and combines no two series, so the market intelligence the overlay draws stays labelled by the
- * component that draws it.
+ * component that draws it. The one thing this file owes a degraded overlay is its reason: the refusal's
+ * own `Problem.type` chooses {@link FILEMAP_CANVAS_TEXT.atlasRefused} or
+ * {@link FILEMAP_CANVAS_TEXT.atlasUnavailable}, which the lens paints in its own caption, so a reader
+ * can tell a scope that holds no pack from a read that was refused or never answered.
  *
  * CONTROLS — rule P-8. The lens switch, the wall-mode toggle, the graph lens's scenario preview switch
  * and the primary action are all live: the switch changes the lens, the toggle changes the mode and
  * reports it to the shell, the preview switch arms the one response option the screen offers from the
  * selected exception's own set while the caption beside it names that option, and the primary action
  * navigates to `/exceptions/<identifier>` for the exception the selection resolves to through the
- * service. The primary action is rendered only when an exception does resolve, because the
- * specification fixes no reason string for the other case and a disabled control with an invented
- * reason would be exactly what rule P-8 and AAP §0.1 forbid. An exception whose set offers no option
- * leaves the preview switch visibly disabled carrying the drawing's own reason, which this file neither
- * restates nor replaces. The only fixed disabled string in this area — `Arrives in stage S4` on **Open
- * part** — belongs to the graph lens and is untouched here.
+ * service. The primary action is on screen whatever the selection is: while an exception does resolve
+ * it investigates that exception, and while the selected node answers none it is rendered disabled
+ * carrying {@link FILEMAP_CANVAS_TEXT.primaryActionUnavailable}, the sentence that names the node to
+ * select and the reason a plant is the node that can be investigated — so a reader who selected a
+ * supplier, a material, an origin or a customer is told what to do rather than left without the
+ * control (rule P-8). An exception whose set offers no option leaves the preview switch visibly
+ * disabled carrying the drawing's own reason, which this file neither restates nor replaces. The only
+ * fixed disabled string in this area — `Arrives in stage S4` on **Open part** — belongs to the graph
+ * lens and is untouched here.
  * "View as table" on both lenses is the same story: each lens composes `ChartFrame`, which owns the
  * toggle and the table view, so this file adds no second toggle and no chart of its own.
  *
@@ -92,8 +99,9 @@
  *    opens the record behind it (AAP 0.2.1 F12), and it composes no reference of its own (rule P-6).
  *    Declared at module scope so its identity is stable across renders and the drawing is not rebuilt
  *    on every pass.
- * 5. `TimelineDock` builds its own chart-table specification and takes the series, the reference and
- *    the events, so no table specification is supplied from here.
+ * 5. `TimelineDock` builds its own chart-table specification from the series it draws and takes those
+ *    series, their references and their labels and the events, so no table specification is supplied
+ *    from here; the frame-level label it paints is read off the labels of the two series themselves.
  * 6. The shell that mounts this screen must hand it the scope it holds, and take the selection and the
  *    wall-mode request back: a screen may not read the shell's stores (AAP §0.18.1), so with no
  *    `scope` prop the reads run on `Scope`'s empty "all plants and all products" selection. The
@@ -109,7 +117,7 @@
  * from the payload), and P-8 (every control acts or does not render).
  */
 import { skipToken, useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -181,6 +189,19 @@ export const FILEMAP_CANVAS_TEXT = {
 
   /** The one action this screen exists to take, once a selection resolves to an exception. */
   primaryAction: 'Investigate selected exception',
+
+  /**
+   * Why the primary action cannot act on the node that is selected, and what to select instead.
+   *
+   * Rule P-8 requires a control that cannot act to say so in words rather than to vanish, and the
+   * reason is a fact about the records: an exception row names the plant the disruption lands on
+   * (`ExceptionRow.plantId`) and no supplier, material, origin or customer, so a plant is the one node
+   * kind a selection can be investigated from. The sentence therefore names the node to select instead
+   * of restating the absence. It types no identifier, no figure and no record name (rule P-6), and it
+   * claims nothing about a capability the demonstration does not implement (rule P-4).
+   */
+  primaryActionUnavailable:
+    'Select a plant node on the canvas: an exception names the plant the disruption lands on, so a plant is the node this action can investigate.',
 
   /** The accessible name of the group holding the two lens controls. */
   lensGroupLabel: 'Canvas lens',
@@ -277,6 +298,30 @@ export const FILEMAP_CANVAS_TEXT = {
    */
   auditUnavailable:
     'The acting role may not read the audit trail, so no event is shown here.',
+
+  /**
+   * What the map lens's caption says when the atlas read is refused for the acting role.
+   *
+   * The atlas is the stage S3 overlay the map lens draws over the first-party network, and the
+   * service refuses it for a role that may not read the market intelligence, so the refusal degrades
+   * the drawing without failing the screen. A reader who sees the overlay missing is owed the reason:
+   * silence would leave "no pack" and "refused" indistinguishable, which is exactly what the caption —
+   * the lens region's own line of words — exists to tell apart. The sentence names no competitor, no
+   * figure and no record (rules P-5, P-6), because this screen authors no market-intelligence content.
+   */
+  atlasRefused:
+    'The overlay is not drawn: the atlas read is refused for the acting role, so this lens shows the first-party network alone.',
+
+  /**
+   * What the map lens's caption says when the atlas read failed for a reason other than permission.
+   *
+   * A failure is not a permission, so the second sentence never describes one as the other: an
+   * unreachable or refusing source degrades the same overlay while the reader is told that the read
+   * did not answer rather than that the role may not read it (rule P-4's prohibition on stating a
+   * property the demonstration does not establish, applied to a cause it did not observe).
+   */
+  atlasUnavailable:
+    'The overlay is not drawn: the atlas read did not answer, so this lens shows the first-party network alone.',
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
@@ -291,6 +336,14 @@ export const FILEMAP_CANVAS_TEXT = {
 const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
 
 /**
+ * `Simulated data` — the label of a reading that shipped with the dataset rather than being computed in
+ * this session, which is what a seeded option's projection is. The dock's option series carries it where
+ * its record states `origin: 'seeded'`, and the frame then states it for the whole figure, because it is
+ * the one label true of both series (AAP §0.10, rule P-1).
+ */
+const DATA_LABEL: SimLabel = SIM_LABELS[0];
+
+/**
  * The window this screen asks the queue for: the four most urgent exceptions AAP §0.12.4's SCR-12 row
  * fixes for the right stack.
  *
@@ -299,6 +352,20 @@ const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
  * P-6). It is a window, not a figure: nothing displays it.
  */
 const URGENT_EXCEPTION_LIMIT = 4;
+
+/**
+ * The order the dock's five latest events are asked for in, stated at the call site that needs it.
+ *
+ * `listAuditEvents` documents its answer as the events "in chain order"
+ * (`src/services/site-intelligence-service.ts`), while the adapter's own default is newest first
+ * (`src/services/mock/handlers/audit.ts`). A surface that shows the five LATEST events therefore cannot
+ * leave the direction to a default it does not own: it asks for that order in the query, in the
+ * `field:dir` form `ListQuery.sort` defines, so the dependency is visible here and the read answers the
+ * order this screen means rather than the order its adapter happens to apply.
+ *
+ * It is exported so the suite names the order through this constant instead of retyping it.
+ */
+export const DOCK_EVENT_ORDER = 'timestamp:desc';
 
 /**
  * The selection a screen reads when the shell supplies none: the empty plant and product arrays,
@@ -708,10 +775,11 @@ const DEFAULT_LENS: LensId = 'map';
  * - `listExceptions({ limit }, scope)` — the four most urgent exceptions, in the service's order and
  *   within the service's window, for the right stack;
  * - `listAuditEvents({ limit })` — the five latest events the dock prints;
- * - `getExceptionDetail(id)` — the selected exception's own title and projected closing stock, read
- *   only once a selection resolves to an exception;
+ * - `getExceptionDetail(id)` — the selected exception's own title and the baseline its records project,
+ *   read only once a selection resolves to an exception;
  * - `getScenarioSet(id)` — the selected exception's response options, read only once a selection
- *   resolves to an exception, because the graph lens's preview switch offers one of them.
+ *   resolves to an exception, because the option in view is drawn over that baseline in the dock and is
+ *   the one the graph lens's preview switch offers.
  *
  * `getAtlas()` is the seventh read and the only optional one: its refusal degrades the map lens to
  * the first-party network, so its failure is never the screen's failure.
@@ -759,9 +827,16 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
     retry: false,
   });
 
+  /*
+   * The trail the dock's events half prints: the five latest, asked for newest first. The order is
+   * stated in the query rather than left to the adapter's default, because the port documents this read
+   * as the chain's own order and only the caller knows which direction its surface needs
+   * ({@link DOCK_EVENT_ORDER}). It is part of the key as well, so a cache entry says which page it holds.
+   */
   const auditQuery = useQuery<Result<AuditEvent[]>, unknown>({
-    queryKey: ['listAuditEvents', { limit: TIMELINE_DOCK_AUDIT_EVENTS }],
-    queryFn: () => service.listAuditEvents({ limit: TIMELINE_DOCK_AUDIT_EVENTS }),
+    queryKey: ['listAuditEvents', { limit: TIMELINE_DOCK_AUDIT_EVENTS, sort: DOCK_EVENT_ORDER }],
+    queryFn: () =>
+      service.listAuditEvents({ limit: TIMELINE_DOCK_AUDIT_EVENTS, sort: DOCK_EVENT_ORDER }),
     retry: false,
   });
 
@@ -784,6 +859,25 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
    * sentence exists to cover.
    */
   const trailRefused = isProblem(auditQuery.error) && auditQuery.error.type === 'permission';
+
+  /*
+   * Why the map lens draws no overlay, when the atlas read is what left it out.
+   *
+   * `getAtlas` is the screen's only optional read, so its failure never reaches the state derivation
+   * below — the surface the reader landed on keeps working. That makes the absence silent unless the
+   * screen says why, and a reader cannot tell a scope that holds no pack from a read that was refused.
+   * The sentence is therefore chosen here from the refusal's own `type`, which is the service's word
+   * for the cause: a permission refusal says the role may not read it, and anything else says the read
+   * did not answer. Nothing is said while the read is in flight, and nothing is said when it answered,
+   * so the caption reports a degradation rather than a settled absence.
+   */
+  const atlasFailure = atlasQuery.error;
+  const atlasNotice =
+    atlasFailure === null || atlasFailure === undefined
+      ? undefined
+      : isProblem(atlasFailure) && atlasFailure.type === 'permission'
+        ? FILEMAP_CANVAS_TEXT.atlasRefused
+        : FILEMAP_CANVAS_TEXT.atlasUnavailable;
 
   const topology = topologyQuery.data?.data;
   const ribbonTiles = ribbonQuery.data?.data ?? NO_TILES;
@@ -856,23 +950,37 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
   });
 
   /*
-   * The one option the preview switch would highlight: the option the set's recommendation rule picked,
-   * else the first option the set holds, else none. Both are the records' own — `recommendedId` is what
-   * that rule chose and `scenarios` is the order the set states — so this file authors no ranking, no
-   * measure and no figure (rule P-6). Nothing is offered while the read has not settled, and an empty set
-   * offers nothing, which is the case the drawing's disabled switch states a reason for.
+   * The one option in view: the option the reader armed in the preview switch when that identifier names
+   * an option of this set, else the option the set's recommendation rule picked, else the first option
+   * the set holds, else none. Every candidate is the records' own — `armedPreviewId` is the request the
+   * reader made through that switch, `recommendedId` is what the rule chose and `scenarios` is the order
+   * the set states — so this file authors no ranking, no measure and no figure (rule P-6).
+   *
+   * There is ONE of these, and both the preview caption and the dock read it, so the option the caption
+   * names and the option the dock plots can never be two different records. Nothing is in view while the
+   * read has not settled, and a set holding no option leaves nothing in view, which is the case the
+   * drawing's disabled switch states a reason for.
    */
-  const previewScenario = useMemo(() => {
+  const activeScenario = useMemo(() => {
     const set = scenarioQuery.data?.data;
 
     if (set === undefined) {
       return undefined;
     }
 
-    return set.scenarios.find((scenario) => scenario.id === set.recommendedId) ?? set.scenarios[0];
-  }, [scenarioQuery.data]);
+    const armed =
+      armedPreviewId === null
+        ? undefined
+        : set.scenarios.find((scenario) => scenario.id === armedPreviewId);
 
-  const previewScenarioId = previewScenario === undefined ? null : previewScenario.id;
+    return (
+      armed ??
+      set.scenarios.find((scenario) => scenario.id === set.recommendedId) ??
+      set.scenarios[0]
+    );
+  }, [scenarioQuery.data, armedPreviewId]);
+
+  const activeScenarioId = activeScenario === undefined ? null : activeScenario.id;
 
   /*
    * The state, read from what the three reads the surface needs settled to. A typed refusal outranks an
@@ -926,11 +1034,22 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
     void auditQuery.refetch();
   }
 
-  /** Takes a node a lens reports as the selection, in this screen and — if the shell wants it — there. */
-  function selectNode(nodeId: string): void {
-    setOwnSelection(nodeId);
-    props.onSelectedNodeChange?.(nodeId);
-  }
+  /*
+   * Takes a node a lens reports as the selection, in this screen and — if the shell wants it — there.
+   *
+   * `useCallback` with the shell's handler as its one dependency is what keeps this identity stable
+   * across the screen's own state changes: the lenses below are memoised on the props they are given
+   * (`src/components/dependency-graph.tsx` wraps its drawing in `React.memo`), and the shell binds
+   * `onSelectedNodeChange` to a stable setter, so a callback built once per handler means a node click
+   * rebuilds the drawing's emphasis rather than the drawing.
+   */
+  const selectNode = useCallback(
+    (nodeId: string): void => {
+      setOwnSelection(nodeId);
+      props.onSelectedNodeChange?.(nodeId);
+    },
+    [props.onSelectedNodeChange],
+  );
 
   /** Flips wall mode, applies it here and reports it, because hiding the navigation is the shell's. */
   function toggleWallMode(): void {
@@ -945,21 +1064,28 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
   }
 
   /*
-   * The primary action exists only while a selection resolves to an exception: the specification fixes
-   * no explanation for the other case, and a control that could not act would be the dead control rule
-   * P-8 forbids.
+   * The primary action is always on screen, because rule P-8 asks a control that cannot act to say why
+   * rather than to disappear: a reader who selected a supplier, a material, an origin or a customer
+   * would otherwise be left with no control and no way forward. While the selection resolves to an
+   * exception the control investigates it, and otherwise it is disabled carrying the words that name
+   * the node to select — `ActionButton`'s prop union makes the reason as structural as the disabled
+   * state, and its `aria-disabled` keeps the control focusable so the reason reaches a keyboard reader
+   * too (rule B-3).
    */
-  const headerActions: ReactNode =
-    selectedException === undefined ? undefined : (
-      <ActionButton
-        variant="primary"
-        onClick={() => {
-          investigate(selectedException.id);
-        }}
-      >
-        {FILEMAP_CANVAS_TEXT.primaryAction}
-      </ActionButton>
-    );
+  const headerActions: ReactNode = (
+    <ActionButton
+      variant="primary"
+      {...(selectedException === undefined
+        ? { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionUnavailable }
+        : {
+            onClick: () => {
+              investigate(selectedException.id);
+            },
+          })}
+    >
+      {FILEMAP_CANVAS_TEXT.primaryAction}
+    </ActionButton>
+  );
 
   const lensLabel = lens === 'map' ? FILEMAP_CANVAS_TEXT.mapLens : FILEMAP_CANVAS_TEXT.graphLens;
 
@@ -1032,6 +1158,7 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
                     selectedNodeId={selectedNodeId}
                     onSelectNode={selectNode}
                     atlas={atlas}
+                    atlasNotice={atlasNotice}
                     evidenceRefForNode={evidenceRefForNode}
                   />
                 ) : (
@@ -1040,9 +1167,9 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
                         accessible name carries the option's identifier, and this caption states which
                         option is in view in words. It changes without a page load, so it is a status
                         region and the change is announced (WCAG 2.2 SC 4.1.3, rule B-3). */}
-                    {previewScenario !== undefined && armedPreviewId === previewScenario.id ? (
+                    {activeScenario !== undefined && armedPreviewId === activeScenario.id ? (
                       <p role="status" className={LENS_CAPTION_CLASSES}>
-                        {`${FILEMAP_CANVAS_TEXT.previewCaptionPrefix} ${previewScenario.name}`}
+                        {`${FILEMAP_CANVAS_TEXT.previewCaptionPrefix} ${activeScenario.name}`}
                       </p>
                     ) : null}
                     <GraphLens
@@ -1050,7 +1177,7 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
                       selectedNodeId={selectedNodeId}
                       onSelectNode={selectNode}
                       evidenceRefForNode={evidenceRefForNode}
-                      previewScenarioId={previewScenarioId}
+                      previewScenarioId={activeScenarioId}
                       onPreviewScenarioChange={setArmedPreviewId}
                     />
                   </>
@@ -1080,11 +1207,26 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
               </div>
             ) : detail === undefined ? null : (
               <div className={DOCK_CLASSES}>
+                {/* The baseline the records project, and the option in view drawn over it: the same
+                    `activeScenario` the preview caption names, so the caption and the dock can never
+                    name two different options. */}
                 <TimelineDock
                   exceptionId={selectedException.id}
                   exceptionTitle={detail.exception.title}
                   stockSeries={detail.stockSeries}
                   stockEvidenceRef={selectedException.id}
+                  stockSimLabel={CALCULATION_LABEL}
+                  stockOption={
+                    activeScenario === undefined
+                      ? undefined
+                      : {
+                          evidenceRef: activeScenario.id,
+                          name: activeScenario.name,
+                          dailyClosingStock: activeScenario.dailyClosingStock,
+                          simLabel:
+                            activeScenario.origin === 'seeded' ? DATA_LABEL : CALCULATION_LABEL,
+                        }
+                  }
                   auditEvents={auditEvents}
                   auditEmptyMessage={
                     trailRefused ? FILEMAP_CANVAS_TEXT.auditUnavailable : undefined

@@ -54,7 +54,7 @@ const DENSITY_BUTTON_CLASSES = [
   'font-mono text-12 text-text-secondary',
   'hover:bg-surface-1 hover:text-text-primary',
   'active:border-accent active:bg-surface-2',
-  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
+  'focus-visible:outline-2 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
 

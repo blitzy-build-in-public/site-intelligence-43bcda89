@@ -59,10 +59,13 @@
  * ACCESSIBILITY. Two labelled number fields composed through `TextField` inside a named `<fieldset>`
  * (rule B-3), each with a visible label, a 24x24 px minimum target, the 2 px
  * `--color-focus-ring` indicator on
- * `:focus-visible`, and `Enter` submitting the recompute from inside either field. A field holding
- * something that is not a number is marked `aria-invalid` and described by the visible sentence that
- * says so, and the recompute control explains in text why it cannot act. Every outcome is written
- * into a `role="status"` region with `aria-live="polite"`, so a screen-reader or keyboard user learns
+ * `:focus-visible`, and `Enter` submitting the recompute from inside either field. Each field is
+ * described by the group's own sentences — the rule its values are held to, then the case's bound
+ * statements where the option set records them — and, last, a field holding something that is not a
+ * number is marked `aria-invalid` and described by the visible sentence that says so. An
+ * assistive-technology user therefore hears the bound with the field rather than learning it from a
+ * refusal, and the recompute control explains in text why it cannot act. Every outcome is written into
+ * a `role="status"` region with `aria-live="polite"`, so a screen-reader or keyboard user learns
  * that a recomputation started and what it produced, without a pointer and without a timeout to
  * chase. No meaning rests on colour alone: a status carries its icon and its word, and the computed
  * figures carry their label as text.
@@ -73,12 +76,19 @@
  * available to select (rules B-1, B-3). No credential and no environment read appears in the file
  * (rule B-2), and no wording names a company, a customer, a carmaker or a cloud product (rule P-7).
  *
- * THE LEVER BOUNDS ARE NOT REACHABLE FROM HERE. `LeverConstraint` (a maximum and a step) sits on
- * `SolverCase`, and no member of the port's scenario reads — neither `getScenarioSet` nor
- * `solveScenario` — carries one, so this component states no `min`, `max` or `step` on its inputs rather
- * than typing a bound of its own. The bounds are still enforced: the solver applies them and reports
- * every breach in `constraintMessages`, which is what the reader sees, and a field left unbounded is
- * what keeps a breach demonstrable at all (AAP 0.12.3).
+ * THE LEVER BOUNDS ARE NOT REACHABLE AS AN ATTRIBUTE, SO THE PANEL STATES THEM IN WORDS. A
+ * `LeverConstraint` (a maximum and a step) sits on `SolverCase`, and no member of the port's scenario
+ * reads — neither `getScenarioSet` nor `solveScenario` — carries one, so this component states no
+ * `min`, `max` or `step` on its inputs rather than typing a bound of its own: a bound typed here would
+ * be a second, unchecked one and a figure no record states (rule P-6). What the records do state is
+ * what the panel publishes. The rule itself is `SCENARIO_SANDBOX_TEXT`'s `leverBoundsRule` sentence,
+ * rendered above the fields and describing both of them, and the case's own bound statements — the
+ * constraint messages of the option set's failed option, which name that case's maximum and its step —
+ * arrive in `caseBoundStatements` from the screen that read the set, and are rendered there verbatim
+ * and carried as the fields' description beside that rule. A reader therefore learns a bound before
+ * typing instead of only from a refused measurement. Nothing about the enforcement moves: the solver
+ * applies the bounds and reports every breach in `constraintMessages`, which is what the reader sees,
+ * and a field left unbounded is what keeps a breach demonstrable at all (AAP 0.12.3).
  *
  * THE INPUTS ARE COMPOSED, NOT WRITTEN HERE. AAP 0.5.2 gives a raw `<input>` to the component that
  * owns it, and `TextField` in `src/components` is that owner for a single-line field: it renders the
@@ -87,7 +97,8 @@
  * needs — the `id` the label is bound to, the two `aria-*` attributes and the `Enter` handler — is
  * forwarded by the primitive untouched. This file therefore composes it with the token-built class
  * list {@link INPUT_CLASSES} declares instead of rendering the element itself, and the lever bounds
- * stay where the solver enforces them: no bound is typed here.
+ * stay where the solver enforces them: no bound is typed here, and the only thing the panel publishes
+ * about them is the records' own wording.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import type {
@@ -114,7 +125,11 @@ import type {
   ScenarioId,
   SimLabel,
 } from '../../types';
-import { CANNOT_COMPUTE_LABEL, COMPARISON_MATRIX_TEXT } from './comparison-matrix';
+import {
+  CANNOT_COMPUTE_LABEL,
+  COMPARISON_MATRIX_TEXT,
+  CONFIDENCE_PRESENTATION,
+} from './comparison-matrix';
 
 /* ---------------------------------------------------------------------------------------------
  * The one timing, exported so the suite advances it instead of duplicating it
@@ -169,6 +184,19 @@ export const SCENARIO_SANDBOX_TEXT = {
 
   /** The name of the group of lever fields. */
   legend: 'Lever values',
+
+  /**
+   * The rule the case holds every lever to, stated before a value is typed rather than only after a
+   * measurement is refused.
+   *
+   * It carries no figure, no amount and no record identifier (rule P-6): the case's own numbers arrive
+   * from the records, in {@link ScenarioSandboxProps.caseBoundStatements}, exactly as the option set
+   * states them. That is what keeps one sentence right for every case, and it is why this one names
+   * the rule instead of a bound.
+   */
+  leverBoundsRule:
+    'Each lever is held to the exception case’s own maximum and step: a value above that maximum, ' +
+    'below zero or between two steps is refused, and the refusal names that lever’s maximum and step.',
 
   /** The recompute control's visible label. */
   recomputeLabel: 'Recompute measures',
@@ -237,6 +265,12 @@ const FIELD_SET_CLASSES = 'min-w-0';
 /** The legend names the group and sits in the caption text role above the controls. */
 const LEGEND_CLASSES = 'mb-1 p-0 text-12 font-medium text-text-secondary';
 
+/**
+ * The sentences the group states about its own bounds, above the fields they describe: one vertical
+ * rhythm for the rule and the case's own statements, and one step of separation from the inputs.
+ */
+const HINT_STACK_CLASSES = 'mb-2 flex min-w-0 flex-col gap-1';
+
 /** The lever fields, side by side and wrapping on a narrow panel. */
 const INPUT_ROW_CLASSES = 'flex flex-wrap items-end gap-3';
 
@@ -294,7 +328,7 @@ const MEASURE_LABEL_CLASSES = 'text-13 text-text-secondary';
 /** A measure's value with its simulation label beside it. */
 const MEASURE_VALUE_CLASSES = 'flex min-w-0 flex-wrap items-baseline gap-2 text-13 text-text-primary';
 
-/** The confidence's reason, one step down the type scale from its level. */
+/** The confidence's reason, one step down the type scale from the status stating its level. */
 const CONFIDENCE_REASON_CLASSES = 'min-w-0 text-12 break-words text-text-secondary';
 
 /** A refusal's message, and the list of constraint messages a failed option states. */
@@ -545,7 +579,9 @@ interface MeasureRow {
  * the option costs a record that is not the one being rescued, which the matrix shows in full and
  * which this panel leaves to the column the caller adds from `onRecomputed`. Each row reads exactly
  * the `Scenario` member that states it — money through the application's one money formatter, every
- * count as the record's own number with no rounding and no unit conversion (rule P-6).
+ * count as the record's own number with no rounding and no unit conversion (rule P-6). The confidence
+ * row draws its level as the status the matrix's {@link CONFIDENCE_PRESENTATION} makes of it, so one
+ * level reads the same here as it does in the column beside this panel (AAP §0.5.2, rule B-3).
  *
  * Every figure a row draws is wrapped in the evidence trigger by {@link MeasureList}, with the
  * duplicated option's reference, because each of them is a computed figure and every figure on screen
@@ -582,7 +618,10 @@ const MEASURE_ROWS: readonly MeasureRow[] = [
     label: COMPARISON_MATRIX_TEXT.rows.confidence,
     render: (scenario) => (
       <span className="flex min-w-0 flex-col items-start gap-1">
-        <MonoValue kind="id" value={scenario.confidence.level} />
+        <StatusIndicator
+          meaning={CONFIDENCE_PRESENTATION[scenario.confidence.level]}
+          label={COMPARISON_MATRIX_TEXT.confidence[scenario.confidence.level]}
+        />
         <span className={CONFIDENCE_REASON_CLASSES}>{scenario.confidence.reason}</span>
       </span>
     ),
@@ -870,6 +909,19 @@ export interface ScenarioSandboxProps {
   readonly scenario?: Scenario | null | undefined;
 
   /**
+   * The case's own bound statements, exactly as the option set records them: the constraint messages of
+   * the set's option whose constraint check failed, which name that case's lever maximum and step.
+   *
+   * They are rendered verbatim and are never composed, formatted or invented here, because a bound this
+   * component stated in its own words would be a figure no record carries (rule P-6). The screen that
+   * reads the set collects them; a set whose options all stayed inside their bounds records none, and
+   * `undefined` or an empty list then renders nothing beside the rule, while a blank entry in the list is
+   * dropped rather than rendered as an empty sentence. Nothing else changes either way: the solver still
+   * enforces the bounds, and a refused measurement still states its own messages.
+   */
+  readonly caseBoundStatements?: readonly string[] | undefined;
+
+  /**
    * Called with the scenario the service measured, once a recomputation settles with one.
    *
    * It is called for a passing option and for one whose constraint check failed: a refused
@@ -889,14 +941,19 @@ export interface ScenarioSandboxProps {
  * One request is sent per burst of lever edits, `Enter` sends one immediately, and every settled
  * outcome is written into a live region. The measurement itself is entirely the service's: this
  * component sends the two lever values and renders the `Scenario` that comes back, which is why it
- * holds no arithmetic, no formatting rule and no copy of the option set (rules P-2, P-6).
+ * holds no arithmetic, no formatting rule and no copy of the option set (rules P-2, P-6). The bounds
+ * the case holds those values to are stated above the fields — the rule in this file's own numberless
+ * words, and the case's own statements exactly as the records give them — so a reader meets them
+ * before typing rather than only in a refusal (rule B-3).
  *
- * @param props The option to duplicate, the callback a measurement is reported through, and the
- *   panel's layout classes. See {@link ScenarioSandboxProps}.
+ * @param props The option to duplicate, the case's own bound statements as the option set records
+ *   them, the callback a measurement is reported through, and the panel's layout classes. See
+ *   {@link ScenarioSandboxProps}.
  * @returns The panel holding the fields, the control and the outcome of the last recomputation.
  */
 export function ScenarioSandbox({
   scenario,
+  caseBoundStatements,
   onRecomputed,
   className,
 }: ScenarioSandboxProps): ReactElement {
@@ -908,6 +965,8 @@ export function ScenarioSandbox({
   const [failure, setFailure] = useState<SandboxFailure | null>(null);
 
   const fieldIdPrefix = useId();
+  const ruleDescriptionId = useId();
+  const caseBoundDescriptionId = useId();
   const invalidDescriptionId = useId();
 
   const timerRef = useRef<number | null>(null);
@@ -939,6 +998,23 @@ export function ScenarioSandbox({
   const draft = hasOption ? draftOf(draftState, scenario) : null;
   const parsedDraft = draft === null ? null : parseLevers(draft);
   const invalidField = parsedDraft !== null && !parsedDraft.ok ? parsedDraft.field : null;
+
+  /* The case's own bound statements, exactly as the option set's failed option records them. They are
+     rendered and described verbatim, never derived here: a sentence this component wrote about a bound
+     would state a figure no record carries (rule P-6), so an absent or empty list publishes the rule
+     alone and nothing stands in place of the statements nobody recorded. A blank entry is dropped rather
+     than rendered as an empty sentence, which is the one change made to the records' text and the only
+     one that adds nothing to it. */
+  const caseBound = (caseBoundStatements ?? []).filter((statement) => statement.trim() !== '');
+
+  /* The two halves every field carries, in one order for both of them: the rule the case holds every
+     lever to, then the case's own statements where the set records them. A field holding something that
+     is not a number is described by its own sentence after these, and only that field is, so one field's
+     defect never describes its neighbour and a reader hears the bound before the defect (rule B-3). */
+  const boundDescription = [
+    ruleDescriptionId,
+    ...(caseBound.length === 0 ? [] : [caseBoundDescriptionId]),
+  ].join(' ');
 
   /* The record's own messages, when the last settled option breached a bound. They are what the
      control explains itself with: measuring the same values again would breach the same bound. */
@@ -1068,6 +1144,21 @@ export function ScenarioSandbox({
         ) : (
           <fieldset className={FIELD_SET_CLASSES}>
             <legend className={LEGEND_CLASSES}>{SCENARIO_SANDBOX_TEXT.legend}</legend>
+            {/* What these fields are held to, stated before a value is typed: the rule the case
+                applies to every lever, and — verbatim, where the option set records them — the case's
+                own statements of its maximum and step. Both describe each field below, so the words a
+                reader sees are the words an assistive-technology user hears with the field (rule
+                B-3). */}
+            <div className={HINT_STACK_CLASSES}>
+              <p id={ruleDescriptionId} className={NOTE_CLASSES}>
+                {SCENARIO_SANDBOX_TEXT.leverBoundsRule}
+              </p>
+              {caseBound.length === 0 ? null : (
+                <p id={caseBoundDescriptionId} className={NOTE_CLASSES}>
+                  {caseBound.join(' ')}
+                </p>
+              )}
+            </div>
             <div className={INPUT_ROW_CLASSES}>
               {LEVER_FIELDS.map((field) => {
                 const inputId = `${fieldIdPrefix}-${field}`;
@@ -1082,16 +1173,18 @@ export function ScenarioSandbox({
                     </label>
                     {/* A number field composed through `TextField`, and deliberately without `min`,
                         `max` or `step`: the record the port returns carries no bound for either
-                        lever. The solver holds the bounds and reports every breach as the messages
-                        this control renders, so a bound typed here would be a second, unchecked
-                        one. */}
+                        lever, so the bounds are published as the sentences above and described by
+                        them rather than annotated with a typed one. The solver holds the bounds and
+                        reports every breach as the messages this control renders. */}
                     <TextField
                       id={inputId}
                       type="number"
                       className={INPUT_CLASSES}
                       value={draft[field]}
                       aria-invalid={isInvalid ? true : undefined}
-                      aria-describedby={isInvalid ? invalidDescriptionId : undefined}
+                      aria-describedby={
+                        isInvalid ? `${boundDescription} ${invalidDescriptionId}` : boundDescription
+                      }
                       onChange={(value) => {
                         handleLeverChange(field, value);
                       }}

@@ -1,0 +1,195 @@
+/**
+ * Component suite for `approvals-screen.tsx`, the approvals inbox of SCR-05.
+ *
+ * WHAT IT PROVES. The inbox draws the rows its read returned, in the order the read returned them, and
+ * it tells a reader which order that is: the inbox read sends no `sort`, so the service answers in its
+ * own default — the approval identifier ascending — and the table announces it on the Approval column
+ * before anything is activated. A table that reported every header as unsorted while its rows were
+ * already ordered left the order in effect unannounced, which is the gap this case holds shut; the
+ * announcement is the caller's `defaultOrder`, so it reorders no row and reaches no `onSort`.
+ *
+ * HOW THE SERVICE IS REACHED — rule P-2. The provider module is replaced, not the port: `vi.mock` swaps
+ * `../../services/service-provider` for the one hook the screen reads, backed by a hoisted stub whose
+ * `vi.fn` is named exactly as the port's member is, so a renamed member surfaces here as a call to an
+ * undefined function rather than as a quietly passing suite. Nothing else is replaced — every component
+ * the screen renders is the real one, because the structure a reader receives is the thing under test.
+ *
+ * THE FIXTURES — rule P-6. Every identifier below is an opaque placeholder and every amount is a plain
+ * integer the fixture record holds, so no domain identifier and no currency literal is written into a
+ * feature folder, and no displayed figure is compared against a literal typed here.
+ *
+ * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
+ * system clock, touches the network or reaches outside the service boundary.
+ */
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { DEMO_CLOCK, SOURCE_IDS } from '../../types';
+import type { Approval, Freshness, Result, Scope, Timestamp } from '../../types';
+import { ApprovalsScreen } from './approvals-screen';
+
+/* ---------------------------------------------------------------------------------------------
+ * The service double
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The one port member the inbox reads, as the double the provider hands the screen.
+ *
+ * Held through `vi.hoisted` because the `vi.mock` factory below is lifted above the module body, and
+ * named as the port names it so a call the screen makes to a member this suite does not know fails
+ * loudly here instead of being silently ignored.
+ */
+const mockService = vi.hoisted(() => ({ listApprovals: vi.fn() }));
+
+vi.mock('../../services/service-provider', () => ({
+  useService: () => mockService,
+}));
+
+/* ---------------------------------------------------------------------------------------------
+ * Fixtures, all of them the suite's own input
+ * ------------------------------------------------------------------------------------------- */
+
+/** The instant the sources last answered: the demonstration clock's own, never typed here. */
+const AS_OF: Timestamp = DEMO_CLOCK;
+
+/** The correlation identifier every successful read of these fixtures carries. */
+const TRACE_ID = 'trace-approvals-inbox';
+
+/** The scope the shell hands in when it selected nothing. */
+const SCOPE: Scope = { plants: [], products: [] };
+
+/** The six sources all answering and current, as `Meta.freshness` reports them. */
+const FRESH_SOURCES: Freshness[] = SOURCE_IDS.map(
+  (source): Freshness => ({ source, asOf: AS_OF, state: 'fresh' }),
+);
+
+/** The envelope the inbox read resolves to. */
+function envelope(data: readonly Approval[]): Result<Approval[]> {
+  return { data: [...data], meta: { freshness: FRESH_SOURCES, simulated: true, traceId: TRACE_ID } };
+}
+
+/** One approval of the inbox, with every member `Approval` declares and the plan it puts forward. */
+function buildApproval(overrides: Partial<Approval> & Pick<Approval, 'id'>): Approval {
+  return {
+    exceptionId: 'exception-under-approval',
+    scenarioId: 'scenario-under-approval',
+    requestedBy: 'persona-planner',
+    eligibleApproverRoles: ['plant-manager'],
+    status: 'pending',
+    addedCostEur: 1200,
+    protectedRevenueEur: 4800,
+    writeBacks: [],
+    outcomeReviewed: false,
+    ...overrides,
+  };
+}
+
+/**
+ * The inbox the read returns, in the order the read's own default produces it: the approval identifier
+ * ascending, so the earlier of the two identifiers stands first.
+ */
+const APPROVALS: readonly Approval[] = [
+  buildApproval({ id: 'approval-alpha' }),
+  buildApproval({ id: 'approval-beta', status: 'approved', outcomeReviewed: true }),
+];
+
+/**
+ * The inbox's visible column header for the plan's identifier.
+ *
+ * It is the screen's own wording, which the module does not export, so it is stated here once rather
+ * than reached for through a rendered cell: the assertion is about the header a reader hears.
+ */
+const APPROVAL_COLUMN = 'Approval';
+
+/* ---------------------------------------------------------------------------------------------
+ * The harness
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Renders the inbox as the shell mounts it: behind an in-memory router, inside a cache of its own with
+ * retries off, so a refused read fails the same way however often it is repeated.
+ */
+function renderScreen(): void {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <ApprovalsScreen scope={SCOPE} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The suite
+ * ------------------------------------------------------------------------------------------- */
+
+describe('ApprovalsScreen', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockService.listApprovals.mockResolvedValue(envelope(APPROVALS));
+  });
+
+  it('announces the approval column as ascending, the order the inbox read returns', async () => {
+    renderScreen();
+
+    const table = await screen.findByRole('table');
+    const headers = within(table).getAllByRole('columnheader');
+    const approvalHeader = within(table).getByRole('columnheader', { name: APPROVAL_COLUMN });
+
+    /*
+     * The read sends no `sort`, so the order in effect is the service's default — the identifier
+     * ascending — and the column it orders is the one that says so. Every other header is unsorted
+     * until a reader sorts it, which is what makes the one announcement readable.
+     */
+    expect(approvalHeader).toHaveAttribute('aria-sort', 'ascending');
+    for (const header of headers) {
+      if (header !== approvalHeader) {
+        expect(header.getAttribute('aria-sort') ?? 'none').toBe('none');
+      }
+    }
+
+    /*
+     * The announcement applies nothing: the rows are exactly the ones the read returned, in the order
+     * it returned them, because ordering is the caller's and the table only states what it was handed.
+     */
+    expect(
+      within(table)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0]?.textContent),
+    ).toEqual(APPROVALS.map((approval) => approval.id));
+  });
+
+  it('reverses the order it announces on the first activation of the sorted header', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    const table = await screen.findByRole('table');
+    const approvalHeader = within(table).getByRole('columnheader', { name: APPROVAL_COLUMN });
+
+    expect(approvalHeader).toHaveAttribute('aria-sort', 'ascending');
+
+    await user.click(within(approvalHeader).getByRole('button'));
+
+    /*
+     * The first activation reverses the announced order rather than re-stating it: the rows the reader
+     * already had are reordered, and the header follows them, so the one column the table told them
+     * about answers their activation with a visible change (rule P-8).
+     */
+    await waitFor(() => {
+      expect(approvalHeader).toHaveAttribute('aria-sort', 'descending');
+    });
+    expect(
+      within(table)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0]?.textContent),
+    ).toEqual([...APPROVALS].reverse().map((approval) => approval.id));
+  });
+});

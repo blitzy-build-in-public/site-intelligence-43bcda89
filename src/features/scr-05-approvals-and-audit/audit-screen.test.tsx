@@ -1,9 +1,10 @@
 /**
  * Component suite for `audit-screen.tsx`, the audit trail of SCR-05.
  *
- * WHAT IT PROVES. Ten groups of assertions, each stated as a contract the screen is relied on for
+ * WHAT IT PROVES. Eleven groups of assertions, each stated as a contract the screen is relied on for
  * rather than as a description of its markup: the trail's rows (`T-09`), the `AuditQuery` each filter
- * sends, the fixed chain note character for character with the specification §5.3 label it carries,
+ * sends, the one page each read asks for with the controls that move through the trail, the fixed chain
+ * note character for character with the specification §5.3 label it carries,
  * a verification that found no break, an edited chain that reports the position of its first break
  * (`T-17`), a chain with more than one break so "first" and "total" cannot be confused, a verification
  * that repairs nothing, the detail drawer and its keyboard contract (`T-16`), the seven screen states
@@ -51,7 +52,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -86,7 +87,7 @@ import type {
   SourceId,
   Timestamp,
 } from '../../types';
-import { AUDIT_CHAIN_NOTE, AuditScreen } from './audit-screen';
+import { AUDIT_CHAIN_NOTE, AUDIT_PAGE_SIZE, AuditScreen } from './audit-screen';
 
 /* ---------------------------------------------------------------------------------------------
  * The fixtures — every value a record's own, and none of them a typed figure
@@ -116,6 +117,15 @@ const WALK_DURATION_MS = 3;
 
 /** The scope the shell hands the screen: the unfiltered "all plants, all products" selection. */
 const SCOPE: Scope = { plants: [], products: [] };
+
+/**
+ * The page every trail read asks for: one page plus the single event that follows it, which is how the
+ * screen learns whether a further page exists without counting the chain.
+ *
+ * Derived from the screen's own exported page size rather than re-typed, so a suite that spelled the
+ * number itself would not keep passing after the screen's page changed.
+ */
+const PAGE_QUERY: AuditQuery = { limit: AUDIT_PAGE_SIZE + 1 };
 
 /**
  * The payload value the drawer must print as text rather than run: markup a record may legitimately
@@ -260,6 +270,38 @@ const EVENT_DELTA = auditEvent(
 const EVENTS: readonly AuditEvent[] = [EVENT_ALPHA, EVENT_BETA, EVENT_GAMMA, EVENT_DELTA];
 
 /**
+ * One filled page of the trail: `AUDIT_PAGE_SIZE` events plus the single event that follows them, which
+ * is what a read asks for so the screen can tell whether a further page exists.
+ *
+ * Every value derives from the list's own index — the position, the identifier, the payload — so the
+ * fixture types no record value (rule P-6). All of them carry the demonstration clock's own instant,
+ * because the cases built on them assert which page a read asked for rather than how a page is ordered
+ * in time.
+ */
+const FULL_PAGE: readonly AuditEvent[] = Array.from(
+  { length: AUDIT_PAGE_SIZE + 1 },
+  (_, index): AuditEvent => ({
+    sequence: FIRST_SEQUENCE + index,
+    id: `event-${String(index)}`,
+    timestamp: instantAt(Number(DEMO_CLOCK.slice(11, 13))),
+    actorType: 'user',
+    actorId: 'persona-alpha',
+    action: 'note',
+    objectRef: `record-${String(index)}`,
+    result: 'succeeded',
+    before: null,
+    after: { position: index },
+    payloadHash: digest(String(index + 2)),
+    traceId: TRACE_ID,
+    previousHash: index === 0 ? GENESIS_PREVIOUS_HASH : digest(String(index)),
+    eventHash: digest(String(index + 1)),
+  }),
+);
+
+/** What the read behind the newest page returns: the one event the first read had to hold back. */
+const PAGE_TAIL: readonly AuditEvent[] = FULL_PAGE.slice(-1);
+
+/**
  * The break the report of an edited event carries, taken from the event fixtures themselves.
  *
  * The position and the identifier are the record's own, so the assertion downstream compares the
@@ -345,17 +387,19 @@ const UI = {
   outcome: 'Outcome',
   from: 'From',
   to: 'To',
+  previousPage: 'Previous page',
+  nextPage: 'Next page',
 } as const;
 
 /** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
 const THEMES = ['command', 'paper'] as const;
 
 /**
- * The name the trail's read is cached under: the port's own method name, which is the read the
- * application invalidates on `Reset demo data` and on every simulation trigger.
+ * The name the trail's read is cached under: the port's own method name, which is the read a write
+ * marks invalid and a simulation trigger or `Reset demo data` clears.
  *
  * Typed here rather than imported, because what the case proves is that the screen reacts to the
- * invalidation the shell issues for that read — an import of the screen's own constant would let both
+ * re-issue the shell performs for that read — an import of the screen's own constant would let both
  * sides drift together and keep the case green.
  */
 const TRAIL_READ = 'listAuditEvents';
@@ -434,12 +478,12 @@ type UserSession = ReturnType<typeof userEvent.setup>;
  * Renders the screen as the shell mounts it: behind an in-memory router, inside a cache of its own,
  * with retries off so a refusal fails the same way however often it is repeated.
  *
- * The cache is handed back because the cache is how the application re-issues a read: `Reset demo
- * data` and every simulation trigger invalidate it (`src/app/simulation-controls.tsx`), so a case
- * that has to prove what the screen does once the records behind its reads have moved has to drive
- * the same cache the screen observes.
+ * The cache is handed back because the cache is how the application re-issues a read: a write marks
+ * the reads it moved invalid, and `Reset demo data` and every simulation trigger clear what they
+ * answered (`src/app/simulation-controls.tsx`), so a case that has to prove what the screen does once
+ * the records behind its reads have moved has to drive the same cache the screen observes.
  *
- * @returns The cache the screen renders inside, for a case that invalidates a read the way the shell
+ * @returns The cache the screen renders inside, for a case that re-issues a read the way the shell
  *   does.
  */
 function renderScreen(): QueryClient {
@@ -493,6 +537,11 @@ async function waitForIdleVerification(): Promise<void> {
   });
 }
 
+/** How many data rows the trail's table renders, which is the page it was handed. */
+function trailRowCount(): number {
+  return within(screen.getByRole('table')).getAllByRole('row').length - 1;
+}
+
 /** The row of the trail that carries the given event, in whatever order the table shows it. */
 function rowOf(event: AuditEvent): HTMLElement {
   const table = screen.getByRole('table');
@@ -542,6 +591,12 @@ interface FilterCase {
 
   /** Which kind of control the filter is: a free-text field or an enumerated one. */
   readonly kind: 'text' | 'choice';
+
+  /**
+   * How a text filter's edit is committed: `Enter`, or the blur the reader makes on leaving the field.
+   * The field accepts both, so the table drives both rather than testing the second gesture twice.
+   */
+  readonly commitsBy?: 'enter' | 'blur';
 }
 
 /** Every filter the trail renders, one case each. */
@@ -551,15 +606,17 @@ const FILTER_CASES: readonly FilterCase[] = [
   { label: UI.objectRef, member: 'objectRef', value: 'record-alpha', kind: 'text' },
   { label: UI.outcome, member: 'result', value: 'blocked', kind: 'choice' },
   { label: UI.from, member: 'from', value: instantAt(9), kind: 'text' },
-  { label: UI.to, member: 'to', value: instantAt(17), kind: 'text' },
+  { label: UI.to, member: 'to', value: instantAt(17), kind: 'text', commitsBy: 'blur' },
 ];
 
 /**
- * Applies one filter through its own control.
+ * Applies one filter through its own control, and commits it the way a reader does.
  *
- * A text field is changed in a single event rather than typed a character at a time, because each
- * keystroke would issue a read of its own and the assertion is about the query a control's value
- * produces, not about how fast the suite types.
+ * A text filter reports a finished edit rather than each keystroke — the screen commits it on `Enter`
+ * and on blur — so the value is typed and then committed with the gesture the case names, `Enter`
+ * unless it takes the blur path. An enumerated filter commits as soon as an option is picked, because
+ * a select reports a finished choice rather than text being typed. Either way the edit is one commit,
+ * and every case then asserts the one read that commit issues.
  */
 async function applyFilter(user: UserSession, filter: FilterCase): Promise<void> {
   const control = screen.getByLabelText(filter.label);
@@ -570,7 +627,17 @@ async function applyFilter(user: UserSession, filter: FilterCase): Promise<void>
     return;
   }
 
-  fireEvent.change(control, { target: { value: filter.value } });
+  await user.type(control, filter.value);
+
+  /* Both gestures the field accepts are driven: `Enter` and leaving the field, which is what a reader
+     who has finished with a filter does anyway. Each is one commit and therefore one read. */
+  if (filter.commitsBy === 'blur') {
+    await user.tab();
+
+    return;
+  }
+
+  await user.keyboard('{Enter}');
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -605,6 +672,39 @@ describe('the trail it renders', () => {
     expect(rows.map((row) => within(row).getAllByRole('cell')[0]?.textContent)).toEqual(
       EVENTS.map((event) => String(event.sequence)),
     );
+  });
+
+  it('T-09 announces the sequence column as descending, the order the read answers in', async () => {
+    /* The read's own default is newest first, so the trail below is laid out the way the adapter
+       answers it: the latest chain position leads. The table states that order, which is what a reader
+       hears before touching a header, and it reorders nothing. */
+    const newestFirst = [...EVENTS].reverse();
+
+    mockService.listAuditEvents.mockResolvedValue(envelope(newestFirst));
+    renderScreen();
+
+    const table = await screen.findByRole('table');
+    const headers = within(table).getAllByRole('columnheader');
+    const [sequenceHeader] = headers;
+
+    if (sequenceHeader === undefined) {
+      throw new Error('the trail rendered no sequence header to announce the order on');
+    }
+
+    expect(sequenceHeader).toHaveAttribute('aria-sort', 'descending');
+
+    /* Every other column is unsorted until a reader sorts it, which is what makes the one announcement
+       readable rather than one claim among nine. */
+    for (const header of headers.slice(1)) {
+      expect(header.getAttribute('aria-sort') ?? 'none').toBe('none');
+    }
+
+    expect(
+      within(table)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0]?.textContent),
+    ).toEqual(newestFirst.map((event) => String(event.sequence)));
   });
 
   it("T-09 prints each event's own fields, with its outcome as an icon and a visible label", async () => {
@@ -647,10 +747,26 @@ describe('the trail it renders', () => {
     for (const value of [
       within(row).getByText(EVENT_ALPHA.id),
       within(row).getByText(EVENT_ALPHA.timestamp),
+      within(row).getByText(EVENT_ALPHA.objectRef),
     ]) {
       expect(value).toHaveClass('font-mono');
       expect(value).toHaveClass('tabular-nums');
     }
+  });
+
+  it('T-09 forms the drawer’s Record field in the tabular mono face the column uses', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole('table');
+
+    const dialog = await openDetail(user, EVENT_ALPHA);
+    const field = within(dialog).getByText(EVENT_ALPHA.objectRef);
+
+    /* The drawer states the same member the Record column does, so it is the same kind of value and
+       reaches the reader in the same face (AAP §0.5.3); its text stays the record's own. */
+    expect(field).toHaveClass('font-mono');
+    expect(field).toHaveClass('tabular-nums');
+    expect(field.textContent).toBe(EVENT_ALPHA.objectRef);
   });
 
   it('T-09 carries every outcome in the shared status vocabulary, colour and label together', async () => {
@@ -702,12 +818,76 @@ describe('the filters it sends', () => {
       await waitFor(() => {
         expect(mockService.listAuditEvents).toHaveBeenCalledTimes(2);
       });
-      expect(mockService.listAuditEvents).toHaveBeenNthCalledWith(1, {});
+      /* The page travels with the filter: one page plus the event after it, and no cursor on the read
+         that shows the newest page — paging back is a later read, asserted on its own below. */
+      expect(mockService.listAuditEvents).toHaveBeenNthCalledWith(1, PAGE_QUERY);
       expect(mockService.listAuditEvents).toHaveBeenNthCalledWith(2, {
+        ...PAGE_QUERY,
         [filter.member]: filter.value,
       });
     },
   );
+
+  it('issues one read per committed filter rather than one per character typed', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole('table');
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(1);
+    });
+
+    const typed = 'persona-alpha';
+    const actorField = screen.getByLabelText(UI.actor);
+
+    await user.type(actorField, typed);
+
+    /* Every character stays in the field's own draft: the committed filters are the read's cache key,
+       so a commit per keystroke would ask the service for a page of the trail per character typed and
+       cache a page behind each of them. */
+    expect(actorField).toHaveValue(typed);
+    expect(mockService.listAuditEvents).toHaveBeenCalledTimes(1);
+
+    /* The reader's commit is the whole edit: one activation of the field, one read, one query. */
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(2);
+    });
+    expect(readQueries()).toEqual([PAGE_QUERY, { ...PAGE_QUERY, actorId: typed }]);
+  });
+
+  it('keeps the committed field in place and focused, so the next edit needs no second click', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole('table');
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(1);
+    });
+
+    /* The trailing space makes the commit change the filter to something other than the draft — the trim
+       is what replaces it — so the case covers the resynchronisation as well as the place it happens in. */
+    const actorField = screen.getByLabelText(UI.actor);
+
+    await user.type(actorField, 'persona-alpha ');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(2);
+    });
+
+    /* The commit's read carries the trimmed value... */
+    expect(readQueries()).toEqual([PAGE_QUERY, { ...PAGE_QUERY, actorId: 'persona-alpha' }]);
+
+    /* ...and the input that sent it is the same element, still in the document, still holding the
+       committed text and still the element with focus: a reader who commits with `Enter` carries on
+       typing without reaching for the pointer (rule B-3). */
+    const committedField = screen.getByLabelText(UI.actor);
+
+    expect(committedField).toBe(actorField);
+    expect(actorField).toBeInTheDocument();
+    expect(actorField).toHaveValue('persona-alpha');
+    expect(document.activeElement).toBe(actorField);
+  });
 
   it('builds the query from every filter that is set, and re-issues no earlier one', async () => {
     const user = userEvent.setup();
@@ -728,11 +908,12 @@ describe('the filters it sends', () => {
     });
 
     /* Exactly three reads, each carrying more of the filter than the one before it: the unfiltered
-       query is never asked for again, and no member is sent that the reader left alone. */
+       query is never asked for again, no member is sent that the reader left alone, and every read
+       carries the one page it asks for. */
     expect(readQueries()).toEqual([
-      {},
-      { actorId: 'persona-alpha' },
-      { actorId: 'persona-alpha', action: 'note' },
+      PAGE_QUERY,
+      { ...PAGE_QUERY, actorId: 'persona-alpha' },
+      { ...PAGE_QUERY, actorId: 'persona-alpha', action: 'note' },
     ]);
   });
 });
@@ -883,7 +1064,63 @@ describe('a chain that does not verify', () => {
  * ------------------------------------------------------------------------------------------- */
 
 describe('a verdict whose records are re-issued', () => {
-  it('T-17 drops a verdict the re-issued records outran, keeping the note and the control', async () => {
+  /**
+   * The two cache actions the application issues for the trail's read, each as the shell performs it.
+   *
+   * A write marks every read it moved invalid, while a simulation trigger and `Reset demo data` clear
+   * what the reads answered — `resetQueries` in `src/app/simulation-controls.tsx`, so that no screen
+   * can serve a payload taken before the trigger moved. To a reader both are one statement: the
+   * records behind this verdict may have moved, so the verdict is no longer about them.
+   */
+  const REISSUE_ACTIONS = ['invalidated', 'cleared'] as const;
+
+  it.each(REISSUE_ACTIONS)(
+    'T-17 drops a verdict the re-issued records outran, keeping the note and the control (read %s)',
+    async (action) => {
+      const user = userEvent.setup();
+      mockService.verifyAuditChain.mockResolvedValue(envelope(REPORTS.oneBreak));
+      const queryClient = renderScreen();
+      await screen.findByRole('table');
+
+      const report = await verifyChain(user);
+
+      expect(report).toHaveTextContent(String(FIRST_BREAK.sequence));
+
+      /* One re-issue of the trail's read, as the shell performs it: the records behind the trail may
+         have moved, so the re-issue is the application's own statement that a verdict about how they
+         stood is no longer a statement about them. */
+      await act(async () => {
+        if (action === 'invalidated') {
+          await queryClient.invalidateQueries({ queryKey: [TRAIL_READ], refetchType: 'none' });
+        } else {
+          await queryClient.resetQueries({ queryKey: [TRAIL_READ] });
+        }
+      });
+
+      const panel = verificationPanel();
+
+      /* The verdict is gone: the break it reported belongs to a chain the reader can no longer see. */
+      expect(within(panel).queryByRole('status')).toBeNull();
+      expect(panel).not.toHaveTextContent(String(FIRST_BREAK.sequence));
+
+      /* What the group is for survives the drop — the fixed note of the mechanism (rules P-1 and P-4)
+         and a control that can still act (rule P-8) — so the reader can verify the restored chain. */
+      expect(screen.getByText(AUDIT_CHAIN_NOTE)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: UI.verifyChain })).not.toHaveAttribute(
+        'aria-disabled',
+      );
+
+      /* And it does: the restored chain verifies, which is the reading the panel now carries. */
+      mockService.verifyAuditChain.mockResolvedValue(envelope(REPORTS.unbroken));
+
+      const restored = await verifyChain(user);
+
+      expect(restored.querySelector(`.${MEANING_COLOUR_CLASSES.pass}`)).not.toBeNull();
+      expect(restored.querySelector(`.${MEANING_COLOUR_CLASSES.fail}`)).toBeNull();
+    },
+  );
+
+  it('T-17 drops a verdict when a persona switch resets the trail read', async () => {
     const user = userEvent.setup();
     mockService.verifyAuditChain.mockResolvedValue(envelope(REPORTS.oneBreak));
     const queryClient = renderScreen();
@@ -893,33 +1130,25 @@ describe('a verdict whose records are re-issued', () => {
 
     expect(report).toHaveTextContent(String(FIRST_BREAK.sequence));
 
-    /* One invalidation of the trail's read, as `Reset demo data` issues it after restoring the seed:
-       the records behind the trail may have moved, so the invalidation is the application's own
-       statement that a verdict about how they stood is no longer a statement about them. */
+    /* A persona switch appends an audit event of its own and then re-issues the reads the outgoing
+       persona decided by resetting them rather than invalidating them — `switchTo` in
+       `src/app/role-switcher.tsx` calls `queryClient.resetQueries` — so the trail this verdict
+       describes is not the trail the incoming persona reads. */
     await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: [TRAIL_READ], refetchType: 'none' });
+      await queryClient.resetQueries({ queryKey: [TRAIL_READ] });
     });
 
     const panel = verificationPanel();
 
-    /* The verdict is gone: the break it reported belongs to a chain the reader can no longer see. */
+    /* The verdict is gone even though nothing invalidated it: the chain it checked has grown. */
     expect(within(panel).queryByRole('status')).toBeNull();
     expect(panel).not.toHaveTextContent(String(FIRST_BREAK.sequence));
 
-    /* What the group is for survives the drop — the fixed note of the mechanism (rules P-1 and P-4)
-       and a control that can still act (rule P-8) — so the reader can verify the restored chain. */
+    /* What the group is for survives the drop, so the reader can verify the chain they now read. */
     expect(screen.getByText(AUDIT_CHAIN_NOTE)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: UI.verifyChain })).not.toHaveAttribute(
       'aria-disabled',
     );
-
-    /* And it does: the restored chain verifies, which is the reading the panel now carries. */
-    mockService.verifyAuditChain.mockResolvedValue(envelope(REPORTS.unbroken));
-
-    const restored = await verifyChain(user);
-
-    expect(restored.querySelector(`.${MEANING_COLOUR_CLASSES.pass}`)).not.toBeNull();
-    expect(restored.querySelector(`.${MEANING_COLOUR_CLASSES.fail}`)).toBeNull();
   });
 
   it('T-17 keeps the verdict when the reader changes a filter, which reads another entry', async () => {
@@ -977,6 +1206,24 @@ describe('the detail drawer', () => {
     /* Both payload halves, each value the record's own. */
     expect(within(dialog).getByText('held pending review')).toBeInTheDocument();
     expect(within(dialog).getByText(INJECTED_TEXT)).toBeInTheDocument();
+  });
+
+  it('F22 renders both of the drawer’s hashes in the tabular mono face, as every hash is set', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole('table');
+
+    const dialog = await openDetail(user, EVENT_ALPHA);
+
+    /* AAP §0.2.1 sets every hash in the tabular mono face, so the two sixty-four character digests
+       share one character width and neither reads as prose; each stays the record's own text. */
+    for (const hash of [EVENT_ALPHA.previousHash, EVENT_ALPHA.eventHash]) {
+      const value = within(dialog).getByText(hash);
+
+      expect(value).toHaveClass('font-mono');
+      expect(value).toHaveClass('tabular-nums');
+      expect(value.textContent).toBe(hash);
+    }
   });
 
   it('prints a payload as text, so a record can never introduce markup into the drawer', async () => {
@@ -1166,4 +1413,101 @@ describe('both themes', () => {
       expect(report.querySelector(`.${MEANING_COLOUR_CLASSES.fail}`)).not.toBeNull();
     },
   );
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 11. The page the trail is read in
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the page the trail is read in', () => {
+  it('asks for one page, and continues from the last event of the page it was served', async () => {
+    const user = userEvent.setup();
+    mockService.listAuditEvents
+      .mockResolvedValueOnce(envelope(FULL_PAGE))
+      .mockResolvedValueOnce(envelope(PAGE_TAIL));
+    renderScreen();
+    await screen.findByRole('table');
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(1);
+    });
+
+    /* The read asks for one page plus the event after it, and the table is handed the page alone: the
+       event beyond the page is the next page's first, not this page's last. */
+    expect(mockService.listAuditEvents).toHaveBeenNthCalledWith(1, PAGE_QUERY);
+    expect(trailRowCount()).toBe(AUDIT_PAGE_SIZE);
+
+    /* The newest page has nothing before it, so the control says why it cannot act rather than
+       accepting a press that would do nothing (rule P-8). */
+    const backward = screen.getByRole('button', { name: UI.previousPage });
+    expect(backward).toHaveAttribute('aria-disabled', 'true');
+    expect(backward).toHaveAccessibleDescription(/no page before this one/);
+
+    await user.click(screen.getByRole('button', { name: UI.nextPage }));
+
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(2);
+    });
+
+    /* One activation, one read, continuing from the last event of the page the first read returned in
+       that read's own order — never from the last row the table happens to display. */
+    expect(mockService.listAuditEvents).toHaveBeenNthCalledWith(2, {
+      ...PAGE_QUERY,
+      cursor: String(FULL_PAGE[AUDIT_PAGE_SIZE - 1]?.sequence),
+    });
+    expect(readQueries()).toHaveLength(2);
+    expect(trailRowCount()).toBe(PAGE_TAIL.length);
+
+    /* The page behind the newest one has nothing after it: its forward control states that instead of
+       moving, and the backward control now acts. */
+    expect(screen.getByRole('button', { name: UI.nextPage })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: UI.previousPage })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+  });
+
+  it('returns to the newest page when a filter changes', async () => {
+    const user = userEvent.setup();
+    mockService.listAuditEvents
+      .mockResolvedValueOnce(envelope(FULL_PAGE))
+      .mockResolvedValueOnce(envelope(PAGE_TAIL));
+    renderScreen();
+    await screen.findByRole('table');
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getByRole('button', { name: UI.nextPage }));
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(2);
+    });
+
+    /* A blur that leaves a filter as it already was is not an edit: it asks the service for nothing
+       and, in particular, it does not return the reader from the page they are on to the newest one. */
+    act(() => {
+      screen.getByLabelText(UI.actor).focus();
+    });
+    await user.tab();
+
+    expect(mockService.listAuditEvents).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: UI.previousPage })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+
+    /* A page position belongs to the trail the filters admit, so narrowing the trail starts again at
+       its newest page: the read carries the filter and no cursor at all. The filter is committed the
+       way a reader commits it — typed, then `Enter` — and that commit is the edit that issues the read. */
+    await user.type(screen.getByLabelText(UI.action), 'note');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(mockService.listAuditEvents).toHaveBeenCalledTimes(3);
+    });
+    expect(mockService.listAuditEvents).toHaveBeenNthCalledWith(3, {
+      ...PAGE_QUERY,
+      action: 'note',
+    });
+  });
 });

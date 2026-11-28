@@ -24,11 +24,15 @@
  * reading belongs to the solver that produced the series and a chart that hid a negative value
  * would be the defect rather than the guard.
  *
- * EVIDENCE PER POINT. `LinePoint.evidenceRef` is required, so a mark cannot be constructed without
- * the reference `getEvidence` resolves; activating a mark opens that point's `EvidenceDrawer`, which
- * is rendered as a sibling OUTSIDE the `<svg>` — a dialog inside an SVG subtree is not a dialog at
- * all. Every mark is focusable with `Enter` or `Space`, named with its series, its date and its
- * formatted value, and small enough not to obscure the line it belongs to.
+ * EVIDENCE PER POINT, OR THE CALLER'S OWN ACTION. `LinePoint.evidenceRef` is required, so a mark
+ * cannot be constructed without the reference `getEvidence` resolves; activating a mark opens that
+ * point's `EvidenceDrawer`, which is rendered as a sibling OUTSIDE the `<svg>` — a dialog inside an
+ * SVG subtree is not a dialog at all. A caller that supplies `activation` owns activation instead: the
+ * mark then reports its point and opens no drawer, because a handler may leave the screen and a dialog
+ * opened for a screen that unmounted is never read (see {@link LinePointActivation}). Every mark is
+ * focusable with `Enter` or `Space`, named with its series, its date and its formatted value — and,
+ * under an activation, with the action it performs as well — and small enough not to obscure the line
+ * it belongs to.
  *
  * PROVENANCE AND THE LEGEND (rules P-1, P-5, B-3). A series' `simLabel` is the exact specification
  * §5.3 string, typed as `SimLabel` and never spelled in this module; it is read out in that series'
@@ -36,18 +40,26 @@
  * surrounding frame states the frame-level label there. The legend itself is visible: one row per
  * series in the order the series are drawn, each row the series' own tone as a swatch beside the
  * series' own `label`, so a reader can tell two paths apart without relying on colour alone and
- * without switching to the table view. The simLabel stays screen-reader-only inside the same row, the
- * rows wrap at a narrow width, and the list carries no focus stop, no control and no animation. A tone
- * resolves through the one chart tone table `./horizontal-bar-chart.tsx` owns, and no reading is shared
- * between two series: each draws its own path and its own marks, and nothing here sums, totals or
- * blends a first-party figure with a market-intelligence one.
+ * without switching to the table view. A shaded span is named there too: one row per supplied band
+ * follows the series' rows, with the span's own label beside a decorative swatch in the span's own
+ * surface role, because a band painted behind the lines is otherwise the one thing on the surface
+ * a reader meets without a name; a chart given no bands renders exactly the series' rows. The
+ * simLabel stays screen-reader-only inside the same row, the rows wrap at a narrow width, and the
+ * list carries no focus stop, no control and no animation. A tone resolves through the one chart
+ * tone table `./horizontal-bar-chart.tsx` owns, and no reading is shared between two series: each
+ * draws its own path and its own marks, and nothing here sums, totals or blends a first-party
+ * figure with a market-intelligence one.
  *
  * THE POINTER IS ANSWERED TOO (rule B-3). A mark is a focus stop with a drawn focus ring, so a
  * keyboard reader always sees where they are; the same ring is revealed by `group-hover` and held by
  * `group-active`, so a hovered or pressed mark is visibly live for a pointer reader as well, and
  * neither state repaints the value the mark encodes. The only property either state transitions is
  * opacity, and it is carried by a `motion-safe` transition, so a reduced-motion session is shown the
- * same three states with no animation and nothing on this surface depends on one finishing.
+ * same three states with no animation and nothing on this surface depends on one finishing. Where two
+ * marks coincide, each one's invisible target is widened by a step for every series painted above it:
+ * a baseline reading the same level as the selected option keeps a ring of its own outside the marks
+ * over it and stays reachable by pointer, a chart of one series keeps the minimum target unchanged, and
+ * the dot, the ring and the paint order are untouched — only the transparent target grows.
  *
  * Rules served: B-1 (no charting dependency, no fetched asset), B-2 (nothing to configure), B-3
  * (keyboard-reachable named marks, pointer states from role tokens only, and every transition gated
@@ -94,7 +106,10 @@ export interface LinePoint {
   /** The value as the module that computed it formatted it. Printed, never recomputed here. */
   readonly yLabel: string;
 
-  /** The reference `getEvidence` resolves for this point, opened by activating its mark. */
+  /**
+   * The reference `getEvidence` resolves for this point: what activating its mark opens where this
+   * chart owns the activation, and what the frame's table view opens where the caller does.
+   */
   readonly evidenceRef: string;
 }
 
@@ -166,6 +181,34 @@ export interface LineBand {
 }
 
 /**
+ * What a mark does where the caller owns the activation, supplied through
+ * {@link LineChartProps.activation}.
+ *
+ * A CALLER THAT SUPPLIES THIS OWNS WHAT ACTIVATION DOES. The surface then reports the activated point
+ * and opens no drawer of its own — the mark carries no `aria-haspopup`, no `aria-expanded` and no
+ * `aria-controls`, because it opens no dialog — and the caller's handler performs whatever the gesture
+ * means on that screen. The handler may leave the screen: SCR-01 narrows the exception queue by the day
+ * a mark draws and takes the reader to it, and a drawer opened in the same gesture would be unmounted
+ * before a word of it was read. `LinePoint.evidenceRef` is still required and still reaches the reader,
+ * as an `EvidenceRef` in the frame's mandatory "View as table" grid (AAP criterion 9, rule B-3).
+ */
+export interface LinePointActivation {
+  /**
+   * Called with the point a reader activated — by pointer, or with `Enter` or `Space` — and the series
+   * it belongs to, so a caller drawing more than one series can tell them apart.
+   */
+  readonly onActivate: (point: LinePoint, series: LineSeriesSpec) => void;
+
+  /**
+   * The action the activation performs, as the phrase its mark's accessible name ends with.
+   *
+   * It states what activating the mark does rather than what it opens, so a screen-reader user hears
+   * the effect before deciding to perform it (rules P-8 and B-3).
+   */
+  readonly actionName: (point: LinePoint) => string;
+}
+
+/**
  * What the caller of {@link LineChart} supplies: the series to draw, each point already carrying
  * the formatted value text its mark announces and the reference that point opens, beside the
  * horizontal references, dated markers and shaded spans the reading needs. Those annotations must
@@ -201,6 +244,16 @@ export interface LineChartProps {
 
   /** The y axis' name, printed up the plot's start edge. Supplied by the caller. */
   readonly yAxisLabel?: string | undefined;
+
+  /**
+   * What a mark does, where the caller owns the activation.
+   *
+   * Omitted, activating a mark opens that point's evidence and the mark declares the dialog it opens,
+   * which is the contract `LinePoint.evidenceRef` describes. Supplied, the mark reports its point
+   * through {@link LinePointActivation.onActivate} and opens no drawer, so the caller's gesture can
+   * leave the screen; `evidenceRef` then reaches the reader through the frame's table view alone.
+   */
+  readonly activation?: LinePointActivation | undefined;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -247,8 +300,22 @@ const MARKER_TICK_LENGTH = 5;
  */
 const X_LABEL_EDGE_MARGIN = 8;
 
-/** How many x labels and y ticks the axis aims for before it starts thinning them out. */
-const MAX_X_LABELS = 7;
+/**
+ * The room a date label takes across the plot, in viewBox units: the advance a ten-character ISO date
+ * occupies at the axis' own twelve-unit mono type step, measured at 71.94 on the rendered surface.
+ *
+ * A label draws a box this wide wherever it sits, which is what decides whether two dates can both be
+ * labelled: their ticks have to be far enough apart for the two boxes to clear each other.
+ */
+const X_LABEL_WIDTH = 72;
+
+/**
+ * The clear space kept between two neighbouring date labels, in viewBox units: two steps of the 4 px
+ * spacing grid, so the dates read as separate words rather than as one run of digits.
+ */
+const X_LABEL_GAP = 8;
+
+/** How many y ticks the axis aims for before `niceStep` rounds the spacing to a readable one. */
 const Y_TICK_TARGET = 5;
 
 /**
@@ -261,9 +328,25 @@ const Y_TICK_TARGET = 5;
  * own tone as well as the outline utility on the group, because an engine that draws no outline
  * around an SVG container still shows the ring (rule B-3); the same ring answers the pointer, so a
  * mark under a hover or a press is visible to a reader who never uses a keyboard.
+ *
+ * At that size the mark painted later answers every pointer event over a point two series share, so
+ * each series' target is widened by {@link HIT_RADIUS_STEP} for every series painted above it: the dot
+ * and the ring are untouched, and what grows is only the invisible target.
  */
 const MARK_RADIUS = 2.5;
 const HIT_RADIUS = 12;
+
+/**
+ * How much wider one series' hit target is for each series painted above it, in viewBox units.
+ *
+ * Where two series read the same value on the same date their marks sit on one point, and the mark
+ * painted later covers the earlier one's target completely, so the earlier series' figure cannot be
+ * reached by pointer at all — its reading would be readable only from the table view. One step per
+ * layer above gives the series drawn lowest a ring of its own outside the targets over it, while a
+ * chart of a single series keeps the bare minimum target rule B-3 sets.
+ */
+const HIT_RADIUS_STEP = 4;
+
 const FOCUS_RING_RADIUS = 6;
 const FOCUS_RING_STROKE_WIDTH = 1.5;
 
@@ -287,7 +370,18 @@ const FOCUS_RING_CLASSES =
 const HAIRLINE_STROKE_WIDTH = 1;
 const SERIES_STROKE_WIDTH = 2;
 const SERIES_DASH = '6 4';
-const REFERENCE_DASH = '4 3';
+
+/**
+ * The reference rule's pattern: a fine dot, deliberately unlike any series' dash.
+ *
+ * A reference level and a series can sit on the same y — SCR-03's baseline reads zero on every day of
+ * the case window, so it lies along the zero rule — and a dash of a similar period, drawn in phase from
+ * the same start, leaves the two reading as one line. The dot keeps the level a rule in the reader's eye
+ * and the series a path, so a coincident pair stays separable without relying on colour alone (rule
+ * B-3). It stays a hairline in the secondary role with its own label beside it.
+ */
+const REFERENCE_DASH = '1 5';
+
 const MARKER_DASH = '2 2';
 
 /** The name the surface carries where it has no series to name it after. */
@@ -315,7 +409,7 @@ const MARKER_CLASSES = 'text-text-caption';
 const AXIS_TITLE_CLASSES = 'font-mono text-12 text-text-caption';
 
 /** Dates, tick readings and marker labels, in the tabular mono face specification §4.3 requires. */
-const AXIS_LABEL_CLASSES = 'font-mono text-12';
+const AXIS_LABEL_CLASSES = 'font-mono text-12 tabular-nums';
 
 /**
  * A point mark: the pointer cursor, the 2 px focus ring on the focus-ring role token so a keyboard user
@@ -340,6 +434,13 @@ const LEGEND_ITEM_CLASSES = 'flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1
  * It is decorative, so `aria-hidden` is set at the call site and the label beside it carries the meaning.
  */
 const LEGEND_SWATCH_CLASSES = 'inline-block size-3 shrink-0 rounded-control';
+
+/**
+ * The swatch a shaded span's row carries: the span's own surface role and the hairline that bounds its
+ * fill, so the row reads as a band drawn behind the series rather than as a series' tone. It is
+ * decorative in the same way as a series swatch, and the span's own label beside it carries the meaning.
+ */
+const BAND_SWATCH_CLASSES = 'border border-hairline bg-surface-2';
 
 /** The series' name: the primary text role, so its contrast is the ratio the theme measured for it. */
 const LEGEND_LABEL_CLASSES = 'min-w-0 break-words text-13 text-text-primary';
@@ -458,19 +559,38 @@ interface YDomain {
   readonly max: number;
 }
 
+/** The y axis: the span it covers, and the readings it labels across that span. */
+interface YAxis {
+  /** The span the series are plotted over, ceilinged above the highest reading. */
+  readonly domain: YDomain;
+
+  /** The readings labelled down the axis, one per whole step of the domain. */
+  readonly ticks: readonly number[];
+}
+
 /**
- * The y domain: every supplied value, every reference level, and zero.
+ * The y axis: every supplied value, every reference level and zero, held to whole steps with one step
+ * of headroom above the highest reading.
  *
  * Zero is always inside the domain, and the bottom never rises above it, so the zero line a reader
  * reads the series against is inside the drawn area (the reading T-03 asserts). `yMin` is honoured
  * only where it is negative, and a value below zero widens the domain downward rather than being
  * clipped.
+ *
+ * WHY THE CEILING RISES A WHOLE STEP ABOVE THE DATA. A domain that stops at the highest reading draws
+ * that reading's mark on the plot's top border, where it reads as a clipped value and where no tick can
+ * name it: SCR-03's opening reading against a series that starts at its own maximum was drawn on the
+ * frame while the axis stopped at the tick below it. Snapping the floor down to a whole step and
+ * placing the ceiling a whole step above the highest reading gives that reading a label above it and
+ * lifts the mark clear of the border, and the ticks then fall on every whole step between the two, so
+ * the top of the series is always readable. The steps and the readings are the axis' own geometry, not
+ * a figure this module computed (rule P-6).
  */
-function yDomainFor(
+function yAxisFor(
   series: readonly LineSeriesSpec[],
   references: readonly LineReference[],
   yMin: number | undefined,
-): YDomain {
+): YAxis {
   let lowest = Math.min(yMin ?? 0, 0);
   let highest = 0;
 
@@ -485,7 +605,20 @@ function yDomainFor(
     highest = Math.max(highest, reference.y);
   }
 
-  return { min: lowest, max: highest === lowest ? lowest + 1 : highest };
+  /* A series that reads zero on every day leaves no span to divide: one unit of span keeps the step a
+     finite number and the axis a grid the zeros sit on. */
+  const step = niceStep(highest === lowest ? 1 : highest - lowest);
+  const min = cleanNumber(Math.floor(lowest / step) * step);
+  const max = cleanNumber((Math.floor(highest / step) + 1) * step);
+  const ticks: number[] = [];
+
+  for (let index = Math.round(min / step); index <= Math.round(max / step); index += 1) {
+    ticks.push(cleanNumber(index * step));
+  }
+
+  const domain: YDomain = { min, max };
+
+  return { domain, ticks: ticks.length > 0 ? ticks : [min, max] };
 }
 
 /** The y coordinate of a value inside the plot. */
@@ -515,56 +648,114 @@ function cleanNumber(value: number): number {
 }
 
 /**
- * The tick readings across a domain, anchored at zero so the zero line is among them whenever it is
- * in range.
- */
-function yTickValues(domain: YDomain): number[] {
-  const step = niceStep(domain.max - domain.min);
-  const first = Math.ceil(domain.min / step);
-  const last = Math.floor(domain.max / step);
-  const ticks: number[] = [];
-
-  for (let index = first; index <= last; index += 1) {
-    ticks.push(cleanNumber(index * step));
-  }
-
-  return ticks.length > 0 ? ticks : [domain.min, domain.max];
-}
-
-/**
- * The dates the x axis labels: every nth date of the calendar, plus the last one, so a dense series
- * carries readable labels rather than an unreadable run of them and the axis still ends where the
- * data ends.
+ * The dates the x axis labels: as many of the calendar's own dates as the plot has room for, chosen by
+ * the space each label needs rather than by a count of labels to aim for.
  *
- * The last date always takes a label, and the one the interval would have placed immediately before
- * it gives way when the two would land closer than one interval apart: two dates drawn a single step
- * from each other overlap into unreadable text at the end of the axis, and a run whose length is not
- * a multiple of the interval is exactly the case that produces them.
+ * WHY SPACING AND NOT A COUNT. The x scale is the calendar itself, so a date sits where its own day
+ * falls, and a working calendar's days are not evenly spaced: contracts §1 fixes a Monday-to-Friday
+ * calendar, so SCR-03's weekday sequence steps one day forward and then three across a weekend. A
+ * count divided over such a calendar keeps one date in every n, and n cannot know how far apart those
+ * dates then land — the row reads clearly in one stretch of the plot and overlaps into unreadable text
+ * in the next, which is what eight dates over fifteen working days did. What a reader needs is one
+ * label per stretch of plot wide enough to hold one, and the number of labels then follows from the
+ * calendar instead of being fixed beforehand.
+ *
+ * HOW ONE IS CHOSEN. The calendar's own order is walked once, keeping the first date; a later date is
+ * kept only where its position clears the label last kept by at least one label's advance plus the
+ * gap, and the box it draws into stays that far clear of the box already drawn. A label's box is read
+ * from the anchor {@link xLabelAnchor} draws it with: a centred label reaches half its width either
+ * side of its tick, and a label anchored to its end reaches a whole width back from its tick and
+ * nothing forward, so it crowds the date before it further than a centred one would.
+ *
+ * The last date is always labelled, because the axis has to end where the data ends; where the date
+ * that would have preceded it cannot keep clear of it, that date gives way rather than the last one.
+ * The first date is never one that gives way. A calendar of one date labels that very date, and the
+ * emitted dates are calendar members in the order they were given — no date is invented.
+ *
+ * @param values - The calendar the x scale was built from, in the order the axis reads it.
+ * @param positionOf - The scale's own position for a date, so a label sits above its own tick.
+ * @returns The dates to label, in the order they were given.
  */
-function xLabelValues(values: readonly IsoDate[]): IsoDate[] {
-  if (values.length === 0) {
+function xLabelValues(
+  values: readonly IsoDate[],
+  positionOf: (value: IsoDate) => number,
+): IsoDate[] {
+  const first = values[0];
+
+  if (first === undefined) {
     return [];
   }
 
-  const interval = Math.max(1, Math.ceil(values.length / MAX_X_LABELS));
-  const lastIndex = values.length - 1;
-  const indices: number[] = [];
+  const labels: IsoDate[] = [first];
+  let lastKeptPosition = positionOf(first);
 
-  for (let index = 0; index <= lastIndex; index += interval) {
-    indices.push(index);
-  }
+  for (let index = 1; index < values.length - 1; index += 1) {
+    const value = values[index];
 
-  if (indices[indices.length - 1] !== lastIndex) {
-    if (lastIndex - (indices[indices.length - 1] ?? 0) < interval) {
-      indices.pop();
+    if (value === undefined) {
+      continue;
     }
 
-    indices.push(lastIndex);
+    const position = positionOf(value);
+
+    if (clearsKeptLabel(position, lastKeptPosition)) {
+      labels.push(value);
+      lastKeptPosition = position;
+    }
   }
 
-  return indices
-    .map((index) => values[index])
-    .filter((value): value is IsoDate => value !== undefined);
+  const last = values[values.length - 1];
+
+  if (last === undefined || last === first) {
+    return labels;
+  }
+
+  const lastPosition = positionOf(last);
+
+  /* The last date takes its label whatever the spacing, so the dates it would crowd give way to it. */
+  while (labels.length > 1 && !clearsKeptLabel(lastPosition, lastKeptPosition)) {
+    labels.pop();
+    const previous = labels[labels.length - 1];
+    lastKeptPosition = previous === undefined ? lastPosition : positionOf(previous);
+  }
+
+  labels.push(last);
+
+  return labels;
+}
+
+/**
+ * The horizontal extent one date label draws into, in viewBox units, read from the anchor
+ * {@link xLabelAnchor} gives it: a centred label reaches half its width either side of its tick, while
+ * a label anchored to its end reaches a whole width back from it and nothing forward.
+ *
+ * @param position - The tick's horizontal position in viewBox units.
+ * @returns The box's left and right edges.
+ */
+function xLabelBox(position: number): { readonly left: number; readonly right: number } {
+  return xLabelAnchor(position) === 'end'
+    ? { left: position - X_LABEL_WIDTH, right: position }
+    : { left: position - X_LABEL_WIDTH / 2, right: position + X_LABEL_WIDTH / 2 };
+}
+
+/**
+ * Whether a label at `position` keeps clear of the label already drawn at `keptPosition`.
+ *
+ * Two facts are required, and each guards a different pair: the ticks themselves are further apart
+ * than one label's advance plus the gap, so a reader can see which date a label belongs to, and the
+ * two boxes clear each other by that gap, so no two dates ever paint over one another.
+ *
+ * @param position - The candidate label's tick position in viewBox units.
+ * @param keptPosition - The tick position of the label last kept.
+ * @returns Whether both labels can be drawn without touching.
+ */
+function clearsKeptLabel(position: number, keptPosition: number): boolean {
+  const kept = xLabelBox(keptPosition);
+
+  return (
+    position - keptPosition >= X_LABEL_WIDTH + X_LABEL_GAP &&
+    xLabelBox(position).left - kept.right >= X_LABEL_GAP
+  );
 }
 
 /**
@@ -606,6 +797,29 @@ function chartLabelFor(series: readonly LineSeriesSpec[]): string {
   return labels === '' ? DEFAULT_CHART_LABEL : `${DEFAULT_CHART_LABEL}: ${labels}`;
 }
 
+/**
+ * One mark's accessible name: the series, the date and the formatted value a reader can see, then —
+ * where the caller owns the activation — the action activating the mark performs.
+ *
+ * The action phrase is appended rather than substituted, so the name still says which figure the mark
+ * draws; and it appears only under an activation, because a mark that opens its evidence declares that
+ * effect with `aria-haspopup` instead (rule B-3, rule P-8).
+ *
+ * @param spec - The series the mark belongs to.
+ * @param point - The point the mark draws.
+ * @param activation - The caller's activation, or `undefined` where this surface opens the evidence.
+ * @returns The name the mark is announced with.
+ */
+function markLabelOf(
+  spec: LineSeriesSpec,
+  point: LinePoint,
+  activation: LinePointActivation | undefined,
+): string {
+  const figure = `${spec.label}, ${point.x}: ${point.yLabel}`;
+
+  return activation === undefined ? figure : `${figure}. ${activation.actionName(point)}`;
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The component
  * ------------------------------------------------------------------------------------------- */
@@ -628,16 +842,19 @@ const NO_BANDS: readonly LineBand[] = [];
  * Draws one or more series as SVG paths over the dates it is given, with the bands, references and
  * markers the caller supplies, and one focusable evidence mark per point.
  *
- * The surface computes its own geometry and nothing else: the y domain is every supplied value plus
- * zero, the x scale is the calendar the series, markers and bands describe, and each path is the
- * sequence of positions those two produce. Values themselves are printed only where they arrived
- * printed — in a mark's accessible name and in its drawer (rule P-6).
+ * The surface computes its own geometry and nothing else: the y axis is every supplied value plus
+ * zero, held to whole steps with one step of headroom above the highest reading, the x scale is the
+ * calendar the series, markers and bands describe, and each path is the sequence of positions those
+ * two produce. Values themselves are printed only where they arrived printed — in a mark's accessible
+ * name and in its drawer (rule P-6).
  *
  * The one piece of state is which mark is open, so a reader activating a point opens that point's
  * `EvidenceDrawer` and no other. The drawer is a sibling of the `<svg>` rather than a child: an SVG
  * subtree cannot host a dialog, and the drawer portals itself to `document.body` from here. Closing
  * it — by its own control or by `Escape`, which the drawer handles — returns focus to the mark that
- * opened it, because the drawer restores the element that had focus when it mounted.
+ * opened it, because the drawer restores the element that had focus when it mounted. A caller that
+ * supplies `activation` takes that state out of play: no mark opens this surface's drawer, and the
+ * activated point is reported to the caller's handler instead (see {@link LinePointActivation}).
  *
  * No effect, no data access, no subscription and no animation: the surface is a pure function of its
  * props, so it cannot re-render on a clock tick, contact a source, or move when a reader has asked
@@ -651,6 +868,7 @@ export function LineChart({
   yMin,
   xAxisLabel,
   yAxisLabel,
+  activation,
 }: LineChartProps): ReactElement {
   const [opened, setOpened] = useState<OpenedPoint | undefined>(undefined);
   const drawerId = useId();
@@ -661,9 +879,18 @@ export function LineChart({
 
   const calendar = axisCalendar(series, markerList, bandList);
   const x = xScaleFor(calendar);
-  const y = yDomainFor(series, referenceList, yMin);
-  const yTicks = yTickValues(y);
-  const xLabels = xLabelValues(calendar);
+  const axis = yAxisFor(series, referenceList, yMin);
+  const y = axis.domain;
+  const yTicks = axis.ticks;
+  const xLabels = xLabelValues(calendar, x.positionOf);
+
+  /*
+   * Whether this surface, rather than the caller, owns what activating a mark does. The two effects
+   * never run together: a drawer opened by a gesture whose handler leaves the screen would be
+   * unmounted before it was read, so a caller that supplies an activation gets the mark's report and
+   * the drawer is not opened at all.
+   */
+  const opensDrawer = activation === undefined;
 
   /** Opens one point's evidence, whether the mark was clicked, tapped or pressed from the keyboard. */
   function openPoint(key: string, evidenceRef: string): void {
@@ -676,20 +903,35 @@ export function LineChart({
   }
 
   /**
+   * Activates a mark: this surface's evidence drawer, or the caller's own action where it supplied
+   * one. It is the one path both the pointer and the keyboard take, so the two input modalities cannot
+   * diverge on what a mark does.
+   */
+  function activatePoint(key: string, spec: LineSeriesSpec, point: LinePoint): void {
+    if (activation === undefined) {
+      openPoint(key, point.evidenceRef);
+      return;
+    }
+
+    activation.onActivate(point, spec);
+  }
+
+  /**
    * Activates a mark from the keyboard on the two keys a button answers to. `Space` is prevented from
    * scrolling the page, which is what a native button does and an SVG group does not.
    */
   function handlePointKeyDown(
     event: ReactKeyboardEvent<SVGGElement>,
     key: string,
-    evidenceRef: string,
+    spec: LineSeriesSpec,
+    point: LinePoint,
   ): void {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return;
     }
 
     event.preventDefault();
-    openPoint(key, evidenceRef);
+    activatePoint(key, spec, point);
   }
 
   return (
@@ -754,7 +996,8 @@ export function LineChart({
           />
         </g>
 
-        {/* Reference levels: the zero line above all, each dashed and labelled in the secondary role. */}
+        {/* Reference levels: the zero line above all, ruled with a fine dot and labelled in the
+            secondary role. */}
         <g className={REFERENCE_CLASSES}>
           {referenceList.map((reference) => {
             const yPosition = roundCoordinate(positionOfY(reference.y, y));
@@ -851,49 +1094,55 @@ export function LineChart({
         ))}
 
         {/* One focusable mark per point: small dot, generous target, evidence on activation. */}
-        {series.map((spec) => (
-          <g key={`marks-${spec.id}`} className={CHART_TONE_CLASSES[spec.tone].text}>
-            {spec.points.map((point, index) => {
-              const key = `${spec.id}-${index}`;
-              const isOpen = opened?.key === key;
-              const cx = roundCoordinate(x.positionOf(point.x));
-              const cy = roundCoordinate(positionOfY(point.y, y));
+        {series.map((spec, seriesIndex) => {
+          /* Every series painted above this one widens its target, so a coincident mark stays reachable. */
+          const hitRadius = HIT_RADIUS + (series.length - 1 - seriesIndex) * HIT_RADIUS_STEP;
 
-              return (
-                <g
-                  key={key}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${spec.label}, ${point.x}: ${point.yLabel}`}
-                  aria-haspopup="dialog"
-                  aria-expanded={isOpen}
-                  aria-controls={isOpen ? drawerId : undefined}
-                  onClick={() => {
-                    openPoint(key, point.evidenceRef);
-                  }}
-                  onKeyDown={(event) => {
-                    handlePointKeyDown(event, key, point.evidenceRef);
-                  }}
-                  className={POINT_CLASSES}
-                >
-                  <circle cx={cx} cy={cy} r={MARK_RADIUS} fill="currentColor" />
-                  {/* Revealed by keyboard focus, a hover or a press, in the series' own tone. */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={FOCUS_RING_RADIUS}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={FOCUS_RING_STROKE_WIDTH}
-                    className={FOCUS_RING_CLASSES}
-                  />
-                  {/* Last child, so it takes the pointer anywhere near the dot. */}
-                  <circle cx={cx} cy={cy} r={HIT_RADIUS} fill="transparent" />
-                </g>
-              );
-            })}
-          </g>
-        ))}
+          return (
+            <g key={`marks-${spec.id}`} className={CHART_TONE_CLASSES[spec.tone].text}>
+              {spec.points.map((point, index) => {
+                const key = `${spec.id}-${index}`;
+                const isOpen = opened?.key === key;
+                const cx = roundCoordinate(x.positionOf(point.x));
+                const cy = roundCoordinate(positionOfY(point.y, y));
+
+                return (
+                  <g
+                    key={key}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={markLabelOf(spec, point, activation)}
+                    aria-haspopup={opensDrawer ? 'dialog' : undefined}
+                    aria-expanded={opensDrawer ? isOpen : undefined}
+                    aria-controls={opensDrawer && isOpen ? drawerId : undefined}
+                    onClick={() => {
+                      activatePoint(key, spec, point);
+                    }}
+                    onKeyDown={(event) => {
+                      handlePointKeyDown(event, key, spec, point);
+                    }}
+                    className={POINT_CLASSES}
+                  >
+                    <circle cx={cx} cy={cy} r={MARK_RADIUS} fill="currentColor" />
+                    {/* Revealed by keyboard focus, a hover or a press, in the series' own tone. */}
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={FOCUS_RING_RADIUS}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={FOCUS_RING_STROKE_WIDTH}
+                      className={FOCUS_RING_CLASSES}
+                    />
+                    {/* Last child, so it takes the pointer anywhere near the dot, widened per series so a
+                        mark painted over a coincident one stays reachable. */}
+                    <circle cx={cx} cy={cy} r={hitRadius} fill="transparent" />
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
 
         {/* The x axis: every date the calendar labels, as the record states it. */}
         <g className={X_LABEL_CLASSES}>
@@ -951,8 +1200,8 @@ export function LineChart({
         )}
       </svg>
 
-      {/* The legend: a visible row per series, naming it beside its own tone's swatch (rule B-3). */}
-      {series.length === 0 ? null : (
+      {/* The legend: a visible row per series and per shaded span, each named beside its own swatch. */}
+      {series.length === 0 && bandList.length === 0 ? null : (
         <ul role="list" className={LEGEND_CLASSES}>
           {series.map((spec) => (
             <li key={`legend-${spec.id}`} className={LEGEND_ITEM_CLASSES}>
@@ -965,6 +1214,16 @@ export function LineChart({
               {spec.simLabel === undefined ? null : (
                 <span className={LEGEND_PROVENANCE_CLASSES}>{`, ${spec.simLabel}`}</span>
               )}
+            </li>
+          ))}
+          {/* One row per shaded span, after the series: the span's own name beside the fill it draws. */}
+          {bandList.map((band) => (
+            <li key={`legend-band-${band.from}-${band.to}`} className={LEGEND_ITEM_CLASSES}>
+              <span
+                aria-hidden="true"
+                className={`${LEGEND_SWATCH_CLASSES} ${BAND_SWATCH_CLASSES}`}
+              />
+              <span className={LEGEND_LABEL_CLASSES}>{band.label}</span>
             </li>
           ))}
         </ul>

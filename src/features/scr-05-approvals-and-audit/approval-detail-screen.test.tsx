@@ -22,7 +22,11 @@
  * and leaves the decisions disabled. The decided approval: the tracker's steps in the record's own
  * order and the outcome card's measures and closing-stock tables, each reading asserted through the
  * evidence trigger that carries it, the drawer that trigger opens, and the caption that stands in
- * when no resulting record arrives. The seven screen states (`T-17`) and the accessibility contract
+ * when no resulting record arrives. The outcome review (AAP §0.6.2): the control the approved card
+ * offers beside that comparison, which records the review through the port once and follows the
+ * re-read, refuses a second review and an ineligible persona with the record's own sentence, reports a
+ * rejection in the service's own words or through the forbidden card, and asks nothing of the port
+ * where it cannot act. The seven screen states (`T-17`) and the accessibility contract
  * (`T-16`): one level-one heading, every decision reachable by `Tab` and operable by `Enter` and
  * `Space`, a programmatically labelled comment field, an `aria-pressed` acknowledgement, and the same
  * structure in both themes.
@@ -82,7 +86,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
+import { EVIDENCE_DRAWER_TEXT, writeBackStepRef } from '../../components/evidence-drawer';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import {
   APPROVAL_GATE_SOURCE,
@@ -414,6 +418,18 @@ function approvedApproval(): Approval {
 }
 
 /**
+ * The same approval once the comparison has been reviewed: the record the review write answers with,
+ * and the state the re-read settles into.
+ *
+ * The approved fixture with its own review member set and nothing else changed, built by spreading it
+ * rather than restating it, so a case that renders this one differs from the approved case in exactly
+ * the member the review write moves.
+ */
+function reviewedApproval(): Approval {
+  return { ...approvedApproval(), outcomeReviewed: true };
+}
+
+/**
  * The state a write-back step reports when its simulated write stopped the run, as the record spells it.
  *
  * A record value rather than a label this suite invents: the tracker prints `WriteBack.state` itself
@@ -611,6 +627,35 @@ function writeBackProblem(): Problem {
   };
 }
 
+/** The sentence the port reports when it refuses the review the reader asked it to record. */
+const REVIEW_REFUSAL_MESSAGE = 'This approval changed while its outcome was being reviewed.';
+
+/**
+ * The refusal the port throws when the record moved under the reader as the review was recorded: a
+ * `'validation'` `Problem`, which is the cause the handler refuses a write it can no longer accept with.
+ */
+function reviewProblem(): Problem {
+  return { type: 'validation', message: REVIEW_REFUSAL_MESSAGE, traceId: REFUSAL_TRACE_ID };
+}
+
+/**
+ * The two rejections the review block has to answer: the port's own typed refusal, whose sentence it
+ * prints, and a rejection that is not a `Problem` at all, which carries no sentence to print and so
+ * falls back to the block's own.
+ */
+const REVIEW_FAILURES = [
+  {
+    name: 'the service’s own sentence',
+    rejection: reviewProblem(),
+    expected: REVIEW_REFUSAL_MESSAGE,
+  },
+  {
+    name: 'the block’s own sentence when the rejection names no cause',
+    rejection: new Error('the call ended without an answer'),
+    expected: APPROVAL_DETAIL_TEXT.reviewUnexpectedFailure,
+  },
+] as const;
+
 /** The one success envelope the port resolves with, carrying the six sources' report. */
 function ok<T>(data: T, freshness: readonly Freshness[] = FRESH): Result<T> {
   return { data, meta: { freshness: [...freshness], simulated: true, traceId: TRACE_ID } };
@@ -655,10 +700,10 @@ function amountText(value: number): string {
 /**
  * The port members this suite observes.
  *
- * Seven: the screen's own reads and writes — four reads keyed by the record they answer for, the
- * decision and the write-back retry — plus `getEvidence`, which the outcome card's readings reach
- * only when a case activates one. `restoreMocks` in `vite.config.ts` clears each one between cases,
- * and {@link installHappyPath} gives every case its own resolved values.
+ * Eight: the screen's own reads and writes — four reads keyed by the record they answer for, the
+ * decision, the write-back retry and the outcome review — plus `getEvidence`, which the outcome card's
+ * readings reach only when a case activates one. `restoreMocks` in `vite.config.ts` clears each one
+ * between cases, and {@link installHappyPath} gives every case its own resolved values.
  */
 const mockService = vi.hoisted(() => ({
   getApproval: vi.fn(),
@@ -668,6 +713,7 @@ const mockService = vi.hoisted(() => ({
   getEvidence: vi.fn(),
   decideApproval: vi.fn(),
   retryWriteBack: vi.fn(),
+  reviewApprovalOutcome: vi.fn(),
 }));
 
 /**
@@ -715,12 +761,12 @@ type UserSession = ReturnType<typeof userEvent.setup>;
 const FOCUS_LIMIT = 40;
 
 /**
- * Resolves every read and the decision with the fixtures above, before a case changes any of them.
+ * Resolves every read and every write with the fixtures above, before a case changes any of them.
  *
  * The screen makes four reads on mount and a fifth only once a plan is approved, so a case that does
  * not care about one of them must still answer it: an unanswered `vi.fn()` returns `undefined`, which
  * React Query reads as a settled read with no envelope and turns into a screen state the case would
- * not be testing.
+ * not be testing. Each write answers with the record it left, which is what the port returns.
  */
 function installHappyPath(): void {
   mockService.getApproval.mockResolvedValue(ok(pendingApproval()));
@@ -730,6 +776,7 @@ function installHappyPath(): void {
   mockService.getEvidence.mockResolvedValue(ok(OUTCOME_EVIDENCE));
   mockService.decideApproval.mockResolvedValue(ok(approvedApproval()));
   mockService.retryWriteBack.mockResolvedValue(ok(WRITE_BACKS[0]));
+  mockService.reviewApprovalOutcome.mockResolvedValue(ok(reviewedApproval()));
 }
 
 beforeEach(() => {
@@ -751,7 +798,7 @@ afterEach(() => {
  * off so a refusal fails the same way however often it is repeated.
  *
  * A `null` route renders the base approvals path, which is the route that named no approval — the
- * empty state the screen derives from a route rather than from a record.
+ * not-found panel the screen reaches from the address rather than from a record it could not read.
  */
 function renderDetail(routeId: string | null = APPROVAL_ID): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -804,6 +851,19 @@ function describedByText(control: HTMLElement): string {
     .split(/\s+/)
     .map((id) => document.getElementById(id)?.textContent ?? '')
     .join(' ');
+}
+
+/**
+ * The sentence a field's `aria-errormessage` names, resolved from the document.
+ *
+ * Read as an element rather than as an id, because a field-level message is something a reader can see
+ * beside the field: an id that resolves to nothing describes nothing, and asserting only the attribute
+ * would accept exactly that.
+ */
+function errorMessageOf(field: HTMLElement): HTMLElement | null {
+  const messageId = field.getAttribute('aria-errormessage');
+
+  return messageId === null ? null : document.getElementById(messageId);
 }
 
 /**
@@ -1001,6 +1061,113 @@ describe('T-07 the decision gate', () => {
     expect(within(decisionCard).getByRole('alert')).toHaveTextContent(
       APPROVAL_DETAIL_TEXT.acknowledgementRequiredReason,
     );
+    expect(mockService.decideApproval).not.toHaveBeenCalled();
+  });
+
+  it('qa-w013-I22 marks the comment field and shows the sentence when a decision is refused without one', async () => {
+    const user = userEvent.setup();
+    await renderPendingDetail();
+
+    /* Before the attempt the field states its requirement as a hint and nothing more: no invalid
+       state, and no message element for an error message to name. */
+    const before = commentField();
+
+    expect(before).not.toHaveAttribute('aria-invalid');
+    expect(errorMessageOf(before)).toBeNull();
+
+    await user.click(controlNamed(APPROVAL_DETAIL_TEXT.approve));
+
+    /* The refusal itself is unchanged: all three decisions stay disabled and the record is untouched. */
+    for (const label of [
+      APPROVAL_DETAIL_TEXT.approve,
+      APPROVAL_DETAIL_TEXT.reject,
+      APPROVAL_DETAIL_TEXT.requestChanges,
+    ]) {
+      expect(controlNamed(label)).toHaveAttribute('aria-disabled', 'true');
+    }
+    expect(mockService.decideApproval).not.toHaveBeenCalled();
+
+    /* And the field-level half answers the same attempt: the field says its value is what is wrong,
+       the sentence the control refused with is its accessible error message, and that sentence is
+       visible beside the field rather than only in the card's announcement. */
+    const field = commentField();
+    const message = errorMessageOf(field);
+
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleErrorMessage(APPROVAL_DETAIL_TEXT.commentRequiredReason);
+    expect(message).not.toBeNull();
+    expect(message).toHaveTextContent(APPROVAL_DETAIL_TEXT.commentRequiredReason);
+    expect(message).toBeVisible();
+    expect(message?.parentElement).toBe(field.parentElement);
+    expect(message).not.toHaveClass('sr-only');
+
+    /* And the sentence reaches a reader through the field's description as well, which is the technique
+       an `aria-errormessage` reference is honoured by: `aria-describedby` names the hint and then the
+       message — the hint first, so the standing requirement reads before the refusal — so the id the
+       error-message attribute names is one the field also describes itself with, and the description it
+       carries is both sentences together. */
+    const descriptionIds = (field.getAttribute('aria-describedby') ?? '').split(/\s+/);
+
+    expect(descriptionIds).toContain(field.getAttribute('aria-errormessage'));
+    expect(descriptionIds.map((id) => document.getElementById(id)?.textContent ?? '')).toEqual([
+      APPROVAL_DETAIL_TEXT.commentHint,
+      APPROVAL_DETAIL_TEXT.commentRequiredReason,
+    ]);
+    expect(field).toHaveAccessibleDescription(
+      `${APPROVAL_DETAIL_TEXT.commentHint} ${APPROVAL_DETAIL_TEXT.commentRequiredReason}`,
+    );
+  });
+
+  it('qa-w013-I22 takes the message off the comment field as soon as the comment is supplied', async () => {
+    const user = userEvent.setup();
+    await renderPendingDetail();
+
+    await user.click(controlNamed(APPROVAL_DETAIL_TEXT.requestChanges));
+    expect(commentField()).toHaveAttribute('aria-invalid', 'true');
+
+    await giveComment(user, 'plan accepted');
+
+    /* The reader has supplied what the gate asked for, so the message goes with the first keystroke:
+       no invalid state, no error message for the field to name, and the hint is its whole description
+       again — the message has left `aria-describedby` with the reference that pointed at it. */
+    const field = commentField();
+
+    expect(field).toHaveValue('plan accepted');
+    expect(field).not.toHaveAttribute('aria-invalid');
+    expect(field).not.toHaveAttribute('aria-errormessage');
+    expect(errorMessageOf(field)).toBeNull();
+    expect(field).toHaveAccessibleDescription(APPROVAL_DETAIL_TEXT.commentHint);
+    expect(
+      (field.getAttribute('aria-describedby') ?? '')
+        .split(/\s+/)
+        .map((id) => document.getElementById(id)?.textContent ?? ''),
+    ).toEqual([APPROVAL_DETAIL_TEXT.commentHint]);
+    expect(screen.queryByText(APPROVAL_DETAIL_TEXT.commentRequiredReason)).toBeNull();
+  });
+
+  it('qa-w013-I22 leaves the comment field valid when another gate is what refused the decision', async () => {
+    mockService.getApproval.mockResolvedValue(
+      ok(pendingApproval(), freshnessOf('stale', STALE_AS_OF)),
+    );
+
+    const user = userEvent.setup();
+    await renderPendingDetail();
+
+    const approve = controlNamed(APPROVAL_DETAIL_TEXT.approve);
+
+    /* The comment is as empty here as it was in the case above, and the gate that refuses is the stale
+       source, not the field: the refusal names that source and the field stays unmarked, because no
+       typing can clear a source that is not current. */
+    expect(describedByText(approve)).toContain(GATE_LABEL);
+
+    await user.click(approve);
+
+    const field = commentField();
+
+    expect(field).not.toHaveAttribute('aria-invalid');
+    expect(field).not.toHaveAttribute('aria-errormessage');
+    expect(errorMessageOf(field)).toBeNull();
+    expect(screen.queryByText(APPROVAL_DETAIL_TEXT.commentRequiredReason)).toBeNull();
     expect(mockService.decideApproval).not.toHaveBeenCalled();
   });
 
@@ -1399,6 +1566,22 @@ describe('the failures the port can report', () => {
   });
 });
 
+/**
+ * Renders an approved plan's detail and waits for the review block beside the comparison.
+ *
+ * The review is offered only once the outcome card has its measurement, so the block is the last thing
+ * an approved screen mounts: a case that asserted before it arrived would be reading a screen still
+ * waiting on the outcome read.
+ *
+ * @returns The review block, found by its heading.
+ */
+async function renderOutcomeReview(): Promise<HTMLElement> {
+  renderDetail();
+  await screen.findByRole('region', { name: APPROVAL_DETAIL_TEXT.planSection });
+
+  return screen.findByRole('region', { name: APPROVAL_DETAIL_TEXT.reviewSection });
+}
+
 describe('an approval that has been decided', () => {
   it('lists the write-backs in the order the record states and sets planned against resulting figures', async () => {
     mockService.getApproval.mockResolvedValue(ok(approvedApproval()));
@@ -1528,6 +1711,39 @@ describe('an approval that has been decided', () => {
     });
   });
 
+  it("opens the evidence drawer from a tracker step, on the step's own record", async () => {
+    const user = userEvent.setup();
+    mockService.getApproval.mockResolvedValue(ok(approvedApproval()));
+
+    renderDetail();
+    await screen.findByRole('region', { name: APPROVAL_DETAIL_TEXT.planSection });
+
+    const tracker = await screen.findByRole('region', {
+      name: APPROVAL_DETAIL_TEXT.trackerSection,
+    });
+    const step = nth(within(tracker).getAllByRole('listitem'), 0);
+    const writeBack = nth(WRITE_BACKS, 0);
+
+    /* The control is the step's record reference, so the drawer a reader reaches from the tracker
+       reports the step they were pointing at rather than the plan the steps belong to. */
+    await user.click(readingTriggerIn(step, writeBack.recordRef));
+
+    const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    /* The reference names this approval, which holds the steps, and the position the record states —
+       the record the step belongs to and the step within it, which is the whole of what `WriteBack`
+       gives a reference to address (principle PR-6). */
+    expect(mockService.getEvidence).toHaveBeenCalledTimes(1);
+    expect(mockService.getEvidence).toHaveBeenCalledWith(writeBackStepRef(APPROVAL_ID, writeBack));
+    expect(await within(drawer).findByText(OUTCOME_EVIDENCE.formula)).toBeInTheDocument();
+
+    await user.click(within(drawer).getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
   it('states that the comparison is not shown yet when no resulting record arrives', async () => {
     mockService.getApproval.mockResolvedValue(ok(approvedApproval()));
     mockService.getApprovalOutcome.mockRejectedValue(outcomeProblem());
@@ -1543,6 +1759,135 @@ describe('an approval that has been decided', () => {
     /* No zero-valued row, no empty grid: the comparison is absent until a record supports it. */
     expect(within(outcome).queryByRole('table')).toBeNull();
     expect(within(outcome).queryByText(OUTCOME_CARD_TEXT.notApplicable)).toBeNull();
+  });
+
+  it('records the outcome review once and shows the record’s own reviewed state after the re-read', async () => {
+    const user = userEvent.setup();
+
+    /* The record moves only in the service: the first read carries no review, and every read after the
+       review returns the record the write marked. Whatever the screen then shows of the review came
+       from the second read, which is the assertion that the screen wrote nothing locally. */
+    mockService.getApproval
+      .mockResolvedValueOnce(ok(approvedApproval()))
+      .mockResolvedValue(ok(reviewedApproval()));
+
+    const review = await renderOutcomeReview();
+
+    expect(within(review).getByText(APPROVAL_DETAIL_TEXT.notReviewed)).toBeInTheDocument();
+
+    const control = controlNamed(APPROVAL_DETAIL_TEXT.reviewAction);
+
+    /* The control can act, so it carries no refusal of its own to explain (rule P-8). */
+    expect(control).not.toHaveAttribute('aria-disabled');
+    expect(describedByText(control)).toBe('');
+
+    await user.click(control);
+
+    await waitFor(() => {
+      expect(mockService.reviewApprovalOutcome).toHaveBeenCalledTimes(1);
+    });
+    expect(mockService.reviewApprovalOutcome).toHaveBeenCalledWith(APPROVAL_ID);
+
+    /* The status row follows the record the re-read returned, and the same control now refuses a
+       second review with the record's own sentence. */
+    await waitFor(() => {
+      expect(within(review).getByText(APPROVAL_DETAIL_TEXT.reviewed)).toBeInTheDocument();
+    });
+    expect(within(review).queryByText(APPROVAL_DETAIL_TEXT.notReviewed)).toBeNull();
+    expect(describedByText(controlNamed(APPROVAL_DETAIL_TEXT.reviewAction))).toContain(
+      APPROVAL_DETAIL_TEXT.alreadyReviewedReason,
+    );
+  });
+
+  it('offers the review disabled with the record’s own sentence once the record carries it', async () => {
+    mockService.getApproval.mockResolvedValue(ok(reviewedApproval()));
+
+    const review = await renderOutcomeReview();
+    const control = within(review).getByRole('button', { name: APPROVAL_DETAIL_TEXT.reviewAction });
+
+    expect(within(review).getByText(APPROVAL_DETAIL_TEXT.reviewed)).toBeInTheDocument();
+    expect(control).toHaveAttribute('aria-disabled', 'true');
+    expect(describedByText(control)).toBe(APPROVAL_DETAIL_TEXT.alreadyReviewedReason);
+
+    /* `aria-disabled` keeps the control focusable on purpose (rule B-3), so the refusal is asserted
+       through the activation a reader's click delivers: the screen answers it and asks nothing of the
+       port, because a review is recorded once. */
+    fireEvent.click(control);
+
+    await waitFor(() => {
+      expect(mockService.reviewApprovalOutcome).not.toHaveBeenCalled();
+    });
+  });
+
+  it('holds the review behind the record’s eligibility sentence ahead of the review it already carries', async () => {
+    mockDemonstration.getActiveUser.mockResolvedValue(ok(actingUser(INELIGIBLE_ROLE)));
+    mockService.getApproval.mockResolvedValue(ok(reviewedApproval()));
+
+    const review = await renderOutcomeReview();
+    const control = within(review).getByRole('button', { name: APPROVAL_DETAIL_TEXT.reviewAction });
+
+    expect(control).toHaveAttribute('aria-disabled', 'true');
+
+    const described = describedByText(control);
+
+    /* Eligibility is the fact the handler refuses on first, so it is the sentence the control carries
+       even where the record's own review state would block the write as well (rule P-8). */
+    expect(described).toContain(APPROVAL_DETAIL_TEXT.actingRolePrefix);
+    expect(described).toContain(APPROVER_ROLES.join(', '));
+    expect(described).not.toContain(APPROVAL_DETAIL_TEXT.alreadyReviewedReason);
+
+    fireEvent.click(control);
+
+    await waitFor(() => {
+      expect(mockService.reviewApprovalOutcome).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(REVIEW_FAILURES)(
+    'reports a refused review in $name, inside the review block',
+    async ({ rejection, expected }) => {
+      const user = userEvent.setup();
+
+      mockService.getApproval.mockResolvedValue(ok(approvedApproval()));
+      mockService.reviewApprovalOutcome.mockRejectedValue(rejection);
+
+      const review = await renderOutcomeReview();
+
+      await user.click(
+        within(review).getByRole('button', { name: APPROVAL_DETAIL_TEXT.reviewAction }),
+      );
+
+      /* The refusal is reported where the control is, in the words the service used, so a reader does
+         not lose the comparison they were reading to learn why the review was not recorded. */
+      expect(await within(review).findByText(expected)).toBeInTheDocument();
+
+      /* And nothing was written: the record the refusal left still carries no review, and the screen
+         the reader was working in is still the screen they are on. */
+      expect(within(review).getByText(APPROVAL_DETAIL_TEXT.notReviewed)).toBeInTheDocument();
+      expect(regionNamed(APPROVAL_DETAIL_TEXT.planSection)).toBeInTheDocument();
+    },
+  );
+
+  it('replaces the records with the forbidden card when the review is refused for permission', async () => {
+    const user = userEvent.setup();
+
+    mockService.getApproval.mockResolvedValue(ok(approvedApproval()));
+    mockService.reviewApprovalOutcome.mockRejectedValue(permissionProblem());
+
+    const review = await renderOutcomeReview();
+
+    await user.click(
+      within(review).getByRole('button', { name: APPROVAL_DETAIL_TEXT.reviewAction }),
+    );
+
+    /* A permission refusal means the acting role may not act on this plan, so the card naming the
+       permission, the roles that hold it and the call's correlation identifier replaces the content
+       rather than sitting beside a control that cannot work — as a refused decision does. */
+    expect(
+      await screen.findByRole('heading', { name: new RegExp(DECISION_PERMISSION) }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(REFUSAL_TRACE_ID)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: APPROVAL_DETAIL_TEXT.reviewSection })).toBeNull();
   });
 });
 
@@ -1601,6 +1946,20 @@ function conflictProblem(): Problem {
   return { type: 'validation', message: CONFLICT_MESSAGE, traceId: REFUSAL_TRACE_ID };
 }
 
+/**
+ * The identifier the fixture's not-found refusal answers no record for: an opaque placeholder, as the
+ * file header requires, so no literal shaped like a domain record identifier is typed here.
+ */
+const UNKNOWN_APPROVAL_ID = 'record-under-test';
+
+/** The sentence the port reports when the records hold no approval the identifier names. */
+const NOT_FOUND_MESSAGE = `No approval record answers ${UNKNOWN_APPROVAL_ID}.`;
+
+/** The failure the port reports when no record answers the identifier the route named. */
+function notFoundProblem(): Problem {
+  return { type: 'not-found', message: NOT_FOUND_MESSAGE, traceId: REFUSAL_TRACE_ID };
+}
+
 describe('T-17 the seven states', () => {
   it('T-17 renders the loading state in place of the content', async () => {
     mockService.getApproval.mockReturnValue(new Promise<Result<Approval>>(() => {}));
@@ -1614,13 +1973,38 @@ describe('T-17 the seven states', () => {
     expect(screen.queryByRole('region', { name: APPROVAL_DETAIL_TEXT.planSection })).toBeNull();
   });
 
-  it('T-17 renders the empty state for a route that named no approval', async () => {
+  it('T-17 renders the not-found panel for a route that named no approval', async () => {
     renderDetail(null);
 
-    expect(await screen.findByText(APPROVAL_DETAIL_TEXT.empty)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: APPROVAL_DETAIL_TEXT.notFoundTitle }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(APPROVAL_DETAIL_TEXT.noIdentifier)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: APPROVAL_DETAIL_TEXT.planSection })).toBeNull();
     /* A misaddressed route reads nothing rather than asking the service for an empty identifier. */
     expect(mockService.getApproval).not.toHaveBeenCalled();
+  });
+
+  it('T-17 names the record a not-found refusal answers nothing for', async () => {
+    mockService.getApproval.mockRejectedValue(notFoundProblem());
+
+    renderDetail(UNKNOWN_APPROVAL_ID);
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: APPROVAL_DETAIL_TEXT.notFoundTitle }),
+    ).toBeInTheDocument();
+    /* The refusal the service wrote is printed as it wrote it, so the identifier the address named is
+       on screen rather than replaced by a sentence claiming no approval was named at all. */
+    expect(screen.getByText(NOT_FOUND_MESSAGE)).toHaveTextContent(UNKNOWN_APPROVAL_ID);
+    expect(screen.getByRole('link', { name: APPROVAL_DETAIL_TEXT.backToInbox })).toHaveAttribute(
+      'href',
+      APPROVALS_ROUTE,
+    );
+    expect(screen.queryByRole('region', { name: APPROVAL_DETAIL_TEXT.planSection })).toBeNull();
+    /* Nothing is read for a record no identifier answers: the plan's option and the exception behind
+       it are only reached once the approval itself has been read. */
+    expect(mockService.getScenarioSet).not.toHaveBeenCalled();
+    expect(mockService.getExceptionDetail).not.toHaveBeenCalled();
   });
 
   it('T-17 keeps the records under the stale banner', async () => {

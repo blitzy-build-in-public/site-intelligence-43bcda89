@@ -32,6 +32,13 @@ The root path resolves to the active persona's entry route, so the demonstration
 
 Switching persona moves the session to that persona's entry route. `/evidence` renders a stage-notice page in this run, because the evidence workspace arrives in stage S4.
 
+Four things beyond the persona switch belong to the shell, and a reader meets them on the first screen:
+
+- The top bar carries an identifier search, `src/app/search-field.tsx`, labelled `Search identifiers`: it finds a record by its identifier, groups the hits by the kind of record each hit belongs to, and opens the one chosen — a record with a screen of its own is navigated to, and any other record opens in the evidence drawer. The field describes its own keys: the arrow keys move through the hits, `Enter` opens the highlighted one, and `Esc` closes the list and returns focus to the input.
+- Every computed figure, chart mark, graph node and map pin opens the evidence drawer in `src/components/evidence-drawer.tsx`, which shows four sections: the value and the formula that produced it; the source, record and time, with each source's freshness; the inputs, with the upstream and downstream records; and the confidence, missing inputs and documents the record states. It docks 420 px against the inline end of the page from 1280 px up, and below that width it covers the page as a modal panel.
+- The top bar also carries the theme switch in `src/theme/theme-switch.tsx` and the density switch in `src/theme/density-switch.tsx`. The theme switch moves between Command and Paper and names the theme in effect; the density switch moves between compact rows and comfortable ones — the 32 px and 44 px row heights the specification fixes — and names the density in effect. Theme and density are the only two values the application stores in the browser, and the seeded default is compact for the material planner, the production planner and the supplier quality engineer and comfortable for the other five personas.
+- The keyboard model is stated in one place, `src/app/keyboard-shortcuts.ts`: `/` focuses the identifier search, `J` and `K` move a table's row cursor, `Enter` opens the focused row or control, and `Esc` closes a drawer or dialog and returns focus to whatever opened it.
+
 The browser tests additionally need a Chromium build, installed once and out of band:
 
 ```bash
@@ -48,18 +55,22 @@ npx playwright install chromium
 
 `npm run check` is the single gate. It chains `typecheck`, `test`, `build` and `test:e2e` with `&&`, so it stops at the first failure, and one full run is budgeted at ten minutes on a standard CI machine.
 
-Every automated test title begins with its specification identifier, so a single test runs by name:
+The browser leg has its own share of that budget, and the configuration enforces it: all 63 tests take about three minutes on two workers, with the preview server started by the run itself, and a suite-wide timeout stops a run that would otherwise drift past the ten minutes rather than spending them. Playwright records a trace for every run and keeps it only when a test fails. That recording is the suite's one expensive debugging setting and the figure above is measured with it on, deliberately: several acceptance tests read a screen while that screen's own reads are still settling, and a trace is what makes a failure of that kind diagnosable.
+
+Acceptance tests carry their specification identifier as the first word of the title, so a single test runs by name:
 
 ```bash
 npx vitest run -t "T-17"
 npx playwright test -g "T-07"
 ```
 
+Not every suite carries one: the component suites that prove a component's own contract rather than an acceptance criterion, the source checks, the two bundle scans and the planner journey carry descriptive titles, and among the source checks only the seed-import check names the identifier it proves.
+
 Delivered in this run: T-01 to T-21, and T-25. Not delivered: T-22, T-23 and T-24, which belong to stage S4, and T-26, which belongs to stage S5. Those four are absent rather than pending, skipped or passing.
 
 The source checks run inside `npm test` and enforce the boundaries this documentation describes: no seed import outside the in-browser backend, no typed figure in a component or screen, no `any` in the service and type layers, no credential and no environment read, none of the barred product and vendor vocabulary, and every heading this file is required to carry. Two further scans run over the built bundle during `npm run test:e2e`, so what is actually served is covered as well as the source.
 
-Accessibility is a test rather than a claim: axe-core runs through `@axe-core/playwright` on every route in both themes with the `wcag2a`, `wcag2aa`, `wcag21aa` and `wcag22aa` tags, and the suite fails on any serious or critical violation. The suite targets WCAG 2.2 level AA in both themes: every interactive element is reachable and operable from the keyboard with a visible focus ring, targets measure at least 24x24 px, no meaning is carried by colour alone, every chart, map and graph offers its data as a table, and a reader who prefers reduced motion gets no animated arcs, halos or pulses.
+Accessibility is a test rather than a claim: axe-core runs through `@axe-core/playwright` on every route in both themes with the `wcag2a`, `wcag2aa`, `wcag21aa` and `wcag22aa` tags, and the suite fails on any serious or critical violation. The suite targets WCAG 2.2 level AA in both themes: every interactive element is reachable and operable from the keyboard with a visible focus ring, targets meet WCAG 2.2 SC 2.5.8 (at least 24x24 px, or an undersized target whose function another control on the same surface provides at that size — the route a focusable chart mark below the minimum takes through its figure's `View as table` toggle), no meaning is carried by colour alone, every chart, map and graph offers its data as a table, and a reader who prefers reduced motion gets no animated arcs, halos or pulses.
 
 ## Build
 
@@ -173,7 +184,7 @@ The boundary file is the `world-atlas` 2.x distribution of Natural Earth 1:110m 
 
 ## Packages
 
-Every package is pinned to an exact version: `package.json` carries no range, no wildcard, no `latest`, no tag and no pre-release. `package-lock.json` is committed, and `npm ci` installs exactly that lockfile and fails if the manifest and the lockfile disagree. The manifest declares 25 packages — 9 under `dependencies` and 16 under `devDependencies` — being the 21 packages the specification's allowed runtime list and the development list name, plus four `@types` packages admitted because a named package cannot work without them. Every `dependencies` row is named on the specification's allowed runtime list; every `devDependencies` row is a build or test tool. `npm ls --depth=0` reports no missing, invalid or unsatisfied peer dependency.
+Every package is pinned to an exact version: `package.json` carries no range, no wildcard, no `latest`, no tag and no pre-release. `package-lock.json` is committed, and `npm ci` installs exactly that lockfile and fails if the manifest and the lockfile disagree. The manifest declares 25 packages — 9 under `dependencies` and 16 under `devDependencies` — being the 19 packages the specification's allowed runtime list and the development list name, plus the six that sit outside both lists: four `@types` packages, `@testing-library/dom` and `@tailwindcss/vite`, each justified below. Every `dependencies` row is named on the specification's allowed runtime list; every `devDependencies` row is a build or test tool. `npm ls --depth=0` reports no missing, invalid or unsatisfied peer dependency.
 
 | Package | Version | Declared under | Purpose |
 |---|---|---|---|

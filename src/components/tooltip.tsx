@@ -348,6 +348,15 @@ interface ActionButtonBaseProps {
    * prop has nothing to do there and is ignored.
    */
   readonly hintPlacement?: TooltipPlacement | undefined;
+  /**
+   * Called when the reader activates this control and the activation is refused, so the owner is told
+   * an attempt happened and can answer at the surface that can be corrected — the field-level message
+   * on the field a control was waiting for. Never called while the control can act, because there is
+   * then no refusal to report: the hint painted past the pointer and the live region that announces
+   * the refusal stay this primitive's own answer, and this callback adds to them rather than
+   * replacing them.
+   */
+  readonly onRefusedActivation?: (() => void) | undefined;
 }
 
 /**
@@ -404,6 +413,25 @@ export const SECONDARY_CONTROL_CLASSES = [
 ].join(' ');
 
 /**
+ * The primary action's filled appearance, and its single owner.
+ *
+ * The one thing a screen exists to do, in the filled action pair the themes define: the
+ * `action-primary` background role serves as both the fill and the boundary, with the
+ * `action-primary-fg` label whose contrast that pair is measured against, so the control reads as the
+ * action beside the secondary one. Every value is a role token — no raw palette value, no arbitrary
+ * value and no opacity appears here, because dimming a label is exactly how contrast falls below the
+ * ratio rule B-3 requires.
+ *
+ * `ActionButton`'s primary variant composes this list, then {@link PRIMARY_STATE_CLASSES} and its
+ * `aria-disabled` overrides; a control that is not an action — one that states which of its peers is
+ * chosen rather than performing something when pressed — composes this list and the state list
+ * directly, so the filled pair has one owner either way. One token change here therefore reaches every
+ * filled control in the product.
+ */
+export const PRIMARY_CONTROL_CLASSES =
+  'border-action-primary-bg bg-action-primary-bg text-action-primary-fg';
+
+/**
  * The primary action's hover and pressed states, and their single owner.
  *
  * The one action a screen exists to take answers the pointer rather than going inert under it:
@@ -427,9 +455,10 @@ export const PRIMARY_STATE_CLASSES = [
  *
  * {@link CONTROL_STRUCTURE_CLASSES} supplies what every variant shares, so a variant states only
  * its own colours and their states. `hover:` and `active:` give each variant a hover fill and a
- * pressed fill built from role tokens alone, and each variant takes its pair from the one list that
- * owns it: {@link PRIMARY_STATE_CLASSES} for the primary action, {@link SECONDARY_CONTROL_CLASSES}
- * for the secondary one. The primary variant inverts its own fill on hover — the AAP 0.5.3
+ * pressed fill built from role tokens alone, and each variant takes its appearance and its pair from
+ * the one list that owns them: {@link PRIMARY_CONTROL_CLASSES} and {@link PRIMARY_STATE_CLASSES} for
+ * the primary action, {@link SECONDARY_CONTROL_CLASSES} for the secondary one. The primary variant
+ * inverts its own fill on hover — the AAP 0.5.3
  * Cream-fill/Chocolate-label action pair and its inverse — so the label keeps its measured contrast
  * in both themes, and it darkens once more to a raised surface while pressed; the secondary variant
  * is the list the application's links compose too, so the button and those links cannot drift apart.
@@ -447,7 +476,7 @@ export const PRIMARY_STATE_CLASSES = [
  */
 const BUTTON_VARIANT_CLASSES = {
   primary: [
-    'border-action-primary-bg bg-action-primary-bg text-action-primary-fg',
+    PRIMARY_CONTROL_CLASSES,
     PRIMARY_STATE_CLASSES,
     'aria-disabled:border-control-boundary aria-disabled:bg-surface-2',
     'aria-disabled:text-text-secondary aria-disabled:cursor-not-allowed',
@@ -691,7 +720,8 @@ const REFUSAL_ALERT_CLASSES = 'sr-only';
  * explaining a control they are no longer looking at.
  *
  * @param props The label, the activation handler, the flavour, and — when the control cannot act —
- *   the sentence explaining why and, optionally, the side that sentence prefers. See
+ *   the sentence explaining why and, optionally, the side that sentence prefers and the callback
+ *   that tells the owner an activation was refused. See
  *   {@link ActionButtonProps}: the reason is part of the type, not an option, so rule P-8 holds for
  *   every call site rather than for the ones that remembered.
  * @returns A native `button` element, wrapped in a {@link Tooltip} when it is disabled so its
@@ -731,6 +761,9 @@ export function ActionButton(props: ActionButtonProps): ReactElement {
          and hear nothing at all (rule P-8). */
       const reason = props.disabledReason;
       setRefusal((current) => ({ reason, attempt: (current?.attempt ?? 0) + 1 }));
+      /* The owner is then told the attempt happened, so a gate that a field of its own can answer is
+         answered at that field; this primitive keeps the hint and the announcement it already gave. */
+      props.onRefusedActivation?.();
       return;
     }
     props.onClick?.();

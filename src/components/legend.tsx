@@ -6,8 +6,9 @@
  * union, and its `competitor` branch declares `simLabel` as the market-intelligence member of
  * `SimLabel` with no optional form, so a competitor series cannot be described to this component
  * without the exact specification §5.3 label its figures require: such an entry does not type-check,
- * and no runtime branch has to remember to add the label. The `client-series` branch carries no
- * `simLabel` at all, because the client's series is first-party and its companion tag is
+ * and no runtime branch has to remember to add the label. The `client-series` branch carries that
+ * companion tag as an optional member instead, because the label a client series states is its own
+ * record's: a caller that holds one passes it, and one that states none is described with
  * `CLIENT_SELF_ASSESSMENT_LABEL` — a longer, series-specific string that sits alongside the seven
  * labels rather than inside them (AAP §0.10). Widening `SimLabel` to hold it, or stacking one of the
  * seven labels onto that entry as well, would blur the boundary the two branches draw.
@@ -38,7 +39,7 @@
 import type { ReactNode } from 'react';
 
 import { CLIENT_SELF_ASSESSMENT_LABEL, COMPETITOR_NAME_TAG } from '../types';
-import type { SimLabel } from '../types';
+import type { ClientSeriesLabel, SimLabel } from '../types';
 import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 
 import type { StatusMeaning } from './status-indicator';
@@ -93,9 +94,13 @@ export interface CompetitorLegendEntry {
 /**
  * The client's own series on the atlas radar: a first-party self-assessment, not a competitor estimate.
  *
- * It carries no `simLabel` because the seven §5.3 labels have no member for it; its companion tag is
- * `CLIENT_SELF_ASSESSMENT_LABEL`, which this component prints from the constant in `src/types`. The
- * swatch takes the accent role, which specification §4.1 assigns to first-party flows.
+ * Its companion tag is the label the caller's own record carries, which it may state through
+ * `simLabel`. The member's type is the one a series record states — the seven §5.3 labels plus the
+ * client's companion label — so a caller passes `AtlasSeries.simLabel` unchanged and this component
+ * neither widens the fixed vocabulary nor asks for a cast. A caller that states none is described with
+ * `CLIENT_SELF_ASSESSMENT_LABEL`, the constant in `src/types` this component prints in its place, so no
+ * client row is left without a tag. The swatch takes the accent role, which specification §4.1 assigns
+ * to first-party flows.
  */
 export interface ClientSeriesLegendEntry {
   /** Discriminator. */
@@ -104,6 +109,14 @@ export interface ClientSeriesLegendEntry {
   readonly id: string;
   /** The series' name, printed as visible text beside the swatch. */
   readonly label: string;
+  /**
+   * The companion label the series' own record states, where the caller holds one.
+   *
+   * It carries the record's label rather than a label chosen here, so a legend row cannot disagree
+   * with the series it describes (rule P-1). Absent, {@link entryText} prints
+   * `CLIENT_SELF_ASSESSMENT_LABEL`, the companion string the client's series has always carried.
+   */
+  readonly simLabel?: SimLabel | ClientSeriesLabel;
 }
 
 /**
@@ -220,10 +233,11 @@ function swatchClassFor(entry: LegendEntry): string {
 /**
  * The words a row carries: the series name, followed by the companion tags its kind requires.
  *
- * The competitor row prints `COMPETITOR_NAME_TAG` and then its `simLabel`, and the client row prints
- * `CLIENT_SELF_ASSESSMENT_LABEL`; both tags come from the constants in `src/types`, so this module
- * holds no copy of either string (rule P-1). A status row prints its label alone, because a status
- * series' provenance is the record's own and its label is the caller's wording.
+ * The competitor row prints `COMPETITOR_NAME_TAG` and then its mandatory `simLabel`; the client row
+ * prints the companion label the caller's record states, or `CLIENT_SELF_ASSESSMENT_LABEL` when the
+ * caller states none; both tags come from the constants in `src/types`, so this module holds no copy of
+ * either string (rule P-1). A status row prints its label alone, because a status series' provenance is
+ * the record's own and its label is the caller's wording.
  *
  * The `{' '}` between the spans is load-bearing. Adjacent elements contribute their text to the
  * accessibility tree with nothing between them, so without it a reader hears the name and both tags
@@ -249,7 +263,9 @@ function entryText(entry: LegendEntry): ReactNode {
       return (
         <>
           <span className={LABEL_CLASSES}>{entry.label}</span>{' '}
-          <span className={COMPANION_TAG_CLASSES}>{CLIENT_SELF_ASSESSMENT_LABEL}</span>
+          <span className={COMPANION_TAG_CLASSES}>
+            {entry.simLabel ?? CLIENT_SELF_ASSESSMENT_LABEL}
+          </span>
         </>
       );
   }

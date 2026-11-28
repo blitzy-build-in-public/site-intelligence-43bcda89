@@ -25,12 +25,21 @@
  * - P-3: the role switcher's non-authorisation note is visible body text in the bar.
  * - B-3: the landmarks are asserted behaviourally — the banner, the navigation by its accessible name,
  *   the single `main` — and no snapshot is taken anywhere.
+ * - B-3, and QA finding QA2-09: the navigation folds below `md` behind a disclosure the shell renders
+ *   outside the landmark, closed on first paint, its `aria-controls` naming the region it opens and its
+ *   `aria-expanded` following the state that region is in, so a phone viewport meets the route rather
+ *   than 328 px of navigation.
  * - P-1's presentation mode: wall mode hides the navigation and nothing else, so the route the reader
  *   is on, the top bar and the badge all stay mounted.
  * - P-4 / P-7: the shell's own text states none of the vocabulary of an unimplemented claim and names
  *   no barred product. The phrases are assembled from fragments below so that this file does not
  *   itself carry them, which is the same device `src/app/role-switcher.test.tsx` and
  *   `src/components/forbidden-card.test.tsx` use — a source check scans `src/` for them.
+ * - QA1-01: the two groups in the bar that read their own records reserve the box their read settles
+ *   into — the freshness group takes a line of the bar's row and holds a height floor, and the scope
+ *   group holds a column whose sentence is capped below its fields' width. The bar is one wrapping row
+ *   whose height every control beside those groups pays for, so a group that grew when its read
+ *   answered re-broke its neighbours' lines and moved the navigation and the route's content.
  *
  * THE SERVICE BOUNDARY IS MOCKED AT THE PROVIDER (rule P-2). The real provider awaits the mock
  * adapter's bootstrap, which hashes two hundred seeded audit events through `crypto.subtle` — and
@@ -63,6 +72,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SIM_LABELS } from '../types/primitives';
 import { APP_SHELL_TEXT, AppShell } from './app';
+import { FRESHNESS_STRIP_TEXT } from './freshness-strip';
 import {
   NAV_GROUPS,
   NAV_ITEMS,
@@ -72,6 +82,7 @@ import {
 } from './nav-items';
 import type { NavItem } from './nav-items';
 import { AppProviders, useShellStore } from './providers';
+import { SCOPE_FILTERS_TEXT } from './scope-filters';
 
 /* ---------------------------------------------------------------------------------------------
  * The service boundary, replaced — rule P-2
@@ -237,6 +248,25 @@ function banner(): HTMLElement {
 }
 
 /**
+ * The region the navigation's disclosure trigger names, read through its `aria-controls`.
+ *
+ * Read through a guard rather than an index, so a trigger whose `aria-controls` named nothing fails
+ * with the sentence naming that defect instead of a `TypeError` on `undefined`.
+ *
+ * @param trigger - The disclosure trigger rendered before the navigation landmark.
+ * @returns The element the trigger's `aria-controls` points at.
+ */
+function revealedRegionOf(trigger: HTMLElement): HTMLElement {
+  const panel = document.getElementById(trigger.getAttribute('aria-controls') ?? '');
+
+  if (panel === null) {
+    throw new Error('The navigation trigger names no region, so its aria-controls is dangling.');
+  }
+
+  return panel;
+}
+
+/**
  * The badge's label element, which is the element carrying the fixed `Simulated data` string.
  *
  * Read through a guard rather than an index so a shell that rendered no badge fails with a sentence
@@ -394,6 +424,62 @@ describe('AppShell — the navigation (rules B-3, P-8)', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
+ * The navigation's narrow disclosure — rule B-3, QA finding QA2-09
+ * ------------------------------------------------------------------------------------------- */
+
+describe('AppShell — the navigation disclosure below md (rule B-3)', () => {
+  it('renders the trigger outside the landmark, closed, naming the region it reveals', () => {
+    renderShell('/exceptions');
+
+    const trigger = screen.getByRole('button', { name: APP_SHELL_TEXT.navigationToggle });
+    const nav = navigation();
+
+    /* A sibling of the landmark, never a child of it: the navigation declares the table's entries and
+       no control of its own, which is the count the case above holds it to. */
+    expect(nav.contains(trigger)).toBe(false);
+    expect(precedes(trigger, nav)).toBe(true);
+
+    /* Closed on first paint, so a phone viewport shows the route instead of 328 px of navigation, and
+       the state a reader is told is the state the panel is in. */
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    /* `aria-controls` resolves to the region holding the three groups, which is in the document and
+       closed: closed by a class rather than by unmounting, so the relationship is never dangling. */
+    const panel = revealedRegionOf(trigger);
+
+    expect(panel.classList.contains('hidden')).toBe(true);
+
+    for (const group of NAV_GROUPS) {
+      expect(within(panel).getByText(group.label)).toBeInTheDocument();
+    }
+
+    /* `md:block` on the region and `md:hidden` on the trigger are the one breakpoint the two
+       presentations share: from `md` up the entries are shown whatever state the disclosure was left
+       in, and the trigger that would reveal nothing is not rendered. */
+    expect(panel.classList.contains('md:block')).toBe(true);
+    expect(trigger.classList.contains('md:hidden')).toBe(true);
+  });
+
+  it('opens the region it names on a press and closes it on the next', async () => {
+    const user = userEvent.setup();
+    renderShell('/exceptions');
+
+    const trigger = screen.getByRole('button', { name: APP_SHELL_TEXT.navigationToggle });
+    const panel = revealedRegionOf(trigger);
+
+    /* The announcement and the panel change together, so a reader is never told the region is open
+       while it is shut, and the entries are reachable below `md` rather than merely present. */
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(panel.classList.contains('hidden')).toBe(false);
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(panel.classList.contains('hidden')).toBe(true);
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
  * The top bar — AAP §0.12.1, rule P-3
  * ------------------------------------------------------------------------------------------- */
 
@@ -420,6 +506,39 @@ describe('AppShell — the top bar (AAP §0.12.1, rule P-3)', () => {
 
     /* Visible body text, not a hint or a title: rule P-3 wants the reader to meet it unasked. */
     expect(within(banner()).getByText(/not production authorisation/i)).toBeVisible();
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The bar's stable boxes — QA finding QA1-01
+ * ------------------------------------------------------------------------------------------- */
+
+describe('AppShell — the top bar reserves the box each reading group settles into (QA1-01)', () => {
+  it('gives the freshness group its own line and a height floor, and caps the scope notice', () => {
+    renderShell('/exceptions');
+
+    const freshness = within(banner()).getByRole('group', { name: FRESHNESS_STRIP_TEXT.group });
+    const scope = within(banner()).getByRole('group', { name: SCOPE_FILTERS_TEXT.group });
+
+    /* The freshness group takes a line of the bar's wrapping row and holds the height its six pills
+       settle into — 64 px from `lg` up, the three-row block's 100 px between `md` and `lg`, and 64 px
+       below `md` where the pills sit behind the disclosure. A group that instead grew from one notice
+       line to the pills' block re-broke every sibling's line and moved the navigation and the route's
+       content down the page, which is the shift the desktop audit measured. */
+    expect(freshness).toHaveClass('basis-full', 'min-h-16', 'md:min-h-25', 'lg:min-h-16');
+
+    /* The scope group is a column whose height is the fields row plus the sentence's line, reserved
+       before the read says whether there is a sentence to paint. */
+    expect(scope).toHaveClass('min-h-20');
+
+    /* The sentence is capped at a step of the spacing scale and clamped to one line, so a read that
+       answers, refuses or is still pending leaves the bar's height as the reserved line holds it and
+       never widens the bar past what its first line carries; it sits on that reserved line rather than
+       sharing the fields' line. */
+    const notice = within(scope).getByText(SCOPE_FILTERS_TEXT.reading);
+
+    expect(notice).toHaveClass('max-w-80', 'truncate', 'xl:max-w-xl');
+    expect(notice).not.toHaveClass('basis-full');
   });
 });
 

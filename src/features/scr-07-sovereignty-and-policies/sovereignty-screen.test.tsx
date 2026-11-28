@@ -62,11 +62,13 @@
  * that did not answer supply `offline`, a never-settling read supplies `loading`, and the freshness
  * report the result itself carries supplies `stale` and `partial`.
  *
- * THE DOWNLOAD PATH IS STUBBED IN THE EXPORT CASE. jsdom implements neither `URL.createObjectURL`
- * nor `URL.revokeObjectURL`, and the screen's export path returns early without them, so the export
- * case installs both as spies, restores the globals afterwards, and stubs
- * `HTMLAnchorElement.prototype.click` so the file that would be offered is observed rather than
- * navigated to.
+ * THE DOWNLOAD PATH IS STUBBED IN THE EXPORT CASES. The offering case installs `URL.createObjectURL`
+ * and `URL.revokeObjectURL` as spies and stubs `HTMLAnchorElement.prototype.click` so the file that
+ * would be offered is observed rather than navigated to. The refusal case withholds both members, which
+ * is the engine it stands for: this environment answers `URL.createObjectURL` from the global's
+ * prototype as well as from the global itself, so deleting the global's member would expose the
+ * inherited one rather than leave the page without a factory. Every case hands the globals back
+ * afterwards.
  *
  * WHAT EACH CASE WOULD CATCH. A dropped per-row label fails the row case, which reads the label inside
  * the status cell. A count hard-coded in the screen fails the two-payload case, which renders a
@@ -716,9 +718,9 @@ const createObjectUrl = vi.fn<(value: Blob) => string>(() => OBJECT_URL);
 const revokeObjectUrl = vi.fn<(value: string) => void>();
 
 /**
- * Supplies both object-URL members jsdom leaves undefined, so the export path is reachable at all.
- * `Object.defineProperty` is used rather than `vi.spyOn` because there is no property to spy on;
- * {@link removeObjectUrlStubs} puts the globals back afterwards.
+ * Supplies both object-URL members, so the export path is reachable at all. `Object.defineProperty` is
+ * used rather than `vi.spyOn` because the members are replaced rather than wrapped;
+ * {@link withholdObjectUrlMembers} takes them away again.
  */
 function installObjectUrlStubs(): void {
   Object.defineProperty(URL, 'createObjectURL', {
@@ -733,10 +735,25 @@ function installObjectUrlStubs(): void {
   });
 }
 
-/** Removes the stubs, whether or not a case installed them. */
-function removeObjectUrlStubs(): void {
-  Reflect.deleteProperty(URL, 'createObjectURL');
-  Reflect.deleteProperty(URL, 'revokeObjectURL');
+/**
+ * Withholds both object-URL members, which is the engine that offers no way to save a file: no factory
+ * to build a URL with and none to revoke.
+ *
+ * They are shadowed with `undefined` rather than deleted because this environment answers
+ * `URL.createObjectURL` from the global's prototype as well as from the global itself, so a deleted own
+ * member would only expose the inherited one and the page would still have a factory.
+ */
+function withholdObjectUrlMembers(): void {
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    writable: true,
+    value: undefined,
+  });
+  Object.defineProperty(URL, 'revokeObjectURL', {
+    configurable: true,
+    writable: true,
+    value: undefined,
+  });
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -990,11 +1007,14 @@ beforeEach(() => {
   revokeObjectUrl.mockClear();
 });
 
-/** Leaves `<html>` on the theme of whichever suite runs next, and no stub of this one behind. */
+/**
+ * Leaves `<html>` on the theme of whichever suite runs next, and no object-URL factory of this one
+ * behind: every case but the offering one expects the page to have none.
+ */
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.removeAttribute('data-density');
-  removeObjectUrlStubs();
+  withholdObjectUrlMembers();
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -1284,6 +1304,36 @@ describe('SovereigntyScreen', () => {
     });
 
     expect(revokeObjectUrl).toHaveBeenCalledWith(OBJECT_URL);
+  });
+
+  it('reports that this page cannot offer a file where it has no object-URL factory', async () => {
+    const user = userEvent.setup();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+
+    /* The engine this case is about: one with no factory to build a file with, which is the state
+       jsdom answers with once the members are withheld. */
+    withholdObjectUrlMembers();
+
+    renderScreen();
+    await settledSummary();
+
+    await user.click(screen.getByRole('button', { name: TEXT.exportAction }));
+
+    /* The pack was composed and recorded — the export itself did not fail — so the service answered
+       once and what is reported is the page's own limit. */
+    await waitFor(() => {
+      expect(mockService.exportEvidencePack).toHaveBeenCalledTimes(1);
+    });
+
+    const alert = await screen.findByRole('alert');
+
+    /* The failure region states both halves: what could not be produced, and why this page could not
+       produce it, rather than leaving the reader with a control that did nothing (rule P-8). */
+    expect(within(alert).getByText(TEXT.exportFailed)).toBeVisible();
+    expect(within(alert).getByText(TEXT.downloadUnavailable)).toBeVisible();
+
+    /* Nothing was offered at all, so no anchor was activated. */
+    expect(clickSpy).not.toHaveBeenCalled();
   });
 
   it('opens the grant dialog for the policy whose own row was pressed, and closes it unsent', async () => {

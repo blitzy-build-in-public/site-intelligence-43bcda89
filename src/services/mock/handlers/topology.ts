@@ -22,7 +22,9 @@
  * narrows the plant-anchored part of the network away entirely — it means nothing is in scope, never
  * "all plants" — which is the reading `src/domain/aggregation/scope.ts` fixes for that member. A material
  * is placed at the site its primary supplier ships from, because a material record holds no site of its
- * own.
+ * own. Every selection this narrowing tests is built once per read as a set, so the read costs a pass per
+ * lane family and a membership test per node rather than a scan of a node list for every lane and every
+ * node.
  *
  * WHY THE PIN COUNTS TRAVEL WITH THE TOPOLOGY. AAP 0.2.1 requires "supplier-to-product reach in the
  * seed, and pin counts per node, because the graph lens and the canvas node badges in S2 need both
@@ -69,12 +71,15 @@
  * THE RIBBON IS AN AGGREGATION'S OUTPUT, NOT THIS MODULE'S ARITHMETIC. `getCanvasRibbon` resolves the
  * scope once through `resolveScope`, from the same shell selection the topology read is narrowed by, and
  * assembles the record bundle the aggregates read; it then returns
- * `computeRibbonTiles(computeOverview(...), computeExceptionRows(...))` unchanged — six tiles whose
- * every value is a computed aggregate's own output or a count of the rows handed in (rule P-6). The
- * empty-queue trigger empties the exception collection the ribbon is computed from, which is what keeps
- * the canvas's tiles and the queue's rows describing the same population (AAP 0.12.4, T-17). No label is
- * attached here: the tiles carry no caption and no simulation label, because specification §5.3's seven
- * exact strings belong to the components that render them (rule P-1, AAP 0.10).
+ * `computeRibbonTiles(computeOverview(...), countAtHeadOfUrgency(...))` — six tiles whose every value is
+ * an `Overview` member or the critical count the exception aggregate derived (rule P-6). The critical
+ * count is counted over the population `./exceptions` admits rather than over projected queue rows, so a
+ * ribbon read prices no exception it does not tile while the count still cannot disagree with the rows
+ * the queue returns for the same scope (AAP 0.2.1). The empty-queue trigger empties the exception
+ * collection both are computed from, which is what keeps the canvas's tiles and the queue's rows
+ * describing the same population (AAP 0.12.4, T-17). No label is attached here: the tiles carry no
+ * caption and no simulation label, because specification §5.3's seven exact strings belong to the
+ * components that render them (rule P-1, AAP 0.10).
  *
  * WHY THE READ'S FRESHNESS IS THE ORDER-BOOK SOURCE'S RECORD. `ExceptionRow.freshness` is the state the
  * adapter attaches to a read rather than a member of an exception, and the bundle the aggregates read
@@ -148,13 +153,12 @@ import type {
   TopologyNode,
 } from '../../../types';
 
-import { computeExceptionRows } from '../../../domain/aggregation/exceptions';
 import type { BaselineSolve } from '../../../domain/aggregation/exceptions';
 import { computeOverview } from '../../../domain/aggregation/overview';
 import type { OverviewInput } from '../../../domain/aggregation/overview';
 import { resolveScope } from '../../../domain/aggregation/scope';
 import type { ScopeFilterInput } from '../../../domain/aggregation/scope';
-import { computeRibbonTiles } from '../../../domain/aggregation/urgency';
+import { computeRibbonTiles, countAtHeadOfUrgency } from '../../../domain/aggregation/urgency';
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
 import { solveSupplyDelay } from '../../../domain/solver/solve-supply-delay';
 
@@ -712,18 +716,21 @@ function pinCountsOf(nodeId: string, seeded: PinCounts): PinCounts {
  * network no longer holds is left out for the same reason: a count beside nothing would badge a node the
  * payload does not carry, so the map describes exactly the nodes returned beside it.
  *
+ * The tally is walked once and each entry is a membership test against the retained set the caller built,
+ * so a session whose tally grows does not re-scan the retained identifiers per entry.
+ *
  * @param seeded The per-node tally the session holds.
- * @param retained The node identifiers the payload holds, read in any order and not modified.
+ * @param retained The node identifiers the payload holds, as a set, read and not modified.
  * @returns A fresh map, one entry per retained and counted node, in the order the tally states them.
  */
 function copyPinCounts(
   seeded: Readonly<Record<string, PinCounts>>,
-  retained: readonly string[],
+  retained: ReadonlySet<string>,
 ): Record<string, PinCounts> {
   const counts: Record<string, PinCounts> = {};
 
   for (const [nodeId, seededCounts] of Object.entries(seeded)) {
-    if (retained.includes(nodeId)) {
+    if (retained.has(nodeId)) {
       counts[nodeId] = pinCountsOf(nodeId, seededCounts);
     }
   }
@@ -756,15 +763,18 @@ function scopeOf(ctx: HandlerContext, selection: ScopeFilterInput): Scope {
  * Whether one of the scope's plants is the node a plant-anchored lane endpoint names.
  *
  * A lane endpoint is a node identifier rather than a `PlantId`, so the comparison is made here once and
- * the narrowing below states no plant identifier of its own (rule P-6). An empty `scope.plants` matches
- * nothing, which is the "nothing is in scope" reading `src/domain/aggregation/scope.ts` fixes.
+ * the narrowing below states no plant identifier of its own (rule P-6). The selection arrives as a set
+ * the caller builds once per read: every lane the scope keeps and every plant node asks this question,
+ * so a membership test answers them all instead of a scan of the selection per lane and per node. An
+ * empty selection contains no plant and so matches nothing, which is the "nothing is in scope" reading
+ * `src/domain/aggregation/scope.ts` fixes.
  *
- * @param scope The resolved scope.
+ * @param scopePlantIds The resolved scope's plant selection, as a set built from `scope.plants`.
  * @param nodeId The node identifier a lane endpoint carries.
- * @returns `true` when the scope names that plant.
+ * @returns `true` when the selection names that plant.
  */
-function withinScope(scope: Scope, nodeId: string): boolean {
-  return scope.plants.some((plantId) => plantId === nodeId);
+function withinScope(scopePlantIds: ReadonlySet<PlantId>, nodeId: string): boolean {
+  return scopePlantIds.has(nodeId);
 }
 
 /**
@@ -775,28 +785,32 @@ function withinScope(scope: Scope, nodeId: string): boolean {
  * the evidence-pin counts its record carries. An anchored node whose lanes were all narrowed away is
  * dropped, because the records do place it at a plant outside the scope.
  *
+ * Both identifier collections are sets the caller builds once: the endpoints the retained lanes reach, and
+ * the nodes the whole network anchors at a plant. A family of N nodes over L retained lanes therefore
+ * costs one pass over the lanes and N membership tests, rather than a scan of the reached endpoints per
+ * node and a scan of the anchored identifiers per node.
+ *
+ * The returned nodes keep the family's own order, because the filter keeps the array it was given.
+ *
  * @param nodes The family as the records state it, in record order.
  * @param retainedLanes The lanes the scope keeps, read and not modified.
  * @param anchoredIds The identifiers of the family's nodes the whole network places at a plant, read from
- *   every lane of that family's own kind before narrowing.
+ *   every lane of that family's own kind before narrowing, as a set.
  * @returns The retained nodes, in the family's own order.
  */
 function retainedNodes(
   nodes: readonly TopologyNode[],
   retainedLanes: readonly TopologyLane[],
-  anchoredIds: readonly string[],
+  anchoredIds: ReadonlySet<string>,
 ): TopologyNode[] {
-  const reached: string[] = [];
+  const reached = new Set<string>();
 
   for (const lane of retainedLanes) {
-    for (const endpoint of [lane.fromId, lane.toId]) {
-      if (!reached.includes(endpoint)) {
-        reached.push(endpoint);
-      }
-    }
+    reached.add(lane.fromId);
+    reached.add(lane.toId);
   }
 
-  return nodes.filter((node) => reached.includes(node.id) || !anchoredIds.includes(node.id));
+  return nodes.filter((node) => reached.has(node.id) || !anchoredIds.has(node.id));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -820,6 +834,12 @@ function retainedNodes(
  * badge can never outlive its node. An empty `scope.plants` therefore narrows the plant-anchored part of
  * the network away, which is the "nothing is in scope" reading rather than "all plants".
  *
+ * Each selection the narrowing tests is built once per read as a set — the scope's plants, the material
+ * and supplier identifiers a hop filters on, the endpoints the retained lanes reach, the identifiers the
+ * pin map is keyed by — so the read costs one pass per lane family and one membership test per node,
+ * rather than a scan of a node list for every lane and every node. The selections and the order they
+ * produce are the same either way, so the payload is the one the rule above fixes.
+ *
  * @param ctx The session and the persona the call acts as.
  * @param selection The shell's plant and product selection, which the one resolver intersects with the
  *   role's plant scope before the payload is narrowed.
@@ -837,49 +857,53 @@ export async function getTopology(
   const { records } = ctx.state;
   const scope = scopeOf(ctx, selection);
 
+  // The selection as one set the whole read tests against: every retained lane and every plant node asks
+  // it the same question, so the scope is read once here rather than scanned once per lane and per node.
+  const scopePlantIds: ReadonlySet<PlantId> = new Set(scope.plants);
+
   const materialToPlant = materialToPlantLanes(records);
-  const retainedMaterialToPlant = materialToPlant.filter((lane) => withinScope(scope, lane.toId));
+  const retainedMaterialToPlant = materialToPlant.filter((lane) =>
+    withinScope(scopePlantIds, lane.toId),
+  );
   const materials = retainedNodes(
     materialNodes(records),
     retainedMaterialToPlant,
-    materialToPlant.map((lane) => lane.fromId),
+    new Set(materialToPlant.map((lane) => lane.fromId)),
   );
-  const materialIds = materials.map((node) => node.id);
+  const materialIds: ReadonlySet<string> = new Set(materials.map((node) => node.id));
 
   const supplierToMaterial = supplierToMaterialLanes(records);
   const retainedSupplierToMaterial = supplierToMaterial.filter((lane) =>
-    materialIds.includes(lane.toId),
+    materialIds.has(lane.toId),
   );
   const suppliers = retainedNodes(
     supplierNodes(records),
     retainedSupplierToMaterial,
-    supplierToMaterial.map((lane) => lane.fromId),
+    new Set(supplierToMaterial.map((lane) => lane.fromId)),
   );
-  const supplierIds = suppliers.map((node) => node.id);
+  const supplierIds: ReadonlySet<string> = new Set(suppliers.map((node) => node.id));
 
   const originToSupplier = originToSupplierLanes(records);
-  const retainedOriginToSupplier = originToSupplier.filter((lane) =>
-    supplierIds.includes(lane.toId),
-  );
+  const retainedOriginToSupplier = originToSupplier.filter((lane) => supplierIds.has(lane.toId));
   const origins = retainedNodes(
     originNodes(records),
     retainedOriginToSupplier,
-    originToSupplier.map((lane) => lane.fromId),
+    new Set(originToSupplier.map((lane) => lane.fromId)),
   );
 
   const plantToCustomer = plantToCustomerLanes(records);
   const retainedPlantToCustomer = plantToCustomer.filter((lane) =>
-    withinScope(scope, lane.fromId),
+    withinScope(scopePlantIds, lane.fromId),
   );
   const customers = retainedNodes(
     customerNodes(records),
     retainedPlantToCustomer,
-    plantToCustomer.map((lane) => lane.toId),
+    new Set(plantToCustomer.map((lane) => lane.toId)),
   );
 
-  const plants = plantNodes(records).filter((node) => withinScope(scope, node.id));
-  const nodeIds = [...plants, ...suppliers, ...materials, ...origins, ...customers].map(
-    (node) => node.id,
+  const plants = plantNodes(records).filter((node) => withinScope(scopePlantIds, node.id));
+  const nodeIds: ReadonlySet<string> = new Set(
+    [...plants, ...suppliers, ...materials, ...origins, ...customers].map((node) => node.id),
   );
 
   return {
@@ -1017,18 +1041,22 @@ function aggregateBundle(
  * Reads the six tiles of the FileMap canvas ribbon for one scope.
  *
  * The ribbon adds no arithmetic of its own: `computeRibbonTiles` copies the overview's aggregate values
- * and counts the rows handed to it, so every tile is a computed figure and the canvas can neither supply
- * nor alter one (rule P-6). The tiles carry no caption, evidence reference or simulation label, because
- * those belong to the component that renders them (rule P-1, AAP 0.10).
+ * and reports the critical count `countAtHeadOfUrgency` derives, so every tile is a computed figure and
+ * the canvas can neither supply nor alter one (rule P-6). That count is counted over the population the
+ * exception aggregate admits rather than over projected queue rows, so a read that tiles no exception
+ * prices none, while the count still describes the population the queue's own rows are projected from
+ * and the two cannot disagree (AAP 0.2.1). The tiles carry no caption, evidence reference or simulation
+ * label, because those belong to the component that renders them (rule P-1, AAP 0.10).
  *
  * The empty-queue trigger empties the exception collection the bundle is built from, so the overview and
- * the rows are computed over the same emptied set: the canvas's tiles and the queue's rows then agree
- * instead of the ribbon counting exceptions the queue no longer lists (AAP 0.12.4, T-17). The topology
- * itself is untouched by that trigger, which is why this behaviour lives here and not in `getTopology`.
+ * the critical count are derived from the same emptied set: the canvas's tiles and the queue's rows then
+ * agree instead of the ribbon counting exceptions the queue no longer lists (AAP 0.12.4, T-17). The
+ * topology itself is untouched by that trigger, which is why this behaviour lives here and not in
+ * `getTopology`.
  *
  * @param ctx The session and the persona the call acts as.
  * @param selection The shell's plant and product selection, resolved here by the same one resolver the
- *   topology read uses, so the tiles count the rows the queue shows under the same filters.
+ *   topology read uses, so the tiles count the exceptions the queue shows under the same filters.
  * @returns Six tiles, in the order `src/domain/aggregation/urgency.ts` states.
  * @throws Problem - A `'permission'` failure when the role may not read the canvas or the forbidden
  *   trigger is on, or a `'validation'` failure when the records a figure is drawn from do not resolve.
@@ -1043,5 +1071,5 @@ export async function getCanvasRibbon(
   const emptied = isSimulationOn(ctx.state, 'empty-queue');
   const bundle = aggregateBundle(ctx.state, emptied ? [] : ctx.state.records.exceptions);
 
-  return computeRibbonTiles(computeOverview(bundle, scope), computeExceptionRows(bundle, scope));
+  return computeRibbonTiles(computeOverview(bundle, scope), countAtHeadOfUrgency(bundle, scope));
 }

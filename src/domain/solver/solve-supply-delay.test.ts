@@ -1015,8 +1015,9 @@ describe('the working calendar', () => {
  *
  * What it proves, beyond the probe cases: the probe cases assert each rule against inputs chosen to
  * make the arithmetic followable by hand, while this table asserts the seeded case's own outcome —
- * the do-nothing baseline's 1,220 units late worth 1,512,800 (AAP 0.8's assistant answer of 580 and
- * 640 units), the air-freight option's 18,600, the recommended option's 21,300 and its 900 deferred
+ * the do-nothing baseline's 1,220 units late worth 2,257,000 (AAP 0.8's assistant answer of 580 and
+ * 640 units, and the delayed revenue its quoted recommendation sentence names), the air-freight
+ * option's 18,600, the recommended option's 21,300 and its 900 deferred
  * kits, and the two sandbox positions the constraint check refuses.
  * ------------------------------------------------------------------------------------------- */
 
@@ -1064,4 +1065,57 @@ describe('T-25 the expected results of the seeded case', () => {
       expect(measured.revenueDelayedEur, `${row.id}'s revenue delayed`).toBe(row.revenueDelayedEur);
     });
   }
+
+  /*
+   * The independence case the table's own derivation needs. Every case above compares the solver with
+   * a table derived from the same rules, so a misreading both sides share would pass them all. This
+   * one recomputes the do-nothing row from the seeded records' own members by a route the solver does
+   * not take — a sum over the orders rather than a day-by-day walk — and pins the figures AAP 0.8
+   * quotes from outside these modules, which is what makes a disagreement a defect rather than a
+   * number to adjust: the 580 and 640 units late, the 1,220 their sum makes, the 2,257,000 of
+   * delayed revenue the recommendation's sentence names, and the 21,300 spend of the plan it
+   * recommends. A price, a quantity or a rate changed in the seed without its expectation moving
+   * fails here even where the solver and the table still agree with each other.
+   */
+  it('T-25 recomputes the do-nothing row from the seeded orders, against the figures the plan quotes', () => {
+    const caseRecord = SEEDED_SOLVER_CASES.find((entry) => entry.id === SOLVER_CASE_ID);
+
+    if (caseRecord === undefined) {
+      throw new Error(`The seed carries no solver case ${SOLVER_CASE_ID}.`);
+    }
+
+    const baseline = EXPECTED_SOLVER_ROWS.find((row) => row.id === 'SCN-1184-A');
+    const plan = EXPECTED_SOLVER_ROWS.find((row) => row.id === 'SCN-1184-C');
+
+    if (baseline === undefined || plan === undefined) {
+      throw new Error('The table no longer holds the do-nothing row and the recommended row.');
+    }
+
+    // The two orders the records state, at the quantities AAP 0.8 quotes for them.
+    expect(caseRecord.orders.map((order) => order.quantity)).toEqual([580, 640]);
+
+    // Nothing is on hand and the do-nothing row recovers nothing, so every ordered unit is late and
+    // each is worth its own order's price. Summing the orders is the arithmetic the row states.
+    expect(caseRecord.openingStock + caseRecord.finishedGoods).toBe(0);
+    expect(baseline.levers).toEqual({ airSets: 0, transferSets: 0 });
+
+    const orderedUnits = caseRecord.orders.reduce((sum, order) => sum + order.quantity, 0);
+    const orderedValue = caseRecord.orders.reduce(
+      (sum, order) => sum + order.quantity * order.unitPriceEur,
+      0,
+    );
+
+    expect(orderedUnits).toBe(1220);
+    expect(orderedValue).toBe(2257000);
+    expect(baseline.unitsLate).toBe(orderedUnits);
+    expect(baseline.revenueDelayedEur).toBe(orderedValue);
+
+    // The recommended row's spend, at the case's own per-set rates and the row's own levers.
+    const spend =
+      plan.levers.airSets * caseRecord.airFreightCostPerSetEur +
+      plan.levers.transferSets * caseRecord.transferCostPerSetEur;
+
+    expect(spend).toBe(21300);
+    expect(plan.addedCostEur).toBe(spend);
+  });
 });

@@ -3,7 +3,7 @@
  * it, for the two presentational modules it composes, `./comparison-matrix.tsx` and
  * `./write-back-preview.tsx`, neither of which owns a suite of its own.
  *
- * WHAT IT PROVES. Eleven contracts the screen is relied on for, each stated as a case that fails on one
+ * WHAT IT PROVES. Twelve contracts the screen is relied on for, each stated as a case that fails on one
  * specific regression rather than as a description of the markup:
  *
  * 1. EVERY MEASURE ROW PER OPTION. The matrix draws the eight measures AAP §0.12.4 fixes, in that
@@ -11,7 +11,9 @@
  *    option's own value sits in that option's cell — asserted row by row and cell by cell, and the
  *    run-out row against the reading each option's own pair composes, so a transposed row or column
  *    fails rather than passing on a page-wide search — and the header's eyebrow names the exception
- *    whose options these are rather than the product name every route already carries.
+ *    whose options these are rather than the product name every route already carries. The confidence
+ *    row states each option's level as the status that level means, with the icon, the word and the
+ *    status colour together, and the record's own reason beneath it (AAP §0.5.2, rule B-3).
  * 2. THE RECOMMENDATION. The recommended option's column is marked structurally, and its block shows
  *    the fixed badge, the rule the recommendation applied and the trade-off it makes, verbatim from the
  *    record, each under its own `Simulated recommendation` label (rule P-1).
@@ -45,6 +47,10 @@
  *    tabbing, and choosing another option with `Enter` moves the marked column and moves the primary
  *    action between acting and explaining why it cannot (rule B-3, rule P-8). The accessibility
  *    identifier of that journey belongs to the browser suite and is deliberately not claimed here.
+ * 12. THE CASE'S OWN BOUNDS. The messages an option's failed constraint check records are the only
+ *    account of the case's lever maximum and step a screen can reach, so the screen hands them to the
+ *    sandbox — which states them above its lever fields and describes both of them with them — and the
+ *    set's own list of what it set aside is not one of them (rule B-3, rule P-6).
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a screen
  * may read through (rule P-2), so no seed module, adapter, API client, domain module or shell is
@@ -79,18 +85,24 @@ import type { UserEvent } from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { EVIDENCE_DRAWER_TEXT, writeBackStepRef } from '../../components/evidence-drawer';
 import { formatMoney } from '../../components/mono-value';
 import { runOutReading } from '../../components/run-out-reading';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
+import { MEANING_COLOUR_CLASSES, STATUS_LABEL_CLASS } from '../../components/status-indicator';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
-import { SIM_LABELS, SOURCE_LABELS } from '../../types';
+import { SEGREGATION_OF_DUTIES_POLICY_ID, SIM_LABELS, SOURCE_LABELS } from '../../types';
 import type {
+  ActiveUser,
   Approval,
   ApprovalId,
   ApprovalStatus,
   Confidence,
   ConstraintCheck,
+  ExceptionDetail,
   ExceptionId,
+  Evidence,
+  ExceptionStatus,
   ExportPayload,
   Freshness,
   FreshnessState,
@@ -99,6 +111,7 @@ import type {
   Money,
   OrderResult,
   Permission,
+  PlantId,
   Problem,
   Result,
   Role,
@@ -113,7 +126,11 @@ import type {
   Timestamp,
   WriteBack,
 } from '../../types';
-import { CANNOT_COMPUTE_LABEL, COMPARISON_MATRIX_TEXT } from './comparison-matrix';
+import {
+  CANNOT_COMPUTE_LABEL,
+  COMPARISON_MATRIX_TEXT,
+  CONFIDENCE_PRESENTATION,
+} from './comparison-matrix';
 import {
   CUSTOM_CONSTRAINTS_DISABLED_REASON,
   EDIT_CONSTRAINTS_LABEL,
@@ -126,6 +143,7 @@ import {
   WRITE_BACK_PREVIEW_LABEL,
   ScenarioComparisonScreen,
 } from './scenario-comparison-screen';
+import { SCENARIO_SANDBOX_TEXT } from './scenario-sandbox';
 
 /* ---------------------------------------------------------------------------------------------
  * The port, replaced at the one seam a screen may read through
@@ -135,25 +153,39 @@ import {
  * The service double every case drives, created before the module graph is evaluated.
  *
  * `vi.mock` is hoisted above the imports, so the factory may only close over bindings that already
- * exist — hence `vi.hoisted`. The double carries the five members this screen and the sandbox it
- * composes reach for, each named exactly as `SiteIntelligenceService` names it: the set read, the
- * approval list that says whether the selected option has been decided, the approval request, the
- * comparison export and the sandbox's own measurement. Nothing else is declared, so a member the screen
- * started to read would fail at the call site instead of quietly returning an empty value.
+ * exist — hence `vi.hoisted`. The double carries the members this screen, the sandbox it composes and
+ * the drawer a write-back step opens reach for, each named exactly as `SiteIntelligenceService` names
+ * it: the set read, the approval list that says whether the selected option has been decided, the
+ * approval request, the comparison export, the sandbox's own measurement, and the evidence read behind
+ * a step's record reference. Nothing else is declared, so a member the screen started to read would
+ * fail at the call site instead of quietly returning an empty value.
  */
 const stub = vi.hoisted(() => ({
   service: {
     getScenarioSet: vi.fn<(exceptionId: ExceptionId) => Promise<Result<ScenarioSet>>>(),
     listApprovals: vi.fn<() => Promise<Result<Approval[]>>>(),
+    getExceptionDetail: vi.fn<(exceptionId: ExceptionId) => Promise<Result<ExceptionDetail>>>(),
     exportScenarioComparison:
       vi.fn<(exceptionId: ExceptionId) => Promise<Result<ExportPayload>>>(),
     requestApproval: vi.fn(),
     solveScenario: vi.fn(),
+    getEvidence: vi.fn(),
+  },
+  /* The three facts the request gate reads besides the reads above: the persona the session acts as, the
+     roles the roster reports as holding the permission the request needs, and the roster itself. Each is
+     `null` by default, which is the "not known yet" the gate declines to block on. */
+  session: {
+    activeUser: null as ActiveUser | null,
+    rolesThatMayRequest: null as Role[] | null,
+    roster: null as readonly ActiveUser[] | null,
   },
 }));
 
 vi.mock('../../services/service-provider', () => ({
   useService: () => stub.service,
+  useActiveUser: (): ActiveUser | null => stub.session.activeUser,
+  useRolesHolding: (): Role[] | null => stub.session.rolesThatMayRequest,
+  usePersonaRoster: (): readonly ActiveUser[] | null => stub.session.roster,
 }));
 
 /* ---------------------------------------------------------------------------------------------
@@ -243,6 +275,12 @@ const CONSTRAINT_MESSAGES: readonly string[] = [
   'transferSets is between two steps, and the step is 3.',
 ];
 
+/**
+ * Both levers the sandbox offers, in the order it renders them: the contract's own member names, which
+ * are also the accessible names their fields carry.
+ */
+const LEVER_FIELDS: readonly (keyof Levers)[] = ['airSets', 'transferSets'];
+
 /** The rule the recommendation applied, in the words the record states it. */
 const RECOMMENDATION_RULE =
   'The option with the fewest units late, then the lowest added cost, among those inside their bounds.';
@@ -317,6 +355,26 @@ const SEEDED_LABEL: SimLabel = SIM_LABELS[0];
 const CALCULATED_LABEL: SimLabel = SIM_LABELS[1];
 const RECOMMENDATION_LABEL: SimLabel = SIM_LABELS[2];
 const WRITE_BACK_LABEL: SimLabel = SIM_LABELS[3];
+
+/**
+ * The evidence the drawer resolves for a write-back step of these fixtures.
+ *
+ * A payload filling the drawer's sections, so a case can assert the drawer opened on the reference the
+ * port was asked for rather than waiting on a double that answered with nothing a component could
+ * render.
+ */
+const STEP_EVIDENCE: Evidence = {
+  value: 'write-back step one of the selected option',
+  provenance: 'first_party',
+  label: WRITE_BACK_LABEL,
+  formula: 'A write-back step is the record a plan writes into one system of record.',
+  inputs: ['state = pending'],
+  upstream: [EXCEPTION_ID],
+  downstream: [],
+  confidence: SOLVER_CONFIDENCE,
+  missingInputs: [],
+  documents: [],
+};
 
 /**
  * The nine measure rows, in the order AAP §0.12.4 fixes for SCR-04 — units late, maximum days late,
@@ -615,6 +673,123 @@ function planOf(
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The personas, the plants, and the exception the request gate reads
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The plant the exception's plan lands on, and a second one no persona of the roster reaches.
+ *
+ * Both are opaque placeholders rather than record-shaped references, like the exception and option
+ * identifiers above: the gate only carries the plant through, and a case asserts the sentence the screen
+ * composed around whatever value it supplied (rule P-6).
+ */
+const PLANT_ID: PlantId = 'plant-alpha';
+const OTHER_PLANT_ID: PlantId = 'plant-beta';
+
+/**
+ * The permissions each fixture persona carries.
+ *
+ * Only two of them are read: `approval.request`, which the request itself needs, and `approval.decide`,
+ * which is what makes a persona a potential decider. The rest are the read permissions the screen's own
+ * reads imply, so a fixture persona is not a role that could not have reached this page.
+ */
+const REQUESTING_PERMISSIONS: readonly Permission[] = [
+  'exception.read',
+  'scenario.create',
+  'approval.request',
+];
+const DECIDING_PERMISSIONS: readonly Permission[] = ['exception.read', 'approval.decide'];
+const REQUESTING_AND_DECIDING_PERMISSIONS: readonly Permission[] = [
+  'exception.read',
+  'scenario.create',
+  'approval.request',
+  'approval.decide',
+];
+const READING_ONLY_PERMISSIONS: readonly Permission[] = ['exception.read', 'audit.read'];
+
+/**
+ * The roles the roster reports as holding `approval.request` in the default session, which is the list a
+ * case asserting the disabled sentence names. It is the fixture's answer to `useRolesHolding`, not a
+ * second copy of the matrix: the matrix itself is the adapter's and the suite never reads it.
+ */
+const ROLES_THAT_MAY_REQUEST: readonly Role[] = [
+  'material-planner',
+  'head-of-supply-chain',
+  'production-planner',
+];
+
+/**
+ * One persona as the roster reports it.
+ *
+ * The role, the permissions and the plant scope are the arguments, because they are the three members
+ * the gate reads. The identifier, the name and the home route are opaque placeholders: the gate renders
+ * none of them, and typing a record-shaped identifier for them would prove nothing (rule P-6).
+ *
+ * @param role - The role the matrix answers for.
+ * @param permissions - The permissions the matrix grants that role.
+ * @param plantIds - The plants the persona's scope covers.
+ * @returns The persona record those three describe.
+ */
+function personaOf(
+  role: Role,
+  permissions: readonly Permission[],
+  plantIds: readonly PlantId[],
+): ActiveUser {
+  return {
+    id: `user-${role}`,
+    name: `the persona acting as ${role}`,
+    role,
+    plantIds: [...plantIds],
+    permissions: [...permissions],
+    homeRoute: '/exceptions',
+  };
+}
+
+/**
+ * One exception detail, carrying the plant and the status the request gate reads, and nothing a case
+ * asserts.
+ *
+ * The screen reaches into this payload for `exception.plantId` and `exception.status` alone, so every
+ * other member is present because the port's type requires it and holds the smallest value that type
+ * allows. A case that varied one of them would be asserting something no part of this screen renders.
+ *
+ * @param plantId - The plant the plan for this exception would land on.
+ * @param status - Where the exception stands, which says whether a plan can be put forward for it. The
+ *   default is the status every case that is not about that gate reads.
+ * @returns The detail payload the port answers `getExceptionDetail` with.
+ */
+function detailOf(plantId: PlantId, status: ExceptionStatus = 'open'): ExceptionDetail {
+  return {
+    exception: {
+      id: EXCEPTION_ID,
+      title: 'A delayed consignment holds up the line.',
+      type: 'supply delay',
+      severity: 'critical',
+      status,
+      plantId,
+      alsoAffectsPlantIds: [],
+      materialId: 'material-alpha',
+      supplierId: 'supplier-alpha',
+      purchaseOrderId: 'order-purchase-alpha',
+      lineId: 'line-alpha',
+      ownerId: 'user-owner',
+      daysToImpact: 3,
+      affectedLines: [],
+      missingInputs: [],
+      confidence: SOLVER_CONFIDENCE,
+      whatChanged: 'The consignment arrived three working days after the date the line needs it.',
+      detectedAt: AS_OF,
+    },
+    impactChain: [],
+    stockSeries: [],
+    affectedOrders: [],
+    missingInputs: [],
+    confidence: SOLVER_CONFIDENCE,
+    activity: [],
+  };
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The failures the port can throw, and the payload the export returns
  * ------------------------------------------------------------------------------------------- */
 
@@ -793,6 +968,22 @@ function control(label: string): HTMLElement {
   return screen.getByRole('button', { name: label });
 }
 
+/**
+ * The sandbox's lever group, named by the legend the component states for it.
+ *
+ * The sandbox owns its own suite and is not mocked here, so a case that asserts what the screen hands it
+ * reads the group the panel renders rather than the prop in flight: what a reader is given is the thing
+ * under test.
+ */
+function sandboxGroup(): HTMLElement {
+  return screen.getByRole('group', { name: SCENARIO_SANDBOX_TEXT.legend });
+}
+
+/** One lever field inside that group, found by the accessible name the contract gives the lever. */
+function sandboxLever(field: keyof Levers): HTMLElement {
+  return within(sandboxGroup()).getByRole('spinbutton', { name: field });
+}
+
 /** How many tab stops a case may walk before a control is declared unreachable. */
 const MAX_TAB_STOPS = 60;
 
@@ -862,6 +1053,18 @@ describe('ScenarioComparisonScreen', () => {
     /* No plan by default: the cases that are not about a decided option read the comparison alone, so
        every other assertion here states the behaviour the screen has without an approval list. */
     stub.service.listApprovals.mockResolvedValue(ok([]));
+
+    /* The default session can request the plan: a material planner holds `approval.request`, the plan's
+       plant is reported, and a plant manager covers it, so every case that is not about one of those
+       three facts finds the primary action able to act — the state each of them would otherwise be
+       reading through a gate it did not mean to exercise. */
+    stub.service.getExceptionDetail.mockResolvedValue(ok(detailOf(PLANT_ID)));
+    stub.session.activeUser = personaOf('material-planner', REQUESTING_PERMISSIONS, [PLANT_ID]);
+    stub.session.rolesThatMayRequest = [...ROLES_THAT_MAY_REQUEST];
+    stub.session.roster = [
+      personaOf('material-planner', REQUESTING_PERMISSIONS, [PLANT_ID]),
+      personaOf('plant-manager', DECIDING_PERMISSIONS, [PLANT_ID]),
+    ];
   });
 
   it('draws the nine specified measures in order, with each option value in its own cell', async () => {
@@ -987,6 +1190,46 @@ describe('ScenarioComparisonScreen', () => {
     expect(cells[2]?.textContent).toBe(CANNOT_COMPUTE_LABEL);
   });
 
+  it('states each option’s confidence level as a status, beside the record’s own reason', async () => {
+    renderScreen();
+    await awaitMatrix();
+
+    /* A level is an enumerated value, so it renders the way every other enumerated value does: the
+       meaning's icon in its status colour, beside the level's own visible word, with the record's
+       reason under them (AAP §0.5.2, rule B-3). The two options carry different levels, so the cell
+       of each is asserted against its own meaning rather than against one shared treatment. */
+    const cells = cellsOf(measureRow(COMPARISON_MATRIX_TEXT.rows.confidence));
+    const stated: readonly Confidence[] = [SOLVER_CONFIDENCE, SEEDED_CONFIDENCE];
+
+    expect(cells).toHaveLength(stated.length);
+
+    stated.forEach((confidence, index) => {
+      const cell = cells[index];
+
+      if (cell === undefined) {
+        throw new Error(`the matrix drew no confidence cell for the ${confidence.level} option`);
+      }
+
+      const word = within(cell).getByText(COMPARISON_MATRIX_TEXT.confidence[confidence.level]);
+
+      /* The word is the shared status label and not a mono identifier: `MonoValue` formats figures,
+         identifiers, timestamps and hashes, and a confidence level is none of them. */
+      expect(word).toHaveClass(STATUS_LABEL_CLASS);
+
+      /* The icon and the status colour arrive with the word, chosen by the one presentation map. */
+      const iconWrapper = word.previousElementSibling;
+
+      expect(iconWrapper).not.toBeNull();
+      expect(iconWrapper).toHaveClass(
+        MEANING_COLOUR_CLASSES[CONFIDENCE_PRESENTATION[confidence.level]],
+      );
+      expect(iconWrapper?.querySelector('svg')).not.toBeNull();
+
+      /* The reason the record states stays in the cell, unparaphrased (AAP §0.12.4). */
+      expect(cell.textContent ?? '').toContain(confidence.reason);
+    });
+  });
+
   it('marks the recommended option and states its rule and trade-off verbatim, under its own label', async () => {
     renderScreen();
     await awaitMatrix();
@@ -1071,6 +1314,37 @@ describe('ScenarioComparisonScreen', () => {
     await tabTo(user, primary);
 
     expect(await focusedHint()).toHaveTextContent(reason);
+  });
+
+  /*
+   * THE BOUNDS THE SANDBOX PUBLISHES. A lever's maximum and its step belong to the exception's solver
+   * case, and no member of the port carries them: what the records do give is the solver's own refusal,
+   * in the constraint messages of the option whose check failed. Those sentences travel to the sandbox,
+   * which states them above its lever fields and describes both fields with them, so a reader meets the
+   * bound before typing rather than only after a refused recompute (rule B-3, rule P-6).
+   */
+  it('publishes the case’s own bound statements to the sandbox, from the failing option alone', async () => {
+    stub.service.getScenarioSet.mockResolvedValue(
+      ok(setOf([SOLVER_SCENARIO, FAILED_SCENARIO], RECOMMENDED_ID)),
+    );
+    renderScreen();
+    await awaitMatrix();
+
+    /* The rule is the sandbox's own sentence, read from the module that owns it, and the statements
+       after it are the records' words verbatim and in the set's order. */
+    const expected = [SCENARIO_SANDBOX_TEXT.leverBoundsRule, ...CONSTRAINT_MESSAGES].join(' ');
+
+    for (const field of LEVER_FIELDS) {
+      expect(sandboxLever(field)).toHaveAccessibleDescription(expected);
+    }
+
+    /* Each statement is on screen inside the lever group, and the set's list of what it set aside is
+       not one of them: that sentence belongs to the matrix, beside the option it blocked. */
+    for (const message of CONSTRAINT_MESSAGES) {
+      expect(sandboxGroup()).toHaveTextContent(message);
+    }
+
+    expect(within(sandboxGroup()).queryByText(BLOCKING_CONSTRAINT)).toBeNull();
   });
 
   /*
@@ -1181,7 +1455,7 @@ describe('ScenarioComparisonScreen', () => {
     },
   );
 
-  it('states the fixed empty sentence and explains both controls it leaves disabled', async () => {
+  it('states the fixed empty sentence and explains each control it leaves disabled', async () => {
     const user = userEvent.setup();
 
     stub.service.getScenarioSet.mockResolvedValue(ok(setOf([])));
@@ -1214,6 +1488,40 @@ describe('ScenarioComparisonScreen', () => {
 
     expect(await focusedHint()).toHaveTextContent(CUSTOM_CONSTRAINTS_DISABLED_REASON);
   });
+
+  /* The export control follows the set it would export: a set holding no option cannot produce a
+     comparison, so the control is disabled with the sentence the empty state states — the same sentence
+     the primary action already carries — and a set holding an option leaves it able to act (rule P-8). */
+  it.each([
+    {
+      what: 'a set holding no option',
+      scenarios: [] as readonly Scenario[],
+      disabledReason: EMPTY_SCENARIO_SET_MESSAGE,
+    },
+    {
+      what: 'a set holding an option',
+      scenarios: [SOLVER_SCENARIO] as readonly Scenario[],
+      disabledReason: null,
+    },
+  ])(
+    'gates the export on the set it would export, for $what',
+    async ({ scenarios, disabledReason }) => {
+      stub.service.getScenarioSet.mockResolvedValue(ok(setOf([...scenarios], RECOMMENDED_ID)));
+
+      renderScreen();
+      await awaitSettled();
+
+      const exportAction = control(EXPORT_COMPARISON_LABEL);
+
+      if (disabledReason === null) {
+        expect(exportAction).not.toHaveAttribute('aria-disabled');
+        return;
+      }
+
+      expect(exportAction).toHaveAttribute('aria-disabled', 'true');
+      expect(exportAction).toHaveAccessibleDescription(disabledReason);
+    },
+  );
 
   it('offers the service payload as a file when the export acts, and composes no document itself', async () => {
     const user = userEvent.setup();
@@ -1301,6 +1609,43 @@ describe('ScenarioComparisonScreen', () => {
       expect(within(rendered).getByText(writeBack.description)).toBeVisible();
       expect(within(rendered).getByText(WRITE_BACK_LABEL)).toBeVisible();
     });
+  });
+
+  it("opens a preview step's own evidence from the record reference it writes", async () => {
+    const user = userEvent.setup();
+    stub.service.getEvidence.mockResolvedValue(ok(STEP_EVIDENCE));
+
+    renderScreen();
+    await awaitMatrix();
+
+    const heading = screen.getByRole('heading', { name: WRITE_BACK_PREVIEW_LABEL });
+    const steps = within(cardOwning(heading)).getAllByRole('listitem');
+    const step = steps[0];
+    const writeBack = SOLVER_WRITE_BACKS[0];
+
+    if (step === undefined || writeBack === undefined) {
+      throw new Error('the preview drew no step to open evidence from');
+    }
+
+    /* One control per step, and it is the record reference the step writes: the figure a reader points
+       at is the way into the record behind it (principle PR-6, rule B-3). */
+    const trigger = within(step).getByRole('button');
+
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(trigger).toHaveAccessibleName(new RegExp(`^${writeBack.recordRef}`));
+
+    await user.click(trigger);
+
+    const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
+
+    /* The owner of these steps is the option they came from, because the records hold no plan for it:
+       the reference names that option and the step's own position, so the drawer a step opens is the
+       step's rather than the option's (principle PR-6). */
+    expect(stub.service.getEvidence).toHaveBeenCalledTimes(1);
+    expect(stub.service.getEvidence).toHaveBeenCalledWith(
+      writeBackStepRef(RECOMMENDED_ID, writeBack),
+    );
+    expect(await within(drawer).findByText(STEP_EVIDENCE.formula)).toBeInTheDocument();
   });
 
   it('reveals the units-late chart as the rows its bars draw, then returns to the chart', async () => {
@@ -1590,6 +1935,203 @@ describe('ScenarioComparisonScreen', () => {
     expect(solverOption).toHaveAttribute('aria-pressed', 'true');
     expect(failedOption).toHaveAttribute('aria-pressed', 'false');
     expect(control(REQUEST_APPROVAL_LABEL)).not.toHaveAttribute('aria-disabled');
+  });
+
+  /* -------------------------------------------------------------------------------------------
+   * What the request gate predicts before the reader presses
+   *
+   * `requestApproval` refuses the call for an exception that no longer stands open, for a role that does
+   * not hold `approval.request`, for a plan no persona other than the requesting one may decide, and it
+   * answers a set that was never read with nothing at all. Each case states one of those before the
+   * press, with the reason the control carries naming what would have to change (AAP 0.2.1, AAP 0.12.4,
+   * rule P-8).
+   * ----------------------------------------------------------------------------------------- */
+
+  it.each<ExceptionStatus>(['dismissed', 'resolved'])(
+    'disables the request while the exception stands %s, naming the record and its status',
+    async (status) => {
+      /* `requestApproval` answers only an open record, so a set-aside or already-answered exception
+         leaves the control disabled with the condition the adapter's own refusal states (AAP 0.2.1, rule
+         P-8). Every other fact this session reports is one that lets the control act, so the sentence
+         beneath is the status branch's alone rather than another condition's. */
+      stub.service.getExceptionDetail.mockResolvedValue(ok(detailOf(PLANT_ID, status)));
+
+      renderScreen();
+      await awaitMatrix();
+
+      const primary = control(REQUEST_APPROVAL_LABEL);
+
+      expect(primary).toHaveAttribute('aria-disabled', 'true');
+      /* Composed from the module's own wording plus the record's own identifier and status, so neither
+         the case nor the module spells the sentence, the identifier or the status of its own (rule P-6). */
+      expect(primary).toHaveAccessibleDescription(
+        `${SCENARIO_COMPARISON_TEXT.exceptionNotOpenPrefix} ${EXCEPTION_ID} ` +
+          `${SCENARIO_COMPARISON_TEXT.exceptionNotOpenStandingPrefix} ${status}` +
+          `${SCENARIO_COMPARISON_TEXT.exceptionNotOpenSuffix}`,
+      );
+    },
+  );
+
+  it('disables the request for a role that does not hold the permission, naming the roles that do', async () => {
+    /* The auditor reads exceptions and holds no `approval.request`: the adapter would refuse every
+       request this persona made, so the control says so before it is pressed (AAP 0.2.1). */
+    const auditor = personaOf('auditor', READING_ONLY_PERMISSIONS, [PLANT_ID]);
+
+    stub.session.activeUser = auditor;
+
+    renderScreen();
+    await awaitMatrix();
+
+    const primary = control(REQUEST_APPROVAL_LABEL);
+
+    /* Composed from the module's own wording, the acting persona's own role and the roster's answer, so
+       neither the case nor the module spells a sentence or a role list of its own (rule P-6). */
+    expect(primary).toHaveAttribute('aria-disabled', 'true');
+    expect(primary).toHaveAccessibleDescription(
+      `${SCENARIO_COMPARISON_TEXT.noRequestPermissionPrefix}${auditor.role}` +
+        `${SCENARIO_COMPARISON_TEXT.noRequestPermissionSuffix} ` +
+        `${SCENARIO_COMPARISON_TEXT.requestPermissionRolesPrefix} ` +
+        `${ROLES_THAT_MAY_REQUEST.join(', ')}.`,
+    );
+  });
+
+  it('explains a missing permission without naming roles while the roster has not answered', async () => {
+    const auditor = personaOf('auditor', READING_ONLY_PERMISSIONS, [PLANT_ID]);
+
+    stub.session.activeUser = auditor;
+    stub.session.rolesThatMayRequest = null;
+
+    renderScreen();
+    await awaitMatrix();
+
+    /* The exact sentence, so a case that appended the role clause to a list nobody reported fails here
+       rather than passing on a substring. */
+    expect(control(REQUEST_APPROVAL_LABEL)).toHaveAccessibleDescription(
+      `${SCENARIO_COMPARISON_TEXT.noRequestPermissionPrefix}${auditor.role}` +
+        `${SCENARIO_COMPARISON_TEXT.noRequestPermissionSuffix}`,
+    );
+  });
+
+  it('leaves the request able to act while the acting persona is unknown', async () => {
+    /* A persona the adapter has not reported blocks nothing: the service enforces the matrix itself, and
+       a control disabled on a fact nobody knows yet would lie about what it can do (rule P-8). */
+    stub.session.activeUser = null;
+
+    renderScreen();
+    await awaitMatrix();
+
+    expect(control(REQUEST_APPROVAL_LABEL)).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('disables the request when only the requesting role may decide a plan at the plant, citing the policy', async () => {
+    /* The head of supply chain is the only role that holds both permissions and reaches this plant, so
+       the audience the adapter builds — deciders, less the requester's own role — is empty and the
+       request would always be refused. A plant manager decides at another plant, which is the half that
+       proves the plant restriction rather than the permission one. */
+    const requester = personaOf(
+      'head-of-supply-chain',
+      REQUESTING_AND_DECIDING_PERMISSIONS,
+      [PLANT_ID],
+    );
+
+    stub.session.activeUser = requester;
+    stub.session.roster = [
+      requester,
+      personaOf('plant-manager', DECIDING_PERMISSIONS, [OTHER_PLANT_ID]),
+    ];
+
+    renderScreen();
+    await awaitMatrix();
+
+    const primary = control(REQUEST_APPROVAL_LABEL);
+
+    expect(primary).toHaveAttribute('aria-disabled', 'true');
+    expect(primary).toHaveAccessibleDescription(
+      `${SCENARIO_COMPARISON_TEXT.onlyDeciderPrefix} ${requester.role} ` +
+        `${SCENARIO_COMPARISON_TEXT.onlyDeciderSuffix} ${PLANT_ID}, and ` +
+        `${SEGREGATION_OF_DUTIES_POLICY_ID} ${SCENARIO_COMPARISON_TEXT.deciderPolicySuffix} ` +
+        `${requester.role} ${SCENARIO_COMPARISON_TEXT.deciderTailSuffix}`,
+    );
+  });
+
+  it('leaves the request able to act when another role may decide a plan at the plant', async () => {
+    /* The positive half of the same rule: the acting role holds `approval.request`, and a plant manager
+       covers the plant, so the plan reaches a persona that may decide it and the control acts. */
+    stub.session.activeUser = personaOf('material-planner', REQUESTING_PERMISSIONS, [PLANT_ID]);
+    stub.session.roster = [
+      personaOf('material-planner', REQUESTING_PERMISSIONS, [PLANT_ID]),
+      personaOf('plant-manager', DECIDING_PERMISSIONS, [PLANT_ID]),
+    ];
+
+    renderScreen();
+    await awaitMatrix();
+
+    expect(control(REQUEST_APPROVAL_LABEL)).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('does not block on the decider precondition while the exception could not be read', async () => {
+    /* The plant is the third read's answer, and that read is best effort: refused, the decider
+       precondition stays out of the way and the service keeps its own refusal (rule P-8). The status is
+       the same read's other answer, so the status branch declines to block with it. */
+    stub.service.getExceptionDetail.mockRejectedValue(VALIDATION_PROBLEM);
+    stub.session.activeUser = personaOf(
+      'head-of-supply-chain',
+      REQUESTING_AND_DECIDING_PERMISSIONS,
+      [PLANT_ID],
+    );
+    stub.session.roster = [
+      personaOf('head-of-supply-chain', REQUESTING_AND_DECIDING_PERMISSIONS, [PLANT_ID]),
+    ];
+
+    renderScreen();
+    await awaitMatrix();
+
+    const primary = control(REQUEST_APPROVAL_LABEL);
+
+    expect(primary).not.toHaveAttribute('aria-disabled');
+    /* No sentence of the gate is attached either, so a status nobody could read explains nothing: the
+       control acts, and the adapter keeps the refusal it alone can make (rule P-8). */
+    expect(primary).toHaveAccessibleDescription('');
+  });
+
+  it('states the read in flight rather than the empty sentence, and the fixed sentence once it settles empty', async () => {
+    /* A read that has not settled holds neither an option nor the absence of one, so it must not borrow
+       the sentence AAP 0.12.4 fixes for a record that holds no option. */
+    stub.service.getScenarioSet.mockReturnValue(
+      new Promise<Result<ScenarioSet>>(() => undefined),
+    );
+
+    renderScreen();
+
+    const pending = control(REQUEST_APPROVAL_LABEL);
+
+    expect(pending).toHaveAttribute('aria-disabled', 'true');
+    expect(pending).toHaveAccessibleDescription(SCENARIO_COMPARISON_TEXT.optionsReading);
+    expect(pending).not.toHaveAccessibleDescription(EMPTY_SCENARIO_SET_MESSAGE);
+
+    /* The export is gated on the same condition and states it the same way: a read in flight is not a
+       record holding no option, so the fixed empty sentence is not what its control explains. */
+    const pendingExport = control(EXPORT_COMPARISON_LABEL);
+
+    expect(pendingExport).toHaveAttribute('aria-disabled', 'true');
+    expect(pendingExport).toHaveAccessibleDescription(SCENARIO_COMPARISON_TEXT.optionsReading);
+    expect(pendingExport).not.toHaveAccessibleDescription(EMPTY_SCENARIO_SET_MESSAGE);
+
+    /* Unmount, and let the same exception answer with a set that holds no option: the state is the
+       record's now, so the fixed sentence explains it and the read's own sentence is gone. */
+    cleanup();
+    stub.service.getScenarioSet.mockResolvedValue(ok(setOf([])));
+    renderScreen();
+    await awaitSettled();
+
+    const settled = control(REQUEST_APPROVAL_LABEL);
+
+    expect(settled).toHaveAccessibleDescription(EMPTY_SCENARIO_SET_MESSAGE);
+    expect(settled).not.toHaveAccessibleDescription(SCENARIO_COMPARISON_TEXT.optionsReading);
+
+    /* The export falls back to the fixed sentence with the record, so the two controls agree on what
+       the same settled set means. */
+    expect(control(EXPORT_COMPARISON_LABEL)).toHaveAccessibleDescription(EMPTY_SCENARIO_SET_MESSAGE);
   });
 });
 

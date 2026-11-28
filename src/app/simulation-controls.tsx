@@ -66,7 +66,7 @@ import { Button } from '../components/button';
 import { DialogHeading } from '../components/dialog-heading';
 import { StatusIndicator } from '../components/status-indicator';
 import { ActionButton, CONTROL_STRUCTURE_CLASSES } from '../components/tooltip';
-import { useService } from '../services/service-provider';
+import { ACTIVE_USER_QUERY_KEY, useService } from '../services/service-provider';
 import { SIM_LABELS } from '../types/primitives';
 import type { SimLabel } from '../types/primitives';
 import type { Problem, ScreenState, SimulationFlag } from '../types/service';
@@ -434,12 +434,12 @@ const TOGGLE_BUSY_CLASSES =
  *
  * Every change goes through the port: a screen state is set through `setSimulation`, the two extra
  * triggers the same way, and `Reset demo data` through `resetDemo`. A resolved change drops the reads
- * it was holding and starts them again without awaiting the refetches, so each screen re-reads
- * through the port and no surface is left serving the payload it cached before the trigger moved,
- * while the panel's busy state covers the port call alone: the `loading` trigger holds every read
- * open, so a panel that waited for those refetches would stay disabled with no way to lift the
- * trigger it set (rule P-8). A rejected one leaves the mirror untouched, keeps the panel open and
- * offers the retry, so nothing on screen pretends a change took effect (rule P-8).
+ * it was holding, clears what they cached and starts them again without awaiting the refetches, so
+ * every screen re-reads through the port and no surface is left serving the payload it cached before
+ * the trigger moved, while the panel's busy state covers the port call alone: the `loading` trigger
+ * holds every read open, so a panel that waited for those refetches would stay disabled with no way to
+ * lift the trigger it set (rule P-8). A rejected one leaves the mirror untouched, keeps the panel open
+ * and offers the retry, so nothing on screen pretends a change took effect (rule P-8).
  *
  * @returns The popover while it is open, or `null` while it is closed.
  */
@@ -456,27 +456,51 @@ export function SimulationControls(): ReactElement | null {
   const [failure, setFailure] = useState<Failure | null>(null);
 
   /**
-   * Drops the reads a change was holding and starts them again, in that order.
+   * Drops the reads a change was holding, clears what they cached and starts them again, in that order.
    *
-   * WHY THE QUERIES ARE CANCELLED BEFORE THEY ARE INVALIDATED. While the `loading` trigger is in
+   * WHY THE QUERIES ARE CANCELLED BEFORE THE CACHE IS CLEARED. While the `loading` trigger is in
    * effect the adapter answers a read by never answering it, so a screen that began fetching inside
-   * that window holds an in-flight fetch that never settles. Invalidating alone would not restart it:
-   * the invalidation's refetch dedupes onto the fetch already in flight and hands back its pending
+   * that window holds an in-flight fetch that never settles. A reset alone would not restart it: the
+   * refetch a reset starts dedupes onto the fetch already in flight and hands back its pending
    * promise, so no new read would start and the screen would never leave its pending state once the
    * trigger was lifted. Cancelling first reverts the query to the state it held before that fetch,
-   * which is what lets the refetch the invalidation then starts reach the adapter and be answered.
+   * which is what lets the refetch the reset then starts reach the adapter and be answered.
+   *
+   * WHY THE CACHE IS RESET RATHER THAN INVALIDATED. An invalidation keeps the payload it holds, so a
+   * screen that remounted after the trigger moved would render the answer taken before it: the
+   * `loading` trigger would paint the rows it exists to hold back — and only a screen that issued a
+   * fresh query would ever enter the pending state the boundary renders for it. A reset clears the
+   * payload, so no screen can serve an answer taken before the trigger moved and every screen shows
+   * the state the trigger set until it is lifted (`ScreenState` in `src/types/service.ts`, AAP 0.2.2).
+   *
+   * WHY THE IDENTITY ENTRY IS KEPT ON A TRIGGER CHANGE. A trigger changes what the records answer,
+   * never who the session acts as, so the entry `ACTIVE_USER_QUERY_KEY` names would be re-read for a
+   * value that did not move — and clearing it would blank the acting persona for a frame on every
+   * trigger change, taking the scope and the permissions it carries with it. `Reset demo data` is the
+   * one change that does move it, because the reset puts the acting persona back to the seeded one, so
+   * that entry is reset with the rest there and every consumer of `useActiveUser()` follows the persona
+   * the adapter restored.
    *
    * WHAT IS NOT AWAITED. The chain is issued and not awaited, so the panel's busy state still covers
    * the port call alone: the `loading` trigger holds every read open, and a panel that waited for
    * these refetches would stay disabled with no way to lift the trigger it set (rule P-8). Nothing is
    * left here to reject either: the query cache hands a failed refetch to the screen that owns the
-   * read, which renders it, and neither the cancellation nor the invalidation reports a failure back
-   * to this caller.
+   * read, which renders it, and neither the cancellation nor the reset reports a failure back to this
+   * caller.
+   *
+   * @param keepActingPersona - `true` for a trigger change, which leaves the entry
+   *   `ACTIVE_USER_QUERY_KEY` names in place; `false` for `Reset demo data`, which resets it with
+   *   every other entry because the reset restored the seeded persona.
    */
-  function reissueReads(): void {
+  function reissueReads(keepActingPersona: boolean): void {
     void queryClient
       .cancelQueries()
-      .then(() => queryClient.invalidateQueries());
+      .then(() =>
+        queryClient.resetQueries({
+          predicate: (query) =>
+            !keepActingPersona || query.queryKey[0] !== ACTIVE_USER_QUERY_KEY[0],
+        }),
+      );
   }
 
   /**
@@ -509,8 +533,10 @@ export function SimulationControls(): ReactElement | null {
         resetShell();
         /* Issued, not awaited: the busy state covers the port call, and a refetch the `loading` trigger
            holds would otherwise keep every control disabled for the rest of the session (rule P-8). The
-           reads the reset was holding are dropped first, so the refetch starts a new one. */
-        reissueReads();
+           reads the reset was holding are dropped first, so the refetch starts a new one. The acting
+           persona is read afresh here rather than kept: the reset put back the seeded one, and every
+           consumer of `useActiveUser()` follows the persona the adapter restored. */
+        reissueReads(false);
         return;
       }
 
@@ -529,13 +555,13 @@ export function SimulationControls(): ReactElement | null {
 
           return current === action.state ? null : current;
         });
-        reissueReads();
+        reissueReads(true);
         return;
       }
 
       await service.setSimulation(action.flag, action.on);
       setExtraFlags((current) => ({ ...current, [action.flag]: action.on }));
-      reissueReads();
+      reissueReads(true);
     } catch (error) {
       setFailure({
         message: problemMessageOf(error) ?? SIMULATION_CONTROLS_TEXT.unreportedFailure,

@@ -1,17 +1,18 @@
 /**
  * The graph lens of the FileMap canvas: the six-lane drawing of `src/components/dependency-graph.tsx`,
- * composed into the frame that carries its table view and its simulation label, with the emphasis a
- * shared selection gives it.
+ * composed into the frame that carries its table view and its simulation label, with the emphasis the
+ * shared selection and the reader's own choice of direction give it.
  *
  * WHERE THIS FILE SITS, AND WHY IT BELONGS TO THE SCREEN. AAP 0.14.1 fixes stage S2 as "the graph lens
  * (six lanes, dimming, upstream and downstream path, scenario preview switch)", and AAP 0.13.1 names
  * this path inside the canvas screen's folder. The drawing itself is
- * `src/components/dependency-graph.tsx`, which owns the hand-laid layout, the node marks, the scenario
- * preview switch and the disabled "Open part" control. This module is the lens the screen composes
- * around it: the frame AAP 0.5.2 requires of every chart, map and graph
+ * `src/components/dependency-graph.tsx`, which owns the hand-laid layout, the node marks, the emphasis
+ * controls, the scenario preview switch and the disabled "Open part" control. This module is the lens
+ * the screen composes around it: the frame AAP 0.5.2 requires of every chart, map and graph
  * (`src/components/chart-frame.tsx`), the rows that frame's table view renders, and the upstream and
- * downstream emphasis derived from the payload and the selection the two lenses share. One owner per
- * job: the drawing draws, the frame frames, the screen composes, and this file is the composition.
+ * downstream emphasis derived from the payload, the selection the two lenses share and the direction
+ * and dimming the reader chooses here. One owner per job: the drawing draws, the frame frames, the
+ * screen composes, and this file is the composition.
  *
  * THE PATH IS A WALK OF THE PAYLOAD'S OWN EDGES (rule P-6). `Topology.lanes` states every connection as
  * a `TopologyLane` whose `fromId` is the supplying node and whose `toId` is the node it feeds, so the
@@ -28,21 +29,33 @@
  * back around a node it cannot place. The drawing reaches the same conclusion the same way, by drawing
  * no emphasis and no selected-node strip.
  *
- * DIMMING IS THE COMPLEMENT OF THE PATH, AND ONLY WHEN THERE IS A PATH. With a selected node in the
- * payload, every node on its upstream or downstream path — the selected node included, which the
+ * DIMMING IS THE COMPLEMENT OF THE PATH, AND A CHOICE THE READER MAKES. With a selected node in the
+ * payload, every node on the path the chosen direction reaches — the selected node included, which the
  * drawing ranks above the path when it chooses how strongly to draw one — is emphasised, and every
- * other node of the payload is dimmed. With no resolvable selection both sets are empty, so the lens
- * draws the whole network at its resting emphasis. Nothing else dims and nothing else is emphasised:
- * this lens knows no product filter and no scope of its own, because both belong to the screen and to
- * the service read that already resolved them into the payload.
+ * other node of the payload is dimmed while the dimming switch is on. Turning that switch off keeps
+ * the path and pushes nothing back, which is what lets a reader read the network at its resting
+ * emphasis after choosing a route through it. With no resolvable selection both sets are empty, so the
+ * lens draws the whole network at its resting emphasis. Nothing else dims and nothing else is
+ * emphasised: this lens knows no product filter and no scope of its own, because both belong to the
+ * screen and to the service read that already resolved them into the payload.
+ *
+ * THE DIRECTION AND THE DIMMING ARE THE READER'S; THE CONTROLS ARE THE DRAWING'S. AAP 0.12.4 and AAP
+ * 0.14.1 name "dimming, upstream and downstream path" among the lens's features, so neither is decided
+ * for the reader: this file holds both in state — the direction defaulting to `'both'` and the dimming
+ * to on, which is exactly the reading the lens gave before the controls existed — and the four
+ * controls that report a change are rendered by `src/components/dependency-graph.tsx`, because AAP
+ * 0.5.2 permits a native interactive element only inside the component that owns it. One walk of the
+ * payload serves the drawing's emphasis and the table view's path column alike, so a direction chosen
+ * here cannot be applied to one and not the other.
  *
  * THE SCENARIO PREVIEW SWITCH IS THE SCREEN'S, OR IT EXPLAINS ITSELF. The switch selects which supplied
  * series the drawing highlights and recomputes nothing here (rule P-6); the id it would preview can
- * only come from the screen, which is what holds the scenarios. The lens therefore forwards the switch
- * only when the screen supplies both the id and the handler — a handler with no id would arm a switch
- * that reports to nobody, which is the dead control rule P-8 forbids. With no controllable id the
- * switch is still rendered, disabled, carrying the drawing's own reason ("No scenario is available to
- * preview on this graph yet."), so a reader never finds a missing control where a control belongs.
+ * only come from the screen, which is what holds the scenarios. It shares the drawing's controls row
+ * with the four emphasis controls above, and the lens forwards it only when the screen supplies both
+ * the id and the handler — a handler with no id would arm a switch that reports to nobody, which is
+ * the dead control rule P-8 forbids. With no controllable id the switch is still rendered, disabled,
+ * carrying the drawing's own reason ("No scenario is available to preview on this graph yet."), so a
+ * reader never finds a missing control where a control belongs.
  *
  * THE TABLE VIEW AND THE LABEL ARE THE FRAME'S (success criterion 9, rule B-3, rule P-1). Every chart,
  * map and graph of this application reaches a screen inside `src/components/chart-frame.tsx`, which
@@ -76,6 +89,7 @@
  * file (rule P-6).
  */
 
+import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 
 import { SIM_LABELS } from '../../types';
@@ -96,11 +110,27 @@ import {
   DEPENDENCY_GRAPH_TEXT,
   DependencyGraph,
 } from '../../components/dependency-graph';
+import type { GraphEmphasisDirection } from '../../components/dependency-graph';
 import { NODE_FAMILY_WORDS, PIN_STATE_ORDER } from '../../components/graph-vocabulary';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording, in the one place it is written
  * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The phrase each emphasis direction is described with in the lens's caption.
+ *
+ * `'both'` keeps the exact wording the caption carried while the lens traced both directions on its
+ * own, so the default reading is unchanged by the controls arriving; the two single directions name
+ * the half the reader chose. The map is exhaustive over the union, so a direction added to
+ * `GraphEmphasisDirection` without a phrase fails to compile here instead of printing a caption with
+ * a hole in it.
+ */
+const EMPHASIS_PATH_WORDS = {
+  both: 'upstream and downstream',
+  upstream: 'upstream',
+  downstream: 'downstream',
+} as const satisfies Record<GraphEmphasisDirection, string>;
 
 /**
  * Every sentence this module states, held here so the wording has one owner: the component renders
@@ -128,11 +158,23 @@ export const GRAPH_LENS_TEXT = {
     'Six lanes from tier-2 origins to customers. Choose a node to trace its upstream and downstream path.',
 
   /**
-   * What the lens shows once a node is selected. It states the emphasis in words, which is how the
-   * dimming and the traced path stay legible without relying on colour (rule B-3).
+   * What the lens shows once a node is selected: the emphasis it applied, stated in words.
+   *
+   * Rule B-3 requires the emphasis to be legible without the drawing's colours, and the reader now
+   * chooses both the direction and the dimming, so this sentence is built from the choice actually
+   * applied rather than written for the default: a reader who chose upstream is told upstream, and one
+   * who turned the dimming off is told that nothing else is dimmed. With neither choice moved it reads
+   * exactly as it did before the controls existed, which is why the browser checks that quote it still
+   * find the sentence they were written against.
    */
-  descriptionTracing: (nodeLabel: string): string =>
-    `Emphasis traces the upstream and downstream path of ${nodeLabel}; every other node is dimmed.`,
+  descriptionTracing: (
+    nodeLabel: string,
+    direction: GraphEmphasisDirection,
+    dimming: boolean,
+  ): string =>
+    `Emphasis traces the ${EMPHASIS_PATH_WORDS[direction]} path of ${nodeLabel}; ${
+      dimming ? 'every other node is dimmed.' : 'no other node is dimmed.'
+    }`,
 
   /** The accessible name of the frame's table view, where every mark of the drawing is also text. */
   tableCaption: 'Dependency graph nodes by lane',
@@ -214,6 +256,27 @@ const NO_NODE_EVIDENCE = (): undefined => undefined;
 
 /** The empty membership set a payload with no resolvable selection is traced from. */
 const NO_MEMBERSHIP: ReadonlySet<string> = new Set<string>();
+
+/**
+ * The dimmed set the drawing is handed while the dimming switch is turned off.
+ *
+ * One module-level array rather than a fresh `[]` per render: the drawing is memoised on the identity
+ * of the props it is given, and an empty list built inside the render would be a new identity on every
+ * pass, rebuilding the whole drawing for a value that never changed.
+ */
+const NO_DIMMED_NODES: readonly string[] = [];
+
+/**
+ * The direction the lens opens on: both, the path it traced before the direction was a reader's choice.
+ *
+ * It is a named constant rather than an argument to `useState` for the reason the drawing holds its
+ * wording in one object: the default a reader starts from is stated once, so a suite asserting it and
+ * the state it initialises cannot come to disagree.
+ */
+const DEFAULT_EMPHASIS_DIRECTION: GraphEmphasisDirection = 'both';
+
+/** Dimming on by default, which is the reading the lens gave before the switch existed. */
+const DEFAULT_DIMMING = true;
 
 /* ---------------------------------------------------------------------------------------------
  * The pin summary — the payload's own counts, printed as text
@@ -377,13 +440,22 @@ export interface GraphLensTrace {
   /** The selected node, or `undefined` when the payload holds no node with that identifier. */
   readonly selectedNode: TopologyNode | undefined;
 
-  /** The nodes upstream of the selection, following the payload's lanes back to their sources. */
+  /**
+   * The nodes upstream of the selection, following the payload's lanes back to their sources.
+   *
+   * Empty when the reader chose the downstream direction: nothing upstream was walked, so nothing
+   * upstream is emphasised, and the table view then reads every one of those nodes as off the path.
+   */
   readonly upstream: ReadonlySet<string>;
 
-  /** The nodes downstream of the selection, following the payload's lanes on to their ends. */
+  /**
+   * The nodes downstream of the selection, following the payload's lanes on to their ends.
+   *
+   * Empty when the reader chose the upstream direction, for the same reason as {@link upstream}.
+   */
   readonly downstream: ReadonlySet<string>;
 
-  /** The selected node together with its upstream and downstream nodes, in lane order. */
+  /** The selected node together with the nodes the chosen direction reached, in lane order. */
   readonly pathNodeIds: readonly string[];
 
   /** Every other node of the payload, in lane order: what the drawing pushes back. */
@@ -391,20 +463,32 @@ export interface GraphLensTrace {
 }
 
 /**
- * Traces the selected node's upstream and downstream path through the payload's own lanes.
+ * Traces the selected node's path through the payload's own lanes, in the direction it was asked for.
  *
  * The selection is resolved first, because a selection the payload no longer holds must emphasise
  * nothing at all: without that check the walk would report a path of no nodes and dim a whole network
- * around a node the reader cannot see. With the selection resolved, the two directions are walked over
- * the lane list, the path is the selection plus everything reached, and the dimmed set is every other
- * node of the payload. Both are emitted in lane order, so the drawing's emphasis and the table view's
- * path column are two readings of one computation rather than two computations.
+ * around a node the reader cannot see. With the selection resolved, only the directions `direction`
+ * names are walked — `'upstream'` leaves the downstream set as the module's empty-membership constant
+ * rather than walking it and discarding the result, so a node downstream of the selection is no more
+ * on the path than one the payload does not hold — the path is the selection plus everything reached,
+ * and the dimmed set is every other node of the payload.
+ *
+ * Both lists are emitted in lane order, so the drawing's emphasis and the table view's path column are
+ * two readings of one computation rather than two computations, and a direction the reader chose
+ * cannot be applied to the drawing while the table still reports the whole path. `'both'` walks both
+ * directions and is the reading the lens gave before the direction was a choice.
  *
  * @param topology The payload the drawing shows, exactly as the service returned it.
  * @param selectedNodeId The identifier the screen holds as selected, or `null` for none.
+ * @param direction Which half of the path to walk, defaulting to both so a caller that offers no
+ *   choice still traces what a reader saw before the control existed.
  * @returns The traced path, the dimmed complement, and the node the trace started from.
  */
-export function traceGraphPath(topology: Topology, selectedNodeId: string | null): GraphLensTrace {
+export function traceGraphPath(
+  topology: Topology,
+  selectedNodeId: string | null,
+  direction: GraphEmphasisDirection = 'both',
+): GraphLensTrace {
   const nodes = nodesInLaneOrder(topology);
   const selectedNode =
     selectedNodeId === null ? undefined : nodes.find((node) => node.id === selectedNodeId);
@@ -419,8 +503,14 @@ export function traceGraphPath(topology: Topology, selectedNodeId: string | null
     };
   }
 
-  const downstream = reachable(selectedNode.id, edgeMap(topology, 'downstream'));
-  const upstream = reachable(selectedNode.id, edgeMap(topology, 'upstream'));
+  const downstream =
+    direction === 'upstream'
+      ? NO_MEMBERSHIP
+      : reachable(selectedNode.id, edgeMap(topology, 'downstream'));
+  const upstream =
+    direction === 'downstream'
+      ? NO_MEMBERSHIP
+      : reachable(selectedNode.id, edgeMap(topology, 'upstream'));
 
   const onPath = (nodeId: string): boolean =>
     nodeId === selectedNode.id || upstream.has(nodeId) || downstream.has(nodeId);
@@ -549,6 +639,11 @@ function rowKey(row: GraphLensRow): string {
  * it. The rest are optional: the scenario preview belongs to the screen when the screen has one to
  * offer, and the evidence mapper belongs to the screen because only the screen knows which record it
  * drew for a node.
+ *
+ * The emphasis direction and the dimming are absent on purpose. AAP 0.12.4 and AAP 0.14.1 make both a
+ * choice the reader drives, and choosing how to read this figure is a preference about the lens rather
+ * than something the screen's own state has to carry: holding it here is what keeps one owner for it,
+ * so no caller can hand the lens a direction and a traced path that disagree.
  */
 export interface GraphLensProps {
   /**
@@ -611,18 +706,25 @@ export interface GraphLensProps {
 
 /**
  * The graph lens: the canvas's network in six lanes, composed into the frame that carries its table
- * view and its simulation label, with the selection's upstream and downstream path emphasised.
+ * view and its simulation label, with the path the reader's chosen direction traces emphasised.
  *
  * The lens is a composition, not a drawing: `src/components/dependency-graph.tsx` lays out and draws
- * the network and owns the scenario preview switch and the disabled "Open part" control, and
- * `src/components/chart-frame.tsx` owns the `<figure>`, the `<figcaption>`, the "View as table" control
- * and the simulation label. What this module decides is the emphasis — which nodes the selection
- * traces and which it dims — and what the table view says about each of them.
+ * the network and owns the emphasis controls, the scenario preview switch and the disabled "Open part"
+ * control, and `src/components/chart-frame.tsx` owns the `<figure>`, the `<figcaption>`, the "View as
+ * table" control and the simulation label. What this module decides is the emphasis — which nodes the
+ * selection traces in that direction, which it dims, and what the caption states about both — and what
+ * the table view says about each of them.
  *
- * Nothing here is stateful except through the components it composes: no selection is held, no preview
- * is armed, no effect runs and no clock or random source is read, so two renders of one payload draw
- * the same picture (rule P-6). The derivation runs on every render because it is a pure pass over a
- * payload of a few dozen nodes, which keeps a narrowed payload and its emphasis from ever disagreeing.
+ * Nothing here decides the data it shows: the payload is a prop, the selection is the screen's, and
+ * no effect runs, no clock or random source is read, so two renders of one payload and one choice draw
+ * the same picture (rule P-6). What it does hold is the reader's reading of that payload — the emphasis
+ * direction and whether nodes off the path are dimmed — because those are preferences about the lens
+ * rather than anything the records state, and handing them to the screen would put a second owner on a
+ * choice that changes nothing outside this figure.
+ *
+ * The two derivations it hands the drawing — the trace and the frame's rows — are memoised on the
+ * props they read, so the memoised drawing is rebuilt when the payload, the selection or the reader's
+ * emphasis changes and kept as it stands otherwise.
  *
  * @param props The topology, the shared selection and the optional preview and evidence contracts. See
  *   {@link GraphLensProps}.
@@ -636,21 +738,40 @@ export function GraphLens({
   onPreviewScenarioChange,
   evidenceRefForNode,
 }: GraphLensProps): ReactElement {
-  const trace = traceGraphPath(topology, selectedNodeId ?? null);
+  const [emphasisDirection, setEmphasisDirection] = useState<GraphEmphasisDirection>(
+    DEFAULT_EMPHASIS_DIRECTION,
+  );
+  const [dimming, setDimming] = useState(DEFAULT_DIMMING);
+
+  /*
+   * THE TRACE AND THE FRAME'S ROWS ARE MEMOISED ON THE PROPS THEY READ, BECAUSE THE DRAWING IS
+   * MEMOISED IN TURN. `src/components/dependency-graph.tsx` compares the props it is handed, so a
+   * fresh path array or a fresh row list built here on every render would hand it a new identity for a
+   * value that had not changed — and it would rebuild a drawing of some six hundred elements for
+   * nothing. Memoised, the drawing is rebuilt when the payload, the selection or the reader's emphasis
+   * changes and kept otherwise.
+   */
+  const trace = useMemo(
+    () => traceGraphPath(topology, selectedNodeId ?? null, emphasisDirection),
+    [topology, selectedNodeId, emphasisDirection],
+  );
   const previewId = previewScenarioId ?? null;
   const forwardsPreview = previewId !== null && onPreviewScenarioChange !== undefined;
 
-  const tableRows: ChartTableSpec<GraphLensRow> = {
-    caption: GRAPH_LENS_TEXT.tableCaption,
-    columns: COLUMNS,
-    rows: buildRows(topology, trace),
-    getRowKey: rowKey,
-  };
+  const tableRows = useMemo<ChartTableSpec<GraphLensRow>>(
+    () => ({
+      caption: GRAPH_LENS_TEXT.tableCaption,
+      columns: COLUMNS,
+      rows: buildRows(topology, trace),
+      getRowKey: rowKey,
+    }),
+    [topology, trace],
+  );
 
   const descriptionText =
     trace.selectedNode === undefined
       ? GRAPH_LENS_TEXT.description
-      : GRAPH_LENS_TEXT.descriptionTracing(trace.selectedNode.label);
+      : GRAPH_LENS_TEXT.descriptionTracing(trace.selectedNode.label, emphasisDirection, dimming);
 
   return (
     <ChartFrame<GraphLensRow>
@@ -664,8 +785,12 @@ export function GraphLens({
         title={GRAPH_LENS_TEXT.title}
         selectedNodeId={selectedNodeId ?? undefined}
         onSelectNode={onSelectNode}
-        dimmedNodeIds={trace.dimmedNodeIds}
+        dimmedNodeIds={dimming ? trace.dimmedNodeIds : NO_DIMMED_NODES}
         pathNodeIds={trace.pathNodeIds}
+        emphasisDirection={emphasisDirection}
+        onEmphasisDirectionChange={setEmphasisDirection}
+        dimming={dimming}
+        onDimmingChange={setDimming}
         previewScenarioId={forwardsPreview ? previewId : null}
         onPreviewScenarioChange={onPreviewScenarioChange ?? NO_PREVIEW_HANDLER}
         evidenceRefForNode={evidenceRefForNode ?? NO_NODE_EVIDENCE}

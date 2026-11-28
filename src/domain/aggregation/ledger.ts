@@ -28,6 +28,14 @@
  * call; because it stores this result and keeps no second, hand-written copy, the declared
  * configuration and the counted columns cannot drift apart.
  *
+ * One pass over the trail. The declared record names the rows, so its endpoints seed the accumulators
+ * and the events are then walked once for all of them together: an event's `objectRef` selects the
+ * accumulator it feeds, and its timestamp is located a single time, that one answer serving both the
+ * window test and the last-attempt comparison. Counting each declared endpoint by filtering the whole
+ * trail for it — the shape this module used to have — parses every event's instant once per endpoint
+ * and derives the same value repeatedly inside one request (AAP 0.2.1: a pure aggregate derives each
+ * figure once per request; AAP 0.8).
+ *
  * Determinism and purity (AAP 0.2.1, AAP 0.18.2). The window is derived from the `clock` argument —
  * the demonstration clock — and never from the system clock: the module reads no system time, opens no
  * random source and holds no mutable module-level state, and the only `Date` its arithmetic reaches is
@@ -337,6 +345,65 @@ interface DeclaredLedgerConfiguration {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The accumulation: one tally per endpoint, filled by one pass over the trail
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * What one endpoint's row accumulates while the trail is walked: the two counts, and the members that
+ * decide which attempt is the most recent.
+ *
+ * The two ordering members are kept beside the attempt rather than read back from it, because a
+ * timestamp this module cannot place must contribute nothing — not even a comparison — while a placed
+ * one is ordered by `epochSeconds` and then by `sequence`. They are the same values the per-endpoint
+ * loop kept, so a reader can still reproduce a row by hand.
+ */
+interface LedgerTally {
+  /** The window's events whose result is `'allowed'`. */
+  allowed: number;
+
+  /** The window's events whose result is `'blocked'`. */
+  blocked: number;
+
+  /** The most recent placed event naming the endpoint, or `null` while there is none. */
+  lastAttempt: Timestamp | null;
+
+  /** That attempt's instant in whole seconds from the epoch, so two offsets compare as instants. */
+  lastAttemptSeconds: number;
+
+  /** That attempt's chain sequence, which breaks a tie between two events of the same instant. */
+  lastAttemptSequence: number;
+}
+
+/**
+ * The tally for one endpoint, created empty the first time the endpoint is seen.
+ *
+ * The map is keyed by the endpoint string the declared record and the trail share, so an event finds
+ * the tally of the row it counts against with one lookup. A total accessor is used rather than a
+ * `get` whose absence the caller re-decides each time: whether an endpoint has a tally and whether an
+ * event counts at all are one question, answered by the caller's membership test, and every endpoint
+ * that passes it owns its tally from then on.
+ *
+ * @param tallies The per-endpoint tallies this call accumulates into.
+ * @param endpoint The endpoint whose tally is wanted.
+ * @returns That endpoint's tally, empty when it had none.
+ */
+function tallyFor(tallies: Map<string, LedgerTally>, endpoint: string): LedgerTally {
+  const held = tallies.get(endpoint);
+  if (held !== undefined) {
+    return held;
+  }
+  const tally: LedgerTally = {
+    allowed: 0,
+    blocked: 0,
+    lastAttempt: null,
+    lastAttemptSeconds: 0,
+    lastAttemptSequence: 0,
+  };
+  tallies.set(endpoint, tally);
+  return tally;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The aggregate
  * ------------------------------------------------------------------------------------------- */
 
@@ -359,6 +426,10 @@ interface DeclaredLedgerConfiguration {
  * - An event belongs to a row when its `objectRef` equals that row's endpoint exactly. An event whose
  *   `objectRef` names no declared endpoint belongs to no row and is ignored, so an endpoint the trail
  *   mentions but the record does not declare cannot add a row of its own.
+ * - The whole trail is walked once for all the rows together rather than once per row: an event's
+ *   `objectRef` selects the tally it feeds, and its timestamp is located a single time, that answer
+ *   serving both the window test and the last-attempt comparison below. No instant is parsed or
+ *   calendar-checked twice inside a request (AAP 0.2.1 — a pure aggregate derives each figure once).
  * - `allowed` counts the window's events whose result is `'allowed'`, and `blocked` counts those
  *   whose result is `'blocked'`. The remaining two results are counted in neither column, for the
  *   reason `columnOf` states.
@@ -399,48 +470,55 @@ export function computeLedger(
   }
   const windowStartDay = windowEndDay - (LEDGER_WINDOW_DAYS - 1);
 
-  return sovereignty.ledger.map((declared) => {
-    let allowed = 0;
-    let blocked = 0;
-    let lastAttempt: Timestamp | null = null;
-    let lastAttemptSeconds = 0;
-    let lastAttemptSequence = 0;
+  /*
+   * The declared endpoints are the rows, so the same set decides which events count at all: an event
+   * whose object reference is not one of its members contributes to no row, and one that is a member
+   * accumulates into the single tally its endpoint owns — which is why a record declaring the same
+   * endpoint twice still reports both of those rows with the same counts, as the per-endpoint loop did.
+   */
+  const declaredEndpoints = new Set(sovereignty.ledger.map((declared) => declared.endpoint));
+  const tallies = new Map<string, LedgerTally>();
 
-    for (const event of events) {
-      if (event.objectRef !== declared.endpoint) {
-        continue;
-      }
-      const located = locate(event.timestamp);
-      if (located === null) {
-        continue;
-      }
+  for (const event of events) {
+    if (!declaredEndpoints.has(event.objectRef)) {
+      continue;
+    }
+    const located = locate(event.timestamp);
+    if (located === null) {
+      continue;
+    }
+    const tally = tallyFor(tallies, event.objectRef);
 
-      if (located.day >= windowStartDay && located.day <= windowEndDay) {
-        const column = columnOf(event.result);
-        if (column === 'allowed') {
-          allowed += 1;
-        } else if (column === 'blocked') {
-          blocked += 1;
-        }
-      }
-
-      const laterInstant = located.epochSeconds > lastAttemptSeconds;
-      const laterInTheSameInstant =
-        located.epochSeconds === lastAttemptSeconds && event.sequence > lastAttemptSequence;
-      if (lastAttempt === null || laterInstant || laterInTheSameInstant) {
-        lastAttempt = event.timestamp;
-        lastAttemptSeconds = located.epochSeconds;
-        lastAttemptSequence = event.sequence;
+    if (located.day >= windowStartDay && located.day <= windowEndDay) {
+      const column = columnOf(event.result);
+      if (column === 'allowed') {
+        tally.allowed += 1;
+      } else if (column === 'blocked') {
+        tally.blocked += 1;
       }
     }
+
+    const laterInstant = located.epochSeconds > tally.lastAttemptSeconds;
+    const laterInTheSameInstant =
+      located.epochSeconds === tally.lastAttemptSeconds &&
+      event.sequence > tally.lastAttemptSequence;
+    if (tally.lastAttempt === null || laterInstant || laterInTheSameInstant) {
+      tally.lastAttempt = event.timestamp;
+      tally.lastAttemptSeconds = located.epochSeconds;
+      tally.lastAttemptSequence = event.sequence;
+    }
+  }
+
+  return sovereignty.ledger.map((declared) => {
+    const tally = tallyFor(tallies, declared.endpoint);
 
     return {
       endpoint: declared.endpoint,
       purpose: declared.purpose,
       state: declared.state,
-      lastAttempt,
-      allowed,
-      blocked,
+      lastAttempt: tally.lastAttempt,
+      allowed: tally.allowed,
+      blocked: tally.blocked,
     };
   });
 }

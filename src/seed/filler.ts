@@ -230,7 +230,7 @@ interface ProductSupply {
 const PRODUCT_SUPPLY: readonly ProductSupply[] = [
   {
     productId: 'PRD-R75',
-    unitPriceEur: 1240,
+    unitPriceEur: 1850,
     plantIds: RIGA_AND_BRNO,
     minimumQuantity: 120,
     maximumQuantity: 760,
@@ -1192,7 +1192,9 @@ function buildAuditDraft(
  * identifier, because `appendEvent` (AAP 0.12.1) computes the sequence, the `AUD-nnnnnn` identifier
  * and both hashes when the draft is appended. The drafts returned here therefore occupy the
  * positions after the named events, and the builder refuses a call whose positions the caller has
- * already named, throwing a plain `Error` that quotes the identifier at fault.
+ * already named, throwing a plain `Error` that quotes the identifier at fault. A `targetCount`
+ * that is not a whole number of zero or more, or one smaller than the number of identifiers the
+ * caller names, is refused the same way, with the reason its message states.
  *
  * Ordering the caller owes the chain: the returned drafts ascend strictly in time and the last of
  * them falls a few minutes before the demonstration clock, so a caller that appends them after

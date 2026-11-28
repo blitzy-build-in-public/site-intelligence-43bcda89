@@ -12,9 +12,11 @@
  * and `[data-density="compact"|"comfortable"]`. A module script is deferred until its bundle has been
  * fetched and parsed, so the first painted frame is the stylesheet's doing rather than this module's:
  * `command.css` declares the Command palette on `:root` and `tokens.css` declares `--row-height`
- * there, which is why that frame already carries a theme and a density. A session that persisted
- * Paper repaints to Paper when this module is evaluated, so a stored choice lands at the first repaint
- * rather than at the first frame.
+ * there, which is why that frame already carries a theme and a density — and the density it carries is
+ * the compact row the seeded persona, USR-01 the material planner, starts on (AAP 0.12.4), so a session
+ * that persisted no density is not corrected after paint. A session that persisted Paper, or a density
+ * other than that one, repaints when this module is evaluated, so a stored choice lands at the first
+ * repaint rather than at the first frame.
  *
  * The `data-theme` and `data-density` vocabularies are declared once, in `src/types/primitives.ts`,
  * as `ThemeName` and `Density`. This module imports them and re-exports them under the names the
@@ -28,7 +30,7 @@
  * switches it serves stay keyboard-operable with their focus ring intact), P-2 (it imports no seed
  * record — its only repository imports are the type vocabulary of `src/types`: the `Role` it maps
  * to a density, and the theme and density names it re-exports) and P-6 (the only values stated here
- * are the design defaults `command` and `comfortable`).
+ * are the design defaults `command` and `compact`).
  */
 import {
   createContext,
@@ -100,8 +102,16 @@ export const DENSITY_LABELS: Readonly<Record<Density, string>> = {
 /** Command is the theme a first-time visitor sees (AAP 0.5.3). */
 const DEFAULT_THEME: Theme = 'command';
 
-/** Comfortable rows, which every persona without a recorded density falls back to. */
-const DEFAULT_DENSITY: Density = 'comfortable';
+/**
+ * The density in force while no persona is, which is the density the seeded persona starts on.
+ *
+ * The provider reads it from its first render until the service boundary's start-up read reports the
+ * persona in force, and that persona is USR-01, the material planner, who starts on compact rows
+ * (AAP 0.12.4). The pre-persona frame therefore already carries the row height the session keeps, and
+ * is not corrected after paint. A density the reader has chosen always outranks it, and once a persona
+ * is known `defaultDensityForRole` decides.
+ */
+const DEFAULT_DENSITY: Density = 'compact';
 
 /**
  * The density each persona starts on (AAP 0.12.4: compact rows for planners and the supplier

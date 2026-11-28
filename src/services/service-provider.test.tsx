@@ -40,7 +40,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ActiveUser } from '../types';
 import type { Problem } from '../types/service';
-import { SERVICE_PROVIDER_TEXT, ServiceProvider, useActiveUser } from './service-provider';
+import {
+  SERVICE_PROVIDER_TEXT,
+  ServiceProvider,
+  rolesHoldingIn,
+  useActiveUser,
+  useRolesHolding,
+} from './service-provider';
 
 /* ---------------------------------------------------------------------------------------------
  * The binding point, replaced — rule P-2
@@ -81,7 +87,7 @@ const stub = vi.hoisted<IdentityStub>(() => ({
     name: 'Persona under test, first',
     role: 'material-planner',
     plantIds: [],
-    permissions: [],
+    permissions: ['exception.read', 'exception.work'],
     homeRoute: '/exceptions',
   },
   second: {
@@ -89,7 +95,7 @@ const stub = vi.hoisted<IdentityStub>(() => ({
     name: 'Persona under test, second',
     role: 'plant-manager',
     plantIds: [],
-    permissions: [],
+    permissions: ['exception.read'],
     homeRoute: '/exceptions',
   },
   current: {
@@ -97,7 +103,7 @@ const stub = vi.hoisted<IdentityStub>(() => ({
     name: 'Persona under test, first',
     role: 'material-planner',
     plantIds: [],
-    permissions: [],
+    permissions: ['exception.read', 'exception.work'],
     homeRoute: '/exceptions',
   },
   reads: 0,
@@ -159,29 +165,38 @@ function probeLine(persona: ActiveUser): string {
 }
 
 /**
- * Renders the boundary, with the probe inside it, under the cache it reads through.
+ * Renders the boundary around one probe, under the cache it reads through.
  *
- * Awaited through an async `act` scope, because the boundary suspends into its skeleton while the
- * start-up settles and React retries the suspended subtree only inside an awaited scope: a synchronous
- * render would leave the case looking at the first paint. A fresh client per case, so no entry and no
- * in-flight read is carried from one case into the next.
+ * The shared mechanics of every case: a fresh client per case so no entry and no in-flight read is
+ * carried from one case into the next, and an async `act` scope so the boundary's suspending start-up
+ * settles inside the case.
  *
- * @returns The client the case mounted, so it can drive the re-read the shell drives.
+ * @param content - The probe the case observes.
+ * @returns The client the case mounted.
  */
-async function renderBoundary(): Promise<QueryClient> {
+async function renderBoundaryWith(content: ReactElement): Promise<QueryClient> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   await act(async () => {
     render(
       <QueryClientProvider client={client}>
-        <ServiceProvider>
-          <PersonaProbe />
-        </ServiceProvider>
+        <ServiceProvider>{content}</ServiceProvider>
       </QueryClientProvider>,
     );
   });
 
   return client;
+}
+
+/**
+ * Renders the boundary, with the probe inside it, under the cache it reads through.
+ *
+ * A fresh client per case, so no entry and no in-flight read is carried from one case into the next.
+ *
+ * @returns The client the case mounted, so it can drive the re-read the shell drives.
+ */
+async function renderBoundary(): Promise<QueryClient> {
+  return renderBoundaryWith(<PersonaProbe />);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -280,5 +295,67 @@ describe('the start-up failure region', () => {
        one a reader could quote back for support (AAP 0.18.1). */
     expect(await screen.findByText(SERVICE_MESSAGE)).toBeInTheDocument();
     expect(screen.getByText(TRACE_ID)).toBeInTheDocument();
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The roles that may act, read from the roster so a gate can name them (rule P-8)
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One persona of a fabricated roster, built from the arguments a case cares about.
+ *
+ * The roles and permissions are the contracts §7.1 vocabulary; the identities are this suite's own,
+ * so no seeded user identifier, person's name or plant code appears in this file (rules P-6, P-7).
+ */
+function personaOf(role: ActiveUser['role'], permissions: ActiveUser['permissions']): ActiveUser {
+  return {
+    id: `persona-under-test-${role}`,
+    name: `Persona under test, ${role}`,
+    role,
+    plantIds: [],
+    permissions,
+    homeRoute: '/exceptions',
+  };
+}
+
+/** Prints the roles one permission's holders are reported as, or that they are not known yet. */
+function RolesProbe(): ReactElement {
+  const roles = useRolesHolding('exception.work');
+  const stated = roles === null ? 'unknown' : roles.length === 0 ? 'none' : roles.join(', ');
+
+  return <p>{`Roles holding exception.work: ${stated}`}</p>;
+}
+
+describe('rolesHoldingIn', () => {
+  it('names each role once, in the roster’s own order', () => {
+    const roster: readonly ActiveUser[] = [
+      personaOf('plant-manager', ['exception.work']),
+      personaOf('auditor', ['exception.read']),
+      personaOf('material-planner', ['exception.work']),
+      /* A second persona holding the same role must not name it twice, because the answer reads as a
+         role list rather than as a roster. */
+      personaOf('material-planner', ['exception.work']),
+    ];
+
+    expect(rolesHoldingIn(roster, 'exception.work')).toEqual(['plant-manager', 'material-planner']);
+  });
+
+  it('answers with no role when no persona’s role holds the permission', () => {
+    const roster: readonly ActiveUser[] = [personaOf('auditor', ['exception.read'])];
+
+    expect(rolesHoldingIn(roster, 'exception.work')).toEqual([]);
+  });
+});
+
+describe('useRolesHolding', () => {
+  it('names the roles the roster’s own permissions give, once that read settles', async () => {
+    await renderBoundaryWith(<RolesProbe />);
+
+    /* The roster the fake adapter answers with holds `exception.work` for the planner's role alone, so
+       the answer is the service's own facts rather than a list the boundary keeps (rule P-6). */
+    expect(
+      await screen.findByText('Roles holding exception.work: material-planner'),
+    ).toBeInTheDocument();
   });
 });

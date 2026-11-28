@@ -48,11 +48,13 @@
  *
  * FRESHNESS GOES THROUGH THE SHARED VOCABULARY — rule B-3, AAP §0.5.2. A row's freshness is a
  * `Freshness` record, so its source is printed from `SOURCE_LABELS` — the shared vocabulary of the six
- * sources, never a spelling of this file's — and its state reaches the status primitive through
- * {@link freshnessMeaning}, the one mapping `src/components/freshness-pill.tsx` exports, so the pill
- * keeps that reading as its single owner and no second copy of it exists here. The record's as-of
- * instant is shown beside them in the mono face, so a stale reading states when its source last
- * answered rather than leaving the reader to open the drawer for it.
+ * sources, never a spelling of this file's — as plain caption text, and its state is the status
+ * primitive's label, so the meaning's icon and status colour sit on the word that states a status
+ * rather than on the name of the source they describe. The meaning comes from {@link freshnessMeaning},
+ * the one mapping `src/components/freshness-pill.tsx` exports, so the pill keeps that reading as its
+ * single owner and no second copy of it exists here. The record's as-of instant is shown beside them
+ * in the mono face, so a stale reading states when its source last answered rather than leaving the
+ * reader to open the drawer for it.
  *
  * WHAT IT DOES NOT CLAIM AND DOES NOT REACH — rules B-1, B-2, P-4, P-5, P-7. No sentence states a
  * property of a deployment, a store or a copy: the stack reports records and nothing more. No
@@ -224,11 +226,13 @@ const EXCEPTION_STATUS_MEANINGS = {
 /*
  * Freshness is the one reading this file does not hold. `freshnessMeaning`, imported above from
  * `src/components/freshness-pill.tsx`, is the single mapping from a source's state onto the shared
- * status vocabulary — `fresh` as a pass, `stale` and `partial` as warnings, `unavailable` as a
- * failure — so this stack consumes the pill's own function rather than a copy of it. The pill keeps
- * that reading as its single owner (AAP §0.5.2: one indicator, no second union), a change to it
- * therefore reaches this stack instead of leaving the old meaning behind, and the `switch` behind it
- * is exhaustive over `FreshnessState`, so a fifth state is decided there before it can appear here.
+ * status vocabulary — `fresh` as a pass, `stale` as the warning that the reading has aged, `partial`
+ * as the review to inspect, `unavailable` as a failure — so this stack consumes the pill's own
+ * function rather than a copy of it. The two conditions are therefore told apart by icon and by
+ * status hue as well as by the state's own word. The pill keeps that reading as its single owner
+ * (AAP §0.5.2: one indicator, no second union), a change to it therefore reaches this stack instead of
+ * leaving the old meaning behind, and the `switch` behind it is exhaustive over `FreshnessState`, so a
+ * fifth state is decided there before it can appear here.
  */
 
 /* ---------------------------------------------------------------------------------------------
@@ -506,11 +510,17 @@ function UrgentExceptionCard({ exception, onActivate }: UrgentExceptionCardProps
               />
             </Field>
             <Field caption={CANVAS_RIGHT_STACK_TEXT.freshnessCaption}>
+              {/* The source's name is identity and the state is the status this row reports, so the
+                  state is the status primitive's label: its icon and status colour sit on the word
+                  that states a status rather than on the name of the source they describe, which
+                  would otherwise be painted as though the name were the reading (rule B-3). */}
+              <span className={CAPTION_CLASSES}>
+                {SOURCE_LABELS[exception.freshness.source]}
+              </span>
               <StatusIndicator
                 meaning={freshnessMeaning(exception.freshness.state)}
-                label={SOURCE_LABELS[exception.freshness.source]}
+                label={exception.freshness.state}
               />
-              <span className={CAPTION_CLASSES}>{exception.freshness.state}</span>
               <MonoValue
                 value={exception.freshness.asOf}
                 kind="timestamp"

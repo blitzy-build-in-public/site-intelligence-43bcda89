@@ -2,9 +2,15 @@
  * Component suite for `state-boundary.tsx`: the seven screen states of specification §8, each with the
  * one rendering AAP §0.5.2 gives it, and the freshness banner T-13 asserts.
  *
- * Each case asserts the contract rather than the markup. The two warning states keep the content on
- * screen — a stale or partial figure is still the figure a planner came to read — while the five that
- * replace it withhold the content, so a reader is never shown a half-read screen as a complete one.
+ * Each case asserts the contract rather than the markup. The two states that report a condition on the
+ * data keep the content on screen — a stale or partial figure is still the figure a planner came to
+ * read — while the five that replace it withhold the content, so a reader is never shown a half-read
+ * screen as a complete one. A caller whose own structure states the emptiness — a table that keeps its
+ * caption and its scoped headers and holds the sentence in one cell — hands that structure in as
+ * `emptyContent`, and the boundary replaces the content with it inside the same single `role="status"`
+ * region rather than withdrawing the structure along with the rows.
+ *
+
  * The stale banner names the source it was handed and the instant that source last answered, in the
  * tabular mono face, which is the visible half of the freshness rule the service's own refusal is the
  * other half of (AAP §0.2.1, T-13): the instant is compared character for character, offset included,
@@ -16,7 +22,9 @@
  * reader once while the region is still announced as busy, and two mounted boundaries keep a caption
  * id each (rule B-3). Both themes are exercised on the state that carries the most wording, so a
  * banner that resolved a colour itself would fail here rather than in one theme only. Every control
- * the boundary can render exists only when a handler was supplied (rule P-8), and no state spells a
+ * the boundary can render exists only when a handler was supplied (rule P-8), and the retry and reload
+ * controls keep their own width inside the column that holds them rather than stretching to it, because
+ * that column is also what the loading region's skeleton bars fill (QA finding QA2-18). No state spells a
  * simulation label of its own, because `Simulated data` belongs to the shell's badge (rule P-1).
  *
  * The permission, the roles, the refusal's own sentence and the instant below are this suite's own
@@ -34,6 +42,7 @@ import type { ScreenState, ThemeName } from '../types';
 import { MONO_VALUE_CLASSES } from './mono-value';
 import { STATE_BOUNDARY_TEXT, StateBoundary } from './state-boundary';
 import type { StateBoundaryForbidden, StateBoundaryStale } from './state-boundary';
+import { MEANING_COLOUR_CLASSES } from './status-indicator';
 
 /** The content a screen hands the boundary, and the proof that it renders or is withheld. */
 const CONTENT = 'Projected closing stock';
@@ -58,6 +67,13 @@ const FORBIDDEN: StateBoundaryForbidden = {
 
 /** A screen's own fixed sentence for the empty state. */
 const EMPTY_MESSAGE = 'No options yet for this exception type.';
+
+/**
+ * A caller's own rendering of the empty state, standing for the structure a screen hands in through
+ * `emptyContent` — a table that keeps its caption and scoped headers and holds the sentence in one
+ * cell — so a case can assert where that structure lands and what is withheld beside it.
+ */
+const EMPTY_CONTENT = 'Nothing to list, stated in the caller’s own structure';
 
 /** A screen's own sentence naming the inputs a partial read did not answer with. */
 const PARTIAL_MESSAGE = 'The scheduling source did not report line rates.';
@@ -90,6 +106,24 @@ const THEMES: readonly ThemeName[] = ['command', 'paper'];
 /** A class list that names a palette value, an explicit colour function call or a shadow, none of
  * which may appear: both themes resolve the same role tokens instead. */
 const FORBIDDEN_CLASS_PATTERN = /#[0-9a-fA-F]{3,8}|rgba?\(|shadow/i;
+
+/**
+ * The status colour a notice's icon is painted in.
+ *
+ * Read from the icon wrapper rather than from the notice's text, because the colour role is the half
+ * of a status a jsdom suite can check: the icon is the one `aria-hidden` element the status primitive
+ * renders, and the role token it carries is the meaning the notice was given, named from the module
+ * that owns the map so a restyle reaches this case instead of breaking it.
+ */
+function statusHueOf(region: HTMLElement): HTMLElement {
+  const icon = region.querySelector<HTMLElement>('[aria-hidden="true"]');
+
+  if (icon === null) {
+    throw new Error('The notice carries no status icon, so its meaning has no colour to read.');
+  }
+
+  return icon;
+}
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
@@ -185,6 +219,34 @@ describe('StateBoundary', () => {
     expect(screen.getByRole('status')).toHaveTextContent(STATE_BOUNDARY_TEXT.emptyFallback);
   });
 
+  it('T-17 renders the caller’s own empty structure inside the one status region', () => {
+    render(
+      <StateBoundary
+        state="empty"
+        emptyMessage={EMPTY_MESSAGE}
+        emptyContent={<p>{EMPTY_CONTENT}</p>}
+      >
+        <p>{CONTENT}</p>
+      </StateBoundary>,
+    );
+
+    /* A caller whose structure states the emptiness — a table keeping its caption and scoped headers
+       with the sentence in the cell that spans them — keeps that structure on screen, and the state is
+       still announced once: `getByRole('status')` finds one region and would throw on a second. */
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+
+    const region = screen.getByRole('status');
+
+    expect(region).toContainElement(screen.getByText(EMPTY_CONTENT));
+    expect(screen.getByText(EMPTY_CONTENT)).toBeVisible();
+    /* The content handed in beside it is withheld exactly as it is when the notice stands in: there is
+       nothing behind an empty answer. */
+    expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
+    /* One rendering of the emptiness, chosen by the caller: the notice's own sentence is not stated
+       beside the structure that already says it. */
+    expect(screen.queryByText(EMPTY_MESSAGE)).not.toBeInTheDocument();
+  });
+
   it('T-17 names the source and its as-of instant in the stale banner and still renders the content', () => {
     render(
       <StateBoundary state="stale" stale={STALE}>
@@ -225,6 +287,31 @@ describe('StateBoundary', () => {
     expect(screen.getByText(CONTENT)).toBeVisible();
   });
 
+  it('T-17 tells an aged read and an incomplete one apart by status meaning, not by wording alone', () => {
+    const aged = render(
+      <StateBoundary state="stale" stale={STALE}>
+        <p>{CONTENT}</p>
+      </StateBoundary>,
+    );
+    const agedHue = statusHueOf(screen.getByRole('status'));
+    aged.unmount();
+
+    render(
+      <StateBoundary state="partial" partialMessage={PARTIAL_MESSAGE}>
+        <p>{CONTENT}</p>
+      </StateBoundary>,
+    );
+    const incompleteHue = statusHueOf(screen.getByRole('status'));
+
+    /* Two conditions on the data, so two meanings: an aged source keeps the warning triangle at the
+       warning hue and an incompletely answered one takes the review eye at the review hue. That is
+       what separates the two notices without relying on their wording or on colour alone (rule B-3),
+       and a boundary that painted both as warnings would fail here rather than in a screenshot. */
+    expect(agedHue).toHaveClass(MEANING_COLOUR_CLASSES.warning);
+    expect(incompleteHue).toHaveClass(MEANING_COLOUR_CLASSES.review);
+    expect(incompleteHue).not.toHaveClass(MEANING_COLOUR_CLASSES.warning);
+  });
+
   it('T-17 shows the offline notice in place of the content and retries from the keyboard', async () => {
     const onRetry = vi.fn();
     const user = userEvent.setup();
@@ -239,6 +326,11 @@ describe('StateBoundary', () => {
     expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
 
     const control = screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel });
+    /* The control keeps its own width inside the column that holds it, because that column stretches its
+       children and the loading region reuses it for the skeleton bars that are meant to fill it: a retry
+       stretched to the content width reads as a broken bar rather than as an action (QA finding
+       QA2-18). */
+    expect(control).toHaveClass('self-start');
     /* Reached and operated by the keyboard alone: no pointer is involved, and the focus lands on the
        control by tabbing, which is what rule B-3 requires of every interactive element. */
     await user.tab();
@@ -266,10 +358,10 @@ describe('StateBoundary', () => {
         </StateBoundary>,
       );
 
-      /* A missing record is stated instead of invented: the two warning states keep their content, the
-         record-less stale state warns above it with no source and no instant named, and the five that
-         replace the content render their own notice with no source, no permission and no instant
-         named. */
+      /* A missing record is stated instead of invented: the stale and partial states keep their
+         content, the record-less stale state reports above it with no source and no instant named, and
+         the five that replace the content render their own notice with no source, no permission and no
+         instant named. */
       if (CONTENT_KEPT_STATES.includes(state)) {
         expect(screen.getByText(CONTENT)).toBeVisible();
       } else {

@@ -68,7 +68,16 @@ export default defineConfig({
   // A retry would hide the flake that an accessibility, keyboard or labelling failure usually
   // reports, so there is none.
   retries: 0,
+  // A committed `test.only` would shrink the whole gate to one green test, masking success criterion
+  // 2's every-identifier-in-one-run and rule B-3's axe pass over every screen, so a focus marker has
+  // to fail the run rather than stay a local shortcut that never leaves the branch.
+  forbidOnly: true,
   timeout: 30_000,
+  // The whole suite measured between 145 s (2.4 min) and 196 s (3.3 min) across runs on this shared
+  // host, so 360 s is about twice the busiest run and still lets a worst-case gate — the browser leg,
+  // the unit suite and the build — finish inside the ten-minute budget. The run is aborted at the cap,
+  // so an overrun is reported rather than absorbed.
+  globalTimeout: 360_000,
   expect: { timeout: 5_000 },
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
@@ -76,6 +85,12 @@ export default defineConfig({
     // The application registers no service worker, and a request made by one surfaces only on the
     // browser context: blocking them is what keeps the request-origin assertion meaningful.
     serviceWorkers: 'block',
+    // A trace is recorded for every run and kept only when a test fails — the suite's one expensive
+    // debug setting, kept deliberately and measured. Recording it off was tried and rejected: several
+    // acceptance tests read a screen while that screen's own reads are still settling, and with the
+    // recording off one provenance test failed six of eight runs that way, where with it on the same
+    // test passed every run. The whole browser leg costs roughly three minutes for 63 tests on two
+    // workers with it on, inside the ten-minute gate, and the README's Test section states that.
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     viewport,

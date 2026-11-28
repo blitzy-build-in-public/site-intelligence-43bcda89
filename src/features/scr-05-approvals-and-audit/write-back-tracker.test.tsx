@@ -8,7 +8,9 @@
  * always shows an icon and a visible label together, so no step carries its meaning by colour alone
  * (rule B-3); the record reference rendered character for character through the one formatter and the
  * target system printed by the display name `SOURCE_LABELS` fixes for its key, which is the name the
- * comparison screen's write-back preview prints for the same record value (rule P-6); the failed
+ * comparison screen's write-back preview prints for the same record value (rule P-6); every step's
+ * record reference as the control that opens that step's own evidence, its accessible name starting
+ * with the reference a reader sees (principle PR-6, rule B-3); the failed
  * step's own text with the tag inside the same step, and a retry control that exists only where the
  * caller can handle one (rule P-8); the retry's keyboard contract, which is what the three T-16
  * assertions name; an approval with no steps stated in words rather than as an empty list; and a
@@ -38,8 +40,10 @@
 import { render, screen, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { UserEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { writeBackStepRef } from '../../components/evidence-drawer';
 import { SOURCE_LABELS } from '../../types';
 import type { SourceId, WriteBack, WriteBackState } from '../../types';
 import { WRITE_BACK_TAG, WriteBackTracker } from './write-back-tracker';
@@ -174,6 +178,26 @@ function failedRecordRef(): string {
   return step.recordRef;
 }
 
+/**
+ * The record the fixture's steps belong to: the owner every composed reference names.
+ *
+ * An opaque placeholder rather than a record identifier, for the reason the fixture's step references
+ * are: this suite holds no record, so it names none. The reference itself is not spelled here — it is
+ * composed by the component module's own composer, which is the one owner of the grammar the evidence
+ * read resolves.
+ */
+const OWNER_ID = 'plan-under-test';
+
+/**
+ * The evidence reference one fixture step carries, as a caller composes it.
+ *
+ * @param writeBack - The step the reference is for.
+ * @returns The reference the tracker hands the trigger.
+ */
+function evidenceRefFor(writeBack: WriteBack): string {
+  return writeBackStepRef(OWNER_ID, writeBack);
+}
+
 /** What one case hands the tracker. An absent member is the member the case leaves unsupplied. */
 interface TrackerRenderOptions {
   /** The steps to render, exactly as the service returned them. */
@@ -197,13 +221,13 @@ function trackerProps(options: TrackerRenderOptions): WriteBackTrackerProps {
 
   if (onRetry === undefined) {
     return retryingWriteBackId === undefined
-      ? { writeBacks }
-      : { writeBacks, retryingWriteBackId };
+      ? { writeBacks, evidenceRefFor }
+      : { writeBacks, evidenceRefFor, retryingWriteBackId };
   }
 
   return retryingWriteBackId === undefined
-    ? { writeBacks, onRetry }
-    : { writeBacks, onRetry, retryingWriteBackId };
+    ? { writeBacks, evidenceRefFor, onRetry }
+    : { writeBacks, evidenceRefFor, onRetry, retryingWriteBackId };
 }
 
 /** Renders the tracker and hands back the result, so a case can re-render the same container. */
@@ -263,14 +287,44 @@ function monoElementsOf(root: HTMLElement): HTMLElement[] {
 }
 
 /**
- * The values a step renders through `MonoValue`, in document order, ignoring the copy a retry
- * control's own accessible name carries: that control repeats the step's reference to name itself,
- * and the record's own rows are the values this reads.
+ * The values a step renders through `MonoValue`, in document order, ignoring the copy a retry control's
+ * own accessible name carries: that control repeats the step's reference to name itself, and the
+ * record's own rows are the values this reads.
+ *
+ * The record's own reference now sits inside the step's evidence trigger — a control too — so the test
+ * is the trigger's own `aria-haspopup` rather than "inside no control at all": a control that opens the
+ * drawer wraps the figure it is about, and a retry wraps a copy of a reference it repeats.
  */
 function monoTextsOf(step: HTMLElement): string[] {
   return monoElementsOf(step)
-    .filter((element) => element.closest('button') === null)
+    .filter((element) => {
+      const control = element.closest('button');
+
+      return control === null || control.getAttribute('aria-haspopup') === 'dialog';
+    })
     .map(textOf);
+}
+
+/**
+ * Every evidence trigger in a subtree: the controls whose activation opens a record in the drawer.
+ *
+ * Identified by `aria-haspopup="dialog"`, which is the contract `EvidenceRef` states, rather than by
+ * the record row's shape, so a step that wrapped its reference in something else fails here.
+ */
+function evidenceTriggersOf(root: HTMLElement): HTMLElement[] {
+  return within(root)
+    .queryAllByRole('button')
+    .filter((button) => button.getAttribute('aria-haspopup') === 'dialog');
+}
+
+/**
+ * Every retry control in a subtree, found by the label the tracker composes for it.
+ *
+ * The tracker renders one only on a failed step whose caller supplied a handler, so the count is the
+ * contract rules P-8 and AAP 0.2.2 state: no dead control, and no silent failure either.
+ */
+function retryControlsOf(root: HTMLElement): HTMLElement[] {
+  return within(root).queryAllByRole('button', { name: /^Retry write-back / });
 }
 
 /**
@@ -310,6 +364,27 @@ function retryButtonOf(container: HTMLElement, recordRef: string): HTMLElement {
   }
 
   return button;
+}
+
+/**
+ * Tabs forward until the control holds focus.
+ *
+ * A step's record reference is a stop of its own now that it opens that record's evidence, so the
+ * retry's position in the tab order is not a fixed number of presses: this walks the stops the tracker
+ * renders and fails when the control is never reached, which is what makes "reachable by keyboard" a
+ * fact about the rendering rather than an assumption about it (rule B-3).
+ *
+ * @param user - The session driving the keyboard.
+ * @param control - The control the case expects the tab order to reach.
+ */
+async function tabTo(user: UserEvent, control: HTMLElement): Promise<void> {
+  const limit = 32;
+
+  for (let presses = 0; presses < limit && document.activeElement !== control; presses += 1) {
+    await user.tab();
+  }
+
+  expect(control).toHaveFocus();
 }
 
 /* -------------------------------------------------------------------------------------------
@@ -446,6 +521,49 @@ describe('WriteBackTracker', () => {
         expect(monoElementsOf(step)).toHaveLength(1);
       }
     });
+
+    it("opens each step's own evidence from the record reference it writes", () => {
+      const writeBacks = makeFailedWriteBacks();
+      const onRetry = vi.fn();
+      const container = renderTracker({ writeBacks, onRetry }).container;
+      const steps = stepsOf(container);
+
+      expect(steps).toHaveLength(writeBacks.length);
+
+      for (const [index, step] of steps.entries()) {
+        const writeBack = writeBackAt(writeBacks, index);
+        const triggers = evidenceTriggersOf(step);
+        const trigger = triggers[0];
+
+        if (triggers.length !== 1 || trigger === undefined) {
+          throw new Error(
+            `the step at position ${String(index)} rendered ${String(triggers.length)} evidence ` +
+              'triggers; expected one',
+          );
+        }
+
+        /* The control is the record reference itself, so a reader pointing at the reference a step
+           writes can open the evidence behind it, and the accessible name starts with the value on
+           screen rather than with the action (WCAG 2.2 SC 2.5.3, rule P-8). */
+        expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(trigger).toHaveAccessibleName(new RegExp(`^${writeBack.recordRef}`));
+
+        /* The reference the trigger is handed is the caller's composer's, and it names the record the
+           steps belong to and the step's own position — the grammar the evidence read resolves. */
+        expect(evidenceRefFor(writeBack)).toBe(
+          `write-back:${OWNER_ID}/${String(writeBack.sequence)}`,
+        );
+
+        /* The state and the tag stay in the same step as the new control: the trigger is an addition
+           to the step rather than a replacement for what it says (rules P-1, B-3). */
+        expect(within(step).getByText(writeBack.state)).toBeInTheDocument();
+        expect(within(step).getByText(WRITE_BACK_TAG)).toBeInTheDocument();
+      }
+
+      /* The failed step keeps the retry beside its trigger, so both of the step's controls are on it
+         and neither stands in for the other (rule P-8). */
+      expect(retryControlsOf(failedStepOf(container))).toHaveLength(1);
+    });
   });
 
   describe('a failed step', () => {
@@ -469,7 +587,11 @@ describe('WriteBackTracker', () => {
       const writeBacks = makeFailedWriteBacks();
       const container = renderTracker({ writeBacks }).container;
 
-      expect(within(container).queryAllByRole('button')).toHaveLength(0);
+      /* The absence of a handler removes the retry control and nothing else: every step keeps the one
+         stop that opens its own record's evidence, and no control offers an action the caller could
+         not handle (rule P-8). */
+      expect(evidenceTriggersOf(container)).toHaveLength(writeBacks.length);
+      expect(retryControlsOf(container)).toHaveLength(0);
 
       /* The absence of a handler removes the control, not the news: the failure and its tag stay on
          screen (rule P-8 — no dead control, and no silent failure either). */
@@ -483,13 +605,19 @@ describe('WriteBackTracker', () => {
       const container = renderTracker({ writeBacks, onRetry: vi.fn() }).container;
       const steps = stepsOf(container);
 
-      expect(within(container).getAllByRole('button')).toHaveLength(1);
-      expect(within(failedStepOf(container)).getAllByRole('button')).toHaveLength(1);
+      expect(retryControlsOf(container)).toHaveLength(1);
+      expect(retryControlsOf(failedStepOf(container))).toHaveLength(1);
 
       for (const [index, step] of steps.entries()) {
         if (index !== FAILED_STEP_INDEX) {
-          expect(within(step).queryAllByRole('button')).toHaveLength(0);
+          expect(retryControlsOf(step)).toHaveLength(0);
         }
+      }
+
+      /* The evidence trigger is every step's, the failed one included: the retry is an addition to the
+         step rather than a replacement for the way its record's evidence is opened. */
+      for (const step of steps) {
+        expect(evidenceTriggersOf(step)).toHaveLength(1);
       }
     });
   });
@@ -514,8 +642,7 @@ describe('WriteBackTracker', () => {
       const container = renderTracker({ writeBacks, onRetry }).container;
       const retry = retryButtonOf(container, failedRecordRef());
 
-      await user.tab();
-      expect(retry).toHaveFocus();
+      await tabTo(user, retry);
 
       await user.keyboard('{Enter}');
 
@@ -530,8 +657,7 @@ describe('WriteBackTracker', () => {
       const container = renderTracker({ writeBacks, onRetry }).container;
       const retry = retryButtonOf(container, failedRecordRef());
 
-      await user.tab();
-      expect(retry).toHaveFocus();
+      await tabTo(user, retry);
 
       await user.keyboard(' ');
 
@@ -555,8 +681,7 @@ describe('WriteBackTracker', () => {
       expect(retry).not.toHaveAttribute('disabled');
       expect(retry).toHaveAttribute('aria-disabled', 'true');
 
-      await user.tab();
-      expect(retry).toHaveFocus();
+      await tabTo(user, retry);
 
       const reason = textOf(screen.getByRole('tooltip'));
       expect(reason).toMatch(/retry/i);
@@ -600,11 +725,14 @@ describe('WriteBackTracker', () => {
       const { container, rerender } = renderTracker({ writeBacks, onRetry });
       const order = stepsOf(container).map((step) => recordRefOf(step, writeBacks));
 
-      rerender(<WriteBackTracker writeBacks={writeBacks} onRetry={onRetry} />);
+      rerender(
+        <WriteBackTracker writeBacks={writeBacks} evidenceRefFor={evidenceRefFor} onRetry={onRetry} />,
+      );
 
       expect(stepsOf(container)).toHaveLength(writeBacks.length);
       expect(stepsOf(container).map((step) => recordRefOf(step, writeBacks))).toEqual(order);
-      expect(within(container).getAllByRole('button')).toHaveLength(1);
+      expect(retryControlsOf(container)).toHaveLength(1);
+      expect(evidenceTriggersOf(container)).toHaveLength(writeBacks.length);
     });
 
     it('keeps one row per step when the failed step succeeds on retry', () => {
@@ -613,9 +741,15 @@ describe('WriteBackTracker', () => {
       const onRetry = vi.fn();
       const { container, rerender } = renderTracker({ writeBacks: failedWriteBacks, onRetry });
 
-      expect(within(container).getAllByRole('button')).toHaveLength(1);
+      expect(retryControlsOf(container)).toHaveLength(1);
 
-      rerender(<WriteBackTracker writeBacks={retriedWriteBacks} onRetry={onRetry} />);
+      rerender(
+        <WriteBackTracker
+          writeBacks={retriedWriteBacks}
+          evidenceRefFor={evidenceRefFor}
+          onRetry={onRetry}
+        />,
+      );
 
       /* The step is the same row in its new state rather than a second success row beside the
          failure (AAP 0.2.2: a retry never duplicates a success record). */
@@ -625,8 +759,10 @@ describe('WriteBackTracker', () => {
         failedWriteBacks.map((writeBack) => writeBack.recordRef),
       );
 
-      /* No step is failed any more, so no retry control survives the update. */
-      expect(within(container).queryAllByRole('button')).toHaveLength(0);
+      /* No step is failed any more, so no retry control survives the update, while every step keeps
+         the way into its own record's evidence. */
+      expect(retryControlsOf(container)).toHaveLength(0);
+      expect(evidenceTriggersOf(container)).toHaveLength(retriedWriteBacks.length);
       expectTagOnEveryStep(container, retriedWriteBacks);
     });
   });
@@ -640,7 +776,8 @@ describe('WriteBackTracker', () => {
 
         /* The tokens differ between the two themes; nothing the content says does. */
         expectTrackerStructure(container, writeBacks);
-        expect(within(container).getAllByRole('button')).toHaveLength(1);
+        expect(retryControlsOf(container)).toHaveLength(1);
+        expect(evidenceTriggersOf(container)).toHaveLength(writeBacks.length);
       });
     }
   });

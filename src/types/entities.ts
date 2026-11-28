@@ -675,7 +675,14 @@ export interface AuditEvent {
   /** The outcome the event records. */
   result: AuditResult;
 
-  /** The policy that decided the outcome, present only on a policy-actor event. */
+  /**
+   * The policy the event was recorded against, when it names one.
+   *
+   * Not confined to the engine's own events: the trail records a decision against the policy that made
+   * it whatever actor carried the request out — a refused assistant question is recorded against POL-007
+   * with the persona who asked it as its actor — and the governance screen's decision list selects the
+   * events that name a policy for exactly that reason.
+   */
   policyId?: PolicyId;
 
   /** The affected record's values before the action, or `null` when the action created it. */

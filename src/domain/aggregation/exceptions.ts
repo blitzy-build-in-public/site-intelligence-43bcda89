@@ -25,6 +25,8 @@
  * customer order lines an exception puts at risk and for how many units. `revenueAtRisk` values those
  * lines at the product prices the records carry. `computeExceptionRows` projects every in-scope
  * exception onto the queue row, carrying that revenue and the age of the exception.
+ * `revenueOfAffectedLines` is that same valuation for a caller that already holds the lines, so an
+ * aggregate that has derived them once values them once instead of deriving them again (AAP 0.2.1).
  *
  * The interface this module exposes, in the form AAP 0.12.1 states it. `computeExceptionRows(records,
  * scope)` is computed over the record bundle and the resolved scope. `resolveAffectedLines(exception,
@@ -610,6 +612,9 @@ function sumRevenue(
  * what an empty queue row's figure is. The total is rounded through `halfUp2` alone, and no other
  * rounding rule or text formatting appears anywhere in this module.
  *
+ * It answers the two-argument form AAP 0.12.1 fixes by deriving the lines and handing them to
+ * {@link revenueOfAffectedLines}, which is the valuation to call when the lines are already in hand.
+ *
  * @param exception The exception to value. Its record is read and never modified. This is the first of
  *   the two arguments AAP 0.12.1 names.
  * @param baseline That exception's baseline: the solve, or `null` when it has no case or no solve was
@@ -624,7 +629,41 @@ export function revenueAtRisk(
   exception: OperationalException,
   baseline: BaselineView,
 ): Money {
-  return sumRevenue(baseline.products, exception.id, resolveAffectedLines(exception, baseline));
+  return revenueOfAffectedLines(exception, baseline, resolveAffectedLines(exception, baseline));
+}
+
+/**
+ * The revenue a set of already-derived affected lines places at risk — contracts §5; AAP 0.8's
+ * exceptions row.
+ *
+ * The valuation `revenueAtRisk` performs, for a caller that has already derived the lines: the sum over
+ * `lines` of `unitsAtRisk × product price`, in euro with at most two decimals, closed once through
+ * `halfUp2` with no intermediate rounding (AAP 0.8, contracts §4 rule 5). The prices are the ones the
+ * baseline's `products` carry and the units are the ones the lines carry, so this function types
+ * neither (rule P-6).
+ *
+ * A caller holding resolved lines uses this rather than `revenueAtRisk`, which derives them again
+ * through `resolveAffectedLines`: valuing the lines where they are already in hand is what keeps one
+ * aggregate from deriving a single exception's lines more than once per request (AAP 0.2.1). The lines
+ * are read and never modified or copied, so a caller keeps the array it passed.
+ *
+ * @param exception The exception the lines belong to, which the refusal names. Its record is read and
+ *   never modified.
+ * @param baseline That exception's baseline, whose `products` member is the unit prices the lines are
+ *   valued at; the solve is not read here. Build it with `baselineViewFor`.
+ * @param lines The affected lines to value, already derived — the array `resolveAffectedLines` returned
+ *   for this exception, or one a caller derived by the same rule.
+ * @returns The revenue at risk in euro, at most two decimals, and `0` for an empty set of lines.
+ * @throws UnpriceableLineError when a line names a product the prices do not carry, since the total
+ *   cannot be completed without inventing that line's price. The refusal carries the exception and the
+ *   product, and the adapter reports it as a `'validation'` `Problem` naming that cause (AAP 0.2.2).
+ */
+export function revenueOfAffectedLines(
+  exception: OperationalException,
+  baseline: BaselineView,
+  lines: readonly AffectedLine[],
+): Money {
+  return sumRevenue(baseline.products, exception.id, lines);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -777,21 +816,97 @@ function compareIdentifiers(left: ExceptionId, right: ExceptionId): number {
 }
 
 /**
- * Projects every in-scope exception onto one queue row — specification SCR-02; AAP 0.12.1 exception
- * aggregates; AAP 0.12.2's `ExceptionRow`.
+ * One exception the resolved scope admits, together with everything admission already derived for it.
  *
- * One row per exception the resolved scope admits, carrying exactly the twelve members the queue's
+ * Admission is one rule with one statement — the plant selection, the affected lines that selection
+ * leaves and the product selection those lines decide — so the queue's rows and the canvas ribbon's
+ * critical count read one population and cannot drift apart (AAP 0.2.1). Carrying the derived members
+ * rather than deriving them again per consumer is what makes that one derivation: `lines` is the
+ * `resolveAffectedLines` answer and `productIds` the `productIdsOf` answer, so a consumer that needs
+ * only a count prices nothing, and one that needs a row values exactly these lines.
+ *
+ * A projection, not a record: the exception is the record the bundle holds, and the view, the lines and
+ * the identifiers are values built here (AAP 0.2.1, AAP 0.18.2).
+ */
+export interface AdmittedException {
+  /** The admitted exception, as the record bundle states it. */
+  readonly exception: OperationalException;
+
+  /** Its baseline: the solve its lines were measured by, or `null` when it has none. */
+  readonly baseline: BaselineView;
+
+  /** The affected lines `resolveAffectedLines` derived from that baseline. */
+  readonly lines: AffectedLine[];
+
+  /** The distinct products those lines name, in first-appearance order. */
+  readonly productIds: ProductId[];
+}
+
+/**
+ * Lists the exceptions the resolved scope admits, with the lines and the products admission derived.
+ *
+ * THE ADMISSION RULE, STATED ONCE. An exception is admitted when it is in the scope's plant selection —
+ * it lands on a selected plant or reaches one, which is `isInScope` — and, where a product is selected,
+ * when its affected lines name one of the selected products (`admitsProducts` over
+ * `productIdsOf(lines)`). The lines are derived first because the product selection reads them, so an
+ * exception admitted for a product is one whose lines were resolved either way.
+ *
+ * WHO READS IT, AND WHY HERE. `computeExceptionRows` projects this list onto the queue's twelve columns
+ * and `./urgency`'s `countAtHeadOfUrgency` counts the head of it for the canvas ribbon, so the queue and
+ * the ribbon describe one population rather than two independently filtered ones (AAP 0.2.1). A consumer
+ * that needs no figure — the ribbon's critical count — therefore derives no revenue and builds no row.
+ *
+ * Order and copies: the list follows the bundle's exception order, and every member returned is built
+ * here, so two calls with the same bundle return the same sequence and nothing returned reaches the
+ * records (AAP 0.18.2). The one refusal stays `UnpriceableLineError`, raised by the consumer that prices
+ * a line: deriving lines for a count refuses nothing.
+ *
+ * @param records The record bundle: the exceptions, the prices their lines are valued at, the order book
+ *   and baseline solves the affected lines come from, and the read's freshness and as-of instant.
+ * @param scope The resolved scope, from `./scope`'s `resolveScope`. Its `plants` member empty means
+ *   nothing is in scope.
+ * @returns One entry per admitted exception, in the bundle's exception order.
+ */
+export function admittedExceptions(
+  records: ExceptionAggregateInput,
+  scope: Scope,
+): AdmittedException[] {
+  const admitted: AdmittedException[] = [];
+
+  for (const exception of records.exceptions) {
+    if (!isInScope(exception, scope)) {
+      continue;
+    }
+
+    const baseline = baselineViewFor(records, exception);
+    const lines = resolveAffectedLines(exception, baseline);
+    const productIds = productIdsOf(lines);
+
+    if (!admitsProducts(productIds, scope)) {
+      continue;
+    }
+
+    admitted.push({ exception, baseline, lines, productIds });
+  }
+
+  return admitted;
+}
+
+/**
+ * Projects every exception the resolved scope admits onto one queue row — specification SCR-02;
+ * AAP 0.12.1 exception aggregates; AAP 0.12.2's `ExceptionRow`.
+ *
+ * One row per entry `admittedExceptions` returns, carrying exactly the twelve members the queue's
  * columns fix: the identifier, type, title, the products the exception names, the plant, the severity,
  * the revenue at risk, the days to impact, the status, the owner, the age in hours and the freshness of
- * the read. The revenue is the one `revenueAtRisk` computes, from the affected lines
- * `resolveAffectedLines` derives — nothing on the row is a record's stored total, because no record
- * stores one.
+ * the read. The revenue is the one the module's revenue rule computes — `sumRevenue` over the affected
+ * lines admission already resolved — and nothing on the row is a record's stored total, because no
+ * record stores one.
  *
- * Two filters, both from the scope the caller resolved and neither re-derived here: the plant
- * selection, which admits an exception landing on a selected plant or reaching one, and the product
- * selection, which admits a row naming one of the selected products. Filters on type, severity, status,
- * owner and supplier belong to the queue's own query (`ExceptionQuery` in `src/types/service.ts`) and
- * are applied by the service, not here.
+ * The population is `admittedExceptions`'s, not a second filter of this function's: the plant selection
+ * and the product selection are stated once, there, so a row cannot be admitted by one rule and counted
+ * by another (AAP 0.2.1). Filters on type, severity, status, owner and supplier belong to the queue's own
+ * query (`ExceptionQuery` in `src/types/service.ts`) and are applied by the service, not here.
  *
  * Ordering. Rows come back in ascending identifier order, so two calls with the same records return the
  * same sequence and a test can assert it. The queue's default order — severity, then days to impact,
@@ -815,36 +930,20 @@ export function computeExceptionRows(
   records: ExceptionAggregateInput,
   scope: Scope,
 ): ExceptionRow[] {
-  const rows: ExceptionRow[] = [];
-
-  for (const exception of records.exceptions) {
-    if (!isInScope(exception, scope)) {
-      continue;
-    }
-
-    const baseline = baselineViewFor(records, exception);
-    const lines = resolveAffectedLines(exception, baseline);
-    const productIds = productIdsOf(lines);
-
-    if (!admitsProducts(productIds, scope)) {
-      continue;
-    }
-
-    rows.push({
-      id: exception.id,
-      type: exception.type,
-      title: exception.title,
-      productIds,
-      plantId: exception.plantId,
-      severity: exception.severity,
-      revenueAtRiskEur: sumRevenue(baseline.products, exception.id, lines),
-      daysToImpact: exception.daysToImpact,
-      status: exception.status,
-      ownerId: exception.ownerId,
-      ageHours: ageHoursOf(exception.detectedAt, records.asOf),
-      freshness: copyFreshness(records.freshness),
-    });
-  }
+  const rows: ExceptionRow[] = admittedExceptions(records, scope).map((entry) => ({
+    id: entry.exception.id,
+    type: entry.exception.type,
+    title: entry.exception.title,
+    productIds: entry.productIds,
+    plantId: entry.exception.plantId,
+    severity: entry.exception.severity,
+    revenueAtRiskEur: sumRevenue(entry.baseline.products, entry.exception.id, entry.lines),
+    daysToImpact: entry.exception.daysToImpact,
+    status: entry.exception.status,
+    ownerId: entry.exception.ownerId,
+    ageHours: ageHoursOf(entry.exception.detectedAt, records.asOf),
+    freshness: copyFreshness(records.freshness),
+  }));
 
   return rows.sort((left, right) => compareIdentifiers(left.id, right.id));
 }

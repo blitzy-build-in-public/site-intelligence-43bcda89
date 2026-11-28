@@ -32,13 +32,14 @@
  * `./evidence-drawer.tsx`'s exported `EvidenceRef`, which owns its own drawer instance, so this
  * component renders no dialog of its own and a chip can be placed in a list without the caller
  * wiring a drawer. The chip prints the record's reference in the mono face, the source's display name
- * from `SOURCE_LABELS`, and the freshness state's own word. The state's meaning comes from
- * `freshnessMeaning` in `./freshness-pill.tsx`, the one mapping the top bar's freshness strip also
- * reads, so a citation and a pill cannot describe one source in two ways. The state word is visible
- * text rather than colour or icon alone (rule B-3): the status primitive hides its icon from
- * assistive technology, so without that word the freshness would be announced to nobody. The name and
- * the state are both read from the citation's own freshness record, so a chip cannot print one
- * source's name beside another source's state.
+ * from `SOURCE_LABELS` as plain secondary text, and the freshness state's own word as the status
+ * primitive's label, so the chip's icon and status colour sit on the state rather than on the name.
+ * The state's meaning comes from `freshnessMeaning` in `./freshness-pill.tsx`, the one mapping the top
+ * bar's freshness strip also reads, so a citation and a pill cannot describe one source in two ways.
+ * The state word is visible text rather than colour or icon alone (rule B-3): the status primitive
+ * hides its icon from assistive technology, so without that word the freshness would be announced to
+ * nobody. The name and the state are both read from the citation's own freshness record, so a chip
+ * cannot print one source's name beside another source's state.
  *
  * THE DISCLOSURE KEEPS THE ANSWER'S WORKING (AAP §0.12.4). The control is `Button` from
  * `src/components`, the owner of the `<button>` element AAP §0.5.2 permits only inside the component
@@ -170,10 +171,10 @@ const CITATION_LIST_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2 text-13
 /** One chip's list item: it may shrink, so a long reference wraps rather than overflowing. */
 const CITATION_ITEM_CLASSES = 'min-w-0';
 
-/** The source name inside a chip keeps its own intrinsic width, so a reference wraps before it does. */
+/** The status inside a chip keeps its own intrinsic width, so a reference wraps before it does. */
 const CITATION_STATUS_CLASSES = 'shrink-0 text-12';
 
-/** The freshness state's own word beside the source name, one step below the reference. */
+/** The source's name beside the status, one step below the reference. */
 const CITATION_STATE_CLASSES = 'shrink-0 text-12 text-text-secondary';
 
 /** The disclosure and its panel: the control, then the panel one 4 px step beneath it. */
@@ -196,7 +197,7 @@ const DETAIL_CONTROL_CLASSES = [
   'rounded-control border border-control-boundary px-2 py-1',
   'bg-transparent font-sans text-13 text-text-secondary',
   'hover:bg-surface-1 hover:text-text-primary active:bg-surface-2',
-  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
+  'focus-visible:outline-2 focus-visible:outline-focus-ring',
 ].join(' ');
 
 /**
@@ -323,19 +324,23 @@ export function AssistantAnswer({ answer }: AssistantAnswerProps): ReactElement 
       {hasCitations ? (
         <ul role="list" className={CITATION_LIST_CLASSES}>
           {citations.map((citation, index) => (
-            /* The label and the state both come from the citation's own freshness record, so a chip
+            /* The name and the state both come from the citation's own freshness record, so a chip
                cannot print one source's name beside another source's state. The source name is the
                display name the source vocabulary fixes for that key, falling back to the key the
-               record itself carries rather than to a second name table. */
+               record itself carries rather than to a second name table; the state is the status the
+               chip reports, so it is the status primitive's label and carries the meaning's icon and
+               status colour rather than the name carrying them (rule B-3). */
             <li key={`${index}-${citation.ref}`} className={CITATION_ITEM_CLASSES}>
               <EvidenceRef ref={citation.ref}>
                 <MonoValue value={citation.ref} kind="id" />
+                <span className={CITATION_STATE_CLASSES}>
+                  {SOURCE_LABELS[citation.freshness.source] ?? citation.freshness.source}
+                </span>
                 <StatusIndicator
                   meaning={freshnessMeaning(citation.freshness.state)}
-                  label={SOURCE_LABELS[citation.freshness.source] ?? citation.freshness.source}
+                  label={citation.freshness.state}
                   className={CITATION_STATUS_CLASSES}
                 />
-                <span className={CITATION_STATE_CLASSES}>{citation.freshness.state}</span>
               </EvidenceRef>
             </li>
           ))}

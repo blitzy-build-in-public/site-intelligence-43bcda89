@@ -1,7 +1,7 @@
 /**
  * Component suite for `exception-queue-screen.tsx`: the SCR-02 queue of stage S1, its twelve columns,
- * its six filters, its row actions, its saved views, the two states that replace the table, the
- * keyboard row cursor and both themes.
+ * its six filters, its row actions, its saved views, the two states that withhold the table's rows,
+ * the keyboard row cursor and both themes.
  *
  * WHAT IT PROVES. Each case asserts a contract of AAP §0.12.4's SCR-02 row rather than a shape of the
  * markup: the twelve columns AAP fixes appear in its order with the actions cell after them; the rows
@@ -10,22 +10,26 @@
  * records; each filter reaches the port once with the member it narrowed; the day the screen is handed
  * reaches the port as the query's own member and is cleared by the control that states it; the two row
  * writes go through the port exactly once; the confirm of the dismissal dialog is disabled with its
- * reason until a reason exists (rule P-8) and the dialog closes only once the write settles; the empty and
- * forbidden states render the boundary's own surfaces with the caller's sentence and the refusal's
- * evidence; `J`, `K` and `Enter` drive the row cursor; a saved view restores the filter set it holds;
+ * reason until a reason exists (rule P-8) and the dialog closes only once the write settles; the empty
+ * state keeps the table with its caption and every one of its headers and states the sentence in the
+ * one cell that spans them — the filter wording for a read the reader narrowed, the neutral sentence
+ * for one nothing narrowed — while the forbidden state renders the refusal's evidence in place of the
+ * table; `J`, `K` and `Enter` drive the row cursor; a saved view restores the filter set it holds;
  * each figure a row shows — revenue at risk, days to impact and age — is a trigger whose activation
  * opens that exception's evidence (AAP §0.12.4, functional requirement F12, principle PR-6); and the
  * queue renders in Command and in Paper.
  *
  * HOW THE SERVICE IS REACHED. The provider module is replaced, not the port: `vi.mock` swaps
- * `../../services/service-provider` for the three hooks the screen reads, backed by one hoisted stub
+ * `../../services/service-provider` for the four hooks the screen reads, backed by one hoisted stub
  * whose `vi.fn`s are named exactly as the port's members are, so a renamed member surfaces here as a
  * call to an undefined function rather than as a quietly passing suite. Nothing else is replaced —
  * no seed module, adapter, HTTP client or domain module is imported, and every record below is
  * hand-built (rule P-2). Every identifier-shaped value is assembled by concatenation, and every
  * amount is a plain number, so no domain identifier and no currency literal is written into a feature
  * folder (rule P-6); the fixture rows are the suite's own input, standing for what the adapter returns
- * at run time, in the same way `src/components/state-boundary.test.tsx` supplies its own denial.
+ * at run time, in the same way `src/components/state-boundary.test.tsx` supplies its own denial. The
+ * roster `useRolesHolding` answers with is the suite's own input for the same reason: the adapter
+ * derives it from the personas it reports, and no seed module is reached from here.
  *
  * THE ROUTER. The screen calls `useNavigate()` and opens a row by navigating to its investigation, so
  * each render mounts a `MemoryRouter` around the screen and a probe beside it that reports
@@ -50,8 +54,10 @@
  *   record content it supplied itself.
  * - P-7: every company, plant and persona below is a synthetic placeholder, and no product, vendor or
  *   carmaker name appears.
- * - P-8: the three controls the queue can render disabled — the assignment, the dismissal confirm and
- *   the saved-view save — are each asserted to state their reason.
+ * - P-8: every control the queue can render disabled — the two row writes for a persona that may not
+ *   work the row or for a session reporting no persona, the dismissal confirm and the saved-view save —
+ *   is asserted to state its reason, and the two row writes are asserted enabled for a persona that does
+ *   hold `exception.work` over the row's plant.
  * - P-3, P-4, P-5: nothing here is about who may act in production, where records are held or how a
  *   competitor compares, so the suite asserts nothing about them.
  *
@@ -81,6 +87,7 @@ import type {
   Permission,
   Problem,
   Result,
+  Role,
   Scope,
   SimLabel,
   ThemeName,
@@ -97,7 +104,7 @@ import type { ExceptionQueueScreenProps } from './exception-queue-screen';
  *
  * `vi.mock` is hoisted above the imports, so the factory that returns the three hooks may only close
  * over bindings that exist before the graph runs — hence `vi.hoisted`. The stub holds one `vi.fn` per
- * port member the screen reaches: `listExceptions` for both reads, `assignException` and
+ * port member the screen reaches: `listExceptions` for the queue's own read, `assignException` and
  * `dismissException` for the two writes, and `getEvidence` for the evidence drawer a row's figure opens.
  * Each is named exactly as `SiteIntelligenceService` names it, and the port's type is applied at the
  * mock boundary below, so the double cannot drift from the contract it stands for without a compile
@@ -113,13 +120,16 @@ const stub = vi.hoisted(() => {
     service: { listExceptions, assignException, dismissException, getEvidence },
     /** The persona the provider reports, or `null` for a session the adapter cannot name. */
     activeUser: null as ActiveUser | null,
+    /** The roles the provider reports as holding `exception.work`, or `null` while that is unknown. */
+    rolesWithWork: null as Role[] | null,
   };
 });
 
 /**
  * The provider replaced by the stub.
  *
- * `useService()` hands back the double, `useActiveUser()` the persona a case wants, and
+ * `useService()` hands back the double, `useActiveUser()` the persona a case wants,
+ * `useRolesHolding()` the roles a case reports as holding the permission the row writes need, and
  * `useDemonstration()` nothing: the queue reads no demonstration control, and a `null` capability is
  * the shape the provider documents for an adapter that carries none.
  *
@@ -133,6 +143,7 @@ const stub = vi.hoisted(() => {
 vi.mock('../../services/service-provider', () => ({
   useService: () => stub.service,
   useActiveUser: (): ActiveUser | null => stub.activeUser,
+  useRolesHolding: (): Role[] | null => stub.rolesWithWork,
   useDemonstration: () => null,
 }));
 
@@ -159,6 +170,28 @@ const REQUIRED_PERMISSION: Permission = 'exception.read';
 
 /** The role the refusal below names as one that may act. */
 const ROLE_WITH_PERMISSION = 'plant-manager';
+
+/**
+ * The permission a write to an exception needs, as the adapter's own gate checks it.
+ *
+ * A row action and the note action are disabled without it, so the suite asserts the sentence names
+ * this permission rather than a paraphrase of it.
+ */
+const WORK_PERMISSION: Permission = 'exception.work';
+
+/**
+ * The roles the roster reports as holding {@link WORK_PERMISSION}, in the order it lists them.
+ *
+ * The roles the persona roster derives from the matrix are the adapter's own answer, so this is the
+ * suite's input for what `useRolesHolding` returns, standing for what the provider reads at run time —
+ * the disabled control's sentence is composed from it and must name every one of them in this order.
+ */
+const ROLES_WITH_WORK: Role[] = [
+  'material-planner',
+  'plant-manager',
+  'production-planner',
+  'supplier-quality-engineer',
+];
 
 /** The three exception identifiers this suite supplies, assembled rather than written out. */
 const ROW_A_ID = ['EXC', '2026', '1184'].join('-');
@@ -212,6 +245,28 @@ const TRIMMED_REASON = TYPED_REASON.trim();
  */
 const CALCULATED_LABEL: SimLabel = 'Simulated calculation';
 
+/**
+ * The twelve columns AAP 0.12.4's SCR-02 row names, in the order it gives them.
+ *
+ * Shared by the case that reads them off a queue holding rows and the case that reads them off a queue
+ * holding none, because the empty state replaces the rows and not the table: a header a reader could
+ * sort the queue by is a header they must still reach after narrowing it to nothing.
+ */
+const SPECIFIED_COLUMNS: readonly string[] = [
+  EXCEPTION_QUEUE_TEXT.columnID,
+  EXCEPTION_QUEUE_TEXT.columnType,
+  EXCEPTION_QUEUE_TEXT.columnTitle,
+  EXCEPTION_QUEUE_TEXT.columnProducts,
+  EXCEPTION_QUEUE_TEXT.columnPlant,
+  EXCEPTION_QUEUE_TEXT.columnSeverity,
+  EXCEPTION_QUEUE_TEXT.columnRevenue,
+  EXCEPTION_QUEUE_TEXT.columnDaysToImpact,
+  EXCEPTION_QUEUE_TEXT.columnStatus,
+  EXCEPTION_QUEUE_TEXT.columnOwner,
+  EXCEPTION_QUEUE_TEXT.columnAge,
+  EXCEPTION_QUEUE_TEXT.columnFreshness,
+];
+
 /** One source's contribution, in the state that raises none of the boundary's warnings. */
 const FRESH_RECORD: Freshness = { source: 'erp', asOf: AS_OF, state: 'fresh' };
 
@@ -238,6 +293,39 @@ const ACTIVE_USER: ActiveUser = {
   plantIds: [PLANT_RGB],
   permissions: ['exception.read', 'exception.work'],
   homeRoute: '/canvas',
+};
+
+/**
+ * The persona a role that may only read the queue acts as.
+ *
+ * `permissions` is the matrix as the adapter derives it for the role, so this persona reaches the queue
+ * and holds no `exception.work` over any row — the case the row controls must explain before the
+ * attempt rather than refuse after it (AAP 0.2.1, rule P-8). Its plant scope covers both rows the
+ * assertions read, so nothing but the missing permission can disable them.
+ */
+const READ_ONLY_USER: ActiveUser = {
+  id: ['USR', '06'].join('-'),
+  name: 'Sample Auditor',
+  role: 'auditor',
+  plantIds: [PLANT_RGB, PLANT_BRN],
+  permissions: ['exception.read'],
+  homeRoute: '/audit',
+};
+
+/**
+ * The persona a role that may work records acts as, scoped to the second row's plant alone.
+ *
+ * It holds {@link WORK_PERMISSION} and owns none of the supplied rows, so it may change a record at its
+ * own plant and no other: one render therefore tells the two halves of the gate apart, because the first
+ * row lands on `PLANT_RGB` and the second on `PLANT_BRN`.
+ */
+const PLANT_SCOPED_USER: ActiveUser = {
+  id: ['USR', '05'].join('-'),
+  name: 'Sample Production Planner',
+  role: 'production-planner',
+  plantIds: [PLANT_BRN],
+  permissions: ['exception.read', 'exception.work'],
+  homeRoute: '/exceptions',
 };
 
 /** The scope the screen hands the read when the shell selected nothing. */
@@ -495,6 +583,47 @@ const FILTER_CASES: readonly FilterCase[] = [
   { label: EXCEPTION_QUEUE_TEXT.ownerFilter, member: 'ownerId', value: OWNER_B },
 ];
 
+/** One enumerated filter, and the member of a row whose values it offers. */
+interface OptionSourceCase {
+  /** The filter's visible label, which is also its control's accessible name. */
+  readonly label: string;
+
+  /** The member of the supplied rows the filter's options are the distinct values of. */
+  readonly pick: (row: ExceptionRow) => string;
+}
+
+/**
+ * The five enumerated filters, each beside the row member its options come from.
+ *
+ * The expected values are read from the rows the stub returns rather than written here (rule P-6), so a
+ * case can assert that each control offers what that one answer carries.
+ */
+const OPTION_SOURCE_CASES: readonly OptionSourceCase[] = [
+  { label: EXCEPTION_QUEUE_TEXT.typeFilter, pick: (row) => row.type },
+  { label: EXCEPTION_QUEUE_TEXT.plantFilter, pick: (row) => row.plantId },
+  { label: EXCEPTION_QUEUE_TEXT.severityFilter, pick: (row) => row.severity },
+  { label: EXCEPTION_QUEUE_TEXT.statusFilter, pick: (row) => row.status },
+  { label: EXCEPTION_QUEUE_TEXT.ownerFilter, pick: (row) => row.ownerId },
+];
+
+/** One way the shell mounts the queue, with the props that mount supplies. */
+interface MountCase {
+  /** How the mount narrows the queue, named in the case's title. */
+  readonly mount: string;
+
+  /** The props that mount hands the screen. */
+  readonly props: ExceptionQueueScreenProps;
+}
+
+/**
+ * The two mounts held to one read each: the queue the shell opens whole, and the queue the overview's day
+ * has already narrowed — the shape that used to pay a second, unfiltered read for the filters' options.
+ */
+const MOUNT_CASES: readonly MountCase[] = [
+  { mount: 'no narrowing', props: {} },
+  { mount: 'the day it is handed', props: { initialQuery: { date: THE_DAY } } },
+];
+
 /** One figure a queue row shows: the column it sits in and the reading that column prints. */
 interface FigureCellCase {
   /** The column's visible header, which is also how the case locates its cell. */
@@ -534,6 +663,7 @@ describe('ExceptionQueueScreen', () => {
     delete document.documentElement.dataset.theme;
 
     stub.activeUser = ACTIVE_USER;
+    stub.rolesWithWork = [...ROLES_WITH_WORK];
     stub.service.listExceptions.mockResolvedValue(ok([...ROWS]));
     stub.service.assignException.mockResolvedValue(ok({ ownerId: ACTIVE_USER.id }));
     stub.service.dismissException.mockResolvedValue(ok({ id: ROW_A_ID }));
@@ -544,26 +674,11 @@ describe('ExceptionQueueScreen', () => {
     renderQueue();
     await awaitQueue();
 
-    const specified = [
-      EXCEPTION_QUEUE_TEXT.columnID,
-      EXCEPTION_QUEUE_TEXT.columnType,
-      EXCEPTION_QUEUE_TEXT.columnTitle,
-      EXCEPTION_QUEUE_TEXT.columnProducts,
-      EXCEPTION_QUEUE_TEXT.columnPlant,
-      EXCEPTION_QUEUE_TEXT.columnSeverity,
-      EXCEPTION_QUEUE_TEXT.columnRevenue,
-      EXCEPTION_QUEUE_TEXT.columnDaysToImpact,
-      EXCEPTION_QUEUE_TEXT.columnStatus,
-      EXCEPTION_QUEUE_TEXT.columnOwner,
-      EXCEPTION_QUEUE_TEXT.columnAge,
-      EXCEPTION_QUEUE_TEXT.columnFreshness,
-    ];
-
     const headers = headerCells();
 
-    expect(headers).toHaveLength(specified.length + 1);
+    expect(headers).toHaveLength(SPECIFIED_COLUMNS.length + 1);
     expect(headers.map((header) => header.textContent?.trim())).toEqual([
-      ...specified,
+      ...SPECIFIED_COLUMNS,
       EXCEPTION_QUEUE_TEXT.columnActions,
     ]);
 
@@ -640,6 +755,49 @@ describe('ExceptionQueueScreen', () => {
     expect(within(rowAt(1)).getByText('Critical')).toBeVisible();
   });
 
+  it('reverses the order it announces on the first activation of the sorted header', async () => {
+    const user = setUpUser();
+    renderQueue();
+    await awaitQueue();
+
+    /*
+     * The rows arrive in the service's order — severity then days to impact — and the table states it,
+     * so Severity is the one header a reader is told about before touching anything.
+     */
+    const severityHeader = headerCells().find(
+      (header) => header.textContent?.trim() === EXCEPTION_QUEUE_TEXT.columnSeverity,
+    );
+
+    if (severityHeader === undefined) {
+      throw new Error('the queue drew no severity header to sort by');
+    }
+
+    expect(severityHeader).toHaveAttribute('aria-sort', 'ascending');
+
+    const readsBefore = readCount();
+    await user.click(within(severityHeader).getByRole('button'));
+
+    /*
+     * The first activation reverses the announced order instead of asking for it again: the read carries
+     * `severity:desc`, which the service answers with the urgency ranking read backwards, so the rows a
+     * reader sees change and the announcement follows them (rule P-8).
+     */
+    await waitFor(() => {
+      expect(readCount()).toBe(readsBefore + 1);
+    });
+    expect(lastQuery()).toMatchObject({ sort: 'severity:desc' });
+    /*
+     * The sorted read withholds the table while it is pending, so the header that states the order is
+     * read again from the table the answer renders rather than from the node that carried the
+     * activation.
+     */
+    await waitFor(() => {
+      expect(
+        screen.getByRole('columnheader', { name: EXCEPTION_QUEUE_TEXT.columnSeverity }),
+      ).toHaveAttribute('aria-sort', 'descending');
+    });
+  });
+
   it.each(FILTER_CASES)(
     'reads the queue once more, narrowed by the $label filter',
     async ({ label, member, value }) => {
@@ -681,8 +839,9 @@ describe('ExceptionQueueScreen', () => {
     await awaitQueue();
 
     /*
-     * The day reaches the port as the query's own member, with no other constraint beside it: the second
-     * read is the options read, which the screen issues unfiltered on purpose.
+     * The day reaches the port as the query's own member, with no other constraint beside it, and the
+     * mount issues that read alone: the filters' options come from the answer it returns, so no second,
+     * unfiltered read of the same list travels beside it.
      */
     const issuedQueries = stub.service.listExceptions.mock.calls.map(
       (call) => call[0] as ExceptionQuery,
@@ -725,6 +884,63 @@ describe('ExceptionQueueScreen', () => {
      */
     expect(onDayCleared).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * One read per mount, the five enumerated filters filled from that same answer, and one read when a
+   * filter is chosen.
+   *
+   * Every `listExceptions` call computes the whole exception aggregate — a solver call per case included —
+   * so a mount that narrowed the queue cannot also pay a second, unfiltered read for the filters' option
+   * values. The two reads once hashed to one cache key on a bare mount and to two on a narrowed one, which
+   * is how a queue opened from the overview's day paid the aggregate twice.
+   */
+  it.each(MOUNT_CASES)(
+    'reads the queue once on a mount with $mount, fills the five selects from that answer and narrows by one read',
+    async ({ props }) => {
+      const user = setUpUser();
+      renderQueue(props);
+      await awaitQueue();
+
+      expect(readCount()).toBe(1);
+      expect(stub.service.listExceptions.mock.calls.map((call) => call[0] as ExceptionQuery)).toEqual([
+        props.initialQuery ?? {},
+      ]);
+
+      /* Each select offers the distinct values the rows of that one answer carry. */
+      for (const { label, pick } of OPTION_SOURCE_CASES) {
+        const offered = within(filterControl(label))
+          .getAllByRole<HTMLOptionElement>('option')
+          .map((option) => option.value);
+
+        for (const value of new Set(ROWS.map(pick))) {
+          expect(offered).toContain(value);
+        }
+      }
+
+      /*
+       * The read a changed filter set issues answers with only the rows that set admits, and with none at
+       * all when it admits nothing, so the values the first answer stated are gone from it. The control
+       * still states the value in force — a select that dropped it could neither show what narrows the
+       * queue nor report a change of it (rules P-8, B-3) — and the "All severities" entry is the way back
+       * to the wider set. The chosen value replaces the query and is paid for by exactly one more read,
+       * which keeps the day the mount was narrowed to.
+       */
+      stub.service.listExceptions.mockResolvedValue(ok([]));
+
+      await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter), ROW_B.severity);
+      await screen.findByText(EXCEPTION_QUEUE_TEXT.empty);
+
+      expect(readCount()).toBe(2);
+      expect(lastQuery()).toMatchObject({ severity: ROW_B.severity, ...props.initialQuery });
+
+      const severityControl = filterControl(EXCEPTION_QUEUE_TEXT.severityFilter);
+
+      expect(severityControl).toHaveValue(ROW_B.severity);
+      expect(
+        within(severityControl).getByRole('option', { name: EXCEPTION_QUEUE_TEXT.anySeverity }),
+      ).toBeVisible();
+    },
+  );
 
   it('assigns a row to the acting persona once, then reads the queue again', async () => {
     const user = setUpUser();
@@ -782,6 +998,99 @@ describe('ExceptionQueueScreen', () => {
 
     expect(screen.getByRole('tooltip')).toHaveTextContent(EXCEPTION_QUEUE_TEXT.alreadyOwnerReason);
     expect(stub.service.assignException).not.toHaveBeenCalled();
+  });
+
+  it('disables both row writes for a persona that does not hold the work permission, naming the roles that do', async () => {
+    const user = setUpUser();
+    stub.activeUser = READ_ONLY_USER;
+    renderQueue();
+    await awaitQueue();
+
+    const firstRow = within(rowAt(0));
+    const secondRow = within(rowAt(1));
+    const assign = firstRow.getByRole('button', { name: /^Assign to me/ });
+    const dismiss = secondRow.getByRole('button', { name: /^Dismiss/ });
+
+    /* Every row is refused, at either plant, because the permission is missing rather than the plant. */
+    expect(assign).toHaveAttribute('aria-disabled', 'true');
+    expect(firstRow.getByRole('button', { name: /^Dismiss/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(secondRow.getByRole('button', { name: /^Assign to me/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(dismiss).toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(assign);
+
+    const reason = screen.getByRole('tooltip');
+
+    expect(reason).toHaveTextContent(EXCEPTION_QUEUE_TEXT.noWorkActor);
+    expect(reason).toHaveTextContent(READ_ONLY_USER.role);
+    expect(reason).toHaveTextContent(WORK_PERMISSION);
+    expect(reason).toHaveTextContent(ROW_A.plantId);
+    expect(reason).toHaveTextContent(EXCEPTION_QUEUE_TEXT.noWorkRoles);
+    expect(reason).toHaveTextContent(ROLES_WITH_WORK.join(', '));
+
+    /*
+     * The dismissal is refused at the row action, which is the only way into the dialog: activating it
+     * opens nothing, and neither write reached the port (rule P-8, and the adapter refuses them anyway).
+     */
+    await user.click(dismiss);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(stub.service.assignException).not.toHaveBeenCalled();
+    expect(stub.service.dismissException).not.toHaveBeenCalled();
+  });
+
+  it('disables the row writes at a plant outside the acting persona’s scope and enables them inside it', async () => {
+    const user = setUpUser();
+    stub.activeUser = PLANT_SCOPED_USER;
+    renderQueue();
+    await awaitQueue();
+
+    const outOfScope = within(rowAt(0));
+    const inScope = within(rowAt(1));
+
+    expect(outOfScope.getByRole('button', { name: /^Assign to me/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(outOfScope.getByRole('button', { name: /^Dismiss/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+
+    /* The permission is held, so the rows the persona reaches offer both writes as they stand. */
+    expect(inScope.getByRole('button', { name: /^Assign to me/ })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+    expect(inScope.getByRole('button', { name: /^Dismiss/ })).not.toHaveAttribute('aria-disabled');
+
+    await user.click(outOfScope.getByRole('button', { name: /^Assign to me/ }));
+
+    /* The sentence names the plant the row lands on, which is the fact that is wrong rather than the role. */
+    expect(screen.getByRole('tooltip')).toHaveTextContent(ROW_A.plantId);
+    expect(stub.service.assignException).not.toHaveBeenCalled();
+  });
+
+  it('names no role while the roster has not reported the roles that may act', async () => {
+    const user = setUpUser();
+    stub.activeUser = READ_ONLY_USER;
+    stub.rolesWithWork = null;
+    renderQueue();
+    await awaitQueue();
+
+    await user.click(within(rowAt(0)).getByRole('button', { name: /^Dismiss/ }));
+
+    const reason = screen.getByRole('tooltip');
+
+    expect(reason).toHaveTextContent(WORK_PERMISSION);
+    expect(reason).toHaveTextContent(ROW_A.plantId);
+    expect(reason).not.toHaveTextContent(EXCEPTION_QUEUE_TEXT.noWorkRoles);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('keeps the dismissal confirm disabled with its reason until a reason is given', async () => {
@@ -846,12 +1155,53 @@ describe('ExceptionQueueScreen', () => {
     expect(opener).toHaveFocus();
   });
 
-  it('renders the empty state with the sentence the screen supplies', async () => {
+  it('T-17 keeps the table, its caption and every column when the read answers with no row', async () => {
     stub.service.listExceptions.mockResolvedValue(ok([]));
     renderQueue();
 
+    /*
+     * The empty state replaces the rows, not the table. A reader who emptied the queue still sees the
+     * caption and the headers they were narrowing it by, and the sentence stands in the one cell that
+     * spans them, so the answer is stated inside the structure it belongs to (specification §8,
+     * AAP 0.12.4).
+     */
+    const table = await screen.findByRole('table', {
+      name: EXCEPTION_QUEUE_TEXT.tableCaption,
+    });
+
+    expect(within(table).getByText(EXCEPTION_QUEUE_TEXT.emptyUnnarrowed)).toBeVisible();
+    expect(headerCells().map((header) => header.textContent?.trim())).toEqual([
+      ...SPECIFIED_COLUMNS,
+      EXCEPTION_QUEUE_TEXT.columnActions,
+    ]);
+
+    /* No row, so no row action: the cell that states the emptiness is the body's only cell. */
+    expect(within(table).getAllByRole('cell')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /^Open\s*:/ })).not.toBeInTheDocument();
+
+    /* The computed column's label and the sentence explaining it stay with the content: an empty
+       answer holds no figure for a label to refer to (rule P-1). */
+    expect(screen.queryByText(CALCULATED_LABEL)).not.toBeInTheDocument();
+    expect(screen.queryByText(EXCEPTION_QUEUE_TEXT.revenueNote)).not.toBeInTheDocument();
+  });
+
+  it('T-17 keeps the filter wording when a narrowed read answers with no row', async () => {
+    const user = setUpUser();
+
+    /* The first read fills the table and the filters' options; the narrowed read that follows empties
+       it, which is the answer a filter set that matches nothing produces. */
+    stub.service.listExceptions.mockResolvedValueOnce(ok([...ROWS])).mockResolvedValue(ok([]));
+    renderQueue();
+    await awaitQueue();
+
+    await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter), 'critical');
+
     expect(await screen.findByText(EXCEPTION_QUEUE_TEXT.empty)).toBeVisible();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByRole('table', { name: EXCEPTION_QUEUE_TEXT.tableCaption })).toBeVisible();
+
+    /* The sentence the unfiltered answer gets is not the one a narrowed answer gets: the reader
+       narrowed the queue themselves, and the wording says so. */
+    expect(screen.queryByText(EXCEPTION_QUEUE_TEXT.emptyUnnarrowed)).not.toBeInTheDocument();
   });
 
   it('renders the forbidden state with the permission, the roles and the trace id', async () => {

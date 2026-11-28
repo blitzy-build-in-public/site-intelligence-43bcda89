@@ -19,12 +19,19 @@
  * a note — go through the port's own methods and invalidate this screen's cache entries, so the
  * activity beneath them re-reads rather than showing what the cache held before the write.
  *
+ * WHO MAY WRITE IS STATED BEFORE THE ATTEMPT. Both writes are the adapter's own calls, and it refuses
+ * either one for a persona that does not hold `exception.work` over the exception's plant. Both controls
+ * are therefore gated here from the facts the adapter itself derived — the persona's permissions and
+ * plant scope through `useActiveUser()`, and the roles that hold the permission through the persona
+ * roster — so a read-only persona finds them disabled with a sentence naming the roles that may act
+ * rather than learning of the refusal by activating them (AAP 0.2.1, rules P-3 and P-8).
+ *
  * NOTHING IS COMPUTED HERE (rule P-6). No amount, count, duration, date, percentage or delta is
  * derived, rounded, parsed or formatted in this module: every figure arrives from the service, and
  * the only formatter it uses is `src/components/mono-value.tsx`. `String(units)` renders a record
  * value as the text a chart point carries, which is the same presentation the overview screen applies
  * to its own series, and no arithmetic operator appears in the file at all. The one span this module
- * derives is the idle window's own dates — the first and the last day the payload's series reads no
+ * derives is the idle window's own dates — the first and the last day the plotted series reads no
  * closing stock on — which selects dates the record states rather than measuring anything. Both
  * numeric literals are zero: the level the projected-stock surface is read against, and the closing
  * reading that marks an empty day. Neither is a figure of any record.
@@ -65,15 +72,16 @@
  * the order identifier and the two measured days and units, so the orders table joins each measured
  * order to the exception's own `affectedLines` for the promised date and the units at risk — a lookup,
  * not a computation — and a measured order with no line leaves those two cells empty rather than
- * reading `undefined`. The chart's idle band is the payload's own closing-stock series read as zero,
- * from its first such date to the last in the series' own order, and no span is shaded when the series
- * holds no zero day: a range of the record's own dates, never a measure counted from them. The impact
- * chain reaches the panel unchanged: this screen decides nothing about which nodes are openable.
+ * reading `undefined`. The chart's idle band is the plotted series read as zero — the designated option's
+ * own series where it carries one, the baseline's otherwise — from its first such date to the last in the
+ * series' own order, and no span is shaded when that series holds no zero day: a range of the record's
+ * own dates, never a measure counted from them. The impact chain reaches the panel unchanged: this screen
+ * decides nothing about which nodes are openable.
  *
  * Rules served: B-1, B-2, B-3, P-1, P-2, P-3, P-4, P-5, P-6, P-7, P-8.
  */
 import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
@@ -108,7 +116,7 @@ import {
   CONTROL_STRUCTURE_CLASSES,
   SECONDARY_CONTROL_CLASSES,
 } from '../../components/tooltip';
-import { useActiveUser, useService } from '../../services/service-provider';
+import { useActiveUser, useRolesHolding, useService } from '../../services/service-provider';
 /*
  * `EXCEPTION_QUEUE_PATH` is the queue this screen returns to when the route names no exception it may
  * read. It has one declaration, in `src/types/routes.ts`, shared with the navigation table, the shell's
@@ -131,7 +139,10 @@ import type {
   ExceptionStatus,
   IsoDate,
   OperationalException,
+  Permission,
+  PlantId,
   Result,
+  Role,
   Scenario,
   ScenarioSet,
   Scope,
@@ -187,6 +198,14 @@ export const INVESTIGATION_TEXT = {
   /** The projection's section heading and the opening of its composed caption. */
   projectionHeading: 'Projected closing stock',
   projectionPrefix: 'Projected closing stock',
+
+  /**
+   * The projection's two axis names: the calendar the series is plotted over, and what each plotted
+   * reading is measured in. They are the words the canvas dock already gives the same projection, so
+   * one figure's axes read the same way wherever the projected stock is drawn.
+   */
+  projectionXAxisLabel: 'Calendar date',
+  projectionYAxisLabel: 'Units at close',
 
   /** What a projection with no reading shows when the baseline does carry points. */
   projectionEmpty: 'The records report no closing-stock reading for this exception.',
@@ -249,6 +268,23 @@ export const INVESTIGATION_TEXT = {
   assignUnavailable:
     'This session reports no acting persona, so there is nobody to assign the exception to.',
   alreadyOwner: ALREADY_OWNER_REASON,
+
+  /**
+   * Why a write to the exception cannot act: the acting role does not hold `exception.work` over the
+   * plant the exception lands on. {@link noWorkReason} composes the role the adapter enforces, that
+   * plant and the permission's own name — held as the constant the gate itself checks, so the sentence
+   * and the check cannot name two permissions — into one sentence, and closes it with
+   * {@link noWorkRoles} once the roster has answered. "Assign to me" and "Add note" both write to the
+   * record, so both state this one reason, and the reader learns who may act before activating either
+   * of them (AAP 0.2.1, rules P-3 and P-8).
+   */
+  noWorkActor: 'The acting role',
+  noWorkLacks: 'does not hold the',
+  noWorkOver: 'permission over',
+  noWorkOutcome: 'so this exception cannot be changed here.',
+
+  /** The clause naming the roles that hold `exception.work`, composed in by {@link noWorkReason}. */
+  noWorkRoles: 'The roles that hold it are',
 
   /** The note form. */
   noteHeading: 'Add a note',
@@ -448,22 +484,28 @@ function stockPointsOf(
 }
 
 /**
- * The idle window the projection shades: the span of days the record's own closing stock reads as zero.
+ * The idle window the projection shades: the span of days the plotted series reads no closing stock on.
  *
- * AAP 0.12.4's SCR-03 row asks the figure for "the idle window shaded". The payload states the closing
- * stock each day holds rather than a window of its own, so the span is read off that series: the first
- * zero closing day is where the window opens and the last is where it closes, in the series' own order.
- * That selects two dates the record states and measures nothing (rule P-6) — the readings, the counts
- * and the idle-day measure stay the solver's, and this module only says where to shade.
+ * AAP 0.12.4's SCR-03 row asks the figure for "the idle window shaded". No record states a window of its
+ * own, so the span is read off the series the figure plots: the first zero closing day is where the
+ * window opens and the last is where it closes, in the series' own order. That selects two dates the
+ * record states and measures nothing (rule P-6) — the readings, the counts and the idle-day measure stay
+ * the solver's, and this module only says where to shade.
+ *
+ * The series read here is the one the figure states its run-out from — the option the service designates
+ * — rather than the baseline: the baseline is the do-nothing case, whose stock runs out when the
+ * disruption lands and therefore reads zero on every day after it, so a band read off the baseline would
+ * cover the whole window and say nothing about the option the reader is looking at. The baseline answers
+ * only where nothing is designated, or where the designated option carries no series of its own.
  *
  * A series with no zero closing day has no idle window, so no band is drawn: the surface then shades
  * nothing rather than inventing a span, and the projection reads exactly as it did before.
  *
- * @param points - The closing-stock series exactly as the payload states it.
+ * @param points - The series the figure plots, exactly as its points state it.
  * @returns One band over the zero run, or no band at all.
  */
-function idleWindowBandsOf(points: readonly DailyClosingStockPoint[]): readonly LineBand[] {
-  const zeroDays = points.filter((point) => point.units === 0);
+function idleWindowBandsOf(points: readonly LinePoint[]): readonly LineBand[] {
+  const zeroDays = points.filter((point) => point.y === 0);
   const first = zeroDays[0];
   const last = zeroDays.at(-1);
 
@@ -471,7 +513,7 @@ function idleWindowBandsOf(points: readonly DailyClosingStockPoint[]): readonly 
     return [];
   }
 
-  return [{ from: first.date, to: last.date, label: INVESTIGATION_TEXT.idleWindowLabel }];
+  return [{ from: first.x, to: last.x, label: INVESTIGATION_TEXT.idleWindowLabel }];
 }
 
 /**
@@ -865,6 +907,12 @@ interface NoteFormProps {
  * plain reason until the field holds something, and while the write is in flight, so pressing it can
  * never send a note the records would refuse for being empty (rule P-8). A refusal keeps the typed text
  * and prints the service's own sentence beneath the field rather than discarding the reader's work.
+ *
+ * Focus moves into the field as the form opens and returns to whatever opened it as the form closes, so
+ * a keyboard reader's first keystrokes reach the field and their place in the page survives the form
+ * appearing and leaving (rule B-3). The form closes in one of three ways — `Cancel`, the close that
+ * follows a recorded note, and a re-render that hides the card — and every one unmounts this component,
+ * so the one return covers all three.
  */
 function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactElement {
   const service = useService();
@@ -876,6 +924,8 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
+  const fieldRef = useRef<HTMLTextAreaElement | null>(null);
+
   /* While the write is in flight that state outranks the field's own requirement: the reader can no
      longer change the outcome, so the control says what is actually holding it. */
   const blocker = submitting
@@ -883,6 +933,19 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
     : draft.trim() === ''
       ? INVESTIGATION_TEXT.noteRequired
       : null;
+
+  /* Focus moves into the field as the form opens and returns to whatever opened it as the form closes.
+     The opener is read in this pass rather than in a later one, because the field is focused straight
+     after and `document.activeElement` would already be that field. */
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    fieldRef.current?.focus();
+
+    return () => {
+      opener?.focus();
+    };
+  }, []);
 
   /** Records the note once, through the port, and reports what the service answered. */
   const recordNote = (): void => {
@@ -916,6 +979,7 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
         </label>
         <TextAreaField
           id={fieldId}
+          ref={fieldRef}
           className={NOTE_FIELD_CLASSES}
           value={draft}
           aria-describedby={failure === null ? undefined : failureId}
@@ -945,6 +1009,97 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
       </div>
     </div>
   );
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Who may work this exception — contracts §7.1, rules P-3 and P-8
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The permission a write to an exception requires — contracts §7.1's `exception.work` cell, the one the
+ * adapter evaluates as `requireWork` before it changes a record.
+ *
+ * Held as a typed `Permission` rather than written into a sentence, so a reworded matrix row fails to
+ * compile here instead of reaching a reader as text that names a permission the service no longer
+ * enforces (rule P-6).
+ */
+const WORK_PERMISSION: Permission = 'exception.work';
+
+/**
+ * Whether the acting persona may work a record that lands on one plant.
+ *
+ * This is the matrix's own answer for every persona the demonstration seeds. A persona's `permissions`
+ * are the row contracts §7.1 grants its role, and its `plantIds` are that role's scope as
+ * `plantScopeFor` states it, so holding the permission *and* reaching the plant is exactly
+ * `hasPermission(role, 'exception.work', exception, actor)`: the scope test the matrix applies to the
+ * role is the same set the persona carries, and the persona's own set narrows it no further. Both facts
+ * arrive from the adapter through `useActiveUser()`, the only route a feature has to them (rule P-2),
+ * and the adapter keeps enforcing the permission on the call itself, so a disabled control is an
+ * explanation and never the defence (rule P-3).
+ *
+ * @param actingUser - The persona the adapter is enforcing.
+ * @param plantId - The plant the record lands on.
+ * @returns Whether this persona may change records at that plant.
+ */
+function mayWork(actingUser: ActiveUser, plantId: PlantId): boolean {
+  return actingUser.permissions.includes(WORK_PERMISSION) && actingUser.plantIds.includes(plantId);
+}
+
+/**
+ * The sentence the screen's two write controls are disabled with when the acting persona may not work the
+ * exception.
+ *
+ * It states the three facts the adapter's own refusal states — the role it enforces, the permission that
+ * role lacks and the plant the exception lands on — and then, once the roster has answered, the roles
+ * that hold the permission in the roster's own order, which is what rule P-8 owes a reader who has not
+ * activated the control yet. A roster nobody has reported, or one that reports no holder at all, leaves
+ * that closing clause out rather than claiming no role may act.
+ *
+ * @param actingUser - The persona the adapter is enforcing.
+ * @param plantId - The plant the exception lands on.
+ * @param rolesWithWork - The roles holding `exception.work`, or `null` while that is unknown.
+ * @returns The sentence explaining the disabled state.
+ */
+function noWorkReason(
+  actingUser: ActiveUser,
+  plantId: PlantId,
+  rolesWithWork: readonly Role[] | null,
+): string {
+  const opening =
+    `${INVESTIGATION_TEXT.noWorkActor} (${actingUser.role}) ${INVESTIGATION_TEXT.noWorkLacks} ` +
+    `${WORK_PERMISSION} ${INVESTIGATION_TEXT.noWorkOver} ${plantId}, ` +
+    INVESTIGATION_TEXT.noWorkOutcome;
+
+  if (rolesWithWork === null || rolesWithWork.length === 0) {
+    return opening;
+  }
+
+  return `${opening} ${INVESTIGATION_TEXT.noWorkRoles} ${rolesWithWork.join(', ')}.`;
+}
+
+/**
+ * Why a write to the exception cannot act, or `null` when it can.
+ *
+ * Both writes this screen offers — assigning the exception and recording a note on it — are refused by
+ * the same adapter gate, so both state the same reason, and neither is offered to a persona the service
+ * would refuse. A persona the adapter has not reported blocks nothing: the control would otherwise be
+ * disabled on a fact nobody knows, and the service refuses the write either way (rules P-3 and P-8).
+ *
+ * @param exception - The record the control would act on.
+ * @param actingUser - The persona the adapter is enforcing, or `null` while it is unknown.
+ * @param rolesWithWork - The roles holding `exception.work`, or `null` while that is unknown.
+ * @returns The sentence explaining the disabled state, or `null` when the write may act.
+ */
+function workBlockerOf(
+  exception: OperationalException,
+  actingUser: ActiveUser | null,
+  rolesWithWork: readonly Role[] | null,
+): string | null {
+  if (actingUser === null || mayWork(actingUser, exception.plantId)) {
+    return null;
+  }
+
+  return noWorkReason(actingUser, exception.plantId, rolesWithWork);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1001,6 +1156,12 @@ interface WriteReport {
 export function InvestigationScreen(_props: InvestigationScreenProps): ReactElement {
   const service = useService();
   const activeUser = useActiveUser();
+  /*
+   * The roles the permission a write needs reaches, read from the roster the service reports so a
+   * disabled control can name who may act (rule P-8). `null` while that answer is unknown: the sentence
+   * then leaves the role clause out rather than claiming no role may act.
+   */
+  const rolesWithWork = useRolesHolding(WORK_PERMISSION);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -1090,7 +1251,11 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
       ? cannotComputeMessageOf(detail)
       : INVESTIGATION_TEXT.projectionEmpty;
   const markers = detail === undefined ? [] : dueDateMarkersOf(detail.exception);
-  const bands = detail === undefined ? [] : idleWindowBandsOf(detail.stockSeries);
+
+  /* The band is the run-out the figure's own selected scenario states — the option's own points when the
+     service designates one that carries them, the baseline's otherwise — so the shade names the window a
+     reader is looking at rather than the do-nothing case's whole run (AAP 0.12.4). */
+  const bands = idleWindowBandsOf(selectedPoints.length > 0 ? selectedPoints : baselinePoints);
   const orderRows = detail === undefined ? NO_ORDER_ROWS : orderRowsOf(detail);
 
   /** Moves to the comparison for this exception, which is the action the screen exists to reach. */
@@ -1108,11 +1273,12 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
   /**
    * Why "assign to me" cannot act, or `null` when it can.
    *
-   * Two conditions are facts about the request rather than about who may act, so they are decided here:
-   * an assignment already being recorded, and an exception the acting persona already owns — assigning
-   * it again would change nothing and append an event for a change that did not happen. A session whose
-   * adapter reports no persona cannot name an assignee at all, so the control says that instead of
-   * sending an identifier nobody supplied (rule P-8).
+   * Four conditions are decided here, in the order a reader meets them: an assignment already being
+   * recorded, a session whose adapter reports no persona (which cannot name an assignee at all), a
+   * persona that does not hold `exception.work` over the exception's plant, and an exception the acting
+   * persona already owns — assigning it again would change nothing and append an event for a change that
+   * did not happen. The permission stands ahead of the record's own state because it answers whether this
+   * persona may act at all, and the adapter refuses the assignment on it (AAP 0.2.1, rule P-8).
    *
    * @param exception - The record the control would act on.
    * @param actingUser - The persona the adapter is enforcing, or `null`.
@@ -1128,6 +1294,12 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
 
     if (actingUser === null) {
       return INVESTIGATION_TEXT.assignUnavailable;
+    }
+
+    const workBlocker = workBlockerOf(exception, actingUser, rolesWithWork);
+
+    if (workBlocker !== null) {
+      return workBlocker;
     }
 
     return exception.ownerId === actingUser.id ? INVESTIGATION_TEXT.alreadyOwner : null;
@@ -1209,6 +1381,14 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
   const assignBlocker =
     detail === undefined ? INVESTIGATION_TEXT.assignUnavailable : assignBlockerOf(detail.exception, activeUser);
 
+  /*
+   * Why "add note" cannot act, or `null` when it can. The note is a write to the same record, so it needs
+   * the same permission over the same plant the assignment does; nothing else gates it. A payload that has
+   * not arrived blocks nothing here because the header these controls sit in is not rendered until it has.
+   */
+  const noteBlocker =
+    detail === undefined ? null : workBlockerOf(detail.exception, activeUser, rolesWithWork);
+
   return (
     <div className={SCREEN_CLASSES}>
       <StateBoundary
@@ -1242,9 +1422,15 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
                       {INVESTIGATION_TEXT.assignToMe}
                     </ActionButton>
                   )}
-                  <ActionButton variant="secondary" onClick={openNoteForm}>
-                    {INVESTIGATION_TEXT.addNote}
-                  </ActionButton>
+                  {noteBlocker === null ? (
+                    <ActionButton variant="secondary" onClick={openNoteForm}>
+                      {INVESTIGATION_TEXT.addNote}
+                    </ActionButton>
+                  ) : (
+                    <ActionButton variant="secondary" disabled disabledReason={noteBlocker}>
+                      {INVESTIGATION_TEXT.addNote}
+                    </ActionButton>
+                  )}
                 </>
               }
             />
@@ -1326,6 +1512,8 @@ export function InvestigationScreen(_props: InvestigationScreenProps): ReactElem
                 references={[ZERO_REFERENCE]}
                 markers={markers}
                 bands={bands}
+                xAxisLabel={INVESTIGATION_TEXT.projectionXAxisLabel}
+                yAxisLabel={INVESTIGATION_TEXT.projectionYAxisLabel}
                 emptyMessage={projectionEmptyMessage}
               />
             </Card>

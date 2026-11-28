@@ -28,6 +28,17 @@
  * routes is then asserted against the list this suite expects, so a route added to the shell without the
  * badge cannot pass unnoticed.
  *
+ * WHY THE DENSITY AXIS IS PROVED HERE. The badge, the theme switch and the density switch are the shell's
+ * demonstration-wide controls — each changes something a reader sees on every screen at once — and this
+ * file is where they are proved: T-15 drives the badge on every route, the role switcher test drives the
+ * theme switch through both themes, and the last test below drives the density switch. AAP 0.5.3 fixes
+ * that axis as two row heights, 32 px and 44 px, selected by the `data-density` attribute
+ * `src/theme/theme-provider.tsx` writes on `<html>` and read by the `--row-height` token
+ * `src/theme/tokens.css` derives from it. No other suite presses the switch, so an application that
+ * stopped writing the attribute, or whose rows stopped reading the token, would pass every other test in
+ * the gate; this file is the only one that measures a row to prove the two still agree, and that
+ * measurement is the one place here where geometry is the subject rather than a word a screen renders.
+ *
  * THE ONE STRUCTURAL NUMBER. The edited audit event is the seeded event at sequence 142: the plan fixes
  * that edit, and a verification reports the first position whose stored hash and recomputation disagree.
  * It is a property of the fixture the demonstration ships, not a business figure, so it is the single
@@ -39,12 +50,14 @@
  * the disabled stage entries are asserted rather than forced), P-3 (the role switcher's label and its
  * non-authorisation note), P-4 (the audit verification carries its `Simulated control` wording and no
  * claim of tamper resistance), P-2 (no seed record and no adapter is imported here; data arrives through
- * the screens the port feeds), B-3 (every locator is a role and an accessible name, and nothing is
- * asserted about colour or geometry) and P-7 (only the synthetic names the application renders).
+ * the screens the port feeds), B-3 (every locator is a role and an accessible name, and no state is read
+ * from a colour or a size — the one measurement this file takes is the density token itself) and P-7
+ * (only the synthetic names the application renders).
  */
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 
+import { setDensity } from './helpers/density';
 import { switchRole } from './helpers/role';
 import { setTheme } from './helpers/theme';
 import { resetDemoData, triggerSimulationState } from './helpers/simulation-controls';
@@ -147,8 +160,14 @@ const PERMISSION_REQUIRED_PREFIX = 'Permission required:';
 const STALE_SUFFIX = /is not current/;
 const STALE_AS_OF_PREFIX = /As of/;
 
-/** The queue's own sentence for an answer that holds no row. */
-const QUEUE_EMPTY = 'No exceptions match the current filters.';
+/**
+ * The queue's own sentence for an answer that holds no row and nothing narrowed the read.
+ *
+ * Both triggers below empty the queue itself rather than narrowing it — the "Empty the exception queue"
+ * control and the popup's empty state — so the answer states no filter, and the sentence the screen
+ * shows is the trigger-neutral one rather than the wording a filter set that matched nothing gets.
+ */
+const QUEUE_EMPTY = 'No exceptions to show.';
 
 /**
  * The overview's own sentence for a scope holding nothing to summarise.
@@ -166,10 +185,11 @@ const STAGE_NOTICE_ARRIVAL = /arrives in stage S\d/i;
  * The headline the state boundary gives the conflicting-update state.
  *
  * The state is reached from the popover's "Conflicting update" trigger, whose service behaviour is to
- * refuse a read made against records that moved, so every screen that derives a state reports it. The
- * write half of the same condition — a decision refused rather than merged — is proved at the service
- * layer in `src/services/mock/mock-backend.test.ts`, because the reads a decision is composed from are
- * refused here too.
+ * refuse a read whose payload is a collection — a set presented as current is what the state prevents —
+ * so the screens that present one report it. The write half of the same condition, a decision refused
+ * rather than merged, is proved at the service layer in `src/services/mock/mock-backend.test.ts`: a read
+ * of one record is served so the decision can be attempted, and the refusal the decision meets is what
+ * the approval detail reports in place.
  */
 const CONFLICT_HEADLINE = 'This record changed while you were reading it';
 
@@ -182,6 +202,60 @@ const UNIMPLEMENTED_CLAIM = /tamper-proof|tamper resistant|zero trust|guaranteed
 
 /** The shape of an ISO 8601 instant, used only to prove that an as-of time is printed at all. */
 const INSTANT = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+/* ---------------------------------------------------------------------------------------------
+ * The density axis — AAP 0.5.3's 32 px and 44 px rows, and the table they are measured on
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One of the two densities the switch leaves the session in, taken from the helper's own signature
+ * rather than restated as a second union here.
+ */
+type Density = Parameters<typeof setDensity>[1];
+
+/**
+ * The custom property `src/theme/tokens.css` derives from `<html data-density>` and every table row is
+ * sized by.
+ *
+ * Named once, so the utility a row must carry and the value the property must compute to are spelled
+ * from one string: two spellings could drift apart and leave the assertions checking different tokens.
+ */
+const ROW_HEIGHT_TOKEN = '--row-height';
+
+/**
+ * The utility `src/components/data-table.tsx` sizes a data row with: the arbitrary Tailwind form of the
+ * token above, which the component states as its own `ROW_HEIGHT_CLASS`.
+ *
+ * It is asserted on the measured row because it is what makes the measurement follow the switch. A row
+ * whose height came from a fixed pixel utility would measure the same in both densities, and a row that
+ * named another custom property would take its height from a token the switch does not set.
+ */
+const ROW_HEIGHT_UTILITY = `h-[var(${ROW_HEIGHT_TOKEN})]`;
+
+/**
+ * The two row heights AAP 0.5.3 fixes, in pixels, for the density that selects each.
+ *
+ * These are the specification's density tokens — specification §4.3's "32 px and 44 px rows", mapped by
+ * AAP 0.5.3 onto `--row-compact` and `--row-comfortable` — and not business figures, which rule P-6
+ * forbids typing: that rule governs every number a screen computes from its records, while a design
+ * token is the value a screen is measured against. Holding them here rather than reading them back from
+ * the page is what lets a measurement disagree with the token it is supposed to follow.
+ */
+const ROW_HEIGHT_PX: Readonly<Record<Density, number>> = {
+  compact: 32,
+  comfortable: 44,
+};
+
+/**
+ * The accessible name of the overview's risk-by-plant table: the table the two row heights are measured
+ * on.
+ *
+ * `src/features/scr-01-overview` renders that sentence as the table's caption, so the table is found by
+ * the name a reader is given rather than by its position on the screen. This is the table whose height
+ * is the token alone: a row that describes an incident or summarises a plan keeps the height its own
+ * content needs, whatever the density, so neither could prove the token.
+ */
+const BY_PLANT_TABLE = 'Open exceptions and revenue at risk, by plant';
 
 /* ---------------------------------------------------------------------------------------------
  * The navigation the shell declares — src/app/nav-items.ts, asserted independently
@@ -378,7 +452,7 @@ async function recordRoute(page: Page, visited: Set<string>): Promise<string> {
 
 /**
  * Opens the application at its root, which the shell resolves to the acting persona's entry route, and
- * waits until the shell itself has rendered.
+ * waits until the shell has rendered and that entry route has been reached.
  *
  * The wait is for the badge rather than for the `main` landmark, because the service provider's startup
  * skeleton renders a `main` of its own while the in-browser adapter hashes the seeded audit trail: the
@@ -393,6 +467,12 @@ async function enterDemonstration(page: Page): Promise<void> {
     simulatorBadge(page),
     'The shell never rendered the badge that opens the simulation popover.',
   ).toBeVisible();
+  /* The root address is answered by the shell's own redirect, and the screen it redirects to arrives as
+     its own module, so the shell paints while the address is still `/`. Waiting for the entry route is
+     what makes the screen a reader lands on the first route this suite reads: without it a sweep that
+     recorded the address right here would count the redirect itself as a route of the application. The
+     predicate is the whole wait — any path but the root is the redirect having committed. */
+  await page.waitForURL((url) => url.pathname !== '/');
 }
 
 /**
@@ -520,6 +600,128 @@ async function triggerThenOpenQueue(page: Page, trigger: Trigger): Promise<Locat
   await clickNavEntry(page, 'Exceptions', '/exceptions');
 
   return screen(page);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The density axis — the switch, the attribute and the token a table row is sized by (AAP 0.5.3)
+ * ------------------------------------------------------------------------------------------- */
+
+/** What one table row renders at the moment it is measured. */
+interface RowMeasurement {
+  /** The height the row occupies on screen, in pixels, as the browser lays it out. */
+  readonly heightPx: number;
+  /** The class list the row carries, which is what its height is derived from. */
+  readonly classes: string;
+}
+
+/**
+ * Measures one table row and reads the classes that size it.
+ *
+ * One `evaluate` reads both, so the two describe the same rendering, and the height comes from the row's
+ * own box rather than from a cell's: `border-collapse: collapse` gives the row's box the borders its
+ * cells share, which is the height the density token sets.
+ *
+ * @param row The row locator to measure.
+ * @returns The row's measured height and its class list.
+ */
+async function measureRow(row: Locator): Promise<RowMeasurement> {
+  return row.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+
+    return { heightPx: rect.height, classes: element.getAttribute('class') ?? '' };
+  });
+}
+
+/**
+ * The density the session is in, read from the attribute that selects the row height.
+ *
+ * Read rather than assumed, because AAP 0.12.4 gives the personas different starting densities. A value
+ * outside the two AAP 0.5.3 defines is reported as an error naming what `<html>` carried: a session whose
+ * provider wrote nothing has no row height to be measured against.
+ *
+ * @param page The Playwright page showing the application.
+ * @returns The density in effect.
+ * @throws An `Error` naming the observed attribute value when it is neither of the two densities.
+ */
+async function readDensity(page: Page): Promise<Density> {
+  const observed = await page.locator('html').getAttribute('data-density');
+
+  if (observed !== 'compact' && observed !== 'comfortable') {
+    throw new Error(
+      `<html> carries data-density=${JSON.stringify(observed)}, and AAP 0.5.3 defines only "compact" and "comfortable", so no row height is selected.`,
+    );
+  }
+
+  return observed;
+}
+
+/**
+ * The value the row-height token computes to on the document root.
+ *
+ * Read as the substituted value — `32px` or `44px` — rather than as the declaration in the stylesheet,
+ * because substitution is what proves the attribute reached the custom property, and not only that it
+ * was set.
+ *
+ * @param page The Playwright page showing the application.
+ * @returns The computed value of the token, trimmed.
+ */
+async function rowHeightToken(page: Page): Promise<string> {
+  return page.evaluate(
+    (token: string) => getComputedStyle(document.documentElement).getPropertyValue(token).trim(),
+    ROW_HEIGHT_TOKEN,
+  );
+}
+
+/**
+ * Asserts that the row-height token computes to the value `density` fixes.
+ *
+ * @param page The Playwright page showing the application.
+ * @param density The density the page is in.
+ */
+async function expectRowHeightToken(page: Page, density: Density): Promise<void> {
+  const expected = `${ROW_HEIGHT_PX[density]}px`;
+  const measured = await rowHeightToken(page);
+
+  expect(
+    measured,
+    `The session is in ${density} density and ${ROW_HEIGHT_TOKEN} on :root reads ${JSON.stringify(measured)}, where AAP 0.5.3 fixes it at ${expected}.`,
+  ).toBe(expected);
+}
+
+/**
+ * Asserts that one row renders the height `density` fixes and still takes that height from the token.
+ *
+ * The class assertion is what keeps the measurement from passing by coincidence: a row that switched to a
+ * fixed pixel utility, or to another custom property, would stop following the switch however tall it
+ * happened to stand. The measurement itself is polled, because the application writes the attribute in
+ * the switch's own handler and the row re-lays out on the frame after it — a single reading would race
+ * that recalculation, and a row that never reaches the height still reports the height it settled on.
+ *
+ * @param row The row locator to measure.
+ * @param density The density the page is in.
+ * @param description The row as a reader would name it, quoted in every failure message.
+ * @returns The height the row was measured at, in pixels.
+ */
+async function expectRowFollowsDensity(
+  row: Locator,
+  density: Density,
+  description: string,
+): Promise<number> {
+  const expectedPx = ROW_HEIGHT_PX[density];
+
+  await expect
+    .poll(async () => (await measureRow(row)).heightPx, {
+      message: `${description} should measure ${expectedPx} px in ${density} density (AAP 0.5.3) and never reached that height.`,
+    })
+    .toBe(expectedPx);
+
+  const measured = await measureRow(row);
+  expect(
+    measured.classes,
+    `${description} measures ${measured.heightPx} px in ${density} density but carries the classes ${JSON.stringify(measured.classes)}, none of which is ${ROW_HEIGHT_UTILITY}: its height does not come from the ${ROW_HEIGHT_TOKEN} token, so the density the attribute names cannot size it.`,
+  ).toContain(ROW_HEIGHT_UTILITY);
+
+  return measured.heightPx;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -786,8 +988,9 @@ test('T-17 the conflicting-update state replaces the record on every screen the 
 }) => {
   await enterDemonstration(page);
 
-  /* The inbox is the screen this trigger used to leave untouched: its read is refused now, so a reader
-     meets the moved record rather than a list the service will not stand behind. */
+  /* The inbox is the screen this trigger used to leave untouched: its read is a collection, which the
+     trigger refuses now, so a reader meets the moved record rather than a list the service will not
+     stand behind. */
   await switchRole(page, 'USR-02');
   await triggerSimulationState(page, 'conflict');
   await closeSimulationPanel(page);
@@ -1045,3 +1248,95 @@ test('every navigation entry either navigates or explains why it cannot', async 
   }
 });
 
+/* ---------------------------------------------------------------------------------------------
+ * The density axis — AAP 0.5.3's two row heights, driven through the shell's own switch
+ * ------------------------------------------------------------------------------------------- */
+
+test('the density switch resizes the overview table rows from one density token to the other and back', async ({
+  page,
+}) => {
+  await enterDemonstration(page);
+  await clickNavEntry(page, 'Overview', '/overview');
+
+  const html = page.locator('html');
+  const byPlant = screen(page).getByRole('table', { name: BY_PLANT_TABLE });
+  await expect(
+    byPlant,
+    `The overview renders no table named ${JSON.stringify(BY_PLANT_TABLE)}, so the row the two density tokens are proved on is not on screen.`,
+  ).toBeVisible();
+
+  const firstRow = await firstRowOfSeveralRecords(
+    byPlant,
+    'The overview never rendered the records of its risk-by-plant table, so no row could be measured.',
+  );
+
+  /* The plant the first row reports, so the three measurements below are provably of one record: the row
+     is looked up by that value each time instead of by its position, which a density change has no
+     reason to preserve. The value is read from the screen at the moment of assertion rather than typed
+     (rule P-6). */
+  const plant = ((await firstRow.getByRole('cell').first().textContent()) ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  expect(
+    plant,
+    `The first by-plant row reports ${JSON.stringify(plant)} in its plant cell, so no record can be followed through the two densities.`,
+  ).not.toBe('');
+
+  /* The density the session starts in, read rather than assumed: AAP 0.12.4 gives the planners and the
+     supplier quality engineer compact rows and the other five personas comfortable ones, so the value a
+     first-time session carries follows the persona the shell opens as. */
+  const start = await readDensity(page);
+  await expect(
+    html,
+    `The session is in ${start} density and <html> does not carry it, so the attribute the two row heights are selected by is not the one the switch controls.`,
+  ).toHaveAttribute('data-density', start);
+
+  const other: Density = start === 'compact' ? 'comfortable' : 'compact';
+  const row = byPlant.getByRole('row').filter({ hasText: plant });
+  await expect(
+    row,
+    `The by-plant table holds no single row reporting ${plant}, so the row measured in one density would not be the row measured in the other.`,
+  ).toHaveCount(1);
+
+  const startedAt = await expectRowFollowsDensity(row, start, `The by-plant row for ${plant}`);
+  await expectRowHeightToken(page, start);
+
+  await setDensity(page, other);
+  await expect(
+    html,
+    `Pressing the switch that offers ${other} rows left <html data-density> on another value, so the density a reader chose is not the one the application holds.`,
+  ).toHaveAttribute('data-density', other);
+  await expectRowHeightToken(page, other);
+
+  const switched = await expectRowFollowsDensity(row, other, `The by-plant row for ${plant}`);
+  expect(
+    switched,
+    `The row for ${plant} measured ${switched} px in ${other} density after measuring ${startedAt} px in ${start}: the two densities do not resize it, so the switch changes the attribute without changing the rows a reader reads.`,
+  ).not.toBe(startedAt);
+
+  /* The session goes back to the density it was found in, so this test cannot colour one that follows it:
+     the chosen density is one of the two values the application persists, and a density left behind would
+     be a state the next test inherits rather than one it arranged. */
+  await setDensity(page, start);
+  await expect(
+    html,
+    `Restoring the density found at the start left <html data-density> on another value, so this test does not hand the session back as it received it.`,
+  ).toHaveAttribute('data-density', start);
+
+  const restored = await expectRowFollowsDensity(
+    row,
+    start,
+    `The by-plant row for ${plant} once the density was restored`,
+  );
+  expect(
+    restored,
+    `The row for ${plant} measured ${restored} px after the density was restored to ${start}, and it measured ${startedAt} px before the switch: the row did not come back to the height the session started on.`,
+  ).toBe(startedAt);
+
+  /* The three heights the row was measured at, kept in the report beside the run: the assertions above
+     are what fail the test, and this line is what a reader checks them against afterwards. */
+  test.info().annotations.push({
+    type: 'density measured',
+    description: `${start} ${startedAt} px, ${other} ${switched} px, restored to ${start} ${restored} px`,
+  });
+});

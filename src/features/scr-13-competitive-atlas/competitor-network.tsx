@@ -797,22 +797,6 @@ function lanePathFor(
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * A crossing as the market pack records it: the shared shape plus the position the pack states for
- * its own halo.
- *
- * The atlas payload is declared as `Chokepoint`, which carries no coordinates, while the pack's
- * records extend it with a latitude and a longitude for the canvas halo. They are read defensively
- * rather than assumed: a crossing that states a position is drawn there, and one that does not is
- * anchored on the lane that names it (see {@link midpointOfFirstLaneNaming}).
- */
-interface ChokepointWithPosition extends Chokepoint {
-  /** Latitude of the crossing in decimal degrees, where the record states one. */
-  readonly latitude?: number;
-  /** Longitude of the crossing in decimal degrees, where the record states one. */
-  readonly longitude?: number;
-}
-
-/**
  * Places one site in the fixed frame.
  *
  * @param site The site record.
@@ -884,13 +868,15 @@ function placedLanesOf(
 /**
  * The position a crossing states for itself, when it states one the frame can hold.
  *
+ * The pair is `Chokepoint`'s own optional member, so it arrives through the port exactly as the atlas
+ * payload declares it and needs no shape of this component's own (rule P-2).
+ *
  * @param crossing The crossing record.
  * @returns The rounded point, or `undefined` when the record states no usable position.
  */
 function ownPositionOf(crossing: Chokepoint): readonly [number, number] | undefined {
-  const stated = crossing as ChokepointWithPosition;
-  const latitude = stated.latitude;
-  const longitude = stated.longitude;
+  const latitude = crossing.latitude;
+  const longitude = crossing.longitude;
 
   if (typeof latitude !== 'number' || typeof longitude !== 'number') {
     return undefined;
@@ -942,10 +928,12 @@ interface ChokepointPlacement {
 /**
  * Places every crossing the frame can hold.
  *
- * A crossing the payload places is drawn at that place; one it does not is drawn at the midpoint of a
- * lane that names it. A crossing with neither is left out rather than placed at a guessed coordinate,
- * because a halo at the wrong place would misstate where the contention is — the chokepoint table
- * beside this drawing still reports it.
+ * A crossing whose `latitude` and `longitude` the payload states — the pair `Chokepoint` declares as
+ * its own optional member, so it arrives through the port rather than through a shape of this
+ * component's making (rule P-2) — is drawn at that place; one that states neither is drawn at the
+ * midpoint of a lane that names it. A crossing with neither is left out rather than placed at a
+ * guessed coordinate, because a halo at the wrong place would misstate where the contention is — the
+ * chokepoint table beside this drawing still reports it.
  *
  * @param chokepoints The crossings as the payload states them.
  * @param lanes Every placed lane, competitor lanes first.

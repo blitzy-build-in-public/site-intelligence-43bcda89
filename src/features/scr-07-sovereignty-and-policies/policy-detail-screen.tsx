@@ -739,10 +739,14 @@ export function PolicyDetailScreen(_props: PolicyDetailScreenProps): ReactElemen
    * rather than narrowed again inside the query.
    *
    * The value cached is the unwrapped persona list, under the bare `['listPersonas']` key no other
-   * reader uses: a key names the reader that caches it as well as the method, so the shell's role
-   * switcher (`src/app/role-switcher.tsx`) holds its roster under `['listPersonas', 'shell']` and the
-   * sovereignty dialog under `['listPersonas', 'governance']`, and no one reader can hand another a
-   * value of the wrong type.
+   * reader uses, not the `Result` envelope: a key names the reader that caches it as well as the
+   * method, and one key holds one shape, so no reader can hand another a value of the wrong type. The
+   * readers of the same member qualify it with a name of their own — the shell's role switcher
+   * (`src/app/role-switcher.tsx`) caches `['listPersonas', 'shell']`, the sovereignty screen
+   * (`src/features/scr-07-sovereignty-and-policies/sovereignty-screen.tsx`) caches
+   * `['listPersonas', 'governance']`, and the service boundary's rule-P-8 gate read (`usePersonaRoster`
+   * in `src/services/service-provider.tsx`) caches its own `['listPersonas', 'permission-gates']` —
+   * so no two of them share an entry.
    */
   const readPersonas =
     demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);

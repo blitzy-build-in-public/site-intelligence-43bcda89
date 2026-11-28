@@ -32,6 +32,11 @@
  * pins are stated in its accessible name and in the table view instead of crowding the site's own label.
  * A node's evidence pins are counted per state and printed as numerals on the same marker, and the
  * node's accessible name spells the counts out, so the badge never asks a reader to tell a hue apart.
+ * A key under the drawing then names each state the view carries — the same icon, the same status
+ * colour and the state's own word — because the warning role carries both `stale` and `pending`, and
+ * the clock that separates them has no room on a chip. That key is not a second vocabulary: it renders
+ * `meaningOf` exactly as the graph lens's own row does, so a state carries the same icon and the same
+ * status colour on both lenses, and only its word follows the wording the lens's own drawing uses.
  * Every node is a focus stop with a visible focus ring that a hover or a press reveals as well, the
  * controls beside the map are native buttons of at least 24x24 px, and the one transition in the file is
  * a `motion-safe` fade: the map changes only when a prop changes and nothing moves, so a reduced-motion
@@ -52,7 +57,8 @@
  * - B-1, T-20: the bundled module is the only geographic source; no request of any kind is made.
  * - B-2: no credential, no environment read, no configuration.
  * - B-3: keyboard-operable nodes and controls with accessible names, a visible focus indication, 24x24
- *   px targets, per-state pin numerals, and one guarded fade rather than motion.
+ *   px targets, per-state pin numerals, a pin-state key under the drawing, and one guarded fade rather
+ *   than motion.
  * - P-1: the market-intelligence label is imported from `src/types`, never spelled here.
  * - P-2: no data access. The topology and the atlas are props the screen reads through the service.
  * - P-4: nothing here claims a property of the workspace — no sentence states confinement, copy
@@ -74,7 +80,6 @@ import { SIM_LABELS } from '../types';
 import type {
   Atlas,
   AtlasSite,
-  Chokepoint,
   CompetitorNetwork,
   PinCounts,
   PinState,
@@ -89,7 +94,7 @@ import { CHART_TONE_CLASSES, competitorSlotOf, CONTROL_RADIUS_CLASSES } from './
 import type { CompetitorSlot } from './horizontal-bar-chart';
 import { Legend } from './legend';
 import type { LegendEntry } from './legend';
-import { meaningOf } from './status-indicator';
+import { meaningOf, PENDING_CLOCK_ICON, StatusIndicator } from './status-indicator';
 import { ActionButton, CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from './tooltip';
 
 /* ---------------------------------------------------------------------------------------------
@@ -176,6 +181,11 @@ export const MAP_CANVAS_TEXT = {
   pinsPrefix: 'Evidence pins',
   /** The pin summary of a node the payload carries no counts for. */
   noPins: 'No evidence pins',
+  /**
+   * The caption that introduces the pin-state key under the drawing, worded exactly as the graph lens
+   * words its own, so one sentence describes the pins of both lenses.
+   */
+  pinKeyLabel: 'Pin states in this view',
   /** The competitor overlay's group name, prefixed by the imported market-intelligence label. */
   competitorGroupSuffix: 'competitor sites',
 } as const;
@@ -287,13 +297,14 @@ function countryPathsFor(projection: GeoProjection): string {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The words a pin state's count is announced with.
+ * The words a pin state is stated with: beside a numeral in a node's pin summary, and in the key
+ * printed under the drawing.
  *
  * The order the six states are listed in, and the word a node's family is named by, are shared with
  * every other graph surface and live in `./graph-vocabulary.ts`. What stays here is this component's
  * own wording for the six states rather than a specification string: the shared mapping in
- * `./status-indicator.tsx` owns what a state looks like, and this map owns only what a reader hears
- * beside a numeral.
+ * `./status-indicator.tsx` owns what a state looks like, and this map owns only the words a reader
+ * hears beside a numeral and meets again in the key.
  */
 const PIN_STATE_WORDS = {
   fail: 'failed',
@@ -393,20 +404,6 @@ interface ChokepointHalo {
 }
 
 /**
- * The position a crossing is drawn at, when the payload states one.
- *
- * The market-intelligence pack records the crossing's own latitude and longitude for this lens, as
- * `src/seed/market-intelligence.ts` documents, but the shared `Chokepoint` shape the atlas payload is
- * declared with does not carry them. They are therefore read defensively: a crossing that states a
- * position is drawn there, and one that does not is anchored on the lane that names it (see
- * {@link anchorOnLane}). Nothing is invented for a crossing that states neither.
- */
-interface ChokepointWithPosition extends Chokepoint {
-  readonly latitude?: number;
-  readonly longitude?: number;
-}
-
-/**
  * Projects one coordinate pair, or returns `undefined` when the projection puts it nowhere.
  *
  * @param projection The projection in use.
@@ -490,9 +487,11 @@ function anchorOnLane(
 /**
  * Every chokepoint of the atlas payload, resolved to the position its halo is drawn at.
  *
- * A crossing the payload places is drawn at that place; one it does not is anchored on the competitor
- * lane that names it. A crossing with neither is left out rather than placed at a guessed coordinate,
- * because a halo at the wrong place would misstate where the contention is.
+ * A crossing whose `latitude` and `longitude` the payload states — the pair `Chokepoint` declares as
+ * its own optional member, which the market-intelligence pack fills from its crossing record — is
+ * drawn at that place; one that states neither is anchored on the competitor lane that names it. A
+ * crossing with neither is left out rather than placed at a guessed coordinate, because a halo at the
+ * wrong place would misstate where the contention is.
  *
  * @param overlay The atlas payload.
  * @param projection The projection in use.
@@ -502,10 +501,10 @@ function halosOf(overlay: Atlas, projection: GeoProjection): readonly Chokepoint
   const halos: ChokepointHalo[] = [];
 
   for (const crossing of overlay.chokepoints) {
-    const stated = crossing as ChokepointWithPosition;
+    const { latitude, longitude } = crossing;
     const own: readonly [number, number] | undefined =
-      typeof stated.latitude === 'number' && typeof stated.longitude === 'number'
-        ? projectPoint(projection, stated.longitude, stated.latitude)
+      typeof latitude === 'number' && typeof longitude === 'number'
+        ? projectPoint(projection, longitude, latitude)
         : undefined;
     const anchor = own ?? anchorOnLane(overlay, crossing.id, projection);
 
@@ -792,6 +791,19 @@ function pinBadgesFor(
       })}
     </g>
   );
+}
+
+/**
+ * Whether at least one node in the payload carries a pin in `state`, which is what decides whether the
+ * key under the drawing has to explain that state's word. It reads the payload's own counts and prints
+ * none of them.
+ *
+ * @param topology The topology the lens draws.
+ * @param state The pin state to look for.
+ * @returns `true` when some node counts at least one pin in that state.
+ */
+function statePresentIn(topology: Topology, state: PinState): boolean {
+  return Object.values(topology.pinsByNode).some((counts) => counts[state] > 0);
 }
 
 /**
@@ -1159,6 +1171,17 @@ const CONTROL_GROUP_CLASSES = 'flex min-w-0 flex-wrap items-center gap-1';
 const CAPTION_CLASSES = 'px-1 text-13 text-text-secondary';
 
 /**
+ * The pin-state key under the drawing: the states the view carries, one status indicator apiece,
+ * wrapping rather than overflowing at a narrow width.
+ *
+ * It is the row the graph lens prints under its own drawing, so the same caption introduces the same
+ * words on both lenses; the caption itself reuses the secondary text role of {@link CAPTION_CLASSES}
+ * rather than taking a second role of its own, and every colour in the row is a status role the
+ * indicator selects.
+ */
+const PIN_KEY_CLASSES = 'flex min-w-0 flex-wrap items-center gap-3';
+
+/**
  * A view preset's control: the application's control structure and secondary appearance, plus the
  * pressed treatment.
  *
@@ -1266,14 +1289,58 @@ export interface MapCanvasProps {
 }
 
 /**
+ * The pin-state key the lens prints under its drawing: one status indicator per state the view carries,
+ * in {@link PIN_STATE_ORDER}.
+ *
+ * THE MAP MUST NAME ITS STATES, NOT ONLY PAINT THEM (rule B-3). A node's badge is a numeral on a chip
+ * filled with `meaningOf`'s status colour, and `stale` and `pending` share the warning role, so five
+ * hues cover six states: the difference between "degraded" and "awaiting a decision" is the clock, which
+ * a chip painted at badge size has no room to show. This key prints the same icon, the same status
+ * colour and the state's own word, so the two read apart, and it is the key the graph lens prints for
+ * the same badges on the same payload, worded the same way.
+ *
+ * It states no count and no total of its own: a numeral here would be a figure nothing computed
+ * (rule P-6). The counts stay where the payload put them — in the badges and in each node's accessible
+ * name — and a state the view carries no pin in is left out of the row. A payload carrying no pin at
+ * all draws no row, never a caption over nothing.
+ *
+ * @param states The states the payload carries at least one pin in, in {@link PIN_STATE_ORDER}.
+ * @returns The key, or `null` when no state is present.
+ */
+function pinKeyFor(states: readonly PinState[]): ReactNode {
+  if (states.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={PIN_KEY_CLASSES}>
+      <span className={CAPTION_CLASSES}>{MAP_CANVAS_TEXT.pinKeyLabel}</span>
+      {states.map((state) => {
+        const descriptor = meaningOf(state);
+
+        return (
+          <StatusIndicator
+            key={state}
+            meaning={descriptor.meaning}
+            label={PIN_STATE_WORDS[state]}
+            icon={descriptor.iconOverride === 'clock' ? PENDING_CLOCK_ICON : undefined}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * The map lens: the bundled world, the client's network over it and, when the atlas payload is
  * supplied, the competitors' networks and the shared crossings.
  *
- * The projection, the country path, the placed nodes, the lanes, the competitor marks, the halos and
- * the legend entries are each derived from the props by a pure function and memoised on the props they
- * depend on, so changing a selection does not re-project the world and changing the zoom re-projects
- * everything once. No effect is used and nothing is stored but the evidence drawer's own open
- * reference: the lens holds no data, keeps no selection of its own and reads no clock.
+ * The projection, the country path, the placed nodes, the lanes, the competitor marks, the halos, the
+ * legend entries and the pin states the key under the drawing names are each derived from the props by
+ * a pure function and memoised on the props they depend on, so changing a selection does not re-project
+ * the world and changing the zoom re-projects everything once. No effect is used and nothing is stored
+ * but the evidence drawer's own open reference: the lens holds no data, keeps no selection of its own
+ * and reads no clock.
  *
  * @param props The topology, the controlled zoom and preset, the shared selection, the required
  *   mapper that resolves each node's evidence reference, and the optional atlas overlay. See
@@ -1334,6 +1401,10 @@ export function MapCanvas({
   const legendEntries = useMemo(
     () => (overlay === undefined ? [] : competitorLegendEntries(overlay)),
     [overlay],
+  );
+  const presentPinStates = useMemo(
+    () => PIN_STATE_ORDER.filter((state) => statePresentIn(topology, state)),
+    [topology],
   );
 
   const zoomPosition = MAP_ZOOM_LEVELS.indexOf(zoomLevel);
@@ -1446,6 +1517,8 @@ export function MapCanvas({
           )}
         </g>
       </svg>
+
+      {pinKeyFor(presentPinStates)}
 
       {legendEntries.length === 0 ? null : (
         <Legend entries={legendEntries} />

@@ -9,10 +9,13 @@
  * it: it carries no endpoint, no connection state and no address, because none exists (rule B-2).
  *
  * The state is shown three ways at once — the meaning's icon, its status colour and the state's own
- * token as text — so the meaning never rests on colour alone (rule B-3). The icon comes from
- * `StatusIndicator`, which owns the shared vocabulary of status meanings, the colour utilities and
- * the bundled Phosphor components; the pill composes that primitive instead of drawing a second
- * indicator, so a source's state reads the same in a pill, a table cell and the stale banner.
+ * word as the label beside them — so the meaning never rests on colour alone (rule B-3). The word
+ * the record carries is the encoded status: it is `StatusIndicator`'s label, so the icon, the status
+ * colour and the word all describe the same reading, and the source's name next to it remains an
+ * identity the state is reported about. The icon comes from `StatusIndicator`, which owns the shared
+ * vocabulary of status meanings, the colour utilities and the bundled Phosphor components; the pill
+ * composes that primitive instead of drawing a second indicator, so a source's state reads the same
+ * in a pill, a table cell and the stale banner.
  *
  * {@link freshnessMeaning} is the single mapping from a source's state onto that vocabulary.
  * `src/components/state-boundary.tsx` raises its stale banner from the same record and
@@ -58,8 +61,12 @@ import type { StatusMeaning } from './status-indicator';
  * - `stale` → `warning`: the source answered, and what it answered has aged. The state that gates
  *   `requestApproval` and `decideApproval`, which is why it is a warning rather than a failure — the
  *   data exists and is readable, it is simply not current.
- * - `partial` → `warning`: the source answered incompletely, so a figure derived from it is shown
- *   with its missing inputs rather than as a complete reading. Degraded, not absent.
+ * - `partial` → `review`: the source answered incompletely, so the reading derived from it is one to
+ *   inspect, and the missing inputs are shown beside the figure. It takes the review meaning and so
+ *   the eye and the review hue rather than the warning triangle: an incomplete answer is a reading a
+ *   reader must weigh, which is a different thing to report than aged data, so a partially-answered
+ *   source and a stale one are told apart by icon as well as by colour rather than by neither. It is
+ *   degraded, not absent.
  * - `unavailable` → `fail`: the source did not answer at all, so nothing derived from it can be
  *   trusted as a reading of the present.
  */
@@ -70,7 +77,7 @@ export function freshnessMeaning(state: FreshnessState): StatusMeaning {
     case 'stale':
       return 'warning';
     case 'partial':
-      return 'warning';
+      return 'review';
     case 'unavailable':
       return 'fail';
   }
@@ -82,9 +89,11 @@ export function freshnessMeaning(state: FreshnessState): StatusMeaning {
  *
  * `base` is the pill itself: an inline container with the control radius, the second raised surface
  * and the decorative hairline, at the smallest step of the type scale, so six of them sit in one row
- * of the top bar without competing with the controls beside them. `detail` is the role the state and
- * the instant both take — the secondary text role, whose contrast against the second raised surface
- * is the ratio the specification's token tables measured, so it is not recomputed here.
+ * of the top bar without competing with the controls beside them. `detail` is the role the source's
+ * name and the instant both take — the secondary text role, whose contrast against the second raised
+ * surface is the ratio the specification's token tables measured, so it is not recomputed here. It
+ * is never the role the state takes: a state is a status, and a status is painted by
+ * `StatusIndicator` in its meaning's own colour rather than as plain secondary text (rule B-3).
  */
 const PILL_CLASSES = {
   base: 'inline-flex min-w-0 items-center gap-2 rounded-control border border-hairline bg-surface-2 px-2 py-1 text-12',
@@ -124,10 +133,14 @@ export interface FreshnessPillProps {
  * Renders one source's freshness.
  *
  * The root is a `<span>`: the pill sits inside the top bar's freshness row and must not introduce a
- * block-level box, a list item, a heading or a landmark. The source's name is the visible text of
- * `StatusIndicator`, so it is also that status's accessible name, and the icon beside it is hidden
- * from assistive technology — the state is then read from its own token, which is the record's
- * value rather than a phrase spelled here, so a reader hears "the source, its state, the instant".
+ * block-level box, a list item, a heading or a landmark. The reading order is the source, its state
+ * and the instant it answered. The source's name is identity, so it is plain secondary text; the
+ * state is the status the pill actually reports, so it is the visible text of `StatusIndicator` and
+ * therefore that status's accessible name, with the meaning's icon beside it hidden from assistive
+ * technology. The icon and the status colour thus attach to the word that states a status rather
+ * than to the name of the source they describe, a reader hears "the source, its state, the instant",
+ * and the state is read from its own token, which is the record's value rather than a phrase spelled
+ * here.
  *
  * The instant goes through `MonoValue` with `kind="timestamp"`, which renders it in the tabular mono
  * face the token layer fixes for timestamps and passes the record's string through unformatted, so
@@ -138,8 +151,8 @@ export function FreshnessPill({ health, ageLabel, className }: FreshnessPillProp
 
   return (
     <span className={joinClassNames(PILL_CLASSES.base, className)}>
-      <StatusIndicator meaning={freshnessMeaning(health.state)} label={health.label} />
-      <span className={PILL_CLASSES.detail}>{health.state}</span>
+      <span className={PILL_CLASSES.detail}>{health.label}</span>
+      <StatusIndicator meaning={freshnessMeaning(health.state)} label={health.state} />
       <MonoValue value={health.asOf} kind="timestamp" className={PILL_CLASSES.detail} />
       {hasAge ? <span className={PILL_CLASSES.detail}>{ageLabel}</span> : null}
     </span>

@@ -8,10 +8,15 @@
  * caller supplies, a domain whose bottom never rises above zero while a negative value is still drawn
  * truthfully below the zero line (the `T-03` cases — the acceptance test's "never below zero" reading,
  * asserted here on the chart's own geometry because the solver's series is asserted in the solver's
- * suite), one focusable and named evidence mark per point, activation of that mark from the keyboard
- * and from a pointer opening exactly that point's drawer, the visible legend that names every series
- * beside its own tone's swatch, the series' own simulation label read out per row and never invented,
- * both themes, and the fact that the surface emits no frame, table or control of its own.
+ * suite), one step of headroom above the highest reading so the top of a series is labelled and drawn
+ * clear of the plot's border, the dotted reference rule that stays separable from a baseline resting on
+ * the same level, the layered pointer targets that keep a coincident mark reachable, one focusable and
+ * named evidence mark per point, activation of that mark from the keyboard and from a pointer opening
+ * exactly that point's drawer, the caller-owned activation that reports the point instead and opens no
+ * drawer at all, the visible legend that names every series beside its own tone's swatch and every
+ * shaded span beside its own surface swatch, the series' own simulation label read out per row and
+ * never invented, both themes, and the fact that the surface emits no frame, table or control of its
+ * own.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `EvidenceDrawer` reads through
  * (rule P-2), so no adapter, seed module or network is involved and the suite observes exactly the
@@ -154,6 +159,33 @@ const MARKERS: readonly LineMarker[] = [{ x: THIRD_DAY, label: MARKER_LABEL }];
 const X_AXIS_LABEL = 'Day';
 const Y_AXIS_LABEL = 'Units on hand';
 
+/**
+ * The fifteen working days SCR-03's projection covers: three weeks of Monday to Friday, so the gap
+ * between two neighbouring dates is one day inside a week and three across a weekend.
+ */
+const WORKING_DAYS: readonly IsoDate[] = [
+  '03',
+  '04',
+  '07',
+  '08',
+  '09',
+  '10',
+  '11',
+  '14',
+  '15',
+  '16',
+  '17',
+  '18',
+  '21',
+  '22',
+  '23',
+].map(dayStamp);
+
+/** The overview's calendar: fourteen consecutive days, so every gap between two dates is one day. */
+const CONSECUTIVE_DAYS: readonly IsoDate[] = Array.from({ length: 14 }, (_, index) =>
+  dayStamp(String(index + 3).padStart(2, '0')),
+);
+
 /* ---------------------------------------------------------------------------------------------
  * Reading the surface
  * ------------------------------------------------------------------------------------------- */
@@ -241,6 +273,71 @@ function yAxisReadings(svg: SVGSVGElement): string[] {
 }
 
 /**
+ * The advance a ten-character ISO date takes across the plot, in viewBox units: the axis' own
+ * twelve-unit mono type step, which is the box a label occupies and the reason two neighbouring
+ * labels can collide. It is stated here as the reading a reader's eye gives the axis — two dates drawn
+ * closer together than this paint over one another — rather than read back from the surface, so a
+ * surface that thinned its labels by a count and left neighbours overlapping fails this suite instead
+ * of describing itself.
+ */
+const DATE_LABEL_ADVANCE = 72;
+
+/** One series over a calendar, one reading per date, so the surface has to place every one of them. */
+function seriesOver(calendar: readonly IsoDate[]): LineSeriesSpec {
+  return {
+    id: 'projection',
+    label: BASELINE_LABEL,
+    tone: 'accent',
+    points: calendar.map((date, index) => ({
+      x: date,
+      y: index,
+      yLabel: AT_PLAN,
+      evidenceRef: `evidence-projection-${String(index)}`,
+    })),
+  };
+}
+
+/** The surface's date labels: the text nodes carrying one of the calendar's own dates. */
+function dateLabelsIn(svg: SVGSVGElement, calendar: readonly IsoDate[]): SVGTextElement[] {
+  const dates = new Set<string>(calendar);
+
+  return Array.from(svg.querySelectorAll<SVGTextElement>('text')).filter((node) =>
+    dates.has(node.textContent ?? ''),
+  );
+}
+
+/**
+ * The box one date label draws into: read from its own `x`, the anchor it is given, and the advance a
+ * date takes — a centred label reaches half that advance either side of its tick, and a label anchored
+ * to its end reaches a whole advance back from it and nothing forward.
+ */
+function labelBox(label: SVGTextElement): { readonly left: number; readonly right: number } {
+  const position = Number(label.getAttribute('x'));
+
+  if (!Number.isFinite(position)) {
+    throw new Error('an x label drew no readable x coordinate');
+  }
+
+  return label.getAttribute('text-anchor') === 'end'
+    ? { left: position - DATE_LABEL_ADVANCE, right: position }
+    : { left: position - DATE_LABEL_ADVANCE / 2, right: position + DATE_LABEL_ADVANCE / 2 };
+}
+
+/**
+ * The x label at a position, or a failure naming what was missing, since `noUncheckedIndexedAccess`
+ * makes every indexed read a possible absence.
+ */
+function labelAt(labels: readonly SVGTextElement[], index: number): SVGTextElement {
+  const label = labels[index];
+
+  if (label === undefined) {
+    throw new Error(`the x label at position ${String(index)} is missing`);
+  }
+
+  return label;
+}
+
+/**
  * The legend row at a position, or a failure naming what was missing.
  *
  * `noUncheckedIndexedAccess` makes every indexed read a possible absence, and a case that reached for a
@@ -304,13 +401,49 @@ describe('LineChart', () => {
     const container = renderChart({ series: [BASELINE], bands: BANDS, markers: MARKERS });
     const svg = surfaceOf(container);
 
-    expect(screen.getByText(BAND_LABEL)).toBeInTheDocument();
-    expect(screen.getByText(MARKER_LABEL)).toBeInTheDocument();
+    /* The span is named twice: painted inside the plot, and read out in its own legend row below it. */
+    const bandLabels = screen.getAllByText(BAND_LABEL);
+    expect(bandLabels.some((label) => svg.contains(label))).toBe(true);
+    expect(bandLabels.some((label) => !svg.contains(label))).toBe(true);
+    expect(screen.getAllByText(MARKER_LABEL)).toHaveLength(1);
 
     const band = svg.querySelector('rect');
     expect(band).not.toBeNull();
     expect(Number(band?.getAttribute('width'))).toBeGreaterThan(0);
     expect(Number(band?.getAttribute('height'))).toBeGreaterThan(0);
+  });
+
+  it('names a shaded span in a legend row of its own, beside the span’s own surface swatch', () => {
+    renderChart({ series: [BASELINE], bands: BANDS });
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(within(legendRowAt(rows, 0)).getByText(BASELINE_LABEL)).toBeInTheDocument();
+
+    /* The span's row follows the series' rows and names it in the same type step and role (rule B-3). */
+    const bandRow = legendRowAt(rows, 1);
+    const label = within(bandRow).getByText(BAND_LABEL);
+    expect(label.getAttribute('class')).toContain('text-13');
+    expect(label.getAttribute('class')).toContain('text-text-primary');
+
+    /* Its swatch is the span's own surface role rather than a series' tone, and it stays decorative. */
+    const swatch = bandRow.querySelector('[aria-hidden="true"]');
+    expect(swatch?.getAttribute('class')).toContain('bg-surface-2');
+    expect(swatch?.getAttribute('class')).toContain('border-hairline');
+    expect(swatch?.getAttribute('class')).toContain('rounded-control');
+    expect(swatch?.getAttribute('class')).toContain('size-3');
+
+    /* A shaded region is not a control, so its row adds no focus stop. */
+    expect(within(bandRow).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('renders only its series’ rows where the caller supplies no bands', () => {
+    renderChart({ series: [BASELINE, OPTION] });
+
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(within(legendRowAt(rows, 1)).getByText(OPTION_LABEL)).toBeInTheDocument();
+    expect(screen.queryByText(BAND_LABEL)).toBeNull();
   });
 
   it('T-03 keeps zero inside the drawn domain, with no mark below the zero line, where no yMin is given', () => {
@@ -437,6 +570,47 @@ describe('LineChart', () => {
     expect(yAxisReadings(svg)).toContain('0');
   });
 
+  it('labels a reading above the highest plotted value and draws that value clear of the top border', () => {
+    const EMPTY: LinePoint = {
+      x: FIRST_DAY,
+      y: 0,
+      yLabel: RESTOCKED,
+      evidenceRef: 'evidence-empty',
+    };
+    const PEAK: LinePoint = {
+      x: SECOND_DAY,
+      y: 1200,
+      yLabel: AHEAD_OF_PLAN,
+      evidenceRef: 'evidence-peak',
+    };
+    const series: LineSeriesSpec = {
+      id: 'stock',
+      label: BASELINE_LABEL,
+      tone: 'accent',
+      points: [EMPTY, PEAK],
+    };
+
+    const container = renderChart({ series: [series] });
+    const svg = surfaceOf(container);
+
+    /* A reading above the highest plotted value is labelled, so the top of the series can be read off
+       the axis, and zero stays among the readings even though nothing is plotted at it. */
+    const readings = yAxisReadings(svg);
+    expect(readings).toContain('0');
+    expect(readings).toContain('1500');
+
+    /* The topmost gridline is the plot's top border, and the highest mark is drawn below it. A domain
+       that stopped at the highest reading would place the mark on that line instead. */
+    const gridlines = Array.from(svg.querySelectorAll('line'))
+      .filter((line) => line.getAttribute('y1') === line.getAttribute('y2'))
+      .map((line) => Number(line.getAttribute('y1')));
+    const topBorder = Math.min(...gridlines);
+    const highestMark = Math.min(...pointMarks(svg).map(markCentre));
+
+    expect(Number.isFinite(topBorder)).toBe(true);
+    expect(highestMark).toBeGreaterThan(topBorder);
+  });
+
   it('gives every point a focusable mark named with its series, date and formatted value', () => {
     renderChart({ series: [BASELINE, OPTION] });
 
@@ -507,6 +681,76 @@ describe('LineChart', () => {
     }
   });
 
+  it('keeps a baseline that lies on the reference level separable from it, and both marks reachable', () => {
+    const FLAT_READING = 'no stock on hand';
+    const levelPoints = (prefix: string): readonly LinePoint[] =>
+      [FIRST_DAY, SECOND_DAY, THIRD_DAY].map((day, index) => ({
+        x: day,
+        y: 0,
+        yLabel: FLAT_READING,
+        evidenceRef: `${prefix}-${String(index)}`,
+      }));
+    const baselineSeries: LineSeriesSpec = {
+      id: 'baseline',
+      label: BASELINE_LABEL,
+      tone: 'accent',
+      dashed: true,
+      points: levelPoints('evidence-baseline-level'),
+    };
+    const optionSeries: LineSeriesSpec = {
+      id: 'option',
+      label: OPTION_LABEL,
+      tone: 'warning',
+      points: levelPoints('evidence-option-level'),
+    };
+
+    const container = renderChart({
+      series: [baselineSeries, optionSeries],
+      references: REFERENCES,
+    });
+    const svg = surfaceOf(container);
+
+    /* The rule draws with a pattern of its own rather than the dash a series uses, so a baseline
+       resting on the level does not read as part of the line it rests on. */
+    const rule = screen.getByText(ZERO_LABEL).closest('g')?.querySelector('line');
+    const dashedPath = svg.querySelector('path[stroke-dasharray]');
+    expect(rule?.getAttribute('stroke-dasharray')).toBeTruthy();
+    expect(rule?.getAttribute('stroke-dasharray')).not.toBe(
+      dashedPath?.getAttribute('stroke-dasharray'),
+    );
+
+    const targetRadius = (mark: SVGGElement): number => {
+      const radius = mark.querySelectorAll('circle')[2]?.getAttribute('r');
+      if (radius === undefined || radius === null) {
+        throw new Error('a point mark drew no pointer target');
+      }
+      return Number(radius);
+    };
+    const centreOf = (mark: SVGGElement): string => {
+      const dot = mark.querySelector('circle');
+      return `${dot?.getAttribute('cx') ?? ''}/${dot?.getAttribute('cy') ?? ''}`;
+    };
+
+    const marks = pointMarks(svg);
+    expect(marks).toHaveLength(baselineSeries.points.length + optionSeries.points.length);
+
+    /* The two series share their points, which is what makes the targets the thing that separates them. */
+    const centres = marks.map(centreOf);
+    expect(centres.slice(0, baselineSeries.points.length)).toEqual(
+      centres.slice(baselineSeries.points.length),
+    );
+
+    /* The series painted first keeps a target wider than the one over it, so its mark answers a ring of
+       its own; the mark painted over it keeps the minimum target rule B-3 sets. */
+    const radii = marks.map(targetRadius);
+    const widest = Math.max(...radii);
+    const narrowest = Math.min(...radii);
+    expect(widest).toBeGreaterThan(narrowest);
+    expect(radii.filter((radius) => radius === widest)).toHaveLength(baselineSeries.points.length);
+    expect(radii.filter((radius) => radius === narrowest)).toHaveLength(optionSeries.points.length);
+    expect(narrowest * 2).toBeGreaterThanOrEqual(24);
+  });
+
   it('opens the activated point\'s evidence from the keyboard, and that point\'s alone', () => {
     renderChart({ series: [BASELINE] });
 
@@ -562,6 +806,39 @@ describe('LineChart', () => {
     expect(getEvidence).toHaveBeenCalledWith(OPTION_POINTS[0]?.evidenceRef);
   });
 
+  it('reports the activated point and opens no drawer where the caller owns the activation', async () => {
+    const user = userEvent.setup();
+    const onActivate = vi.fn<(point: LinePoint, series: LineSeriesSpec) => void>();
+    const actionName = (point: LinePoint): string => `Narrow to ${point.x}`;
+
+    renderChart({ series: [BASELINE, OPTION], activation: { onActivate, actionName } });
+
+    /* The name ends with the action the caller's activation performs, so a screen-reader user hears
+       what activating the mark does rather than a dialog it no longer opens (rules P-8 and B-3). */
+    const mark = screen.getByRole('button', {
+      name: `${BASELINE_LABEL}, ${SECOND_DAY}: ${AT_PLAN}. Narrow to ${SECOND_DAY}`,
+    });
+
+    expect(mark).not.toHaveAttribute('aria-haspopup');
+    expect(mark).not.toHaveAttribute('aria-expanded');
+    expect(mark).not.toHaveAttribute('aria-controls');
+
+    /* One path for both inputs: the pointer click and `Enter` report the same point and series. */
+    await user.click(mark);
+    expect(fireEvent.keyDown(mark, { key: 'Enter' })).toBe(false);
+
+    expect(onActivate).toHaveBeenCalledTimes(2);
+
+    for (const [point, series] of onActivate.mock.calls) {
+      expect(point).toBe(BASELINE_POINTS[1]);
+      expect(series).toBe(BASELINE);
+    }
+
+    /* The handler owns the gesture, so this surface opens nothing and reads no evidence. */
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(getEvidence).not.toHaveBeenCalled();
+  });
+
   it('reads each series’ own simulation label out and invents none for a series without one', () => {
     renderChart({ series: [BASELINE, OPTION] });
 
@@ -603,6 +880,47 @@ describe('LineChart', () => {
 
     /* Provenance still reaches a reader per series, in the row that names it (rules P-1, P-5). */
     expect(within(legendRowAt(rows, 0)).getByText(`, ${CALCULATION_LABEL}`)).toBeInTheDocument();
+  });
+
+  it('labels a working-day calendar by the room each date needs, and never overlaps two labels', () => {
+    const container = renderChart({ series: [seriesOver(WORKING_DAYS)] });
+    const svg = surfaceOf(container);
+
+    const labels = dateLabelsIn(svg, WORKING_DAYS);
+
+    /* A working calendar's gaps are uneven, so the axis keeps a label wherever the plot has room for
+       one rather than one date in every n: SCR-03's fifteen days carry at least six dates here, while
+       the count that thinned them to five made the span unreadable and the count of eight overlapped. */
+    expect(labels.length).toBeGreaterThanOrEqual(6);
+
+    /* No two neighbouring labels paint over one another: each box starts past the previous one's end. */
+    for (let index = 1; index < labels.length; index += 1) {
+      const previous = labelBox(labelAt(labels, index - 1));
+      const box = labelBox(labelAt(labels, index));
+
+      expect(box.left).toBeGreaterThan(previous.right);
+    }
+
+    /* The axis still ends where the data ends, so the final date is one of the labelled dates. */
+    const [finalDay] = WORKING_DAYS.slice(-1);
+    expect(labelAt(labels, labels.length - 1).textContent).toBe(finalDay);
+  });
+
+  it('labels a uniform calendar densely and without overlap as well', () => {
+    const container = renderChart({ series: [seriesOver(CONSECUTIVE_DAYS)] });
+    const svg = surfaceOf(container);
+
+    const labels = dateLabelsIn(svg, CONSECUTIVE_DAYS);
+
+    /* Evenly spaced days need no thinning by count either: the axis keeps every date it has room for. */
+    expect(labels.length).toBeGreaterThanOrEqual(5);
+
+    for (let index = 1; index < labels.length; index += 1) {
+      const previous = labelBox(labelAt(labels, index - 1));
+      const box = labelBox(labelAt(labels, index));
+
+      expect(box.left).toBeGreaterThan(previous.right);
+    }
   });
 
   it('labels both axes where the caller names them', () => {

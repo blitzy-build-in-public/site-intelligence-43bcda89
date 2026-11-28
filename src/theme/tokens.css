@@ -4,17 +4,30 @@
  * ahead of this file and owns that order, so nothing is loaded twice and this
  * file pulls in no other stylesheet.
  *
- * The block below is declared inline because every role value is a reference to
- * another custom property. Declared that way, Tailwind emits the referenced
- * variable into each utility instead of copying a literal, so `bg-ground`
- * compiles to `background-color: var(--palette-ground)` and the same class
- * resolves per theme at runtime. Clearing the colour namespace first removes
- * Tailwind's default palette, so the only colour utility that exists is a role
- * token, and raw palette values stay in the theme files where a component
- * cannot select them.
+ * The block below is declared `inline static`, and each modifier does one job.
+ *
+ * `inline` is what keeps every role value a reference to another custom
+ * property: Tailwind emits the referenced variable into each utility instead of
+ * copying a literal, so `bg-ground` compiles to
+ * `background-color: var(--palette-ground)` and the same class resolves per
+ * theme at runtime.
+ *
+ * `static` is what keeps every documented role a custom property in its own
+ * right. With `inline` alone, Tailwind emits the theme variables its generated
+ * CSS actually references and prunes the rest, so a role no utility happens to
+ * name — `--color-hairline`, `--color-map-land`, the action pair and the two
+ * secondary text roles — would read as an empty string through
+ * getComputedStyle to any consumer that measures a role or strokes a mark with
+ * var(). Every role in the table of AAP §0.5.3 is part of the bridge that
+ * section declares, whether or not a utility names it today.
+ *
+ * The two together leave no raw palette value selectable: clearing the colour
+ * namespace first removes Tailwind's default palette, so the only colour
+ * utility that exists is a role token, and raw palette values stay in the theme
+ * files where a component cannot select them (AAP §0.5.4, gap row 4).
  */
 
-@theme inline {
+@theme inline static {
   --color-*: initial;
 
   /* Surfaces and text */
@@ -82,14 +95,17 @@
 /* Row density, specification §4.3: plain custom properties, so both the
    density rules below and the data table read the same values. --row-height is
    declared here as the document default as well, because theme-provider.tsx
-   writes data-density from module code a deferred module script delays: a frame
-   painted before that happens already sizes its rows from the comfortable row.
+   writes data-density from module code a deferred module script delays: the
+   frame painted before that happens already carries the row height the seeded
+   persona asks for, because the default below is the density USR-01, the
+   material planner, starts on — compact (AAP §0.12.4). A persisted preference
+   still wins at module initialisation, exactly as a persisted Paper theme does.
    The two [data-density] rules below carry the same specificity and follow this
    rule, so the attribute still chooses 32 px or 44 px once it is present. */
 :root {
   --row-compact: 32px;
   --row-comfortable: 44px;
-  --row-height: var(--row-comfortable);
+  --row-height: var(--row-compact);
 }
 
 /* theme-provider.tsx writes data-density on <html> before any component renders,

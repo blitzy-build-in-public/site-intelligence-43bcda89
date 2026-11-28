@@ -2,7 +2,7 @@
  * Component suite for `scenario-sandbox.tsx`, the SCR-04 control that duplicates one option and
  * measures the duplicate again at the lever values a reader types.
  *
- * WHAT IT PROVES. Eight contracts the sandbox is relied on for, each stated as a case that fails on
+ * WHAT IT PROVES. Nine contracts the sandbox is relied on for, each stated as a case that fails on
  * one specific regression rather than as a description of the markup:
  *
  * 1. ONE REQUEST PER BURST. Two lever fields edited inside the debounce window produce exactly one
@@ -41,6 +41,14 @@
  * 8. THE DISABLED STATE. With no option to duplicate, the recompute control keeps its label, refuses
  *    activation, and carries its reason as its accessible description and as the hint a keyboard
  *    reader brings up (rule P-8) — asserted as text, never as `aria-disabled` alone.
+ * 9. THE BOUNDS THE CASE SETS. Each lever field is described by the rule the case holds every lever to
+ *    and, where the option set records them, by the case's own bound statements — the failing option's
+ *    constraint messages, naming that case's maximum and step — handed to the panel verbatim and
+ *    rendered above the fields as well as described by them. A field that is not a number keeps its own
+ *    sentence after those two, so the bound is heard before the defect; a set that records no statement
+ *    publishes the rule alone, with nothing standing in its place; and no `min`, `max`, `step` or
+ *    `aria-value*` attribute appears on either field, because no record the panel can reach carries a
+ *    bound (rule P-6, rule B-3).
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary the
  * component may read through (rule P-2), so no seed module, adapter, domain module or shell is
@@ -62,15 +70,16 @@
  *
  * THE WORDING IS NOT RETYPED. `SCENARIO_SANDBOX_TEXT`, `CANNOT_COMPUTE_LABEL` and
  * `COMPARISON_MATRIX_TEXT` are imported, so a reworded label or measure fails the case that names it,
- * and `sandboxDisabledReason` is imported so the expected explanation is the component's own sentence
- * rather than a copy of it.
+ * and `sandboxDisabledReason` and `invalidLeverText` are imported so the expected explanation and the
+ * expected field description are the component's own sentences rather than copies of them.
  *
  * TWO CONSTRAINTS THE SUITE WORKS WITHIN. `scenario-sandbox.tsx` keeps its input class list
  * module-private, so the focus-ring utility the keyboard case asserts is named once in
- * {@link FOCUS_RING_UTILITY} with the reason it is stated there; and the lever bounds live on
- * `SolverCase`, which no member of the port's scenario reads carries, so the fields are unbounded and the
- * breach case states the bound on the fixture and drives the breach through the response — the only path
- * a bound can reach the panel by.
+ * {@link FOCUS_RING_UTILITY} with the reason it is stated there; and a lever's bound lives on
+ * `SolverCase`, which no member of the port's scenario reads carries, so a field wears no `min`, `max`
+ * or `step` and the breach case states the bound on the fixture and drives the breach through the
+ * response. The one path a bound takes to the panel is the records' own wording: the failing option's
+ * constraint messages, handed in as `caseBoundStatements` and asserted verbatim by the bounds case.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or waits on a real timer.
@@ -85,6 +94,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { formatMoney } from '../../components/mono-value';
+import { MEANING_COLOUR_CLASSES, STATUS_LABEL_CLASS } from '../../components/status-indicator';
 import { SIM_LABELS } from '../../types';
 import type {
   Confidence,
@@ -105,11 +115,16 @@ import type {
   ScenarioOrigin,
   SimLabel,
 } from '../../types';
-import { CANNOT_COMPUTE_LABEL, COMPARISON_MATRIX_TEXT } from './comparison-matrix';
+import {
+  CANNOT_COMPUTE_LABEL,
+  COMPARISON_MATRIX_TEXT,
+  CONFIDENCE_PRESENTATION,
+} from './comparison-matrix';
 import {
   SANDBOX_RECOMPUTE_DELAY_MS,
   SCENARIO_SANDBOX_TEXT,
   ScenarioSandbox,
+  invalidLeverText,
   sandboxDisabledReason,
 } from './scenario-sandbox';
 import type { ScenarioSandboxProps } from './scenario-sandbox';
@@ -199,6 +214,27 @@ const BREACH_MESSAGES: readonly string[] = [
   `airSets is above its maximum of ${String(AIR_SETS_BOUND.max)}.`,
   `transferSets is between two steps, and the step is ${String(TRANSFER_SETS_BOUND.step)}.`,
 ];
+
+/**
+ * Both levers the panel offers, in the order it renders them: the contract's own member names, which are
+ * also the accessible names their fields carry.
+ */
+const LEVER_FIELDS: readonly (keyof Levers)[] = ['airSets', 'transferSets'];
+
+/**
+ * A set in which every option stayed inside its bounds, so the records state no bound at all.
+ *
+ * It is what the port answers for an exception whose options all pass their constraint check, and the
+ * state a case passes to prove the panel publishes its own rule alone rather than standing a
+ * placeholder where a record's statement would be.
+ */
+const NO_CASE_BOUND_STATEMENTS: readonly string[] = [];
+
+/**
+ * A statement holding nothing but whitespace: the one shape of record text that would leave an empty
+ * sentence on the screen, and which the panel drops rather than renders as a blank line.
+ */
+const BLANK_STATEMENT = '   ';
 
 /** The lever values a case types: distinct from the base option's, so a stale send fails case 2. */
 const EDITED_LEVERS: Levers = { airSets: 8, transferSets: 9 };
@@ -800,6 +836,36 @@ describe('where every measure comes from', () => {
     expect(onRecomputed).toHaveBeenCalledWith(recomputed);
   });
 
+  it('states the recomputed option’s confidence level as the status the matrix draws it as', async () => {
+    const recomputed = makeRecomputedScenario();
+    solveScenario.mockResolvedValue(resultOf(recomputed));
+
+    const user = userSession();
+    renderSandbox({ scenario: makeBaseScenario() });
+
+    await editLevers(user, EDITED_LEVERS);
+    await settleRecomputeDelay();
+
+    const row = measureRow(COMPARISON_MATRIX_TEXT.rows.confidence);
+    const word = within(row).getByText(
+      COMPARISON_MATRIX_TEXT.confidence[recomputed.confidence.level],
+    );
+
+    /* One level, one treatment: the panel draws it through the matrix's own presentation map, so a
+       reader meets the same icon, word and status colour here as in the column beside the panel
+       (AAP §0.5.2, rule B-3). The reason the payload states sits under it, unparaphrased. */
+    expect(word).toHaveClass(STATUS_LABEL_CLASS);
+
+    const iconWrapper = word.previousElementSibling;
+
+    expect(iconWrapper).not.toBeNull();
+    expect(iconWrapper).toHaveClass(
+      MEANING_COLOUR_CLASSES[CONFIDENCE_PRESENTATION[recomputed.confidence.level]],
+    );
+    expect(iconWrapper?.querySelector('svg')).not.toBeNull();
+    expect(row.textContent ?? '').toContain(recomputed.confidence.reason);
+  });
+
   it('opens the duplicated option’s evidence from every measure it reports', async () => {
     const base = makeBaseScenario();
     const recomputed = makeRecomputedScenario();
@@ -1082,6 +1148,97 @@ describe('a sandbox with nothing to duplicate', () => {
     fireEvent.click(control);
     await settleRecomputeDelay();
     expect(solveScenario).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 9. The bounds the case sets, published before a value is typed
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the bounds the case holds the levers to', () => {
+  it('describes both fields with the rule, and with the case’s own statements where the set records them', () => {
+    renderSandbox({ scenario: makeBaseScenario(), caseBoundStatements: BREACH_MESSAGES });
+
+    const group = screen.getByRole('group', { name: SCENARIO_SANDBOX_TEXT.legend });
+
+    /* Both fields carry the same two halves in the same order — the rule, then the records' statements
+       — so a reader meets the bound on either lever rather than on whichever one happened to be
+       described. */
+    const expected = [SCENARIO_SANDBOX_TEXT.leverBoundsRule, ...BREACH_MESSAGES].join(' ');
+
+    for (const field of LEVER_FIELDS) {
+      expect(leverField(field)).toHaveAccessibleDescription(expected);
+    }
+
+    /* And the words a screen reader hears are the words on screen: the panel's own rule as its own
+       sentence, and each record statement verbatim in the paragraph beside it (rule P-6). The statements
+       share one described paragraph, so the group is read for them rather than a single sentence. */
+    expect(within(group).getByText(SCENARIO_SANDBOX_TEXT.leverBoundsRule)).toBeVisible();
+
+    for (const statement of BREACH_MESSAGES) {
+      expect(group).toHaveTextContent(statement);
+    }
+  });
+
+  it.each<{ readonly condition: string; readonly caseBoundStatements: readonly string[] | undefined }>([
+    { condition: 'no statement is supplied', caseBoundStatements: undefined },
+    { condition: 'the set records none', caseBoundStatements: NO_CASE_BOUND_STATEMENTS },
+    { condition: 'the set records a blank statement', caseBoundStatements: [BLANK_STATEMENT] },
+  ])('publishes the rule alone when $condition, and nothing in its place', ({ caseBoundStatements }) => {
+    renderSandbox({ scenario: makeBaseScenario(), caseBoundStatements });
+
+    const group = screen.getByRole('group', { name: SCENARIO_SANDBOX_TEXT.legend });
+
+    for (const field of LEVER_FIELDS) {
+      expect(leverField(field)).toHaveAccessibleDescription(SCENARIO_SANDBOX_TEXT.leverBoundsRule);
+    }
+
+    /* One sentence in the group, and it is the rule: no empty paragraph, no placeholder sentence and no
+       second description stand where a record's statements would be. */
+    expect([...group.querySelectorAll('p')].map((sentence) => sentence.textContent)).toEqual([
+      SCENARIO_SANDBOX_TEXT.leverBoundsRule,
+    ]);
+  });
+
+  it('states the bound in words rather than on either field, which carries no attribute for it', () => {
+    renderSandbox({ scenario: makeBaseScenario(), caseBoundStatements: BREACH_MESSAGES });
+
+    for (const field of LEVER_FIELDS) {
+      const input = leverField(field);
+
+      /* No bound reaches this component from the port, so none is annotated on the control: a `min`,
+         `max` or `step` here would be a figure no record carries (rule P-6), and a value outside the
+         bound has to stay typeable for the refused measurement AAP §0.12.3 makes demonstrable. */
+      expect(input).not.toHaveAttribute('min');
+      expect(input).not.toHaveAttribute('max');
+      expect(input).not.toHaveAttribute('step');
+      expect(input).not.toHaveAttribute('aria-valuemin');
+      expect(input).not.toHaveAttribute('aria-valuemax');
+    }
+  });
+
+  it('keeps a field that is not a number described by its own sentence, after the rule and the statements', async () => {
+    const user = userSession();
+    renderSandbox({ scenario: makeBaseScenario(), caseBoundStatements: BREACH_MESSAGES });
+
+    const group = screen.getByRole('group', { name: SCENARIO_SANDBOX_TEXT.legend });
+
+    /* An air-freight field left empty is the state the disable path exists for: it is marked invalid
+       and described by its own sentence, and the bound it is held to is heard before that sentence
+       rather than instead of it. */
+    await interact(() => user.clear(leverField('airSets')));
+
+    expect(leverField('airSets')).toHaveAccessibleDescription(
+      [SCENARIO_SANDBOX_TEXT.leverBoundsRule, ...BREACH_MESSAGES, invalidLeverText('airSets')].join(' '),
+    );
+
+    /* The other field keeps the rule and the records' statements: one field's defect does not describe
+       its neighbour. */
+    expect(leverField('transferSets')).toHaveAccessibleDescription(
+      [SCENARIO_SANDBOX_TEXT.leverBoundsRule, ...BREACH_MESSAGES].join(' '),
+    );
+
+    expect(within(group).getByText(invalidLeverText('airSets'))).toBeVisible();
   });
 });
 

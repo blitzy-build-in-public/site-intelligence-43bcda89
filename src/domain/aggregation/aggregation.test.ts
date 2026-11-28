@@ -126,7 +126,7 @@ import {
   type SourcedMaterial,
 } from './overview';
 import { resolveScope, type ScopeFilterInput } from './scope';
-import { computeRibbonTiles, sortUrgent } from './urgency';
+import { computeRibbonTiles, countAtHeadOfUrgency, sortUrgent } from './urgency';
 
 /*
  * The seeded record set is reached here for one reason: AAP 0.8 holds the seed document's expected
@@ -1620,6 +1620,34 @@ describe('computeLedger', () => {
     );
   });
 
+  it('gives both of its rows the counts one declaration reports when an endpoint is declared twice', () => {
+    /*
+     * The tallies are keyed by the endpoint, so a repeated declaration shares the one accumulation its
+     * endpoint owns. Both of its rows must therefore carry what a single declaration reports — the two
+     * counts and the attempt — rather than the second row arriving empty.
+     */
+    const blockedDeclaration = DECLARED_LEDGER.ledger.filter(
+      (declared) => declared.endpoint === ENDPOINT_BLOCKED,
+    );
+    const single = ledgerRowOf(
+      computeLedger(LEDGER_EVENTS, DECLARED_LEDGER, DEMO_CLOCK),
+      ENDPOINT_BLOCKED,
+    );
+    const rows = computeLedger(
+      LEDGER_EVENTS,
+      { ledger: [...blockedDeclaration, ...blockedDeclaration] },
+      DEMO_CLOCK,
+    );
+
+    expect(blockedDeclaration).toHaveLength(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.allowed).toBe(single.allowed);
+    expect(rows[0]?.blocked).toBe(single.blocked);
+    expect(rows[1]?.allowed).toBe(single.allowed);
+    expect(rows[1]?.blocked).toBe(single.blocked);
+    expect(rows[1]?.lastAttempt).toBe(single.lastAttempt);
+  });
+
   it('counts the allowed and blocked events of the thirty days ending on the clock', () => {
     const rows = computeLedger(LEDGER_EVENTS, DECLARED_LEDGER, DEMO_CLOCK);
     const blockedEndpoint = ledgerRowOf(rows, ENDPOINT_BLOCKED);
@@ -1834,7 +1862,7 @@ describe('computeRibbonTiles', () => {
   it('emits the six tiles in the order the module states, each with an aggregate key', () => {
     const tiles = computeRibbonTiles(
       computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT),
-      computeExceptionRows(RECORD_BUNDLE, EVERY_PLANT),
+      countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT),
     );
 
     expect(tiles).toHaveLength(6);
@@ -1851,7 +1879,7 @@ describe('computeRibbonTiles', () => {
   it('copies each value from the overview and the rows rather than computing one', () => {
     const overview = computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT);
     const rows = computeExceptionRows(RECORD_BUNDLE, EVERY_PLANT);
-    const tiles = computeRibbonTiles(overview, rows);
+    const tiles = computeRibbonTiles(overview, countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT));
     const critical = rows.filter((row) => row.severity === 'critical').length;
 
     expect(tiles.map((tile) => tile.value)).toEqual([
@@ -1867,18 +1895,18 @@ describe('computeRibbonTiles', () => {
   it('marks every tile as computed provenance, so a market-intelligence figure cannot share it', () => {
     const tiles = computeRibbonTiles(
       computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT),
-      computeExceptionRows(RECORD_BUNDLE, EVERY_PLANT),
+      countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT),
     );
 
     expect(tiles.every((tile) => tile.provenance === 'computed')).toBe(true);
     expect(tiles.map((tile) => tile.provenance)).not.toContain('market_intelligence');
   });
 
-  it('returns fresh tiles on every call and leaves the overview and the rows unchanged', () => {
+  it('returns fresh tiles on every call and leaves the overview it was given unchanged', () => {
     const overview = computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT);
-    const rows = computeExceptionRows(RECORD_BUNDLE, EVERY_PLANT);
-    const first = computeRibbonTiles(overview, rows);
-    const second = computeRibbonTiles(overview, rows);
+    const critical = countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT);
+    const first = computeRibbonTiles(overview, critical);
+    const second = computeRibbonTiles(overview, critical);
 
     expect(second).toEqual(first);
     expect(second).not.toBe(first);
@@ -2025,7 +2053,7 @@ describe('provenance separation', () => {
   it('keeps every aggregate first-party, since no competitor figure may share its number', () => {
     const tiles = computeRibbonTiles(
       computeOverview(OVERVIEW_BUNDLE, EVERY_PLANT),
-      computeExceptionRows(RECORD_BUNDLE, EVERY_PLANT),
+      countAtHeadOfUrgency(RECORD_BUNDLE, EVERY_PLANT),
     );
     const rows = computeLedger(LEDGER_EVENTS, DECLARED_LEDGER, DEMO_CLOCK);
     const blockedEndpoint = ledgerRowOf(rows, ENDPOINT_BLOCKED);
@@ -2067,8 +2095,8 @@ describe('provenance separation', () => {
  *
  * What it proves that the probe cases cannot: those cases assert each rule from inputs chosen to make
  * the arithmetic followable, while this comparison asserts the seeded records' own outcome — the nine
- * open exceptions worth 4,192,800 across seven customer orders, the 26⅔-hour median, the 42 per cent
- * alternate-source share, `EXC-2026-1184`'s 1,512,800, the ledger's blocked counts per declared
+ * open exceptions worth 5,839,800 across seven customer orders, the 26⅔-hour median, the 42 per cent
+ * alternate-source share, `EXC-2026-1184`'s 2,257,000, the ledger's blocked counts per declared
  * endpoint, the three packages' readiness and the queue's default ordering.
  * ------------------------------------------------------------------------------------------- */
 

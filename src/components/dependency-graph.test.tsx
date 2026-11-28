@@ -4,14 +4,17 @@
  * Each case asserts one clause of the component's own contract, and together they cover the four
  * obligations that make the lens a pass condition rather than a drawing: the six lanes AAP 0.12.4
  * fixes, a focus stop and a full accessible name for every node of the payload, the selection the
- * lens shares with the map lens, and the two controls it carries — the scenario preview switch and
- * the "Open part" control disabled with the specification's stage tooltip (rule P-8). Rule B-3's
+ * lens shares with the map lens, and the controls it carries — the three emphasis-direction controls
+ * and the dimming switch AAP 0.12.4 and AAP 0.14.1 require of the lens, the scenario preview switch,
+ * and the "Open part" control disabled with the specification's stage tooltip (rule P-8). Rule B-3's
  * clauses are asserted where they can fail: the accessible name of every node, keyboard activation
- * through `Enter` and through `Space`, dimming that never rests on colour alone, and the 24x24 px
- * target of the tooltip's own control lists. Two further properties are asserted because a reader
- * depends on them: the drawing redraws identically from one render to the next, and every control
- * the lens offers is reachable and operable by keyboard alone — the preview switch, a node that
- * opens its evidence, and the disabled control whose reason has to arrive with focus.
+ * through `Enter` and through `Space`, dimming that never rests on colour alone, the pressed state
+ * carried by weight as well as by colour, the stated reason of every control that cannot act, and the
+ * 24x24 px target of the tooltip's own control lists. Two further properties are asserted because a
+ * reader depends on them: the drawing redraws identically from one render to the next, and every
+ * control the lens offers is reachable and operable by keyboard alone — the four emphasis controls,
+ * the preview switch, a node that opens its evidence, and the disabled control whose reason has to
+ * arrive with focus.
  *
  * THE FIXTURE IS SYNTHETIC AND DELIBERATELY PLAIN. Its identifiers carry no domain prefix, because
  * rule P-6 keeps domain identifiers out of `src/components` — tests included — and the suite only
@@ -32,10 +35,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 
 import type { PinCounts, Topology, TopologyNode } from '../types';
-import { DEPENDENCY_GRAPH_LANES, DEPENDENCY_GRAPH_TEXT, DependencyGraph } from './dependency-graph';
-import type { DependencyGraphProps } from './dependency-graph';
+import {
+  DEPENDENCY_GRAPH_LANES,
+  DEPENDENCY_GRAPH_TEXT,
+  GRAPH_EMPHASIS_DIRECTIONS,
+  DependencyGraph,
+} from './dependency-graph';
+import type { DependencyGraphProps, GraphEmphasisDirection } from './dependency-graph';
 import { CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 
 vi.mock('./evidence-drawer', () => ({
@@ -122,9 +131,12 @@ const NO_NODE_EVIDENCE: (node: TopologyNode) => string | undefined = () => undef
 /**
  * Renders the lens with the props a case does not vary.
  *
- * `evidenceRefForNode` is required, so it is supplied unconditionally. Each remaining optional prop is
- * applied only when the case supplies it, because the component distinguishes an absent handler from a
- * present one and an explicit `undefined` would not exercise that.
+ * `evidenceRefForNode` is required, so it is supplied unconditionally. The emphasis pair is required
+ * for the same reason and defaults to the reading the lens opens on — both directions, dimming on —
+ * with handlers that report nothing, so a case about one control varies that control alone. Each
+ * remaining optional prop is applied only when the case supplies it, because the component
+ * distinguishes an absent handler from a present one and an explicit `undefined` would not exercise
+ * that.
  */
 function renderGraph(overrides: Partial<DependencyGraphProps> = {}): ReturnType<typeof render> {
   return render(
@@ -133,6 +145,10 @@ function renderGraph(overrides: Partial<DependencyGraphProps> = {}): ReturnType<
       title={overrides.title ?? TITLE}
       onSelectNode={overrides.onSelectNode ?? noop}
       evidenceRefForNode={overrides.evidenceRefForNode ?? NO_NODE_EVIDENCE}
+      emphasisDirection={overrides.emphasisDirection ?? 'both'}
+      onEmphasisDirectionChange={overrides.onEmphasisDirectionChange ?? noop}
+      dimming={overrides.dimming ?? true}
+      onDimmingChange={overrides.onDimmingChange ?? noop}
       {...(overrides.selectedNodeId === undefined
         ? {}
         : { selectedNodeId: overrides.selectedNodeId })}
@@ -171,9 +187,16 @@ function nodeBoxTokens(nameFragment: string): readonly string[] {
   return nodeBox(nameFragment).split(' ');
 }
 
-/** The drawing itself: the one surface the payload's lanes are painted on. */
+/**
+ * The drawing itself: the one surface the payload's lanes are painted on.
+ *
+ * The controls row above it holds a `role="group"` of its own — the three direction controls — so the
+ * query names the element as well as the role. The requirement it exists for is unchanged and still
+ * asserted: the surface a reader's assistive technology reaches as a group is the drawing, not a strip
+ * of controls.
+ */
 function drawing(container: HTMLElement): Element {
-  const surface = container.querySelector('[role="group"]');
+  const surface = container.querySelector('svg[role="group"]');
 
   if (surface === null) {
     throw new Error('The lens draws no surface.');
@@ -396,6 +419,17 @@ describe('DependencyGraph nodes', () => {
     renderGraph();
 
     expect(screen.getByRole('group', { name: TITLE })).toBeInTheDocument();
+  });
+
+  it('carries that name as an explicit label, the way the map lens and every chart do', () => {
+    const { container } = renderGraph();
+
+    const surface = drawing(container);
+
+    /* Rule B-3: the name is the title the caller gave, stated on the drawing itself rather than through
+       an id reference two instances could collide over. */
+    expect(surface).toHaveAttribute('aria-label', TITLE);
+    expect(surface).not.toHaveAttribute('aria-labelledby');
   });
 
   it('draws the payload with no nodes at all without failing', () => {
@@ -733,10 +767,158 @@ describe('DependencyGraph preview switch', () => {
     expect(toggle).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('renders no switch at all when the screen reports the preview to nobody', () => {
-    renderGraph();
+  it('renders no preview switch when the screen reports the preview to nobody', () => {
+    renderGraph({ selectedNodeId: 'plant-main' });
 
-    expect(screen.queryByRole('switch')).toBeNull();
+    /* The lens's own dimming switch renders whenever a node can be traced, so this case names the
+       preview control rather than counting switches: a preview that reports to nobody is not offered
+       at all (rule P-8). */
+    expect(screen.queryByRole('switch', { name: /Preview scenario/iu })).toBeNull();
+    expect(
+      screen.getByRole('switch', { name: DEPENDENCY_GRAPH_TEXT.dimmingLabel }),
+    ).toBeInTheDocument();
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The emphasis controls — AAP 0.12.4's dimming and upstream/downstream path
+ * ------------------------------------------------------------------------------------------- */
+
+/** The group holding the three direction controls, named by the caption the drawing gives it. */
+function directionGroup(): HTMLElement {
+  return screen.getByRole('group', { name: DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabel });
+}
+
+/** The dimming switch, found by the label it prints. */
+function dimmingSwitch(): HTMLElement {
+  return screen.getByRole('switch', { name: DEPENDENCY_GRAPH_TEXT.dimmingLabel });
+}
+
+/** One direction control, found by the label it prints. */
+function directionControl(
+  direction: keyof typeof DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabels,
+): HTMLElement {
+  return within(directionGroup()).getByRole('button', {
+    name: DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabels[direction],
+  });
+}
+
+describe('DependencyGraph emphasis controls', () => {
+  it('renders one pressed control per direction, all operable while a node resolves', () => {
+    renderGraph({ selectedNodeId: 'plant-main', emphasisDirection: 'upstream' });
+
+    const controls = within(directionGroup()).getAllByRole('button');
+
+    expect(GRAPH_EMPHASIS_DIRECTIONS).toHaveLength(3);
+    expect(controls).toHaveLength(GRAPH_EMPHASIS_DIRECTIONS.length);
+    expect(directionControl('upstream')).toHaveAttribute('aria-pressed', 'true');
+    expect(directionControl('both')).toHaveAttribute('aria-pressed', 'false');
+    expect(directionControl('downstream')).toHaveAttribute('aria-pressed', 'false');
+
+    for (const control of [...controls, dimmingSwitch()]) {
+      expect(control).not.toHaveAttribute('aria-disabled');
+    }
+  });
+
+  it('reports the direction a pointer chooses and leaves the pressed state to the caller', async () => {
+    const user = userEvent.setup();
+    const onEmphasisDirectionChange = vi.fn();
+
+    renderGraph({ selectedNodeId: 'plant-main', onEmphasisDirectionChange });
+
+    await user.click(directionControl('downstream'));
+
+    expect(onEmphasisDirectionChange).toHaveBeenCalledWith('downstream');
+    /* Controlled, like the map's view preset: the caller owns the value, so the control this component
+       draws has not moved on its own. */
+    expect(directionControl('both')).toHaveAttribute('aria-pressed', 'true');
+    expect(directionControl('downstream')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('reports the direction a keyboard chooses, and carries the pressed state by weight too', async () => {
+    const user = userEvent.setup();
+    const onEmphasisDirectionChange = vi.fn();
+
+    renderGraph({ selectedNodeId: 'plant-main', onEmphasisDirectionChange });
+
+    await tabUntilFocused(user, directionControl('upstream'));
+
+    expect(directionControl('upstream')).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    expect(onEmphasisDirectionChange).toHaveBeenCalledWith('upstream');
+
+    /* Rule B-3: the pressed state is not colour alone — the label steps up a weight as well. */
+    expect(directionControl('upstream').getAttribute('class')).toContain('aria-pressed:font-semibold');
+  });
+
+  it('toggles the dimming switch from the keyboard and from the pointer, reporting both directions', async () => {
+    const user = userEvent.setup();
+    const onDimmingChange = vi.fn();
+
+    renderGraph({ selectedNodeId: 'plant-main', onDimmingChange });
+
+    expect(dimmingSwitch()).toHaveAttribute('aria-checked', 'true');
+
+    await tabUntilFocused(user, dimmingSwitch());
+
+    expect(dimmingSwitch()).toHaveFocus();
+
+    await user.keyboard(' ');
+
+    expect(onDimmingChange).toHaveBeenLastCalledWith(false);
+
+    await user.click(dimmingSwitch());
+
+    expect(onDimmingChange).toHaveBeenCalledTimes(2);
+    expect(onDimmingChange).toHaveBeenLastCalledWith(false);
+    /* Rule B-3: the switch's state is stated by `aria-checked` and by its label's weight, never by a
+       colour alone. */
+    expect(dimmingSwitch().getAttribute('class')).toContain('aria-checked:font-semibold');
+  });
+
+  it('states the dimming switch as checked when the caller holds it on', () => {
+    renderGraph({ selectedNodeId: 'plant-main', dimming: false });
+
+    expect(dimmingSwitch()).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('disables all four controls with one stated reason while no node resolves, and reports nothing', async () => {
+    const user = userEvent.setup();
+    const onEmphasisDirectionChange = vi.fn();
+    const onDimmingChange = vi.fn();
+
+    renderGraph({ onEmphasisDirectionChange, onDimmingChange });
+
+    const controls = [...within(directionGroup()).getAllByRole('button'), dimmingSwitch()];
+
+    expect(controls).toHaveLength(GRAPH_EMPHASIS_DIRECTIONS.length + 1);
+
+    for (const control of controls) {
+      expect(control).toHaveAttribute('aria-disabled', 'true');
+
+      /* The reason is mounted as the control's description whether or not the hint is painted, so a
+         reader is told why before the control is ever reached (rule P-8). */
+      const describedBy = control.getAttribute('aria-describedby');
+
+      expect(describedBy).not.toBeNull();
+      expect(document.getElementById(describedBy ?? '')?.textContent).toBe(
+        DEPENDENCY_GRAPH_TEXT.emphasisUnavailable,
+      );
+
+      await user.click(control);
+    }
+
+    expect(onEmphasisDirectionChange).not.toHaveBeenCalled();
+    expect(onDimmingChange).not.toHaveBeenCalled();
+  });
+
+  it('disables them for a selected node the payload no longer holds', () => {
+    renderGraph({ selectedNodeId: 'node-not-in-the-payload' });
+
+    expect(directionControl('both')).toHaveAttribute('aria-disabled', 'true');
+    expect(dimmingSwitch()).toHaveAttribute('aria-disabled', 'true');
   });
 });
 
@@ -809,6 +991,52 @@ describe('DependencyGraph open part', () => {
 
     expect(describedBy).not.toBeNull();
     expect(document.getElementById(describedBy ?? '')).toBe(hint);
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * Render cost — the memo the canvas screen's re-renders rest on
+ * ------------------------------------------------------------------------------------------- */
+
+describe('DependencyGraph render cost', () => {
+  it('draws nothing again when its parent re-renders with the props it already has', () => {
+    /* The mapper runs once per node while the drawing is built, so counting its calls counts the
+       renders of this component rather than the renders of its parent. */
+    const evidenceRefForNode = vi.fn((): undefined => undefined);
+
+    /* A fresh element per render, with the same prop values: reusing one element object would let
+       React skip the render on referential equality alone, which would prove nothing about the memo. */
+    const graphElement = (emphasisDirection: GraphEmphasisDirection): ReactElement => (
+      <DependencyGraph
+        topology={TOPOLOGY}
+        title={TITLE}
+        onSelectNode={noop}
+        evidenceRefForNode={evidenceRefForNode}
+        emphasisDirection={emphasisDirection}
+        onEmphasisDirectionChange={noop}
+        dimming
+        onDimmingChange={noop}
+      />
+    );
+
+    const { rerender } = render(graphElement('both'));
+    const passesOfTheFirstRender = evidenceRefForNode.mock.calls.length;
+
+    expect(passesOfTheFirstRender).toBe(NODE_COUNT);
+
+    /* React.memo is what spares this drawing: the canvas screen re-renders on every node click, every
+       lens switch and every wall-mode toggle, and a re-render that changed none of these props must
+       leave the ~600 marks of the surface exactly as they were. */
+    rerender(graphElement('both'));
+
+    expect(evidenceRefForNode).toHaveBeenCalledTimes(passesOfTheFirstRender);
+
+    /* And a changed prop still reaches it: without this the case above would pass for a component that
+       had stopped reading its props at all. */
+    rerender(graphElement('upstream'));
+
+    expect(evidenceRefForNode).toHaveBeenCalledTimes(passesOfTheFirstRender + NODE_COUNT);
+    expect(directionControl('upstream')).toHaveAttribute('aria-pressed', 'true');
   });
 });
 

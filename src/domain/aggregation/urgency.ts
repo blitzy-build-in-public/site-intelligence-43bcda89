@@ -9,7 +9,8 @@
  *   only".
  * - AAP 0.12.1's "Urgency" row, which fixes the public interface — `sortUrgent(rows)` returning
  *   `ExceptionRow[]` ordered by severity, then days to impact, then revenue at risk descending, plus
- *   "the six ribbon tiles" — and records the module's dependency as types only.
+ *   "the six ribbon tiles" — and records the module's dependency as `./exceptions`, whose admitted
+ *   population the ribbon's critical count is taken from.
  * - `platform-specification.md` SCR-02, which fixes the exception queue's default sort as severity
  *   then days to impact, and SCR-12, which fixes the canvas ribbon of six computed tiles (both
  *   restated in AAP 0.12.4).
@@ -17,9 +18,10 @@
  *   element, never by the module that supplies its value.
  *
  * Ordering is a comparison, not arithmetic. No sum, difference of business values, rounding or
- * formatting appears in this module: a tile's value is an `Overview` member copied across, or a count
- * of the rows the caller handed in, which is why the ribbon adds no figure of its own and why rule
- * P-6's "every number is computed by the solver or from seed records" holds for it by construction.
+ * formatting appears in this module: a tile's value is an `Overview` member copied across, or a count of
+ * the exceptions the exception aggregate admitted, which is why the ribbon adds no figure of its own and
+ * why rule P-6's "every number is computed by the solver or from seed records" holds for it by
+ * construction.
  *
  * One source for the order. `SEVERITY_RANK` below is the only statement of how the four severity
  * levels rank, so the queue's default sort (SCR-02) and the canvas's urgent stack (SCR-12) cannot
@@ -27,20 +29,22 @@
  * alphabetical comparison would place `high` above `medium`, which is the opposite of the order the
  * inputs fix.
  *
- * Determinism and purity (AAP 0.2.1, AAP 0.18.2). Neither function reads a clock, a random source,
- * a locale or a mutable module-level value, and neither modifies its arguments: `sortUrgent` sorts a
- * copy and `computeRibbonTiles` builds fresh tile objects, so the same arguments yield the same order
- * and the same tiles on every engine and on every run.
+ * Determinism and purity (AAP 0.2.1, AAP 0.18.2). No function here reads a clock, a random source, a
+ * locale or a mutable module-level value, and none modifies its arguments: `sortUrgent` sorts a copy,
+ * `countAtHeadOfUrgency` counts the entries the exception aggregate returns without touching them, and
+ * `computeRibbonTiles` builds fresh tile objects, so the same arguments yield the same order, the same
+ * count and the same tiles on every engine and on every run.
  *
  * Rules this module is built to satisfy:
- * - P-6: every number it emits is copied from a computed aggregate or counted from the rows handed
- *   in. It types no amount, identifier, threshold or duration.
+ * - P-6: every number it emits is copied from a computed aggregate or counted from the population that
+ *   aggregate admitted. It types no amount, identifier, threshold or duration.
  * - P-5: every tile is `computed` provenance, and nothing here reads a market-intelligence value, so
  *   a competitor figure cannot enter a ribbon tile.
  * - P-1: it carries no label text. The tile's caption, its evidence reference and its `Simulated
  *   calculation` label belong to the component that renders it.
- * - P-2: it imports the shared types and nothing else — no seed record, no adapter, no service
- *   module and no React — so it cannot become a second data boundary.
+ * - P-2: it imports the shared types and its sibling `./exceptions` — the one dependency AAP 0.12.1
+ *   records for this module — and nothing else: no seed record, no adapter, no service module and no
+ *   React, so it cannot become a second data boundary.
  * - P-3: the rows it orders arrive already scoped for the acting role by the service, whose scoping
  *   is a demonstration control rather than production authorisation; nothing here widens or narrows
  *   that set.
@@ -53,10 +57,11 @@
  *
  * The six ribbon tiles (AAP 0.12.1, AAP 0.12.4). The inputs fix the ribbon at six computed tiles
  * without listing them, so the set is `open-exceptions` reading `Overview.openExceptions`,
- * `critical-exceptions` counting the rows handed in whose severity is `'critical'`, `revenue-at-risk`,
- * `customer-orders-at-risk` and `median-hours-to-approved-plan` reading the `Overview` member each
- * names, and `plants-in-scope` reading the length of `byPlant`. A consumer may reorder the six, but may
- * not supply a number of its own, add a seventh tile or add a member to `Overview`: the set is closed.
+ * `critical-exceptions` counting the admitted exceptions the exception aggregate derived whose severity
+ * is `'critical'`, `revenue-at-risk`, `customer-orders-at-risk` and
+ * `median-hours-to-approved-plan` reading the `Overview` member each names, and `plants-in-scope`
+ * reading the length of `byPlant`. A consumer may reorder the six, but may not supply a number of its
+ * own, add a seventh tile or add a member to `Overview`: the set is closed.
  *
  * The two compared measures. `ExceptionRow.daysToImpact` and `ExceptionRow.revenueAtRiskEur` are
  * required numbers in `src/types/screen-dto.ts`, so no guard for an absent value is needed to satisfy
@@ -67,7 +72,10 @@
  * day group for revenue — rather than corrupting the order.
  */
 
-import type { ExceptionId, ExceptionRow, Overview, RibbonTile, Severity } from '../../types';
+import type { ExceptionId, ExceptionRow, Overview, RibbonTile, Scope, Severity } from '../../types';
+
+import { admittedExceptions } from './exceptions';
+import type { ExceptionAggregateInput } from './exceptions';
 
 /* ---------------------------------------------------------------------------------------------
  * The severity ordering — SCR-02 default sort, AAP 0.12.1
@@ -243,21 +251,32 @@ export function sortUrgent(rows: readonly ExceptionRow[]): ExceptionRow[] {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Counts the rows whose severity is the most urgent level.
+ * Counts the exceptions the resolved scope admits whose severity is the most urgent level.
  *
- * A count of the rows handed in and nothing else: it selects on the one level `HEAD_OF_URGENCY`
- * names, so it states no threshold of its own.
+ * The ribbon's `critical-exceptions` tile reads this rather than counting queue rows. The count is taken
+ * from the population `./exceptions`' `admittedExceptions` describes — the one the queue's rows are
+ * projected from — so it selects on the one level `HEAD_OF_URGENCY` names, states no threshold of its
+ * own, and cannot disagree with the rows the queue returns for the same scope (AAP 0.2.1, AAP 0.12.1).
+ * Counting the admitted exceptions rather than priced rows is also what keeps a ribbon read from valuing
+ * every exception's lines, since the tile needs none of those figures.
  *
- * @param rows The rows to count, read and not modified.
- * @returns How many of them sit at the head of the severity ordering.
+ * @param records The record bundle the exception aggregate is computed over: the exceptions, the prices
+ *   and order book their lines are read from, and the baseline solves that measure them.
+ * @param scope The resolved scope, from `./scope`'s `resolveScope`, which admits the population counted.
+ * @returns How many admitted exceptions sit at the head of the severity ordering.
  */
-function countAtHeadOfUrgency(rows: readonly ExceptionRow[]): number {
+export function countAtHeadOfUrgency(
+  records: ExceptionAggregateInput,
+  scope: Scope,
+): number {
   let count = 0;
-  for (const row of rows) {
-    if (row.severity === HEAD_OF_URGENCY) {
+
+  for (const entry of admittedExceptions(records, scope)) {
+    if (entry.exception.severity === HEAD_OF_URGENCY) {
       count += 1;
     }
   }
+
   return count;
 }
 
@@ -265,9 +284,9 @@ function countAtHeadOfUrgency(rows: readonly ExceptionRow[]): number {
  * Builds the FileMap canvas ribbon: six computed tiles, in the order the module header states.
  *
  * Implements SCR-12's "ribbon of six computed tiles" (AAP 0.12.4) and AAP 0.12.1's "six ribbon tiles"
- * for the canvas. It adds no figure: each value is an `Overview` member copied across, the length of
- * one of its collections, or a count of the rows handed in, so every tile is a computed aggregate's
- * own output and a screen can neither supply nor alter one (rule P-6).
+ * for the canvas. It adds no figure: each value is an `Overview` member copied across, the length of one
+ * of its collections, or the critical count the caller derived from the admitted exceptions, so every
+ * tile is a computed aggregate's own output and a screen can neither supply nor alter one (rule P-6).
  *
  * Each tile's provenance is `'computed'`. Nothing in this module reads a market-intelligence value and
  * the ribbon carries no competitor member, so a competitor figure cannot reach a tile (rule P-5). The
@@ -278,13 +297,13 @@ function countAtHeadOfUrgency(rows: readonly ExceptionRow[]): number {
  * consumer's freedom to reorder them.
  *
  * @param overview The overview aggregate the caller already computed, read and not modified.
- * @param rows The rows the caller assembled for the same scope, read and not modified. Only the
- *   count of the most urgent level among them is read.
+ * @param criticalExceptions How many admitted exceptions sit at the head of the urgency ordering, as
+ *   `countAtHeadOfUrgency` derives it for the same records and scope.
  * @returns Six fresh tile objects, in the stated order.
  */
 export function computeRibbonTiles(
   overview: Overview,
-  rows: readonly ExceptionRow[],
+  criticalExceptions: number,
 ): RibbonTile[] {
   return [
     {
@@ -294,7 +313,7 @@ export function computeRibbonTiles(
     },
     {
       id: 'critical-exceptions',
-      value: countAtHeadOfUrgency(rows),
+      value: criticalExceptions,
       provenance: 'computed',
     },
     {

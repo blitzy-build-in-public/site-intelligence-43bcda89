@@ -6,7 +6,9 @@
  * and no request is made for it (rule B-1, T-20); the three zoom levels and the five presets move the
  * projection; the five presets are native controls that report the view they were asked for; each of
  * the five node families reaches the map as a labelled, focusable control whose accessible name states
- * the family and the evidence-pin counts per state (rules B-3, P-6); activating a node reports the
+ * the family and the evidence-pin counts per state (rules B-3, P-6); a key under the drawing names
+ * every state the view carries beside its own icon, so the two states that share the warning hue are
+ * told apart and the key states no count of its own (rules B-3, P-6); activating a node reports the
  * selection and opens the evidence drawer for the reference the required mapper resolves for it, a
  * node the mapper cannot resolve declaring no drawer and opening none (rule P-8); the two zoom
  * controls stop at the ends of their range and say why (rule P-8); the competitor marks, the chokepoint
@@ -38,6 +40,7 @@ import { MAP_CANVAS_TEXT, MAP_VIEW_PRESETS, MAP_VIEW_PRESET_LABELS, MapCanvas } 
 import type { MapCanvasProps } from './map-canvas';
 import { CHART_TONE_CLASSES, CONTROL_RADIUS_CLASSES } from './horizontal-bar-chart';
 import type { CompetitorSlot } from './horizontal-bar-chart';
+import { MEANING_COLOUR_CLASSES } from './status-indicator';
 
 /**
  * The service the evidence drawer reads through, replaced because this suite is about the drawing.
@@ -185,6 +188,21 @@ const NODE_COUNT =
   TOPOLOGY.materials.length +
   TOPOLOGY.origins.length +
   TOPOLOGY.customers.length;
+
+/**
+ * The two ways a view carries no pin: a pin map with no entry at all, and a pin map whose every entry
+ * counts zero.
+ *
+ * Neither carries a state, so neither draws a pin-state key — a caption over an empty row would name
+ * states the map does not hold.
+ */
+const EMPTY_PIN_MAPS: readonly (readonly [string, Topology['pinsByNode']])[] = [
+  ['an empty pin map', {}],
+  [
+    'a pin map of zero counts',
+    Object.fromEntries(Object.keys(TOPOLOGY.pinsByNode).map((nodeId) => [nodeId, NO_PINS])),
+  ],
+];
 
 /** The seven controls beside the map: the two zoom steps and the five view presets. */
 const CONTROL_COUNT = 2 + MAP_VIEW_PRESETS.length;
@@ -425,6 +443,61 @@ function competitorSwatchOf(container: HTMLElement, label: string): string {
 }
 
 /**
+ * The row the lens prints under its drawing as the pin-state key, found by its own caption.
+ *
+ * The row is located through the sentence a reader sees rather than by its position among the lens's
+ * children, so the key is checked as the answer to "which words explain these badges" rather than as a
+ * fragment of the markup.
+ *
+ * @param container The rendered lens.
+ * @returns The caption's row.
+ */
+function pinKeyRowOf(container: HTMLElement): HTMLElement {
+  const caption = within(container).getByText(MAP_CANVAS_TEXT.pinKeyLabel);
+  const row = caption.parentElement;
+
+  if (row === null) {
+    throw new Error('The pin-state key is not printed inside a row.');
+  }
+
+  return row;
+}
+
+/**
+ * The entries of the pin-state key, in the order printed: everything in the caption's row except the
+ * caption itself.
+ *
+ * @param container The rendered lens.
+ * @returns One element per state the view carries.
+ */
+function pinKeyEntriesOf(container: HTMLElement): readonly HTMLElement[] {
+  return [...pinKeyRowOf(container).children].filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement && child.textContent !== MAP_CANVAS_TEXT.pinKeyLabel,
+  );
+}
+
+/**
+ * The icon of one pin-state key entry, found by the word printed beside it.
+ *
+ * @param container The rendered lens.
+ * @param word The state's word, as the key prints it.
+ * @returns The element that holds the state's icon.
+ */
+function pinKeyIconOf(container: HTMLElement, word: string): HTMLElement {
+  const entry = pinKeyEntriesOf(container).find(
+    (candidate) => (candidate.textContent ?? '').trim() === word,
+  );
+  const icon = entry?.firstElementChild;
+
+  if (!(icon instanceof HTMLElement)) {
+    throw new Error(`The pin-state key prints no icon for "${word}".`);
+  }
+
+  return icon;
+}
+
+/**
  * The centre of one node's painted mark, read from the mark the drawing put inside its group.
  *
  * A supplier is drawn as a circle, whose `cx` and `cy` are its centre; a material is drawn as a hexagon,
@@ -637,6 +710,71 @@ describe('MapCanvas', () => {
     for (const badge of badges) {
       expect(badge).not.toHaveAttribute('rx');
     }
+  });
+
+  it('prints a key under the drawing that names each pin state the view carries', () => {
+    const { container } = renderLens();
+
+    const row = pinKeyRowOf(container);
+    const entries = pinKeyEntriesOf(container);
+
+    /* Every state this payload carries reaches the key, in the order the summaries count them. */
+    expect(entries.map((entry) => (entry.textContent ?? '').trim())).toEqual([
+      'failed',
+      'stale',
+      'awaiting review',
+      'needing review',
+      'passed',
+      'with no record',
+    ]);
+
+    /* Each word stands beside its own icon, so no state is named by a colour alone (rule B-3). */
+    for (const entry of entries) {
+      expect(entry.querySelector('svg')).not.toBeNull();
+    }
+
+    /* The key states none of the counts: the payload's numerals stay on the badges (rule P-6). */
+    expect(row.textContent).not.toMatch(/[0-9]/u);
+
+    /* It is printed under the drawing whose badges it explains. */
+    const drawing = container.querySelector('svg[role="group"]');
+
+    if (drawing === null) {
+      throw new Error('The lens drew no map to print the key under.');
+    }
+
+    expect(row.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it('separates the two states that share the warning role with their icons', () => {
+    const { container } = renderLens();
+
+    const stale = pinKeyIconOf(container, 'stale');
+    const pending = pinKeyIconOf(container, 'awaiting review');
+
+    /* Both take the warning role the contracts fix, so the two read in one hue. */
+    expect(stale.classList.contains(MEANING_COLOUR_CLASSES.warning)).toBe(true);
+    expect(pending.classList.contains(MEANING_COLOUR_CLASSES.warning)).toBe(true);
+
+    /* The clock beside "awaiting review" is then what tells it apart from "stale" (rule B-3). */
+    expect(pending.innerHTML).not.toBe(stale.innerHTML);
+    expect(pending.querySelector('svg')).not.toBeNull();
+  });
+
+  it('places the key above the competitor legend the overlay contributes', () => {
+    const { container } = renderLens({ overlay: ATLAS });
+
+    const row = pinKeyRowOf(container);
+    const legend = within(container).getByRole('list');
+
+    expect(row.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each(EMPTY_PIN_MAPS)('draws no pin-state key for %s', (_case, pinsByNode) => {
+    renderLens({ topology: { ...TOPOLOGY, pinsByNode } });
+
+    /* A caption over an empty row would name states the view does not carry. */
+    expect(screen.queryByText(MAP_CANVAS_TEXT.pinKeyLabel)).not.toBeInTheDocument();
   });
 
   it('reports the selection and opens the evidence the mapper resolves for the node', async () => {

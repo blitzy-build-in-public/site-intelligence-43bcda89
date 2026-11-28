@@ -129,7 +129,7 @@ import type {
 import type { HandlerContext } from '../mock-state';
 import type { SeededPolicy } from '../seed-loader';
 import { demonstrationForbiddenReason, freshnessFor, isSimulationOn } from '../simulation';
-import { appendAuditEvent } from './audit';
+import { appendAuditEvent, assertFreeTextLength, listLimitOf } from './audit';
 
 /* ---------------------------------------------------------------------------------------------
  * The vocabulary this family addresses — contracts §7.1, §7.2, §6
@@ -356,22 +356,48 @@ function sovereigntyStatusOf(ctx: HandlerContext): SovereigntyStatus {
 }
 
 /**
- * The decisions one policy made, most recent first.
+ * The decisions each policy made, grouped from one pass over the chain, most recent first.
  *
  * An event belongs to a policy when it carries that policy's identifier, which is how the engine
- * records a deny or a block it produced (AAP 0.8). The chain's own sequence orders them — strictly
- * increasing, so the highest position is the newest record — and each event is copied, so a screen
+ * records a deny or a block it produced (AAP 0.8); an event carrying none belongs to no policy and
+ * is left out. One pass fills every bucket at once, because the trail grows with every audited
+ * write and a policy list that filtered it row by row would grow costlier the longer a session ran
+ * (AAP 0.2.1). The chain's own sequence orders each bucket — strictly increasing, so the highest
+ * position is the newest record — and each event is copied as it enters its bucket, so a screen
  * that edits what it was handed cannot alter the trail.
  *
+ * The grouping belongs to the call that asked for it and is kept no longer: a decision recorded
+ * after the previous read appends its event to the chain, and a bucket carried over from before
+ * would report the policy as it stood rather than as it stands (AAP 0.18.2).
+ *
  * @param ctx - The call's context, whose chain the decisions are read from. The state is not modified.
- * @param policyId - The policy whose decisions are counted.
- * @returns Fresh copies of the matching events, newest first; empty when the policy has decided nothing.
+ * @returns A fresh map from a policy identifier to its decisions, newest first. A policy that has
+ *   decided nothing has no entry, which the reads answer as an empty list.
  */
-function decisionsFor(ctx: HandlerContext, policyId: PolicyId): AuditEvent[] {
-  return ctx.state.auditEvents
-    .filter((event) => event.policyId === policyId)
-    .sort((left, right) => right.sequence - left.sequence)
-    .map((event) => ({ ...event }));
+function decisionsByPolicy(ctx: HandlerContext): Map<PolicyId, AuditEvent[]> {
+  const grouped = new Map<PolicyId, AuditEvent[]>();
+
+  for (const event of ctx.state.auditEvents) {
+    const policyId = event.policyId;
+
+    if (policyId === undefined) {
+      continue;
+    }
+
+    const decisions = grouped.get(policyId);
+
+    if (decisions === undefined) {
+      grouped.set(policyId, [{ ...event }]);
+    } else {
+      decisions.push({ ...event });
+    }
+  }
+
+  for (const decisions of grouped.values()) {
+    decisions.sort((left, right) => right.sequence - left.sequence);
+  }
+
+  return grouped;
 }
 
 /**
@@ -398,28 +424,34 @@ function pendingExceptionsFor(ctx: HandlerContext, policyId: PolicyId): PolicyEx
 }
 
 /**
- * One policy as its list row and its detail screen show it.
+ * One policy as its list row and its detail screen show it, from the decisions already grouped.
  *
  * The statement is the record's own `displayText` and the evaluated flag is the record's own
  * `evaluationStatus`, so the rule a denial cites and the rule the screen prints cannot drift apart
  * and no wording is composed here (rule P-6). POL-009 comes through this path like the other four,
  * carrying `evaluated: false` because the engine never runs it: the record is shown as declared
- * configuration rather than hidden or evaluated (rule P-4). The decisions are the events the engine
- * appended for the policy and the pending requests are the session's own records for it, so the two
- * halves of the detail come from the places that hold them rather than from a second copy.
+ * configuration rather than hidden or evaluated (rule P-4). The decisions are the ones
+ * `decisionsByPolicy` grouped from one pass over the chain, so a list read groups once and projects
+ * every policy from that grouping, and the pending requests are the session's own records for it,
+ * so the two halves of the detail come from the places that hold them rather than from a second
+ * copy. A policy the grouping holds no entry for has decided nothing and takes the empty list.
  *
- * @param ctx - The call's context, whose chain the policy's decisions are read from and whose session
- *   the pending requests are read from.
+ * @param ctx - The call's context, whose session the pending requests are read from.
  * @param policy - The seeded policy record.
+ * @param decisions - The chain's decisions grouped by policy identifier, newest first.
  * @returns The policy's display detail, with its decisions and the requests pending against it.
  */
-function policyDetailOf(ctx: HandlerContext, policy: SeededPolicy): PolicyDetail {
+function policyDetailOf(
+  ctx: HandlerContext,
+  policy: SeededPolicy,
+  decisions: ReadonlyMap<PolicyId, AuditEvent[]>,
+): PolicyDetail {
   return {
     id: policy.id,
     title: policy.title,
     statement: policy.displayText,
     evaluated: policy.evaluationStatus === 'evaluated',
-    recentDecisions: decisionsFor(ctx, policy.id),
+    recentDecisions: decisions.get(policy.id) ?? [],
     pendingExceptions: pendingExceptionsFor(ctx, policy.id),
   };
 }
@@ -693,24 +725,6 @@ function startIndexFor<TRow>(
   return found + 1;
 }
 
-/**
- * The greatest number of records a page may hold, or `null` when the query sets no boundary.
- *
- * A parameter that is absent, not an integer, or not positive asks for no page rather than for an
- * empty one: contracts §9 leaves `limit` optional, and a caller that omits it wants the whole read.
- * The bound is the parameter's alone, so no page size is fixed here (rule P-6).
- *
- * @param limit - The parameter as the query carried it.
- * @returns The page's greatest length, or `null` for every remaining record.
- */
-function limitOf(limit: number | undefined): number | null {
-  if (limit === undefined || !Number.isInteger(limit) || limit <= 0) {
-    return null;
-  }
-
-  return limit;
-}
-
 /* ---------------------------------------------------------------------------------------------
  * The two payloads this family declares — AAP 0.12.1, contracts §3 and §11
  * ------------------------------------------------------------------------------------------- */
@@ -780,7 +794,7 @@ export async function getSovereignty(ctx: HandlerContext): Promise<SovereigntySt
  * @param ctx - The call's context: the chain the counts are taken from and the record declaring the endpoints.
  * @param query - The ordering and page position the read carries.
  * @returns Fresh ledger rows, one page of them in the requested order.
- * @throws Problem - A `'permission'` failure when the ledger is not readable by the acting role or while the forbidden trigger is on, and a `'validation'` failure when the cursor names no endpoint of the ordered rows.
+ * @throws Problem - A `'permission'` failure when the ledger is not readable by the acting role or while the forbidden trigger is on, and a `'validation'` failure when the cursor names no endpoint of the ordered rows or the limit bounds no page.
  */
 export async function getOutboundLedger(
   ctx: HandlerContext,
@@ -793,9 +807,8 @@ export async function getOutboundLedger(
   const ordered =
     order === null ? rows : [...rows].sort((left, right) => compareLedgerRows(left, right, order));
   const start = startIndexFor(ordered, query.cursor, (row) => row.endpoint, ctx, 'ledger');
-  const limit = limitOf(query.limit);
 
-  return limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
+  return ordered.slice(start, start + listLimitOf(ctx, query.limit, 'ledger'));
 }
 
 /**
@@ -803,9 +816,10 @@ export async function getOutboundLedger(
  *
  * The order is the record set's unless `query.sort` names another, which is the order the policy list
  * shows, and each entry carries its own statement, its evaluated flag, the decisions the engine
- * recorded for it and the requests the flow holds pending against it. POL-009 comes back with the
- * rest and is never evaluated, hidden or paraphrased: it is declared configuration, and the screen
- * prints it under `Declared, not verified` (rule P-4).
+ * recorded for it — grouped from one pass over the chain rather than once per entry — and the
+ * requests the flow holds pending against it. POL-009 comes back with the rest and is never
+ * evaluated, hidden or paraphrased: it is declared configuration, and the screen prints it under
+ * `Declared, not verified` (rule P-4).
  *
  * The list parameters are the ones contracts §9 fixes: `sort` as `member:dir` over the entry's own
  * members, `limit` as the page's greatest length, and `cursor` as the identifier a previous page
@@ -814,7 +828,7 @@ export async function getOutboundLedger(
  * @param ctx - The call's context: the persona the permission is evaluated for and the records read.
  * @param query - The ordering and page position the read carries.
  * @returns One page of entries in the requested order.
- * @throws Problem - A `'permission'` failure when the policy set is not readable by the acting role or while the forbidden trigger is on, and a `'validation'` failure when the cursor names no policy of the ordered entries.
+ * @throws Problem - A `'permission'` failure when the policy set is not readable by the acting role or while the forbidden trigger is on, and a `'validation'` failure when the cursor names no policy of the ordered entries or the limit bounds no page.
  */
 export async function listPolicies(
   ctx: HandlerContext,
@@ -822,16 +836,18 @@ export async function listPolicies(
 ): Promise<PolicyDetail[]> {
   requirePermission(ctx, POLICY_READ, 'policy set');
 
-  const entries = ctx.state.records.policies.map((policy) => policyDetailOf(ctx, policy));
+  const decisions = decisionsByPolicy(ctx);
+  const entries = ctx.state.records.policies.map((policy) =>
+    policyDetailOf(ctx, policy, decisions),
+  );
   const order = sortOrderOf(isPolicySortField, query.sort);
   const ordered =
     order === null
       ? entries
       : [...entries].sort((left, right) => comparePolicyEntries(left, right, order));
   const start = startIndexFor(ordered, query.cursor, (entry) => entry.id, ctx, 'policy');
-  const limit = limitOf(query.limit);
 
-  return limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
+  return ordered.slice(start, start + listLimitOf(ctx, query.limit, 'policy set'));
 }
 
 /**
@@ -851,7 +867,7 @@ export async function listPolicies(
 export async function getPolicy(ctx: HandlerContext, policyId: PolicyId): Promise<PolicyDetail> {
   requirePermission(ctx, POLICY_READ, 'policy detail');
 
-  return policyDetailOf(ctx, findPolicy(ctx, policyId));
+  return policyDetailOf(ctx, findPolicy(ctx, policyId), decisionsByPolicy(ctx));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -896,7 +912,7 @@ function instantOf(value: Timestamp): number | null {
  * @param policyId - The policy the exception is requested against.
  * @param draft - The reason, the expiry and the second approver the flow requires.
  * @returns The pending request, as the session now holds it.
- * @throws Problem - A `'permission'` failure when the acting role may not request one or while the forbidden trigger is on, a `'not-found'` failure for an identifier that answers no record, and a `'validation'` failure naming the term a draft does not satisfy.
+ * @throws Problem - A `'permission'` failure when the acting role may not request one or while the forbidden trigger is on, a `'not-found'` failure for an identifier that answers no record, and a `'validation'` failure naming the term a draft does not satisfy, including a reason longer than `FREE_TEXT_MAX_LENGTH`.
  */
 export async function requestPolicyException(
   ctx: HandlerContext,
@@ -915,6 +931,8 @@ export async function requestPolicyException(
         'the second approver has nothing to read without it.',
     );
   }
+
+  assertFreeTextLength(ctx, 'a policy exception reason', reason);
 
   const expiry = instantOf(draft.expiresAt);
 

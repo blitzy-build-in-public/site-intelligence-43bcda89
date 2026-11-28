@@ -58,6 +58,16 @@
  * no empty string where a reference belongs, no zero or placeholder in the figure's place, with the
  * screen's `StateBoundary` owning the degraded state (AAP §0.12.4).
  *
+ * THE FIGURES TAKE THE RIBBON'S TYPE STEP, NOT THE PAGE'S. AAP §0.5.3 closes the type scale at six
+ * sizes, and the 28 px step a page tile carries cannot fit a ribbon slot: at the 1280 px breakpoint a
+ * tile is 198 px wide with a 164 px content box, while a six-figure amount with its evidence mark
+ * measures 237 px at that step and the money formatter's no-break space leaves it no soft wrap point,
+ * so the figure painted past the card's border into the next tile. Each tile is therefore handed
+ * `valueStep="ribbon"` — the 16 px step of the same scale, at which the same figure and mark measure
+ * 142 px — and the step, its measurements and the reserved second caption line that puts all six
+ * figures on one baseline are documented on `src/components/metric-tile.tsx`'s own prop rather than
+ * restated here, so the difference between the two modes keeps a single owner.
+ *
  * WHAT IT DOES NOT CLAIM AND DOES NOT REACH — rules B-1, B-2, P-4. Nothing here fetches an asset,
  * names an address, reads a configuration value or holds a credential, and nothing states a property
  * the demonstration does not implement: the ribbon is a row of computed figures, their captions and
@@ -70,8 +80,11 @@
  * `src/components/metric-tile.tsx` owns, so this file adds no control that could be unreachable, and
  * no control that could be disabled without an explanation (rule P-8). Every colour is a role token —
  * the tiles' own card tokens, which resolve per theme — and no transition or animation exists here
- * for `prefers-reduced-motion` to suppress. The row wraps below the layout's 1280 px breakpoint, so
- * six tiles stay legible on a narrower viewport instead of shrinking past the type scale.
+ * for `prefers-reduced-motion` to suppress. The grid's column count follows the width the row itself
+ * is handed rather than the viewport's — one tile per line on the narrowest column, two and then three
+ * as it widens, six abreast once it holds them — so six tiles stay legible instead of shrinking past
+ * the type scale, and the row reflows the moment the docked evidence drawer takes 420 px out of the
+ * same column.
  *
  * Rules this module is built to satisfy:
  * - B-1: renders from props only, names no address, requests nothing. B-2: no credential field and no
@@ -84,7 +97,7 @@
  *   rounding or format is typed or derived here. P-7: no company, customer, vendor or product name is
  *   written, and the one string authored here is the region name.
  * - P-8: no control of its own, so no dead control. B-3: the group's name, the tiles' own headings,
- *   role-token colour throughout, and a row that wraps instead of shrinking.
+ *   role-token colour throughout, and a grid that reflows instead of shrinking.
  */
 import type { JSX } from 'react';
 
@@ -113,27 +126,49 @@ const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
 const RIBBON_LABEL = 'Canvas ribbon';
 
 /**
- * The row itself: the tiles side by side above the canvas, and the row that holds them.
+ * The frame the row's column count is resolved against: `container-type: inline-size`, which makes
+ * this element's inline size the width every `@…:` variant inside it answers.
  *
- * `flex-wrap` with a `basis` on each tile is what makes the ribbon reflow instead of shrinking: below
- * the 1280 px breakpoint two tiles share a line and the row grows downward, and at that breakpoint the
- * tiles' `basis-0` puts all of them on one line in equal shares. The gap is a 4 px grid step and the
- * container carries no surface, boundary, radius or shadow of its own — each tile's card owns those —
- * so this element is layout and nothing else.
+ * The ribbon's width is not the viewport's. The evidence drawer AAP §0.12.4 docks from 1280 px takes
+ * 420 px out of the same row, so at one and the same 1280 px viewport the ribbon's column measures
+ * 1248 px with the drawer closed and 828 px with it open: six slots of 198 px against six of 128 px.
+ * A viewport breakpoint cannot tell those two states apart, and would keep six columns at 128 px,
+ * where a six-figure amount plus its evidence mark needs 177 px of tile and the longer captions need
+ * three lines. A container query reads the width the tiles are actually given, so the row drops to
+ * three columns the moment its own column narrows, whichever of the two narrowed it.
  */
-const RIBBON_CLASSES = 'flex flex-wrap gap-3';
+const RIBBON_FRAME_CLASSES = '@container';
 
 /**
- * One tile's slot in the row: an equal share of the width, with `min-w-0` so a long caption or figure
- * wraps inside the tile instead of forcing the row wider than the canvas.
+ * The row itself: the tiles side by side above the canvas, on one equal-share grid whose column count
+ * follows the width the row is given rather than the viewport's (see
+ * {@link RIBBON_FRAME_CLASSES}).
  *
- * `shrink`, `grow` and `basis-*` are stated as longhands rather than as the `flex-1` shorthand,
- * because the shorthand would set the basis itself and the wrap point below 1280 px would then depend
- * on the order two utilities happen to appear in the generated stylesheet. The wrapper is a flex
- * container so the card inside it stretches to the tallest tile on the same line, which keeps the row
- * of cards flush along both edges.
+ * One tile per line on the narrowest column, two from 448 px, three from 672 px, and all six abreast
+ * from 1152 px — which is what a 1280 px viewport hands this row (1248 px), and what keeps the canvas
+ * beneath it the height the screen gives it instead of stacking tiles above it. Each threshold is the
+ * narrowest column at which a tile still holds the widest figure at the ribbon's type step together
+ * with its evidence mark inside its own padding: 177 px of tile covers it, so three columns need
+ * 3 × 177 px and two gaps, and six need 6 × 177 px and five. A grid column is an equal share of the
+ * row, so every slot measures the same and no tile can widen its neighbour's. The gap is a 4 px grid
+ * step and the container carries no surface, boundary, radius or shadow of its own — each tile's card
+ * owns those — so this element is layout and nothing else.
  */
-const TILE_CLASSES = 'flex min-w-0 shrink grow basis-1/2 xl:basis-0';
+const RIBBON_CLASSES = 'grid grid-cols-1 gap-3 @md:grid-cols-2 @2xl:grid-cols-3 @6xl:grid-cols-6';
+
+/**
+ * One tile's slot in the row: a single-cell grid whose cell the card fills in both directions.
+ *
+ * The wrapper is a grid container rather than a flex one, and that is the whole of the fix it carries.
+ * `src/components/card.tsx` renders a `<section>` with no width utility of its own, and a flex item is
+ * sized by its content unless something stretches it, so as a flex item the card kept its max-content
+ * width inside an equal-share slot and the row came out ragged — tiles 174 to 268 px wide in slots of
+ * one width. As the only child of a single-cell grid the card is stretched across the cell on both
+ * axes, so every slot holds a card exactly as wide as the slot, and the cards on one line share the
+ * tallest card's height. `min-w-0` keeps a long caption or figure wrapping inside the tile instead of
+ * forcing the row wider than the canvas.
+ */
+const TILE_CLASSES = 'grid min-w-0';
 
 /**
  * What a tile shows beyond the figure the service computed: its caption, the reference that opens its
@@ -216,29 +251,34 @@ export interface CanvasRibbonProps {
  */
 export function CanvasRibbon({ tiles, presentation }: CanvasRibbonProps): JSX.Element {
   return (
-    <div role="group" aria-label={RIBBON_LABEL} className={RIBBON_CLASSES}>
-      {tiles.map((tile) => {
-        const described = presentation[tile.id];
+    <div className={RIBBON_FRAME_CLASSES}>
+      <div role="group" aria-label={RIBBON_LABEL} className={RIBBON_CLASSES}>
+        {tiles.map((tile) => {
+          const described = presentation[tile.id];
 
-        /* No caption and no evidence reference means no tile: the caption belongs to the screen's own
-           screen definition, and a figure placed under an invented caption or behind an empty
-           reference would be worse than a gap the boundary can explain. */
-        if (described === undefined) {
-          return null;
-        }
+          /* No caption and no evidence reference means no tile: the caption belongs to the screen's own
+             screen definition, and a figure placed under an invented caption or behind an empty
+             reference would be worse than a gap the boundary can explain. */
+          if (described === undefined) {
+            return null;
+          }
 
-        return (
-          <div key={tile.id} className={TILE_CLASSES}>
-            <MetricTile
-              label={described.label}
-              value={tile.value}
-              evidenceRef={described.evidenceRef}
-              simLabel={CALCULATION_LABEL}
-              {...(described.kind === undefined ? {} : { kind: described.kind })}
-            />
-          </div>
-        );
-      })}
+          /* The ribbon's own type step: a 198 px slot cannot hold this row's amount at the page tile's
+             28 px step, and the mode also reserves the second caption line (see the module header). */
+          return (
+            <div key={tile.id} className={TILE_CLASSES}>
+              <MetricTile
+                label={described.label}
+                value={tile.value}
+                evidenceRef={described.evidenceRef}
+                simLabel={CALCULATION_LABEL}
+                valueStep="ribbon"
+                {...(described.kind === undefined ? {} : { kind: described.kind })}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

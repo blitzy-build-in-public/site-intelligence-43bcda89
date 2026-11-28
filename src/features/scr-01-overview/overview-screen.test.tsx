@@ -4,13 +4,14 @@
  * WHAT IT PROVES. Each case states a contract the screen is relied on for rather than a description
  * of its markup: that `getOverview` is read once through the port with the shell's scope and nothing
  * else is written; that each of the four tiles carries the exact specification §5.3 label for a
- * computed figure on the tile itself, asserted inside that tile so the shell's page-level badge could
- * not satisfy it (rule P-1); that a tile's figure opens the evidence behind it; that a revenue bar
- * reports the plant it draws to the shell once and opens the evidence its `aria-haspopup="dialog"`
- * declares, from the keyboard and from a pointer click alike (rule P-8); that the opened and
- * resolved series draws one mark per delivered day, that a mark opens that day's evidence and reports
- * nothing to the shell, and that the series' table view narrows the queue to the day its row's date
- * control states, activated from the keyboard (AAP §0.12.4, principle PR-6); that both charts swap to
+ * computed figure on the tile itself — and that the risk-by-plant and changed-since cards carry it
+ * over their rows — asserted inside each of them so the shell's page-level badge could not satisfy it
+ * (AAP 0.10, rule P-1); that a tile's figure opens the evidence behind it; that a revenue bar
+ * reports the plant it draws to the shell once and opens no dialog — the gesture narrows the queue and
+ * takes the reader there (rule P-8, AAP 0.12.4); that the opened and resolved series draws one mark per
+ * delivered day, that a mark narrows the queue to the day it draws and opens nothing, and that the
+ * series' table view narrows the queue to the day its row's date control states, activated from the
+ * keyboard (AAP §0.12.4, principle PR-6); that both charts swap to
  * a table whose cells are the values the chart drew, in both directions and from the keyboard (success
  * criterion 9, rule B-3); that the changed-since list and the risk-by-plant table render every record
  * they were handed, with the amounts set through the one money formatter in the mono face (AAP
@@ -18,11 +19,12 @@
  * it to; that both themes render the same figures; and that the primary action is reached with `Tab`,
  * shows its focus ring and opens the exception queue on `Enter` (`T-16`).
  *
- * WHY THE NARROWING IS ASSERTED IN THE TABLE VIEW. AAP §0.12.4 asks the series for two effects — every
- * figure opens its evidence drawer, and the days' dates filter the queue — and one gesture cannot do
- * both, because the navigation would unmount the drawer it had just opened. The mark therefore keeps
- * its evidence, and the day's control is the date cell of the table view; both halves are asserted, so
- * a change that moved the narrowing back onto the mark would fail here rather than pass silently.
+ * WHY THE NARROWING IS ON THE MARKS AND ON THE TABLE'S DATE CELL. AAP §0.12.4 gives the bars and the
+ * days the queue-filtering job, so activating either narrows the queue and the reader follows the
+ * gesture to it; the same days are reachable from the series' table view, whose date cell narrows to
+ * the day it prints. Both halves are asserted, so a change that moved the narrowing off a mark — or
+ * that put a drawer back on it — would fail here rather than pass silently. Every figure keeps its
+ * evidence in the charts' "View as table" grids, which is where those cases read it.
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a
  * screen may read through (rule P-2), so no seed module, adapter or domain module is involved and
@@ -55,10 +57,10 @@
  * `src/services/mock/mock-backend.test.ts` — and the mock here answers every reference with the same
  * evidence.
  *
- * WHAT THE SERIES' TABLE VIEW IS FOR. The day's own control is the date cell of the series' table
- * view, and it narrows the queue to the day the row carries (AAP §0.12.4). A mark on the chart opens
- * that day's evidence and nothing else, because a gesture cannot both open the drawer and unmount the
- * screen that holds it.
+ * WHAT THE SERIES' TABLE VIEW IS FOR. Its date cell narrows the queue to the day the row carries — the
+ * same narrowing the chart's own mark performs (AAP §0.12.4) — so a reader who has switched to the table
+ * takes it from the row they are reading. The row's two counts open the evidence behind them, which is
+ * also how a mark's figure keeps its evidence reachable: the grid renders it, not a dialog of its own.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or reaches outside the service boundary.
@@ -131,12 +133,14 @@ const UI = {
   tileCustomerOrdersAtRisk: 'Customer orders at risk',
   tileMedianHours: 'Median hours to approved plan',
 
-  /** The changed-since group and what it says when nothing moved. */
+  /** The changed-since group, what its figure label refers to, and what it says when nothing moved. */
   changedSinceTitle: 'Changed since your last visit',
+  changedSinceNote: 'Every entry beneath is a computed reading of what moved.',
   changedSinceEmpty: 'No record has changed since your last visit.',
 
-  /** The risk-by-plant group and its table's accessible name. */
+  /** The risk-by-plant group, what its figure label refers to, and its table's accessible name. */
   byPlantTitle: 'Risk by plant',
+  byPlantNote: 'Every count and amount beneath is a computed figure.',
   byPlantCaption: 'Open exceptions and revenue at risk, by plant',
 
   /** The risk-by-plant table's four column headers. */
@@ -389,8 +393,8 @@ const TILE_CASES = [
  * The two inputs a chart mark answers to, one case each so both are held to the same assertions.
  *
  * A reader may take a revenue bar with a pointer or reach it with `Tab` and press `Enter`, and the mark
- * declares `aria-haspopup="dialog"` either way: the two inputs must produce one behaviour, so a mark
- * whose pointer path and keyboard path diverged would fail the case for its own input rather than pass
+ * reports the plant it draws either way: the two inputs must produce one behaviour, so a mark whose
+ * pointer path and keyboard path diverged would fail the case for its own input rather than pass
  * because only the keyboard was ever exercised.
  */
 const MARK_ACTIVATIONS = [
@@ -709,7 +713,7 @@ describe('OverviewScreen', () => {
   });
 
   it.each(MARK_ACTIVATIONS)(
-    'reports the plant a revenue bar draws, once, and opens its evidence, when activated by $input',
+    'reports the plant a revenue bar draws, once, and opens no dialog, when activated by $input',
     async ({ modality }) => {
       const user = userEvent.setup();
       const onNarrowQueue = vi.fn<(narrowing: OverviewNarrowing) => void>();
@@ -724,15 +728,15 @@ describe('OverviewScreen', () => {
       expect(bar).toHaveAttribute('tabindex', '0');
 
       // Each bar names its own figure and the exact §5.3 label that figure carries (rule P-1), and
-      // says what activating it opens (rule P-8).
+      // declares no dialog: the gesture narrows the queue and takes the reader there instead (AAP
+      // 0.12.4, rule P-8).
       for (const mark of barMarks()) {
-        expect(mark).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(mark).not.toHaveAttribute('aria-haspopup');
         expect(mark.getAttribute('aria-label')).toContain(`(${CALCULATION_LABEL})`);
       }
 
       if (modality === 'pointer') {
-        /* Nothing has focused the mark: a pointer click has to stand on its own, as the mark's own
-           `aria-haspopup="dialog"` promises a reader who never touches the keyboard. */
+        /* Nothing has focused the mark: a pointer click has to stand on its own. */
         await user.click(bar);
       } else {
         bar.focus();
@@ -741,29 +745,18 @@ describe('OverviewScreen', () => {
       }
 
       /*
-       * One behaviour from either input: the shell is asked to narrow to this plant, once, the bar the
-       * reader chose is marked as the current one, and the evidence the mark declares is open.
+       * One behaviour from either input: the shell is asked to narrow to this plant, exactly once, and
+       * nothing is opened here. The queue the narrowing produces is where the reader goes, so a drawer
+       * opened beside that report would be unmounted before a word of it was read (AAP 0.12.4).
        */
       expect(onNarrowQueue).toHaveBeenCalledTimes(1);
       expect(onNarrowQueue).toHaveBeenCalledWith({ kind: 'plant', plantId: plant.id });
-      expect(bar).toHaveAttribute('aria-current', 'true');
-
-      const dialog = await screen.findByRole('dialog');
-      expect(dialog).toHaveAccessibleName(EVIDENCE_DRAWER_TEXT.title);
-
-      /*
-       * The drawer is the one this mark declares, not any figure's: it prints the reference the read was
-       * asked about, and that reference names the plant the bar draws. Read from the call rather than
-       * retyped, because the reference's shape belongs to the screen.
-       */
-      const reference = mockService.getEvidence.mock.calls[0]?.[0];
-      expect(typeof reference).toBe('string');
-      expect(String(reference)).toContain(plant.id);
-      expect(dialog).toHaveTextContent(String(reference));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(mockService.getEvidence).not.toHaveBeenCalled();
     },
   );
 
-  it('draws one mark per delivered day for each series, and narrows the queue to the day a series table row states', async () => {
+  it('draws one mark per delivered day for each series, and narrows the queue to the day a mark or a series table row states', async () => {
     const user = userEvent.setup();
     const onNarrowQueue = vi.fn<(narrowing: OverviewNarrowing) => void>();
 
@@ -777,40 +770,41 @@ describe('OverviewScreen', () => {
     expect(resolved).toHaveLength(SERIES.length);
 
     SERIES.forEach((point, index) => {
+      // Each mark states its series, its day and its count, then the action it performs, and declares
+      // no dialog because it opens none (rules P-8 and B-3).
       expect(at(opened, index, 'opened mark')).toHaveAttribute(
         'aria-label',
-        `${UI.seriesOpened}, ${point.date}: ${String(point.open)}`,
+        `${UI.seriesOpened}, ${point.date}: ${String(point.open)}. ${UI.narrowToDay}${point.date}`,
       );
       expect(at(resolved, index, 'resolved mark')).toHaveAttribute(
         'aria-label',
-        `${UI.seriesResolved}, ${point.date}: ${String(point.resolved)}`,
+        `${UI.seriesResolved}, ${point.date}: ${String(point.resolved)}. ${UI.narrowToDay}${point.date}`,
       );
+      expect(at(opened, index, 'opened mark')).not.toHaveAttribute('aria-haspopup');
     });
 
     /*
-     * A mark keeps its one effect: it opens that day's evidence and reports nothing to the shell. A
-     * second effect that navigated to the queue would unmount this screen, and the drawer with it,
-     * before a reader could read it — which is why the day's narrowing lives on another control (see
-     * the table-view case below, AAP §0.12.4 and principle PR-6).
+     * A mark narrows the queue to the day it draws and opens nothing (AAP 0.12.4): the reader follows
+     * the gesture to the queue it narrowed, so a drawer opened here would be unmounted before it was
+     * read. The day reported is the first mark's own, so the case states no date of its own (rule P-6).
      */
     const mark = at(opened, 0, 'opened mark');
+    const firstDay = at(SERIES, 0, 'series day');
 
     mark.focus();
     expect(mark).toHaveFocus();
 
     await user.keyboard('{Enter}');
 
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(onNarrowQueue).not.toHaveBeenCalled();
-    expect(mark).not.toHaveAttribute('aria-current');
-
-    await user.keyboard('{Escape}');
+    expect(onNarrowQueue).toHaveBeenCalledTimes(1);
+    expect(onNarrowQueue).toHaveBeenLastCalledWith({ kind: 'date', date: firstDay.date });
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(mockService.getEvidence).not.toHaveBeenCalled();
 
     /*
-     * The day's own control is the date cell of the series' table view, and it narrows the queue to the
-     * day the row carries (AAP §0.12.4). The second day is the one chosen, so the report is about the
-     * date the row states rather than about whichever row happens to come first.
+     * The day is also reachable from the date cell of the series' table view, which narrows the queue to
+     * the day the row carries. The second day is the one chosen, so the second report is about the date
+     * that row states rather than about whichever row happens to come first.
      */
     const toggle = tableToggle(UI.seriesChartTitle);
 
@@ -837,10 +831,10 @@ describe('OverviewScreen', () => {
 
     await user.keyboard('{Enter}');
 
-    // Exactly one report, carrying the day that row prints: the screen asks the shell to narrow the
-    // queue by the record's own date rather than re-filtering rows it already has (rule P-2).
-    expect(onNarrowQueue).toHaveBeenCalledTimes(1);
-    expect(onNarrowQueue).toHaveBeenCalledWith({ kind: 'date', date: day.date });
+    // A second report, carrying the day that row prints: the screen asks the shell to narrow the queue
+    // by the record's own date rather than re-filtering rows it already has (rule P-2).
+    expect(onNarrowQueue).toHaveBeenCalledTimes(2);
+    expect(onNarrowQueue).toHaveBeenLastCalledWith({ kind: 'date', date: day.date });
   });
 
   it('replaces the revenue bars with a table of the same rows, and back, from the keyboard', async () => {
@@ -978,6 +972,25 @@ describe('OverviewScreen', () => {
     expect(within(group).getByText(UI.changedSinceEmpty)).toBeVisible();
     expect(within(group).queryAllByRole('button')).toHaveLength(0);
   });
+
+  it.each([
+    { card: UI.byPlantTitle, note: UI.byPlantNote },
+    { card: UI.changedSinceTitle, note: UI.changedSinceNote },
+  ])(
+    'labels the computed figures of the “$card” card on the card itself',
+    async ({ card, note }) => {
+      renderScreen();
+
+      const group = await screen.findByRole('region', { name: card });
+
+      // One label for the card's figures, read inside the card so the shell's page-level badge could
+      // not satisfy it and neither could a sibling card's label (AAP 0.10, rule P-1).
+      expect(within(group).getAllByText(CALCULATION_LABEL)).toHaveLength(1);
+
+      // The sentence beneath the label states what it refers to, and carries no figure of its own.
+      expect(within(group).getByText(note)).toBeVisible();
+    },
+  );
 
   it('renders the risk-by-plant table with its caption, its headers and each row’s own figures', async () => {
     renderScreen();

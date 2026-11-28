@@ -80,16 +80,16 @@ export interface BriefCompetitor {
 }
 
 /**
- * One shared crossing of the brief: every member the shared `Chokepoint` shape declares, under its own
+ * One shared crossing of the brief: every measure the shared `Chokepoint` shape declares, under its own
  * name and type, plus the label the element carries.
  *
- * Extending `Chokepoint` rather than restating it is what guarantees that the crossing's name, overlap,
- * competitor buffer days, contention note and provenance all reach the file and that none of them is
- * renamed or retyped on the way (rule P-6). Straying beyond that shape is what the builder declines to
- * do, because the records the pack publishes carry members the brief must not reproduce (see
- * `briefChokepointOf`).
+ * Extending `Chokepoint` — less the pair that states where the crossing sits — is what guarantees that
+ * the crossing's name, overlap, competitor buffer days, contention note and provenance all reach the
+ * file and that none of them is renamed or retyped on the way (rule P-6). The position is a canvas
+ * concern rather than a measure of the crossing, so the brief omits it: the shape it is typed with
+ * leaves the pair out of reach and the file reports the contention alone (see `briefChokepointOf`).
  */
-export interface BriefChokepoint extends Chokepoint {
+export interface BriefChokepoint extends Omit<Chokepoint, 'latitude' | 'longitude'> {
   /** The fixed label the element carries, the market-intelligence member of `SIM_LABELS`. */
   readonly simLabel: SimLabel;
 }
@@ -198,14 +198,15 @@ function briefCompetitorOf(network: CompetitorNetwork): BriefCompetitor {
 }
 
 /**
- * Copies one crossing into the brief, taking every member the shared `Chokepoint` shape declares.
+ * Copies one crossing into the brief, taking every measure the shared `Chokepoint` shape declares.
  *
  * The parameter is typed `Chokepoint` on purpose. The records the pack publishes extend that shape with
- * the crossing's map position and with `clientNodeIds`, which name positions of the client's own
- * network; spreading the live record would carry those identifiers into a payload that reports on the
- * market pack alone (rule P-5). Typing the parameter as the shared shape keeps those members out of
- * reach here, while every declared member — name, overlap, buffer days, contention note, provenance — is
- * copied under its own name with its own type.
+ * `clientNodeIds`, which name positions of the client's own network; spreading the live record would
+ * carry those identifiers into a payload that reports on the market pack alone (rule P-5). Typing the
+ * parameter as the shared shape keeps that member out of reach here, while every measure the shape
+ * declares — name, overlap, buffer days, contention note, provenance — is copied under its own name
+ * with its own type. The crossing's optional map position is left behind with it: the brief reports the
+ * contention the pack records, not where the canvas draws the crossing.
  */
 function briefChokepointOf(crossing: Chokepoint): BriefChokepoint {
   return {

@@ -26,6 +26,39 @@ export default defineConfig({
   // checkout's preview fail on a port another checkout already holds.
   build: {
     target: 'es2022',
+    /**
+     * Three kinds of code, three kinds of chunk.
+     *
+     * The route modules are already separate: `src/app/router.tsx` reaches every screen through a dynamic
+     * `import()`, so a screen and whatever only it needs are fetched when its address is first matched.
+     * The two groups below split the rest by how often it changes and by whether the shell needs it at
+     * all: `vendor` holds the frameworks the shell itself runs on, which change only when a dependency is
+     * upgraded, and `seed-records` holds the demonstration's dataset, which changes only when a record
+     * changes. Neither is affected by an edit to a screen, so a deploy invalidates the chunk it touched
+     * instead of the whole bundle.
+     *
+     * `d3-geo` and `topojson-client` are deliberately left out of `vendor`. They are the map lens's alone —
+     * they project the bundled Natural Earth boundaries and nothing else imports them — so grouping them
+     * here would make every route download the projection engine and put them back into the initial
+     * payload this split exists to keep route-scoped. Left out, they ride in the canvas route's own chunk,
+     * which is the only place they are used. `@phosphor-icons/react` is left out of `vendor` for its own
+     * reason: it is not framework code but icon modules the shell and the screens import, so it stays on
+     * the entry chunk's own graph — which every route loads regardless, because the shell draws its own
+     * icons before any screen arrives — and the set is tree-shaken to the icons the modules import.
+     */
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor',
+              test: /[\\/]node_modules[\\/](?!d3-geo[\\/]|topojson-client[\\/]|@phosphor-icons[\\/])/u,
+            },
+            { name: 'seed-records', test: /[\\/]src[\\/]seed[\\/]/u },
+          ],
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',

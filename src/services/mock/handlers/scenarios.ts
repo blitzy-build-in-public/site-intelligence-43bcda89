@@ -75,7 +75,8 @@
  * measured from an exception's own case is a record the dataset does not hold, so without this answer
  * the drawer behind a comparison figure would open on a failure instead of on the record behind the
  * figure (AAP 0.12.4, F12). The lookup reads and refuses nothing: it evaluates no permission, writes
- * nothing, and answers `undefined` for a reference no set names, for the caller to refuse.
+ * nothing, and answers `undefined` for a reference no set names, for the caller to refuse — while a
+ * record defect that stops an option set being produced travels on as the typed failure it is.
  *
  * WHAT IT DOES NOT DO. It renders nothing, formats nothing, opens no address (rule B-1) and reads no
  * configuration or credential (rule B-2). It holds no record of its own: every value comes from the
@@ -1222,18 +1223,23 @@ function computedScenarioSet(ctx: HandlerContext, exception: OperationalExceptio
  *
  * Two sources, in the order `getScenarioSet` takes them: the set the dataset ships for the exception,
  * which is served as it stands, and otherwise the set measured from the exception's own solver case. An
- * exception that states neither — no shipped set and no case, or a case the loaded records do not hold —
- * states no option, which is the empty list here rather than a failure.
+ * exception that states neither — no shipped set and no case at all — states no option, which is the
+ * empty list here rather than a failure: option generation for an exception type with no case is the
+ * optimisation service's work in the pilot, and SCR-04 shows that as its empty comparison rather than as
+ * a defect (AAP 0.12.4, AAP 0.14.2).
  *
- * A set the records cannot produce is answered as no options for the same reason: the measurement can
- * refuse (a trail whose positions occupy every letter of the `SCN-nnnn-x` form, a case the records do
- * not hold), and the caller is a search for one identifier rather than the read that reports such a
- * refusal, so an exception whose set cannot be produced simply names nothing. Nothing is written or
- * audited by the measurement.
+ * A set the records cannot produce is not answered as no options. The measurement refuses a case the
+ * records do not hold and a set whose positions occupy every letter of the `SCN-nnnn-x` form, and each
+ * refusal is a record defect rather than an absence: answering it as "this exception names no option"
+ * would state that the records hold nothing where in fact they are broken, which is the false statement
+ * AAP 0.18.1 forbids a `catch` to make. The failure therefore travels out of this read as the `Problem`
+ * it is, for the caller to report. Nothing is written or audited by the measurement.
  *
  * @param ctx - The call's context, whose records supply the case, the positions and the confidence.
  * @param exception - The exception whose options are wanted.
  * @returns The shipped or measured options, or an empty list when the records state none for it.
+ * @throws Problem - A `'not-found'` failure when the exception's solver case does not resolve, or a
+ *   `'validation'` failure when its option identifiers or the recommendation rule cannot be stated.
  */
 function optionsOf(ctx: HandlerContext, exception: OperationalException): readonly Scenario[] {
   const shipped = seededSetFor(ctx.state, exception.id);
@@ -1246,14 +1252,7 @@ function optionsOf(ctx: HandlerContext, exception: OperationalException): readon
     return [];
   }
 
-  try {
-    return computedScenarioSet(ctx, exception).scenarios;
-  } catch {
-    // The records cannot produce this exception's set, so it names no option a reference could be
-    // answered with. The failure is not this lookup's to report: the caller asks which option a
-    // reference names and answers the reference itself when none does.
-    return [];
-  }
+  return computedScenarioSet(ctx, exception).scenarios;
 }
 
 /**
@@ -1277,20 +1276,44 @@ function optionsOf(ctx: HandlerContext, exception: OperationalException): readon
  * set names is answered `undefined` rather than as a failure, as a reference to a shipped option the
  * records do not hold is.
  *
+ * THE ONE THING IT PROPAGATES IS A RECORD DEFECT'S OWN FAILURE. A set the records cannot produce throws
+ * (see `optionsOf`), and that is no verdict this lookup takes: it is the defect the caller has to report.
+ * One exception's broken record must not hide a valid reference to another exception's option, so every
+ * set is asked inside a `try` that remembers the first failure and carries on, a reference the walk does
+ * answer is answered at once, and only when the walk ends having found nothing does the remembered
+ * failure travel — as the typed `Problem` it is, rather than as the statement that the records hold no
+ * such scenario, which would be false while a record they should hold is missing (AAP 0.18.1).
+ *
  * @param ctx - The call's context, whose records state the option sets. The state is not modified.
  * @param scenarioId - The identifier the reference names.
- * @returns The option that identifier names, or `undefined` when no option set states one.
+ * @returns The option that identifier names, or `undefined` when every set the records can produce
+ *   states none and none of them failed.
+ * @throws Problem - The first `'not-found'` or `'validation'` failure an option set the walk asked for
+ *   could not be produced, once the walk has found that no set names the reference.
  */
 export function scenarioForReference(
   ctx: HandlerContext,
   scenarioId: ScenarioId,
 ): Scenario | undefined {
-  for (const exception of ctx.state.records.exceptions) {
-    const found = optionsOf(ctx, exception).find((candidate) => candidate.id === scenarioId);
+  let defect: { readonly failure: unknown } | undefined;
 
-    if (found !== undefined) {
-      return found;
+  for (const exception of ctx.state.records.exceptions) {
+    try {
+      const found = optionsOf(ctx, exception).find((candidate) => candidate.id === scenarioId);
+
+      if (found !== undefined) {
+        return found;
+      }
+    } catch (error) {
+      // One exception's broken record must not hide a valid reference to another exception's option, so
+      // the first failure is remembered and the walk carries on. Wrapping it is what tells a remembered
+      // failure apart from no failure at all, whichever value was thrown.
+      defect ??= { failure: error };
     }
+  }
+
+  if (defect !== undefined) {
+    throw defect.failure;
   }
 
   return undefined;

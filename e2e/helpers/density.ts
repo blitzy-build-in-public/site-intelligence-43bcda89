@@ -8,10 +8,11 @@
  * application stores, contracts §1) and applies it at module initialisation, before any component
  * renders, while `src/theme/tokens.css` derives `--row-height` from it: the attribute is what
  * selects rows 32 px tall or rows 44 px tall in every table of the application. A frame painted
- * before that module executes carries the comfortable row instead, because `tokens.css` declares
- * `--row-height` on `:root` as the document default. The helper asserts the attribute and never a
- * measured pixel height, because the stylesheet owns that value and a computed height would restate
- * it a second time.
+ * before that module executes carries the compact row instead, because `tokens.css` declares
+ * `--row-height` on `:root` as the document default and that default is the density the seeded persona
+ * starts on (AAP §0.12.4), so a session left on the seeded persona reflows no row at all. The helper
+ * stops at the attribute and measures nothing itself: the stylesheet owns the pixel value, so what the
+ * attribute renders is the calling test's assertion, not a second restatement of it here.
  *
  * The switch's accessible name is `Switch row density: <the density it offers>`, which the component
  * fixes. The prefix is restated in this module rather than read from the provider's label table:
@@ -19,9 +20,9 @@
  * B-3) is what proves it, and a renamed label has to break this helper rather than be followed
  * without notice.
  *
- * Serves T-16 (`e2e/s1-keyboard-and-axe.spec.ts`), which proves the switch works and that row height
- * follows the attribute, and T-19 (`e2e/s2-canvas.spec.ts`), which selects a density as part of its
- * setup.
+ * Serves the density test at the end of `e2e/s1-labelling-and-states.spec.ts`: that test presses the
+ * switch through both values and, being the caller, measures a table row before and after each press to
+ * prove the height follows the attribute. Nothing else imports this module.
  */
 import type { Locator, Page } from '@playwright/test';
 

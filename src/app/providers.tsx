@@ -44,7 +44,7 @@
  *   configurable.
  * - B-3: the providers render no control and add no focus stop. `data-theme` and `data-density` stay
  *   with `src/theme/theme-provider.tsx`, which applies both before any component renders, and the
- *   stylesheet carries the Command palette and the comfortable row as the document default for the
+ *   stylesheet carries the Command palette and the compact row as the document default for the
  *   frame painted before that module executes, so the first frame a reader receives already carries a
  *   theme and a density.
  * - P-4: no statement here claims that the application establishes a configuration, prevents a copy
@@ -380,10 +380,12 @@ function ActiveRoleSeed(): null {
  * rendered inside the boundary, so it can read the persona the adapter reported as well as the
  * selection the shell store holds.
  *
- * Until a persona is in force, the theme receives no `defaultDensity` and falls back to its own
- * comfortable default. The prop is passed by spreading one of two prop objects rather than as
- * `undefined`, because `exactOptionalPropertyTypes` distinguishes an absent optional property from one
- * explicitly set to `undefined`, and the theme provider's declaration is the stricter of the two.
+ * Until a persona is in force, the theme receives no `defaultDensity` and falls back to its own compact
+ * default, which is the density the seeded persona starts on, so the frame before the start-up read
+ * settles is not corrected after paint. The prop is passed by spreading one of two prop objects rather
+ * than as `undefined`, because `exactOptionalPropertyTypes` distinguishes an absent optional property
+ * from one explicitly set to `undefined`, and the theme provider's declaration is the stricter of the
+ * two.
  */
 function ShellProviders({ children }: { readonly children: ReactNode }): ReactElement {
   const activeRole = useActiveRole();

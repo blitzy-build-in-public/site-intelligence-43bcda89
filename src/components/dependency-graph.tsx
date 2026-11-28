@@ -67,7 +67,7 @@
  * carried by `motion-safe:`, so a reduced-motion session gets the state change without the
  * animation, and no mark animates at all.
  */
-import { useId, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
 
 import type { PinCounts, PinState, Topology, TopologyNode, TopologyNodeKind } from '../types';
@@ -89,9 +89,10 @@ import { ActionButton, CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES, Too
  * Only one of them is a fixed specification string: the stage tooltip `Arrives in stage S4`, which
  * AAP 0.12.4 and rule P-8 require character for character on the disabled "Open part" control, and
  * which is not re-cased or paraphrased here. The rest are this component's own labels — a lane's
- * heading, the switch's caption, the empty-lane note — and none of them claims a security property
- * for the workspace (rule P-4). Nothing below carries a figure, an amount, a date or a record
- * identifier (rule P-6): a node's label, its pin counts and its families all arrive from the payload.
+ * heading, the four emphasis controls and the sentence explaining why they cannot act, the switch's
+ * caption, the empty-lane note — and none of them claims a security property for the workspace
+ * (rule P-4). Nothing below carries a figure, an amount, a date or a record identifier (rule P-6): a
+ * node's label, its pin counts and its families all arrive from the payload.
  */
 export const DEPENDENCY_GRAPH_TEXT = {
   /** The accessible caption of the scenario preview switch, completed by the scenario it would preview. */
@@ -135,7 +136,75 @@ export const DEPENDENCY_GRAPH_TEXT = {
    * vocabulary is readable without leaving the lens.
    */
   pinKeyLabel: 'Pin states in this view',
+
+  /**
+   * The accessible name of the group holding the three direction controls.
+   *
+   * The group is what tells a reader that the three controls are one choice rather than three
+   * unrelated actions, so it names the choice the drawing applies to the selection beneath it.
+   */
+  emphasisDirectionLabel: 'Emphasis direction',
+
+  /**
+   * The visible label of each direction control, one per member of {@link GraphEmphasisDirection}.
+   *
+   * Each names the half of the path it traces in the words the table view's path column already uses
+   * for it — "Upstream", "Downstream" — so a reader who reads the drawing and then the table meets one
+   * vocabulary. The default says "Both directions" rather than repeating those two names: it is the
+   * reading a reader who never touches the control is given, and the caption beneath the drawing spells
+   * the whole path out.
+   */
+  emphasisDirectionLabels: {
+    both: 'Both directions',
+    upstream: 'Upstream',
+    downstream: 'Downstream',
+  } as const satisfies Record<GraphEmphasisDirection, string>,
+
+  /**
+   * The visible label of the dimming switch: it names what the switch does while it is on.
+   *
+   * A label that read "Dimming" would leave a reader who turned it off unsure of what turning it back
+   * on would do, so the switch states the action it is holding on rather than the state's name.
+   */
+  dimmingLabel: 'Dim nodes off the path',
+
+  /**
+   * Why every emphasis control is disabled, stated on the drawing when no node resolves for
+   * `selectedNodeId`.
+   *
+   * There is nothing to trace and nothing to dim without a selection, so the four controls say so
+   * together instead of resting inert under a reader's pointer (rule P-8). It is one sentence for all
+   * four because the reason is one: the selection they act on is missing, not the control's own
+   * ability.
+   */
+  emphasisUnavailable: 'Select a node to trace its path and dim the nodes off it.',
 } as const;
+
+/* ---------------------------------------------------------------------------------------------
+ * The emphasis the reader drives — AAP 0.12.4, the lens's dimming and upstream/downstream path
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The directions a selection can be traced in: the whole of that control's state space.
+ *
+ * AAP 0.12.4 and AAP 0.14.1 name "dimming, upstream and downstream path" among the graph lens's
+ * features, so which half of the path the drawing emphasises is the reader's choice rather than a
+ * conclusion the lens reaches for them. `'both'` is the path the lens drew before the control existed
+ * and the two single directions are its halves, so no reading a reader had is lost by the control
+ * arriving. The union is closed and {@link GRAPH_EMPHASIS_DIRECTIONS} lists exactly its members, so a
+ * member added here without a control fails to compile at that list instead of rendering an arm
+ * nothing can reach.
+ */
+export type GraphEmphasisDirection = 'both' | 'upstream' | 'downstream';
+
+/**
+ * Every direction of {@link GraphEmphasisDirection}, in the order the controls render them.
+ *
+ * `'both'` leads because it is the lens's default, so the first control a reader meets is the reading
+ * the lens already gave them. The array is the one owner of how many direction controls exist and in
+ * what order, so the drawing, the lens's caption and both suites cannot disagree about either.
+ */
+export const GRAPH_EMPHASIS_DIRECTIONS = ['both', 'upstream', 'downstream'] as const;
 
 /* ---------------------------------------------------------------------------------------------
  * The lanes — AAP 0.12.4, six fixed stages of the network
@@ -332,6 +401,15 @@ function graphWidth(): number {
 
   return columns + 2 * GRAPH_PADDING;
 }
+
+/**
+ * The width the view box is drawn at, derived once.
+ *
+ * Neither the lane list nor the grid above it can change while the application runs, so the width is a
+ * constant of this module rather than a value recomputed in every render: what the render body derives
+ * is then only the geometry that depends on the payload it was given.
+ */
+const GRAPH_WIDTH = graphWidth();
 
 /**
  * The drawing's height: the heading band, the rows the longest lane needs and the clearance below.
@@ -607,6 +685,39 @@ const PREVIEW_SWITCH_CLASSES = [
   'aria-disabled:hover:text-text-secondary',
 ].join(' ');
 
+/**
+ * One emphasis-direction control: an exclusive choice, pressed or not.
+ *
+ * It composes the shared control structure and secondary appearance for the reason the switch below
+ * composes them, and adds the pressed treatment through `aria-pressed` — the attribute, not a
+ * conditional class list, so the state a reader sees is the state assistive technology is told. The
+ * pressed control takes the accent boundary, the first raised surface and a heavier label, so the
+ * choice is never carried by colour alone (rule B-3); the `aria-disabled` overrides answer neither
+ * the pointer nor a press while no node is selected, exactly as the switch's do.
+ */
+const EMPHASIS_DIRECTION_CLASSES = [
+  CONTROL_STRUCTURE_CLASSES,
+  SECONDARY_CONTROL_CLASSES,
+  'aria-pressed:border-accent aria-pressed:bg-surface-1 aria-pressed:font-semibold',
+  'aria-disabled:cursor-not-allowed aria-disabled:text-text-secondary',
+  'aria-disabled:hover:border-control-boundary aria-disabled:hover:bg-surface-2',
+  'aria-disabled:hover:text-text-secondary',
+].join(' ');
+
+/**
+ * The dimming switch: the preview switch's own appearance, plus the weight its checked state carries.
+ *
+ * It builds on {@link PREVIEW_SWITCH_CLASSES} rather than restating that list, so the two switches of
+ * this lens cannot drift apart: the accent boundary and the first raised surface while on, the same
+ * inert appearance while it cannot act, and one addition — a heavier label on `aria-checked` — so the
+ * state a reader who cannot tell the two theme surfaces apart is looking at is not stated in colour
+ * alone (rule B-3).
+ */
+const DIMMING_SWITCH_CLASSES = [PREVIEW_SWITCH_CLASSES, 'aria-checked:font-semibold'].join(' ');
+
+/** One group of controls inside the controls row, wrapping rather than overflowing at a narrow width. */
+const CONTROL_GROUP_CLASSES = 'flex min-w-0 flex-wrap items-center gap-1';
+
 /** The strip under the drawing: the selected node, and the control the next stage will enable. */
 const SELECTED_STRIP_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
 
@@ -674,9 +785,12 @@ function statePresent(topology: Topology, state: PinState): boolean {
  * Props of {@link DependencyGraph}.
  *
  * The first four are the lens's contract with the canvas screen and are identical to the pair
- * `./map-canvas.tsx` takes, so one selection drives both lenses. The optional members are the
- * overlays the screen switches on — dimming, a traced path, a scenario preview — and none of them
- * is state this component keeps.
+ * `./map-canvas.tsx` takes, so one selection drives both lenses. The four that follow them are the
+ * emphasis controls' own pair, in the shape that file gives the zoom level and the view preset: the
+ * caller owns each value and this component reports the reader's change, so no reading is worked out
+ * here that the lens's caption and its table view would then have to be told about separately. The
+ * optional members are the overlays the caller switches on — what to dim, what to trace, a scenario
+ * to preview — and they belong to the caller for the same reason.
  */
 export interface DependencyGraphProps {
   /** The network to draw, exactly as `getTopology` returned it. Required: the lens reads nothing. */
@@ -705,6 +819,33 @@ export interface DependencyGraphProps {
    * dead controls (rule P-8). The screen owns the value it receives and passes it back down.
    */
   readonly onSelectNode: (nodeId: string) => void;
+
+  /**
+   * Which half of the path the drawing emphasises. Controlled: the caller owns the value.
+   *
+   * AAP 0.12.4 names the upstream and downstream path as a feature a reader drives, so the direction
+   * arrives as a prop rather than being decided in the render body: the same value feeds the
+   * `pathNodeIds` the caller traces from, and the caption that states in words what the drawing did.
+   * It is the controlled pair `./map-canvas.tsx` uses for the zoom level and the view preset — the
+   * caller holds the value, this component reports the change — so one lens and the other cannot
+   * disagree about how a choice is passed.
+   */
+  readonly emphasisDirection: GraphEmphasisDirection;
+
+  /** Called with the direction the reader asked for when one of the direction controls is activated. */
+  readonly onEmphasisDirectionChange: (direction: GraphEmphasisDirection) => void;
+
+  /**
+   * Whether the nodes off the traced path are pushed back. Controlled, for the direction's reason.
+   *
+   * With it off the drawing still emphasises the path and pushes nothing back, so a reader can read
+   * the network at its resting emphasis after choosing a path through it; the caller then supplies no
+   * `dimmedNodeIds`, because what to dim is its computation and whether to dim at all is this switch.
+   */
+  readonly dimming: boolean;
+
+  /** Called with the state the reader asked for when the dimming switch is turned on or off. */
+  readonly onDimmingChange: (dimming: boolean) => void;
 
   /**
    * The nodes to push back: the ones outside what the reader is currently looking at.
@@ -773,40 +914,61 @@ export interface DependencyGraphProps {
  * all computed from the payload's own counts by the pure functions above. It carries no table and no
  * toggle, because `./chart-frame.tsx` owns the table view of every chart, map and graph.
  *
+ * IT OWNS THE LENS'S CONTROLS, AND AAP 0.5.2 IS WHY. AAP 0.12.4 and AAP 0.14.1 name the dimming and
+ * the upstream and downstream path among the lens's features a reader drives, and AAP 0.5.2 permits a
+ * native interactive element only inside the component that owns it — so the three direction controls
+ * and the dimming switch sit here, beside the preview switch this component already carried, rather
+ * than in the feature file that composes the lens. They are controlled for the same reason the
+ * selection is: the caller holds the direction and the dimming state, so the `pathNodeIds` it traced
+ * and the caption that states in words what the drawing did are two readings of one choice.
+ *
  * Activation reports the node and, when the caller's mapper resolves a reference for it, opens the
  * evidence drawer beside the drawing; a control that opens the drawer declares that with
  * `aria-haspopup="dialog"`. The drawer is a sibling of the `svg`, never a child of it: a dialog cannot
  * live inside an SVG fragment, and the drawer itself portals into the document body.
  *
- * @param props The topology, the drawing's title, the shared selection and the optional overlays.
- * @returns The lens: a preview switch, the drawing, the pin-state key, the selected-node strip and,
- *   while it is open, the evidence drawer.
+ * @param props The topology, the drawing's title, the shared selection, the controlled emphasis and
+ *   the optional overlays. See {@link DependencyGraphProps}.
+ * @returns The lens: the emphasis controls, the preview switch, the drawing, the pin-state key, the
+ *   selected-node strip and, while it is open, the evidence drawer.
  */
-export function DependencyGraph({
+function DependencyGraph({
   topology,
   title,
   selectedNodeId,
   onSelectNode,
+  emphasisDirection,
+  onEmphasisDirectionChange,
+  dimming,
+  onDimmingChange,
   dimmedNodeIds,
   pathNodeIds,
   previewScenarioId,
   onPreviewScenarioChange,
   evidenceRefForNode,
 }: DependencyGraphProps): ReactElement {
-  const titleId = useId();
   const [armedPreviewId, setArmedPreviewId] = useState<string | null>(null);
   const [openEvidenceRef, setOpenEvidenceRef] = useState<string | null>(null);
 
-  const placements = placeNodes(topology);
-  const placementById = new Map(
-    placements.map((placement) => [placement.node.id, placement] as const),
+  /*
+   * THE DRAWING IS DERIVED FROM ITS PROPS AND NOTHING ELSE, SO EACH DERIVATION IS MEMOISED ON THE
+   * PROPS IT READS. The marks below are six lane guides, two paths and an arrowhead per lane and a
+   * three-element box per node — the heaviest surface in the application — and the canvas screen
+   * re-renders whenever the reader touches anything on it. Memoised, a render that changed one prop
+   * rebuilds only what that prop feeds; unmemoised, every such render rebuilt all of it.
+   */
+  const placements = useMemo(() => placeNodes(topology), [topology]);
+  const placementById = useMemo(
+    () => new Map(placements.map((placement) => [placement.node.id, placement] as const)),
+    [placements],
   );
-  const dimmed = new Set(dimmedNodeIds ?? []);
-  const traced = new Set(pathNodeIds ?? []);
-  const width = graphWidth();
-  const height = graphHeight(tallestLane(topology));
-  const selectedNode =
-    selectedNodeId === undefined ? undefined : findNode(topology, selectedNodeId);
+  const dimmed = useMemo(() => new Set(dimmedNodeIds ?? []), [dimmedNodeIds]);
+  const traced = useMemo(() => new Set(pathNodeIds ?? []), [pathNodeIds]);
+  const height = useMemo(() => graphHeight(tallestLane(topology)), [topology]);
+  const selectedNode = useMemo(
+    () => (selectedNodeId === undefined ? undefined : findNode(topology, selectedNodeId)),
+    [topology, selectedNodeId],
+  );
 
   const previewId = previewScenarioId ?? null;
   const canArmPreview = previewId !== null && onPreviewScenarioChange !== undefined;
@@ -816,7 +978,10 @@ export function DependencyGraph({
       ? DEPENDENCY_GRAPH_TEXT.previewLabel
       : `${DEPENDENCY_GRAPH_TEXT.previewLabel} ${previewId}`;
 
-  const presentStates = PIN_STATE_ORDER.filter((state) => statePresent(topology, state));
+  const presentStates = useMemo(
+    () => PIN_STATE_ORDER.filter((state) => statePresent(topology, state)),
+    [topology],
+  );
 
   const emphasisOf = (nodeId: string): NodeEmphasis => {
     if (selectedNodeId !== undefined && nodeId === selectedNodeId) {
@@ -891,25 +1056,105 @@ export function DependencyGraph({
     </button>
   );
 
+  /*
+   * The emphasis controls act on the resolution of `selectedNodeId`, and a selection can outlive the
+   * payload — a scope change narrows the network while the screen still holds the old id — so there
+   * may be nothing to trace and nothing to dim. The four controls then state that together instead of
+   * resting inert: `aria-disabled` plus the sentence in the same Tooltip the disabled preview switch
+   * uses (rule P-8), and a handler that reports nothing, because a direction recorded against no path
+   * would leave the caption describing a trace the drawing cannot make.
+   */
+  const emphasisDisabled = selectedNode === undefined;
+
+  const handleEmphasisDirectionChange = (direction: GraphEmphasisDirection): void => {
+    if (emphasisDisabled) {
+      return;
+    }
+
+    onEmphasisDirectionChange(direction);
+  };
+
+  const handleDimmingChange = (): void => {
+    if (emphasisDisabled) {
+      return;
+    }
+
+    onDimmingChange(!dimming);
+  };
+
+  const directionControls = (
+    <div
+      className={CONTROL_GROUP_CLASSES}
+      role="group"
+      aria-label={DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabel}
+    >
+      {GRAPH_EMPHASIS_DIRECTIONS.map((direction) => {
+        const control = (
+          <button
+            key={direction}
+            type="button"
+            aria-pressed={emphasisDirection === direction}
+            aria-disabled={emphasisDisabled ? true : undefined}
+            className={EMPHASIS_DIRECTION_CLASSES}
+            onClick={() => {
+              handleEmphasisDirectionChange(direction);
+            }}
+          >
+            {DEPENDENCY_GRAPH_TEXT.emphasisDirectionLabels[direction]}
+          </button>
+        );
+
+        return emphasisDisabled ? (
+          <Tooltip key={direction} label={DEPENDENCY_GRAPH_TEXT.emphasisUnavailable}>
+            {control}
+          </Tooltip>
+        ) : (
+          control
+        );
+      })}
+    </div>
+  );
+
+  const dimmingSwitch = (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={dimming}
+      aria-disabled={emphasisDisabled ? true : undefined}
+      className={DIMMING_SWITCH_CLASSES}
+      onClick={handleDimmingChange}
+    >
+      <span>{DEPENDENCY_GRAPH_TEXT.dimmingLabel}</span>
+    </button>
+  );
+
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      {onPreviewScenarioChange === undefined ? null : (
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {canArmPreview ? (
-            previewSwitch
-          ) : (
-            <Tooltip label={DEPENDENCY_GRAPH_TEXT.previewUnavailable}>{previewSwitch}</Tooltip>
-          )}
-        </div>
-      )}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {directionControls}
+        {emphasisDisabled ? (
+          <Tooltip label={DEPENDENCY_GRAPH_TEXT.emphasisUnavailable}>{dimmingSwitch}</Tooltip>
+        ) : (
+          dimmingSwitch
+        )}
+        {onPreviewScenarioChange === undefined ? null : canArmPreview ? (
+          previewSwitch
+        ) : (
+          <Tooltip label={DEPENDENCY_GRAPH_TEXT.previewUnavailable}>{previewSwitch}</Tooltip>
+        )}
+      </div>
 
+      {/* The drawing's accessible name is the explicit label, the way the map lens and every chart in
+          this application states its own (`src/components/map-canvas.tsx`): a name built from a
+          document-scoped reference would depend on an id two instances of the lens could collide over.
+          The `title` element stays as the drawing's own hover tooltip and is not what names it. */}
       <svg
         role="group"
-        aria-labelledby={titleId}
-        viewBox={`0 0 ${width} ${height}`}
+        aria-label={title}
+        viewBox={`0 0 ${GRAPH_WIDTH} ${height}`}
         className="block h-auto w-full"
       >
-        <title id={titleId}>{title}</title>
+        <title>{title}</title>
 
         {DEPENDENCY_GRAPH_LANES.map((lane, laneIndex) => {
           const x = laneX(laneIndex);
@@ -1062,4 +1307,21 @@ export function DependencyGraph({
     </div>
   );
 }
+
+/**
+ * The graph lens the rest of the application composes: the drawing above, memoised on its props.
+ *
+ * THE MEMO IS WHAT MAKES THE DERIVATIONS ABOVE WORTH ANYTHING. The canvas screen re-renders on every
+ * node click, every lens switch and every wall-mode toggle, and unmemoised each of those rebuilt this
+ * drawing — six lane guides, two paths and an arrowhead per lane, and a three-element box per node,
+ * some six hundred elements — for props that had not changed. React compares the props shallowly, so a
+ * render that changed none of them keeps the tree it already has.
+ *
+ * THE NAME A READER SEES IS STILL `DependencyGraph`. React takes a memoised component's name from the
+ * function inside it, so the implementation above carries this component's own name rather than a
+ * suffix, and devtools and React's own warnings say `DependencyGraph` rather than `Memo`.
+ */
+const DependencyGraphLens = memo(DependencyGraph);
+
+export { DependencyGraphLens as DependencyGraph };
 

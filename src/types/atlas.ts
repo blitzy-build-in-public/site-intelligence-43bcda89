@@ -59,7 +59,9 @@
  * `AtlasSeries.values` aligns to `Atlas.radarAxes` by index with no axis name, so a reordered list
  * cannot relabel a score, and its range is a chart concern of `src/components/radar-chart.tsx`.
  * Coordinates are decimal degrees in the order the bundled Natural Earth boundaries use, with the
- * sign convention documented rather than branded.
+ * sign convention documented rather than branded: a site states the pair that places it, and a
+ * crossing states the pair the pack records for its halo, optional because a payload need not place
+ * the crossing.
  */
 
 import type { ChokepointId, CompetitorId, ProductId, SimLabel } from './primitives';
@@ -220,6 +222,11 @@ export interface CompetitorNetwork {
  * contention note — and AAP 0.8 fixes that the table is computed from the market-intelligence pack
  * alone. No first-party member may be added to this shape, and its `provenance` records that
  * restriction (rule P-5).
+ *
+ * `latitude` and `longitude` are the one member pair that states where the crossing sits rather than
+ * how much it carries: the pack's own record states them so the canvas can draw the crossing's halo
+ * there, and they are optional because a payload need not place the crossing. A drawing that finds
+ * neither anchors the crossing on a lane that names it, so no place is guessed.
  */
 export interface Chokepoint {
   /** The chokepoint's identifier, `CHK-nn`. */
@@ -236,6 +243,24 @@ export interface Chokepoint {
 
   /** The plain-language account of the contention at the crossing. */
   contentionNote: string;
+
+  /**
+   * The crossing's latitude in decimal degrees, as the market pack's own crossing record states it
+   * for the canvas halo.
+   *
+   * Optional because the payload need not place the crossing: a drawing that reads no latitude here
+   * anchors the crossing on a lane that names it rather than placing it at a guessed coordinate.
+   */
+  readonly latitude?: number;
+
+  /**
+   * The crossing's longitude in decimal degrees, as the market pack's own crossing record states it
+   * for the canvas halo.
+   *
+   * Optional for the same reason as {@link latitude}, and read as one pair with it: a crossing that
+   * states one coordinate without the other places nothing, and the lane anchor is used instead.
+   */
+  readonly longitude?: number;
 
   /** Where the row came from, always market intelligence. */
   provenance: Provenance;

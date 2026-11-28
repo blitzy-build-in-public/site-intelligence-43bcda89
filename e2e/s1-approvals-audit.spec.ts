@@ -33,7 +33,8 @@
  * before the decision and the tracker the same record renders after it; both of the outcome card's
  * tables are read row by row and each row's two readings compared with each other, because every step
  * succeeded and the change therefore landed at the plan's own levers; and the number of events the
- * chain check reports is compared with the number of rows the unfiltered trail lists. Apart from the
+ * chain check reports is compared with the number of rows the unfiltered trail lists, walked page by
+ * page with the trail's own paging control because the trail is read one page at a time. Apart from the
  * screen's own copy, the only literal stated for a record value is the acceptance date the stock table
  * is expected to reach — a date, not a figure. The seeds, the solver and the aggregates stay behind the
  * service boundary — this spec imports no seed record, no adapter and no fixture (rule P-2).
@@ -183,7 +184,7 @@ const EVIDENCE_SECTIONS = [
   'Confidence, missing inputs and documents',
 ] as const;
 
-/** The audit trail's own names: the table, the two filter controls this spec fills, and the drawer. */
+/** The audit trail's own names: the table, the filters this spec fills, the drawer and the paging. */
 const AUDIT_TEXT = {
   table: 'Audit events, in chain order',
   recordFilter: 'Record',
@@ -191,6 +192,7 @@ const AUDIT_TEXT = {
   closeDetail: 'Close event detail',
   before: 'Before',
   after: 'After',
+  nextPage: 'Next page',
 } as const;
 
 /**
@@ -408,6 +410,55 @@ async function descriptionOf(control: Locator): Promise<string> {
  */
 async function expectNoUnimplementedClaim(page: Page): Promise<void> {
   await expect(page.getByText(CLAIM_VOCABULARY)).toHaveCount(0);
+}
+
+/**
+ * The chain position the given trail row states, read from the cell `AUDIT_COLUMN.sequence` names.
+ *
+ * @param row One body row of the trail.
+ * @returns The position the row prints, as a number.
+ */
+async function sequenceOf(row: Locator): Promise<number> {
+  const cells = await cellsOf(row);
+
+  return Number.parseInt(cells[AUDIT_COLUMN.sequence] ?? '', 10);
+}
+
+/**
+ * Counts every event the unfiltered trail lists, by walking it with the trail's own paging control.
+ *
+ * The trail is read one page at a time, so what the table shows at any moment is one page of it and the
+ * total is what the pages add up to. Each move is awaited by the row the next page starts at, because
+ * the boundary paints no rows at all while the read behind a page is in flight: a bare count would
+ * settle on the loading rendering instead of on the answer.
+ *
+ * @param page The page showing the audit trail.
+ * @param rows The trail's body rows, as the caller located them.
+ * @returns How many event rows the whole trail renders across its pages.
+ */
+async function countTrailRows(page: Page, rows: Locator): Promise<number> {
+  const forward = page.getByRole('button', { name: AUDIT_TEXT.nextPage, exact: true });
+  let total = await rows.count();
+  let openingRow = await sequenceOf(rows.first());
+
+  while ((await forward.getAttribute('aria-disabled')) !== 'true') {
+    await forward.click();
+
+    await expect
+      .poll(async () => {
+        try {
+          return (await rows.count()) > 0 && (await sequenceOf(rows.first())) !== openingRow;
+        } catch {
+          return false;
+        }
+      })
+      .toBe(true);
+
+    total += await rows.count();
+    openingRow = await sequenceOf(rows.first());
+  }
+
+  return total;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -848,7 +899,11 @@ test('T-09 the audit record lists the decision and every write-back with the val
   const trailRows = await rows.count();
   expect(trailRows).toBeGreaterThan(writeBackCount);
 
-  await page.getByRole('textbox', { name: AUDIT_TEXT.recordFilter }).fill(approvalId);
+  /* The trail's text filters commit on `Enter` rather than on every keystroke — one edit is one read —
+     so the record is typed and then committed before the narrowed trail is awaited. */
+  const recordFilter = page.getByRole('textbox', { name: AUDIT_TEXT.recordFilter });
+  await recordFilter.fill(approvalId);
+  await recordFilter.press('Enter');
 
   /* The narrowed trail is awaited by what it renders rather than by a smaller number: while the read
      behind a filter is in flight the state boundary shows its loading rendering and the table has no
@@ -942,8 +997,14 @@ test('T-09 the audit record lists the decision and every write-back with the val
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   /* ---- the verification ------------------------------------------------------------------- */
-  await page.getByRole('textbox', { name: AUDIT_TEXT.recordFilter }).fill('');
+  await recordFilter.fill('');
+  await recordFilter.press('Enter');
   await expect.poll(async () => rows.count()).toBe(trailRows);
+
+  /* The trail is read a page at a time, so the count the verification reports is measured against the
+     events the whole trail lists: the pages behind the first are walked with the trail's own control and
+     every page's rows are added up. */
+  const trailTotal = await countTrailRows(page, rows);
 
   await page
     .getByRole('region', { name: REGIONS.chainVerification })
@@ -956,14 +1017,15 @@ test('T-09 the audit record lists the decision and every write-back with the val
   await expect(report).toContainText(SIMULATED_CONTROL);
   await expect(report).not.toContainText(/does not verify/);
 
-  /* Every event the chain holds was recomputed — the number the report names is the number of events
-     the trail listed — and the check left them exactly as it found them. */
+  /* Every event the chain holds was recomputed — the number the report names is the number of events the
+     whole unfiltered trail lists, across every page it is read in — and the check left them exactly as it
+     found them. */
   const verified = /across (\d+) recorded events/.exec(await report.innerText());
   expect(verified).not.toBeNull();
 
   const eventsChecked = Number.parseInt(verified?.[1] ?? '', 10);
   expect(Number.isInteger(eventsChecked)).toBe(true);
-  expect(eventsChecked).toBe(trailRows);
+  expect(eventsChecked).toBe(trailTotal);
 
   await expect(page.getByText(AUDIT_CHAIN_NOTE).first()).toBeVisible();
   await expectNoUnimplementedClaim(page);

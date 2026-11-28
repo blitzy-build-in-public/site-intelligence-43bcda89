@@ -126,7 +126,7 @@ const INTERACTIVE_CLASSES = [
   'cursor-pointer',
   'hover:border-accent hover:bg-surface-1',
   'active:border-accent active:bg-ground',
-  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
+  'focus-visible:outline-2 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
 

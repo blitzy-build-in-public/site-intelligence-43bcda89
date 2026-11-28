@@ -13,6 +13,14 @@
  * `appendAuditEvent` below, which is why it is the first module of the folder and why its signature
  * is stable.
  *
+ * WHY THE FOLDER'S SHARED PAGE BOUND IS DECLARED HERE. AAP 0.12.1 fixes this folder at nine modules,
+ * one per read/write family, so a rule every list family applies has no module of its own to sit in: it
+ * belongs in one the others already import. This is that module — the append path below is why every
+ * writing family imports it, and its own list read is the trail — so `listLimitOf` and the two page
+ * constants beside it stand here and are called by exceptions, approvals, governance and evidence.
+ * That is what makes contracts §9's `limit` mean one thing across the families: one default page, one
+ * ceiling, and one refusal for a parameter that bounds no page at all.
+ *
  * WHAT THIS MODULE OWNS, AND WHAT IT DELIBERATELY LEAVES ALONE. It owns the event's *content*: the
  * instant it was recorded, the actor, the correlation identifier, and the payload halves a caller
  * supplies. It owns no hash — `src/domain/audit/chain.ts` derives the sequence number, the
@@ -322,7 +330,7 @@ function requireAuditRead(ctx: HandlerContext): void {
 
 /**
  * The refusal a request the records cannot honour throws, for a draft that cannot name what it
- * records and for a page position this chain does not hold.
+ * records, for a page position this chain does not hold, and for a free-text field too long to store.
  *
  * @param ctx - The call's context, whose trace the failure carries.
  * @param message - The reason, in the plain words the caller supplies.
@@ -330,6 +338,139 @@ function requireAuditRead(ctx: HandlerContext): void {
  */
 function validationProblem(ctx: HandlerContext, message: string): Problem {
   return { type: 'validation', message, traceId: ctx.traceId };
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The two bounds every handler family shares: the page a list read returns and the free text an
+ * audited write stores — contracts §9, contracts §6
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The page a list read returns when the caller names no limit — contracts §9.
+ *
+ * contracts §9 leaves `limit` optional on every list path, so a read that carries none needs an answer
+ * that is neither the whole collection nor nothing at all. The largest collection a demonstration read
+ * serves whole is the audit trail: the 200 seeded events plus the events a session appends, which the
+ * adapter's own suite follows to 201 after one audited write and to 203 after three. A default page
+ * therefore holds that collection, so no read the interface already makes loses a record to this bound,
+ * while every response a caller can ask for is bounded.
+ *
+ * A page bound is a request parameter and never a figure the interface shows, so rule P-6 — which
+ * governs the numbers a screen prints — fixes no value here. The value is the folder's own declaration
+ * and it is stated once, for the reason this module's header gives: the nine family modules AAP 0.12.1
+ * fixes leave no shared helper module to hold it.
+ */
+export const LIST_PAGE_DEFAULT = 250;
+
+/**
+ * The greatest page a list read returns, whatever the caller asks for — contracts §9.
+ *
+ * Twice the default page, so a caller may ask for more than one page of the trail or of the queue and
+ * never for the whole of a collection that grows without bound: `state.auditEvents`,
+ * `records.approvals`, `records.exceptionHistory` and `state.policyExceptions` all grow with every
+ * audited write and are reset only by `restoreSeed`. The ceiling is what keeps one request from
+ * demanding a whole growing collection in one response, whichever family it was addressed to.
+ */
+export const LIST_PAGE_MAX = 500;
+
+/**
+ * The number of records one list read returns, from the `limit` the query carried — contracts §9.
+ *
+ * One rule for every list family, so the parameter means the same thing in the queue, the inbox, the
+ * trail, the ledger, the policy set, the pins and the packages:
+ *
+ * - absent, it answers `LIST_PAGE_DEFAULT`, so no caller has to name a page to be given a bounded one;
+ * - above `LIST_PAGE_MAX`, it answers `LIST_PAGE_MAX`, so the ceiling holds whatever was asked for;
+ * - present and not a positive whole number, it is refused as a `'validation'` failure naming the
+ *   family, the value and the rule, rather than read as either end of the contract. A limit of zero is
+ *   a request for no records, a negative one for fewer than none, and a fraction for part of a record;
+ *   none of the three is a page the record set can honour, and answering one of them with every record
+ *   — as the other families did — or with none, as this one's own read did, left one contracts §9
+ *   parameter meaning two things in one folder.
+ *
+ * `!Number.isInteger` is what refuses `NaN` and both infinities as well as a fraction: each of them is
+ * a number a JSON body can carry, and none of them bounds a page.
+ *
+ * @param ctx - The call's context, whose trace a refusal carries.
+ * @param limit - The `limit` the query carried, or `undefined` when it carried none.
+ * @param family - How the read is named in the refusal, such as `inbox`.
+ * @returns The page's greatest length, at least one and at most `LIST_PAGE_MAX`.
+ * @throws Problem - A `'validation'` failure when the limit bounds no page.
+ */
+export function listLimitOf(
+  ctx: HandlerContext,
+  limit: number | undefined,
+  family: string,
+): number {
+  if (limit === undefined) {
+    return LIST_PAGE_DEFAULT;
+  }
+
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw validationProblem(
+      ctx,
+      `The ${family} limit ${limit} bounds no page: a list read takes a whole number of records, at ` +
+        `least one and at most ${LIST_PAGE_MAX}, or no limit at all for the default page of ` +
+        `${LIST_PAGE_DEFAULT}.`,
+    );
+  }
+
+  return Math.min(limit, LIST_PAGE_MAX);
+}
+
+/**
+ * The greatest length of a free-text field the audited writes store — contracts §6, §9.
+ *
+ * 2000 characters is the ceiling for prose a person types into one field: a note against an
+ * exception, a dismissal reason, a decision comment, the reason a policy exception is requested for,
+ * and the corrected value an extraction review supplies. They are the only free-text members any
+ * handler stores, and every one of them is kept in a record a later read scans — an exception's
+ * history, a policy exception's pending list, a package element's own value — beside the `after` half
+ * of the audit event the write appends, so every later read of those records and of the trail filters
+ * and scans the paragraph a caller submitted. A bound on what is stored is therefore a bound on the
+ * records and on the trail alike, and it is what keeps one request from filling the collections the
+ * queue, the drawer and the audit screen read.
+ *
+ * A ceiling on stored input is not a figure the interface prints, so rule P-6 — which governs the
+ * numbers a screen shows — fixes no value here: the figure is this folder's own declaration, stated
+ * once for the reason this module's header gives, because the nine family modules AAP 0.12.1 fixes
+ * leave no shared helper module to hold it. It holds a substantial paragraph, which is what a reason
+ * a second approver has to read is, and it stays far below the size at which one request's prose
+ * could dominate a collection every read of the session scans.
+ */
+export const FREE_TEXT_MAX_LENGTH = 2000;
+
+/**
+ * Refuses free text longer than `FREE_TEXT_MAX_LENGTH`, and answers normally otherwise.
+ *
+ * Each audited write that stores prose calls this beside its own emptiness refusal, so the folder
+ * bounds the input in one place rather than in each family. The value a caller passes is the trimmed
+ * string the write is about to store, because that is the string the history and the trail will
+ * carry; an empty one is the caller's own refusal to report, and one within the ceiling is nothing
+ * this function has to say.
+ *
+ * The message names the field, the ceiling and the length actually submitted, so a caller learns what
+ * was refused and by how much rather than that the call failed. `field` is the phrase the sentence
+ * opens with, such as `a note against EXC-2026-1184`, and it is capitalised here so every caller
+ * passes plain words and every refusal reads as one sentence.
+ *
+ * @param ctx - The call's context, whose trace the refusal carries.
+ * @param field - How the refused field is named, such as `a decision comment`.
+ * @param text - The trimmed text the write would store.
+ * @throws Problem - A `'validation'` failure when the text is longer than `FREE_TEXT_MAX_LENGTH`.
+ */
+export function assertFreeTextLength(ctx: HandlerContext, field: string, text: string): void {
+  if (text.length <= FREE_TEXT_MAX_LENGTH) {
+    return;
+  }
+
+  const subject = `${field.charAt(0).toUpperCase()}${field.slice(1)}`;
+
+  throw validationProblem(
+    ctx,
+    `${subject} is at most ${FREE_TEXT_MAX_LENGTH} characters and this one is ${text.length}, so it ` +
+      'is refused rather than stored in the history and the audit trail those reads later scan.',
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -630,8 +771,19 @@ function startIndexFor(
  *
  * The filters are the ones `AuditQuery` declares — the actor, the action, the record, the outcome and
  * an inclusive instant range — with the list parameters contracts §9 fixes for a paging read: `sort`
- * as `member:dir`, `limit` as the page's greatest length, and `cursor` as the position a previous page
- * ended at. Without a `sort` the newest event stands first (`DEFAULT_SORT_ORDER`).
+ * as `member:dir`, `limit` as the page's greatest length under the folder's one rule (`listLimitOf`
+ * above), and `cursor` as the position a previous page ended at. Without a `sort` the newest event
+ * stands first (`DEFAULT_SORT_ORDER`).
+ *
+ * The read is bounded, because the trail is not: `state.auditEvents` gains an event on every audited
+ * write, so a read that asked for the whole of it would return more of it on every write and cost a
+ * filter and a sort over all of it each time. The page length is the folder's one rule (`listLimitOf`
+ * above): a query that carries no `limit` is answered with `LIST_PAGE_DEFAULT` events, one that asks
+ * for more than `LIST_PAGE_MAX` is served that maximum, and a `limit` that bounds no page at all is
+ * refused rather than guessed at. A caller walks the whole trail by taking the next page from the
+ * cursor each page's last event sits at, and it reads every event in one answer only where the chain
+ * is shorter than the cap — a chain-wide fact (the verification of every hash) is `verifyAuditChain`'s,
+ * which walks the records the state holds rather than paging through them.
  *
  * The stored chain is never reordered or handed out: the filter produces a new array, the ordering is
  * applied to that array, and each returned event is a copy of the record — so a caller that edits what
@@ -641,7 +793,7 @@ function startIndexFor(
  * @param query - The filters, ordering and page position the read carries.
  * @returns The admitted events of the requested page, in the requested order.
  * @throws Problem - A `'permission'` failure when the trail is not readable, or a `'validation'` one
- *   when the cursor names no position of this chain.
+ *   when the cursor names no position of this chain or the limit bounds no page.
  */
 export async function listAuditEvents(
   ctx: HandlerContext,
@@ -655,10 +807,10 @@ export async function listAuditEvents(
     .sort((left, right) => compareEvents(left, right, order));
 
   const start = startIndexFor(ordered, query.cursor, ctx);
-  const end =
-    query.limit === undefined ? ordered.length : start + Math.max(Math.trunc(query.limit), 0);
 
-  return ordered.slice(start, end).map((event) => ({ ...event }));
+  return ordered
+    .slice(start, start + listLimitOf(ctx, query.limit, 'audit trail'))
+    .map((event) => ({ ...event }));
 }
 
 /**

@@ -204,7 +204,7 @@ const INPUT_CLASSES = [
   'min-h-6 w-full min-w-0 rounded-control border border-control-boundary px-2 py-1',
   'bg-surface-1 font-sans text-13 text-text-primary placeholder:text-text-caption',
   'hover:border-accent',
-  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
+  'focus-visible:outline-2 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
 

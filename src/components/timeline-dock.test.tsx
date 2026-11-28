@@ -4,12 +4,14 @@
  * row, AAP §0.5.2, AAP §0.12.1).
  *
  * Every case asserts a duty the dock exists for rather than its markup: the region named by its own
- * heading, with the selected exception's identifier and title inside it; the projected series drawn
- * as a chart the frame's toggle can turn into a table of the same points and back; an evidence
- * trigger behind every projected point and behind every event; exactly the five latest of the events
- * it was given, with the ones beyond that count absent and the order the caller supplied preserved;
- * each outcome printed with the record's own spelling beside its status icon; the two fixed §5.3
- * labels the two halves carry; both empty halves explained rather than blank; and both themes
+ * heading, with the selected exception's identifier and title inside it; the baseline the records
+ * project and the option in view drawn as ONE chart over one scale, each series named in the legend
+ * and each point carrying its own evidence trigger, and the frame's toggle turning that chart into a
+ * table of the same dates and the same readings and back; exactly the five latest of the events it
+ * was given, with the ones beyond that count absent and the order the caller supplied preserved; each
+ * outcome printed with the record's own spelling beside its status icon; the §5.3 labels the halves
+ * carry, the frame stating the weaker one where the option is a seed record and the baseline's own
+ * row still stating the computed one; both empty halves explained rather than blank; and both themes
  * rendering from role tokens alone, with no palette value, colour function, elevation or inline
  * style anywhere in the region.
  *
@@ -45,10 +47,12 @@ import type {
   DailyClosingStockPoint,
   Evidence,
   Result,
+  SimLabel,
   ThemeName,
 } from '../types';
 import type { SiteIntelligenceService } from '../services/site-intelligence-service';
 import { TIMELINE_DOCK_AUDIT_EVENTS, TIMELINE_DOCK_TEXT, TimelineDock } from './timeline-dock';
+import type { TimelineDockOptionSeries } from './timeline-dock';
 import { VIEW_AS_TABLE_LABELS } from './view-as-table-toggle';
 
 /* ---------------------------------------------------------------------------------------------
@@ -79,6 +83,9 @@ const CALCULATED_LABEL = SIM_LABELS[1];
 
 /** The label the audit surface carries, read from the fixed vocabulary (rule P-4). */
 const CONTROL_LABEL = SIM_LABELS[4];
+
+/** The label a figure whose readings shipped with the dataset carries, read from the same owner. */
+const DATA_LABEL = SIM_LABELS[0];
 
 /** The four outcomes an event may record, in the order the fixtures cycle through them. */
 const RESULTS = ['allowed', 'succeeded', 'blocked', 'failed'] as const satisfies readonly AuditResult[];
@@ -112,6 +119,40 @@ const STOCK_SERIES: readonly DailyClosingStockPoint[] = [
   { date: dateAt(1), units: 90 },
   { date: dateAt(2), units: 30 },
 ];
+
+/** The option's own name, as its record states it. */
+const OPTION_NAME = 'An option under test';
+
+/** The option's reference, which is its record's identifier and what its marks open. */
+const OPTION_REFERENCE = 'option-under-test';
+
+/**
+ * The option's series, as the solver measured it.
+ *
+ * It reports one date the baseline does not, so a case can prove the table view takes the union of
+ * the dates the two records state and leaves the baseline's cell empty on the day only the option
+ * reports: a gap in one series beside a reading in the other is the records' state, not an error.
+ */
+const OPTION_SERIES: readonly DailyClosingStockPoint[] = [
+  { date: dateAt(0), units: 300 },
+  { date: dateAt(1), units: 210 },
+  { date: dateAt(2), units: 60 },
+  { date: dateAt(3), units: 0 },
+];
+
+/** The option as the screen hands it over: every measure the solver took in this session. */
+const OPTION: TimelineDockOptionSeries = {
+  evidenceRef: OPTION_REFERENCE,
+  name: OPTION_NAME,
+  dailyClosingStock: OPTION_SERIES,
+  simLabel: CALCULATED_LABEL,
+};
+
+/** The same option as a seed record, which is the case the frame's weaker label exists for (AAP §0.10). */
+const SEEDED_OPTION: TimelineDockOptionSeries = { ...OPTION, simLabel: DATA_LABEL };
+
+/** The option's series label, composed from this module's wording and the record's own name. */
+const OPTION_SERIES_LABEL = `${TIMELINE_DOCK_TEXT.selectedSeriesPrefix} ${OPTION_NAME}`;
 
 /**
  * One audit event, built field by field from the contract type.
@@ -192,6 +233,9 @@ interface DockOverrides {
   readonly exceptionTitle?: string;
   readonly stockSeries?: readonly DailyClosingStockPoint[];
   readonly stockEvidenceRef?: string;
+  readonly stockSimLabel?: SimLabel;
+  /** The option to draw, or `null` for a caller that has none to hand over. */
+  readonly stockOption?: TimelineDockOptionSeries | null;
   readonly auditEvents?: readonly AuditEvent[];
 }
 
@@ -203,6 +247,10 @@ function dockElement(overrides: DockOverrides = {}): ReactElement {
       exceptionTitle={overrides.exceptionTitle ?? EXCEPTION_TITLE}
       stockSeries={overrides.stockSeries ?? STOCK_SERIES}
       stockEvidenceRef={overrides.stockEvidenceRef ?? STOCK_REFERENCE}
+      stockSimLabel={overrides.stockSimLabel ?? CALCULATED_LABEL}
+      stockOption={
+        overrides.stockOption === undefined ? OPTION : overrides.stockOption ?? undefined
+      }
       auditEvents={overrides.auditEvents ?? AUDIT_EVENTS}
     />
   );
@@ -233,11 +281,76 @@ function activityItems(): readonly HTMLElement[] {
   return within(activityPanel()).getAllByRole('listitem');
 }
 
-/** The surface the projected series is drawn on, named after the series it carries. */
+/**
+ * The surface the two series are drawn on: the one chart group, named after the series it carries —
+ * the baseline first, then the option — so both paths and both mark sets are drawn on one scale (T-03).
+ */
 function chartSurface(): HTMLElement {
   return screen.getByRole('group', {
-    name: new RegExp(TIMELINE_DOCK_TEXT.stockSeriesLabel),
+    name: new RegExp(TIMELINE_DOCK_TEXT.baselineSeriesLabel),
   });
+}
+
+/** The frame's figure: its caption row, the surface and the legend beneath it. */
+function chartFigure(): HTMLElement {
+  return screen.getByRole('figure');
+}
+
+/**
+ * The label the frame paints for the whole figure: the §5.3 string in its caption row, which is the
+ * one place the figure states it once rather than per series.
+ *
+ * @returns The caption row's text.
+ */
+function frameCaptionText(): string {
+  const caption = chartFigure().querySelector('figcaption');
+
+  if (caption === null) {
+    throw new Error('the dock rendered no figure caption');
+  }
+
+  return caption.textContent ?? '';
+}
+
+/** The legend's rows: one per series drawn, each naming that series beside its swatch. */
+function legendRows(): readonly HTMLElement[] {
+  return within(chartFigure()).getAllByRole('listitem');
+}
+
+/**
+ * The mark one series drew for one date, found by the accessible name the surface gives it.
+ *
+ * @param seriesLabel - The series' own label, as the legend states it.
+ * @param date - The date the reading belongs to.
+ * @param units - The reading, as the record states it.
+ * @returns The mark.
+ */
+function markFor(seriesLabel: string, date: string, units: number): HTMLElement {
+  const name = `${seriesLabel}, ${date}: ${units}`;
+
+  return required(
+    within(chartSurface())
+      .getAllByRole('button')
+      .find((mark) => mark.getAttribute('aria-label') === name),
+    `mark for ${seriesLabel} on ${date}`,
+  );
+}
+
+/**
+ * The height a mark was drawn at, which is where the chart's one scale places its reading: a larger
+ * reading sits nearer the top of the drawn area, so a smaller coordinate.
+ *
+ * @param mark - The mark to measure.
+ * @returns The drawn centre's y coordinate.
+ */
+function markCentreY(mark: HTMLElement): number {
+  const centre = mark.querySelector('circle')?.getAttribute('cy');
+
+  if (centre === null || centre === undefined) {
+    throw new Error('the mark carries no drawn centre');
+  }
+
+  return Number(centre);
 }
 
 /** The frame's toggle, named with the caption of the surface it switches. */
@@ -368,38 +481,106 @@ describe('TimelineDock', () => {
     expect(within(region).getByText(CONTROL_LABEL)).toBeVisible();
   });
 
-  it('draws the projected series with one evidence trigger per point', () => {
+  it('draws the baseline and the option in one chart over one scale, each named in the legend', () => {
     renderDock();
 
-    const marks = within(chartSurface()).getAllByRole('button');
-    expect(marks).toHaveLength(STOCK_SERIES.length);
+    /* One chart group carries both series, which is what puts them on one calendar and one y domain:
+       a second group would be a second scale (AAP §0.9 T-03). */
+    const surface = chartSurface();
+    const surfaceName = surface.getAttribute('aria-label') ?? '';
+    expect(surfaceName).toContain(TIMELINE_DOCK_TEXT.baselineSeriesLabel);
+    expect(surfaceName).toContain(OPTION_SERIES_LABEL);
+
+    /* Both series are named in the visible legend, so a reader tells them apart without colour (B-3). */
+    const rows = legendRows();
+    expect(rows).toHaveLength(2);
+    expect(
+      within(required(rows[0], 'baseline legend row')).getByText(
+        TIMELINE_DOCK_TEXT.baselineSeriesLabel,
+      ),
+    ).toBeVisible();
+    expect(
+      within(required(rows[1], 'option legend row')).getByText(OPTION_SERIES_LABEL),
+    ).toBeVisible();
+
+    /* One scale, measured: on one date the option's larger reading is drawn above the baseline's,
+       which two series on two domains could not state. */
+    const baselineY = markCentreY(markFor(TIMELINE_DOCK_TEXT.baselineSeriesLabel, dateAt(0), 120));
+    const optionY = markCentreY(markFor(OPTION_SERIES_LABEL, dateAt(0), 300));
+    expect(optionY).toBeLessThan(baselineY);
+
+    /* Every point of both series is a mark on that one surface. */
+    expect(within(surface).getAllByRole('button')).toHaveLength(
+      STOCK_SERIES.length + OPTION_SERIES.length,
+    );
+  });
+
+  it.each([
+    ['a measured option', OPTION, CALCULATED_LABEL],
+    ['a seed-record option', SEEDED_OPTION, DATA_LABEL],
+  ] as const)('paints the one label true of every series it draws, for %s', (_case, option, expected) => {
+    renderDock({ stockOption: option });
+
+    const rows = legendRows();
+
+    /* The frame states the label that is true of the whole figure: the computed one while both series
+       are the solver's output, and the weaker `Simulated data` once one of them is a seed record. */
+    expect(frameCaptionText()).toContain(expected);
+
+    /* Each series still states its own label in its own row, so the baseline is never presented as
+       seed content and a seeded option is never presented as computed output (rules P-1, AAP §0.10). */
+    expect(required(rows[0], 'baseline legend row').textContent).toContain(CALCULATED_LABEL);
+    expect(required(rows[1], 'option legend row').textContent).toContain(expected);
+
+    if (expected === DATA_LABEL) {
+      expect(frameCaptionText()).not.toContain(CALCULATED_LABEL);
+    }
+  });
+
+  it('draws the baseline alone while the caller has no option to hand over', () => {
+    renderDock({ stockOption: null });
+
+    expect(chartSurface().getAttribute('aria-label')).not.toContain(
+      TIMELINE_DOCK_TEXT.selectedSeriesPrefix,
+    );
+    expect(legendRows()).toHaveLength(1);
+    expect(frameCaptionText()).toContain(CALCULATED_LABEL);
+    expect(within(chartSurface()).getAllByRole('button')).toHaveLength(STOCK_SERIES.length);
+  });
+
+  it('gives every projected point of either series its own evidence trigger', () => {
+    renderDock();
+
     STOCK_SERIES.forEach((point) => {
-      const name = new RegExp(`${point.date}: ${point.units}`);
-      expect(
-        required(
-          marks.find((mark) => name.test(mark.getAttribute('aria-label') ?? '')),
-          `mark for ${point.date}`,
-        ),
-      ).toBeInTheDocument();
+      expect(markFor(TIMELINE_DOCK_TEXT.baselineSeriesLabel, point.date, point.units)).toBeInTheDocument();
+    });
+    OPTION_SERIES.forEach((point) => {
+      expect(markFor(OPTION_SERIES_LABEL, point.date, point.units)).toBeInTheDocument();
     });
   });
 
-  it('opens the evidence behind a projected point from its mark, and returns focus to it', async () => {
+  it('opens the evidence behind a point of either series from its mark, and returns focus to it', async () => {
     const user = userEvent.setup();
     renderDock();
 
-    const marks = within(chartSurface()).getAllByRole('button');
-    const mark = required(marks[0], 'first mark');
-    await user.click(mark);
+    const baselineMark = markFor(TIMELINE_DOCK_TEXT.baselineSeriesLabel, dateAt(0), 120);
+    await user.click(baselineMark);
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(getEvidence).toHaveBeenCalledWith(STOCK_REFERENCE);
+    expect(getEvidence).toHaveBeenLastCalledWith(STOCK_REFERENCE);
 
     // A mark is an SVG group, so closing the drawer has to hand focus back to it rather than to
     // `<body>` — WCAG 2.2 SC 2.4.3, rule B-3.
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(mark).toHaveFocus();
+    expect(baselineMark).toHaveFocus();
+
+    // The option's marks open the option's own record, which is the reference the caller supplied for
+    // that series rather than the exception's (rule P-6, principle PR-6).
+    await user.click(markFor(OPTION_SERIES_LABEL, dateAt(0), 300));
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(getEvidence).toHaveBeenLastCalledWith(OPTION_REFERENCE);
   });
 
   it('gives every audit event it shows its own evidence trigger', async () => {
@@ -426,19 +607,42 @@ describe('TimelineDock', () => {
     await user.click(tableToggle(VIEW_AS_TABLE_LABELS.showTable));
 
     const table = screen.getByRole('table', { name: TIMELINE_DOCK_TEXT.stockTableCaption });
-    expect(screen.queryByRole('group', { name: new RegExp(TIMELINE_DOCK_TEXT.stockSeriesLabel) }))
+    expect(screen.queryByRole('group', { name: new RegExp(TIMELINE_DOCK_TEXT.baselineSeriesLabel) }))
       .toBeNull();
-    // One row per projected point, beneath the header row the table vocabulary owns.
-    expect(within(table).getAllByRole('row')).toHaveLength(STOCK_SERIES.length + 1);
-    for (const point of STOCK_SERIES) {
+
+    /* One column per series, each headed by that series' own label, beside the date column. */
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      TIMELINE_DOCK_TEXT.stockDateColumn,
+      TIMELINE_DOCK_TEXT.baselineSeriesLabel,
+      OPTION_SERIES_LABEL,
+    ]);
+
+    /* One row per date either record states, beneath the header row the table vocabulary owns. */
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(OPTION_SERIES.length + 1);
+
+    for (const point of [...STOCK_SERIES, ...OPTION_SERIES]) {
       const row = required(
-        within(table)
-          .getAllByRole('row')
-          .find((candidate) => (candidate.textContent ?? '').includes(point.date)),
+        rows.find((candidate) => (candidate.textContent ?? '').includes(point.date)),
         `row for ${point.date}`,
       );
       expect(within(row).getByText(String(point.units))).toBeVisible();
     }
+
+    /* The date only the option reports leaves the baseline's cell stating that it reports no reading
+       there, rather than reading `undefined` or borrowing the other series' value (rule P-6). */
+    const optionOnlyDate = required(OPTION_SERIES.at(-1), 'the option’s last reading');
+    const optionOnlyRow = required(
+      rows.find((candidate) => (candidate.textContent ?? '').includes(optionOnlyDate.date)),
+      `row for ${optionOnlyDate.date}`,
+    );
+    const cells = within(optionOnlyRow).getAllByRole('cell');
+    expect(cells[1]?.textContent).toBe('');
+    expect(cells[2]?.textContent).toBe(String(optionOnlyDate.units));
 
     await user.click(tableToggle(VIEW_AS_TABLE_LABELS.showChart));
 
@@ -446,7 +650,7 @@ describe('TimelineDock', () => {
     expect(screen.queryByRole('table')).toBeNull();
   });
 
-  it('explains an exception with no projected series instead of drawing empty axes', () => {
+  it('explains an exception with no projected baseline instead of drawing empty axes', () => {
     renderDock({ stockSeries: [] });
 
     expect(screen.getByText(TIMELINE_DOCK_TEXT.stockEmpty)).toBeVisible();
@@ -455,6 +659,7 @@ describe('TimelineDock', () => {
       screen.getByRole('region', { name: TIMELINE_DOCK_TEXT.stockTitle }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByRole('figure')).toBeNull();
     expect(screen.queryByRole('button', { name: new RegExp(VIEW_AS_TABLE_LABELS.showTable) }))
       .toBeNull();
   });

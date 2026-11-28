@@ -28,7 +28,10 @@
  * screen therefore sends no `sort` until the reader sorts a column, and then sends the contracts §9 form
  * `field:dir` built from the controlled `TableSort`; column ids are the row's own member names, so the
  * parameter names a member the port's list read orders by. A sortable header reports its state through
- * `DataTable`, which owns `aria-sort`; nothing here compares two rows.
+ * `DataTable`, which owns `aria-sort`; nothing here compares two rows. The service's order is a column's
+ * order too — severity ascending, with days to impact breaking the ties — so the table is handed it as
+ * its `defaultOrder` and the Severity header announces the order in effect before anyone sorts, which
+ * applies nothing and reports nothing through `onSort`.
  *
  * THE SEVEN STATES. The queue renders inside `StateBoundary`, and which state its records are in is
  * decided in one place, `src/components/screen-state.ts`, from what the read settled to: a thrown
@@ -39,13 +42,18 @@
  * that same read, so the state is read from the service and never from a local flag.
  *
  * THE FILTERS. Five are enumerated and one is typed. `ExceptionRow` carries the exception's type, plant,
- * severity, status and owner, so those five selects are filled from the values a read of the same list
- * returns, and the sixth filter — supplier — is a text field: no member of a row carries the supplier
- * (the exception buys its material from one, which the port filters on but does not project), and the
- * port declares no payload of filter options, so this screen cannot offer a list of suppliers it never
- * receives. The option values come from the same read issued with no filters, cached under its own key:
- * a filtered read cannot supply them, because a filter removes from its answer exactly the values it
- * excluded, and a select that lost its other options after one selection could not be changed again.
+ * severity, status and owner, so those five selects offer the distinct values of the answer on screen,
+ * and the sixth filter — supplier — is a text field: no member of a row carries the supplier (the
+ * exception buys its material from one, which the port filters on but does not project), and the port
+ * declares no payload of filter options, so this screen cannot offer a list of suppliers it never
+ * receives. One read per mount fills the table and the five selects alike, because a second read with
+ * no filters would recompute the whole exception aggregate — a solver call per case included — for
+ * values the rows in hand already state, and the port is the only place those values may come from
+ * (rule P-2). A chosen value narrows the answer and the options narrow with it; the value in force stays
+ * listed, so a select whose re-keyed read has not answered yet still shows the narrowing it reports, and
+ * the "All types", "All plants", "All severities", "All statuses" or "All owners" entry stands first in
+ * each select as the way back to the wider set — including when a filter set matched nothing and the
+ * answer states no value at all.
  *
  * THE DAY THE QUEUE WAS NARROWED TO, WHICH IS NOT A SEVENTH FILTER. A reader who activates a day on
  * SCR-01's series arrives here with that date in the entry's location state, which the route reads back
@@ -98,21 +106,33 @@
  * - P-8: each control either acts or is an `ActionButton` disabled with a plain sentence saying why —
  *   the dismissal confirm until a reason is given, a row action the session cannot perform, and the
  *   saved-view control until the view has a name.
- * - P-3, P-4, P-5: this screen states nothing about who may act beyond the refusal the service hands it,
- *   claims nothing about where records are held or whether they could be altered, and carries no
+ * - P-3, P-4, P-5: this screen states who may act only from the persona the adapter enforces, the roster
+ *   it reports and the refusal it hands back, and never presents either as production authorisation —
+ *   it claims nothing about where records are held or whether they could be altered, and carries no
  *   competitor element at all.
  *
  * THE EMPTY QUEUE HAS NO FIXED SENTENCE. SCR-02's row fixes none (unlike SCR-04), so
- * {@link EXCEPTION_QUEUE_TEXT}.empty states plainly that nothing matched. One sentence covers both
- * conditions the service can produce — a filter set that matched nothing and the demonstration control
- * that empties the queue — because the read's answer is identical for both.
+ * {@link EXCEPTION_QUEUE_TEXT} holds the screen's own pair. A read the reader narrowed — any of the six
+ * filters set, or the day the overview counted it by — keeps the filter wording, because a constraint
+ * the reader chose is what emptied it. A read nothing narrowed keeps the trigger-neutral sentence,
+ * because the demonstration control that empties the queue applies no filter at all and the filter
+ * wording would describe a constraint no control on the page sets. Which of the two applies is decided
+ * from the read this screen asked for rather than from the answer, because an empty answer is identical
+ * either way. The table stays on screen in both cases — caption, scoped headers and the sentence in one
+ * cell spanning the thirteen columns — so a reader who narrows the queue to nothing still sees the
+ * columns they were narrowing it by.
  *
- * A REFUSAL ON A ROW ACTION IS THE SERVICE'S. The permission matrix is evaluated against the persona it
- * enforces, and a refusal arrives as a `Problem` whose `rolesWithPermission` names the roles that may
- * act, which {@link EXCEPTION_QUEUE_TEXT} puts beside the table. Two conditions are decided here
- * instead, because they are facts about the row rather than about who may act: a row already owned by
- * the acting persona, and a row already dismissed. Both disable the control with the sentence that says
- * so rather than sending a write that would change nothing.
+ * WHO MAY WORK A ROW IS STATED BEFORE THE ATTEMPT. The permission matrix is evaluated against the
+ * persona it enforces, and a refusal arrives as a `Problem` whose `rolesWithPermission` names the roles
+ * that may act, which {@link EXCEPTION_QUEUE_TEXT} puts beside the table. The row's two writes are also
+ * gated here from the same facts: a persona that does not hold `exception.work` over the row's plant
+ * finds "Assign to me" and "Dismiss" disabled with a sentence naming the roles that hold the permission,
+ * read from the roster through the provider rather than from a matrix of this module's own — so a
+ * read-only persona is told who may act instead of learning of the refusal by activating the control
+ * (AAP 0.2.1, rules P-3 and P-8). Three further conditions are facts about the row or the session and
+ * disable the control the same way: an assignment being recorded, a session whose adapter reports no
+ * persona, and a row already owned by the acting persona or already dismissed. Each disables the control
+ * with the sentence that says so rather than sending a write that would change nothing.
  *
  * THE SHELL'S SELECTION IS CARRIED UNUSED. `selectedExceptionId` is accepted for interface compatibility
  * with the route and read by nothing: `DataTable` exposes no selected-row surface, so a highlight here
@@ -145,7 +165,7 @@ import type { StatusMeaning } from '../../components/status-indicator';
 import { TextAreaField } from '../../components/text-area-field';
 import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
-import { useActiveUser, useService } from '../../services/service-provider';
+import { useActiveUser, useRolesHolding, useService } from '../../services/service-provider';
 import {
   ALREADY_OWNER_REASON,
   APPROVAL_GATE_SOURCE,
@@ -154,12 +174,16 @@ import {
   SOURCE_LABELS,
 } from '../../types';
 import type {
+  ActiveUser,
   ExceptionId,
   ExceptionQuery,
   ExceptionRow,
   ExceptionStatus,
   IsoDate,
+  Permission,
+  PlantId,
   Result,
+  Role,
   Scope,
   Severity,
   SimLabel,
@@ -325,6 +349,22 @@ export const EXCEPTION_QUEUE_TEXT = {
   /** Why "dismiss" cannot act: the exception has already been dismissed. */
   alreadyDismissedReason: 'This exception has already been dismissed.',
 
+  /**
+   * Why a row's two writes cannot act: the acting role does not hold `exception.work` over the plant the
+   * row lands on. {@link noWorkReason} composes the role the adapter enforces, that plant and the
+   * permission's own name — held as the constant the gate itself checks, so the sentence and the check
+   * cannot name two permissions — into one sentence, and closes it with {@link noWorkRoles} once the
+   * roster has answered. The reader is therefore told who may act before activating the control rather
+   * than by the refusal afterwards (AAP 0.2.1, rules P-3 and P-8).
+   */
+  noWorkActor: 'The acting role',
+  noWorkLacks: 'does not hold the',
+  noWorkOver: 'permission over',
+  noWorkOutcome: 'so this exception cannot be changed here.',
+
+  /** The clause naming the roles that hold `exception.work`, composed in by {@link noWorkReason}. */
+  noWorkRoles: 'The roles that hold it are',
+
   /* The writes ------------------------------------------------------------------------------- */
 
   /** What the report says once an assignment was recorded, naming the persona the service returned. */
@@ -373,8 +413,21 @@ export const EXCEPTION_QUEUE_TEXT = {
 
   /* The states ------------------------------------------------------------------------------- */
 
-  /** The sentence shown when the queue holds no row to show (see the module header on the empty queue). */
+  /**
+   * The sentence shown when a narrowed read holds no row to show: a filter set or the day emptied it,
+   * so the filter wording states what the reader already did (see the module header on the empty queue).
+   */
   empty: 'No exceptions match the current filters.',
+
+  /**
+   * The sentence shown when the queue holds no row and nothing narrowed the read.
+   *
+   * The demonstration control that empties the queue empties the collection the read is served from, so
+   * no filter is applied and the filter wording above would describe a constraint no control on the page
+   * sets. This sentence claims no filter and no other cause either, because the read's empty answer is
+   * the only fact this screen has (rule P-4).
+   */
+  emptyUnnarrowed: 'No exceptions to show.',
 
   /** The sentence the partial state adds when a source answered incompletely. */
   partial: 'The queue is missing inputs a source did not answer with, so its figures are incomplete.',
@@ -624,6 +677,20 @@ function tableSortOf(sort: string | undefined): TableSort | null {
 }
 
 /**
+ * The order the queue's rows arrive in, which the table announces and never applies.
+ *
+ * The screen sends no `sort` until a reader sorts a column, and the service then applies `sortUrgent`
+ * in `src/domain/aggregation/urgency.ts` — the order `src/services/mock/handlers/exceptions.ts` also
+ * answers `sort=severity:asc` with, because the urgency rank is that module's: severity ascending by
+ * the rank, in which critical holds rank 0 and stands first, with days to impact breaking the ties.
+ * Ascending is therefore the direction the severity column is in effect in before anyone sorts, and
+ * announcing it is what lets a reader hear the order the rows are already in. It is not sort state: it
+ * replays no read, reorders no row and reaches no `onSort`, and the moment the reader sorts a column
+ * the controlled `sort` replaces it outright.
+ */
+const QUEUE_DEFAULT_ORDER: TableSort = { columnId: 'severity', direction: 'asc' };
+
+/**
  * The query the queue's read is made with: the six filters, the day it was narrowed to, the ordering and
  * the page size.
  *
@@ -653,6 +720,26 @@ function buildExceptionQuery(
     ...(day !== null ? { date: day } : {}),
     ...(sort !== null ? { sort: `${sort.columnId}:${sort.direction}` } : {}),
   };
+}
+
+/**
+ * Whether anything narrowed the read: one of the six filters is set, or the day the overview counted it
+ * by is.
+ *
+ * It is answered from the values the read was built from rather than from the answer, because an empty
+ * answer is the same whether a constraint emptied it or nothing was constrained at all. Only the
+ * sentence the empty table states depends on it (see the module header on the empty queue).
+ */
+function narrowsRead(filters: FilterValues, day: IsoDate | null): boolean {
+  return (
+    day !== null ||
+    filters.type !== '' ||
+    filters.plantId !== '' ||
+    filters.severity !== '' ||
+    filters.status !== '' ||
+    filters.ownerId !== '' ||
+    filters.supplierId !== ''
+  );
 }
 
 /** The values the five enumerated filters offer, read from the rows a read returned. */
@@ -702,7 +789,7 @@ function distinctValues<Value extends string>(
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
-/** The five enumerated filters' options, read from the rows of one unfiltered read. */
+/** The five enumerated filters' options: the distinct values of the answer the queue holds. */
 function filterOptionsOf(rows: readonly ExceptionRow[]): FilterOptions {
   return {
     types: distinctValues(rows, (row) => row.type),
@@ -864,12 +951,35 @@ function ActiveDayRow({ day, onClear }: ActiveDayRowProps): ReactElement {
   );
 }
 
+/**
+ * One filter's values: the answer's, with the value in force kept among them.
+ *
+ * A chosen value narrows the answer it came from, and a filter set whose read has not settled yet has no
+ * answer at all, so the value in force is missing from the read's own list in both cases. `SelectField`
+ * leaves that to the call site (see its module note), and a select that dropped its own selection could
+ * neither show the narrowing it reports nor report a change of it (rules P-8, B-3). The retained value is
+ * folded in by its own text, as {@link distinctValues} orders the answer's, so an option does not move
+ * when the read starts stating it.
+ */
+function withCurrentValue<Value extends string>(
+  values: readonly Value[],
+  current: Value | '',
+): readonly Value[] {
+  if (current === '') {
+    return values;
+  }
+
+  return values.includes(current)
+    ? values
+    : [...values, current].sort((left, right) => left.localeCompare(right));
+}
+
 /** Props of {@link FilterBar}: the six filters, their options and the state they stand for. */
 interface FilterBarProps {
   /** The filters as the controls hold them. */
   readonly values: FilterValues;
 
-  /** The values the five enumerated filters offer, read from an unfiltered read of the same list. */
+  /** The values the five enumerated filters offer, taken from the rows of the answer the queue holds. */
   readonly options: FilterOptions;
 
   /** Called with the whole filter state after a control changes one member of it. */
@@ -879,36 +989,46 @@ interface FilterBarProps {
 /**
  * The six filters of SCR-02, as one row that wraps rather than shrinking its fields.
  *
+ * Each enumerated filter offers the answer's own values plus the value in force, because the answer
+ * narrows with the filter that produced it and a changed filter set has no answer until its read settles.
+ *
  * The two closed vocabularies are narrowed here, at the control that produced the value: `SelectField`
- * hands back a string, and `options.severities.find` returns the member of the union it actually matched,
- * so the state this component reports can only carry a severity the records hold. Nothing is filtered,
- * intersected or re-ordered here — a change replaces the whole filter state, which replaces the query and
- * therefore the read (AAP 0.12.4: the service narrows the rows, not the screen).
+ * hands back a string, and the `find` over the values this row offered returns the member of the union it
+ * actually matched, so the state this component reports can only carry a severity or a status the records
+ * hold. Nothing is filtered, intersected or re-ordered here — a change replaces the whole filter state,
+ * which replaces the query and therefore the read (AAP 0.12.4: the service narrows the rows, not the
+ * screen).
  */
 function FilterBar({ values, options, onChange }: FilterBarProps): ReactElement {
+  const types = withCurrentValue(options.types, values.type);
+  const plants = withCurrentValue(options.plants, values.plantId);
+  const severities = withCurrentValue(options.severities, values.severity);
+  const statuses = withCurrentValue(options.statuses, values.status);
+  const owners = withCurrentValue(options.owners, values.ownerId);
+
   const typeChoices: readonly Choice[] = [
     { value: '', label: EXCEPTION_QUEUE_TEXT.anyType },
-    ...options.types.map((type) => ({ value: type, label: sentenceOf(type) })),
+    ...types.map((type) => ({ value: type, label: sentenceOf(type) })),
   ];
 
   const plantChoices: readonly Choice[] = [
     { value: '', label: EXCEPTION_QUEUE_TEXT.anyPlant },
-    ...options.plants.map((plantId) => ({ value: plantId, label: plantId })),
+    ...plants.map((plantId) => ({ value: plantId, label: plantId })),
   ];
 
   const severityChoices: readonly Choice[] = [
     { value: '', label: EXCEPTION_QUEUE_TEXT.anySeverity },
-    ...options.severities.map((severity) => ({ value: severity, label: sentenceOf(severity) })),
+    ...severities.map((severity) => ({ value: severity, label: sentenceOf(severity) })),
   ];
 
   const statusChoices: readonly Choice[] = [
     { value: '', label: EXCEPTION_QUEUE_TEXT.anyStatus },
-    ...options.statuses.map((status) => ({ value: status, label: sentenceOf(status) })),
+    ...statuses.map((status) => ({ value: status, label: sentenceOf(status) })),
   ];
 
   const ownerChoices: readonly Choice[] = [
     { value: '', label: EXCEPTION_QUEUE_TEXT.anyOwner },
-    ...options.owners.map((ownerId) => ({ value: ownerId, label: ownerId })),
+    ...owners.map((ownerId) => ({ value: ownerId, label: ownerId })),
   ];
 
   return (
@@ -934,7 +1054,7 @@ function FilterBar({ values, options, onChange }: FilterBarProps): ReactElement 
         value={values.severity}
         options={severityChoices}
         onChange={(value) => {
-          const severity = options.severities.find((candidate) => candidate === value);
+          const severity = severities.find((candidate) => candidate === value);
           onChange({ ...values, severity: severity ?? '' });
         }}
       />
@@ -943,7 +1063,7 @@ function FilterBar({ values, options, onChange }: FilterBarProps): ReactElement 
         value={values.status}
         options={statusChoices}
         onChange={(value) => {
-          const status = options.statuses.find((candidate) => candidate === value);
+          const status = statuses.find((candidate) => candidate === value);
           onChange({ ...values, status: status ?? '' });
         }}
       />
@@ -1124,7 +1244,11 @@ const ROW_ACTIONS_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
 /** One row control: compact, so three of them fit a cell in both densities. */
 const ROW_ACTION_CLASSES = 'px-2';
 
-/** The freshness cell: the source, its state and the instant it last answered, stacked. */
+/**
+ * The freshness cell: the source's name, its state through the status primitive and the instant it
+ * last answered, stacked. The name is plain detail text and the state is the primitive's label, so
+ * the icon and the status colour sit on the word that states a status (rule B-3).
+ */
 const FRESHNESS_CELL_CLASSES = 'flex min-w-0 flex-col gap-1';
 
 /** A cell's supporting line: the smallest step, in the secondary text role. */
@@ -1644,11 +1768,14 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       header: EXCEPTION_QUEUE_TEXT.columnFreshness,
       render: (row) => (
         <span className={FRESHNESS_CELL_CLASSES}>
+          {/* The source's name is identity and the state is the status this cell reports, so the
+              state is the status primitive's label: the meaning's icon and status colour attach to
+              the word that states a status rather than to the source's name (rule B-3). */}
+          <span className={CELL_DETAIL_CLASSES}>{SOURCE_LABELS[row.freshness.source]}</span>
           <StatusIndicator
             meaning={freshnessMeaning(row.freshness.state)}
-            label={SOURCE_LABELS[row.freshness.source]}
+            label={sentenceOf(row.freshness.state)}
           />
-          <span className={CELL_DETAIL_CLASSES}>{sentenceOf(row.freshness.state)}</span>
           <MonoValue
             value={row.freshness.asOf}
             kind="timestamp"
@@ -1690,6 +1817,71 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * Who may work a row — contracts §7.1, rules P-3 and P-8
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The permission a write to an exception requires — contracts §7.1's `exception.work` cell, the one the
+ * adapter evaluates as `requireWork` before it changes a record.
+ *
+ * Held as a typed `Permission` rather than written into a sentence, so a reworded matrix row fails to
+ * compile here instead of reaching a reader as text that names a permission the service no longer
+ * enforces (rule P-6).
+ */
+const WORK_PERMISSION: Permission = 'exception.work';
+
+/**
+ * Whether the acting persona may work a record that lands on one plant.
+ *
+ * This is the matrix's own answer for every persona the demonstration seeds. A persona's `permissions`
+ * are the row contracts §7.1 grants its role, and its `plantIds` are that role's scope as
+ * `plantScopeFor` states it, so holding the permission *and* reaching the plant is exactly
+ * `hasPermission(role, 'exception.work', record, actor)`: the scope test the matrix applies to the role
+ * is the same set the persona carries, and the persona's own set narrows it no further. Both facts
+ * arrive from the adapter through `useActiveUser()`, the only route a feature has to them (rule P-2),
+ * and the adapter keeps enforcing the permission on the call itself, so a disabled control is an
+ * explanation and never the defence (rule P-3).
+ *
+ * @param actingUser - The persona the adapter is enforcing.
+ * @param plantId - The plant the record lands on.
+ * @returns Whether this persona may change records at that plant.
+ */
+function mayWork(actingUser: ActiveUser, plantId: PlantId): boolean {
+  return actingUser.permissions.includes(WORK_PERMISSION) && actingUser.plantIds.includes(plantId);
+}
+
+/**
+ * The sentence a row's write controls are disabled with when the acting persona may not work the row.
+ *
+ * It states the three facts the adapter's own refusal states — the role it enforces, the permission that
+ * role lacks and the plant the row lands on — and then, once the roster has answered, the roles that
+ * hold the permission in the roster's own order, which is what rule P-8 owes a reader who has not
+ * activated the control yet. A roster nobody has reported, or one that reports no holder at all, leaves
+ * that closing clause out rather than claiming no role may act.
+ *
+ * @param actingUser - The persona the adapter is enforcing.
+ * @param plantId - The plant the row lands on.
+ * @param rolesWithWork - The roles holding `exception.work`, or `null` while that is unknown.
+ * @returns The sentence explaining the disabled state.
+ */
+function noWorkReason(
+  actingUser: ActiveUser,
+  plantId: PlantId,
+  rolesWithWork: readonly Role[] | null,
+): string {
+  const opening =
+    `${EXCEPTION_QUEUE_TEXT.noWorkActor} (${actingUser.role}) ${EXCEPTION_QUEUE_TEXT.noWorkLacks} ` +
+    `${WORK_PERMISSION} ${EXCEPTION_QUEUE_TEXT.noWorkOver} ${plantId}, ` +
+    EXCEPTION_QUEUE_TEXT.noWorkOutcome;
+
+  if (rolesWithWork === null || rolesWithWork.length === 0) {
+    return opening;
+  }
+
+  return `${opening} ${EXCEPTION_QUEUE_TEXT.noWorkRoles} ${rolesWithWork.join(', ')}.`;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The screen
  * ------------------------------------------------------------------------------------------- */
 
@@ -1710,9 +1902,6 @@ interface WriteReport {
   /** The sentence under the headline, or absent when the headline says everything. */
   readonly detail?: string;
 }
-
-/** The query of the read that fills the filters' options: no constraint at all. */
-const NO_QUERY: ExceptionQuery = {};
 
 /** Props of {@link ExceptionQueueScreen}. Every member is optional, so the route supplies what it has. */
 export interface ExceptionQueueScreenProps {
@@ -1752,10 +1941,12 @@ export interface ExceptionQueueScreenProps {
 /**
  * SCR-02, the exception queue.
  *
- * Two reads, both through `useService()` (rule P-2): the queue itself, one cache entry per filter set and
- * ordering, and the same list issued with no filters, whose rows fill the five enumerated filters'
- * options. The first read's settled facts decide the screen's state in one place
- * ({@link deriveScreenState}); the second only ever supplies option values and nothing is derived from it.
+ * One read, through `useService()` (rule P-2): the queue itself, one cache entry per filter set and
+ * ordering, and the five enumerated filters' options are the distinct values of that same answer. One
+ * `listExceptions` call per mount is the whole of the screen's data path, whatever the entry narrowed it
+ * to, because every call computes the entire exception aggregate and the port declares no payload of
+ * filter options to read instead. The read's settled facts decide the screen's state in one place
+ * ({@link deriveScreenState}).
  *
  * The writes are the port's own: `assignException` sends the acting persona, which the provider reports
  * from the adapter that enforces it, and `dismissException` sends the reason the dialog collected. Each is
@@ -1771,6 +1962,12 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
 
   const service = useService();
   const activeUser = useActiveUser();
+  /*
+   * The roles the permission a write needs reaches, read from the roster the service reports so a
+   * disabled row action can name who may act (rule P-8). `null` while that answer is unknown: the
+   * sentence then leaves the role clause out rather than claiming no role may act.
+   */
+  const rolesWithWork = useRolesHolding(WORK_PERMISSION);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -1800,23 +1997,18 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
     retry: false,
   });
 
-  /*
-   * The same read with no filters, whose rows fill the five enumerated filters' options. A filtered answer
-   * cannot populate them — it holds exactly the values the filters let through — and the port declares no
-   * payload of filter options, so the values are read from the list itself, once per scope, and cached
-   * under a key of their own (see the module note on the filters).
-   */
-  const optionsQuery = useQuery<Result<ExceptionRow[]>, unknown>({
-    queryKey: ['listExceptions', NO_QUERY, resolvedScope.plants, resolvedScope.products],
-    queryFn: () => service.listExceptions(NO_QUERY, resolvedScope),
-    retry: false,
-  });
-
   const result = listQuery.data;
   const rows = result === undefined ? [] : result.data;
+
+  /*
+   * The five enumerated filters' options, taken from the rows the queue itself returned rather than from a
+   * second read of the same list: every `listExceptions` call computes the whole exception aggregate — a
+   * solver call per case included — and the port declares no payload of options to ask for instead (see
+   * the module note on the filters). Kept in a memo so a re-render of the table cannot re-derive them.
+   */
   const options = useMemo(
-    () => (optionsQuery.data === undefined ? NO_OPTIONS : filterOptionsOf(optionsQuery.data.data)),
-    [optionsQuery.data],
+    () => (listQuery.data === undefined ? NO_OPTIONS : filterOptionsOf(listQuery.data.data)),
+    [listQuery.data],
   );
 
   /*
@@ -1849,11 +2041,13 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
   /**
    * Why "assign to me" cannot act on one row, or `null` when it can.
    *
-   * Two conditions are facts about the row or about the session rather than about who may act, so they are
-   * decided here: an assignment already being recorded for this row, and a row the acting persona already
+   * Four facts are decided here, in the order a reader meets them: an assignment already being recorded
+   * for this row, a session whose adapter reports no persona (which cannot name an assignee at all), a
+   * persona that does not hold `exception.work` over the row's plant, and a row the acting persona already
    * owns — assigning it again would change nothing and append an event for a change that did not happen.
-   * A session whose adapter reports no persona cannot name an assignee at all, so the control says that
-   * instead of sending an identifier nobody supplied (rule P-8).
+   * The permission stands ahead of the row's own state because it answers whether this persona may act on
+   * the row at all, and it is the first of the two conditions the service would refuse the write for
+   * (AAP 0.2.1, rule P-8).
    */
   const assignBlocker = (row: ExceptionRow): string | null => {
     if (pendingExceptionId === row.id) {
@@ -1864,12 +2058,29 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
       return EXCEPTION_QUEUE_TEXT.assignUnavailableReason;
     }
 
+    if (!mayWork(activeUser, row.plantId)) {
+      return noWorkReason(activeUser, row.plantId, rolesWithWork);
+    }
+
     return row.ownerId === activeUser.id ? EXCEPTION_QUEUE_TEXT.alreadyOwnerReason : null;
   };
 
-  /** Why "dismiss" cannot act on one row, or `null` when it can: a dismissed row cannot be dismissed. */
-  const dismissBlocker = (row: ExceptionRow): string | null =>
-    row.status === 'dismissed' ? EXCEPTION_QUEUE_TEXT.alreadyDismissedReason : null;
+  /**
+   * Why "dismiss" cannot act on one row, or `null` when it can.
+   *
+   * The permission comes first: a persona that may not work the row may not set it aside either, and the
+   * row's own state follows — a dismissed row cannot be dismissed again. A session that reports no persona
+   * blocks nothing here, because a control disabled on a fact nobody knows yet would misstate what it can
+   * do; the row action is the only way into the dismissal dialog, so the dialog cannot be reached for a row
+   * this persona may not work, and the adapter refuses the write itself either way (rules P-3 and P-8).
+   */
+  const dismissBlocker = (row: ExceptionRow): string | null => {
+    if (activeUser !== null && !mayWork(activeUser, row.plantId)) {
+      return noWorkReason(activeUser, row.plantId, rolesWithWork);
+    }
+
+    return row.status === 'dismissed' ? EXCEPTION_QUEUE_TEXT.alreadyDismissedReason : null;
+  };
 
   /**
    * Assigns one exception to the acting persona, once, through the port.
@@ -1929,13 +2140,25 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
     setReport({ meaning: 'pass', headline: EXCEPTION_QUEUE_TEXT.dismissed });
   };
 
-  /** Moves the queue's ordering to the column the reader activated, or reverses it if it already is. */
+  /**
+   * Moves the queue's ordering to the column the reader activated, or reverses the column in effect.
+   *
+   * The order in effect is the controlled `sort` once a reader has sorted, and the order the rows
+   * arrived in — {@link QUEUE_DEFAULT_ORDER} — before that, which is the order the table announces. The
+   * declared order is the state this starts from for exactly that reason: with `sort` alone, the first
+   * activation of the Severity header would re-ask for the ascending order the rows are already in,
+   * reorder nothing and leave the announcement unchanged, so the one header the reader was told about
+   * would answer their activation with no change at all (rule P-8). Read from the announced order, the
+   * first activation reverses the rows and the second restores them.
+   */
   const handleSort = (columnId: string): void => {
-    setSort((current) =>
-      current !== null && current.columnId === columnId
-        ? { columnId, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { columnId, direction: 'asc' },
-    );
+    setSort((current) => {
+      const inEffect = current ?? QUEUE_DEFAULT_ORDER;
+
+      return inEffect.columnId === columnId
+        ? { columnId, direction: inEffect.direction === 'asc' ? 'desc' : 'asc' }
+        : { columnId, direction: 'asc' };
+    });
   };
 
   /**
@@ -2004,6 +2227,37 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
     dismissBlocker,
   });
 
+  /**
+   * The sentence the table's one full-width cell states when the read answered with no row: the filter
+   * wording for a read the reader narrowed, the trigger-neutral sentence for one nothing narrowed (see
+   * the module header on the empty queue).
+   */
+  const emptySentence = narrowsRead(filters, day)
+    ? EXCEPTION_QUEUE_TEXT.empty
+    : EXCEPTION_QUEUE_TEXT.emptyUnnarrowed;
+
+  /*
+   * The queue's table, built once and rendered in two places: as the boundary's content while the read
+   * holds rows, and as the caller's own rendering of the empty state when it holds none. Both renderings
+   * are the same element, so the caption, the thirteen scoped headers and the one cell that carries the
+   * sentence reach the reader either way and the columns do not vanish with the rows. The computed
+   * column's label and the sentence that explains it stay with the content, because an empty answer has
+   * no figure for a label to refer to (rule P-1).
+   */
+  const table = (
+    <DataTable
+      columns={columns}
+      rows={rows}
+      getRowKey={(row) => row.id}
+      caption={EXCEPTION_QUEUE_TEXT.tableCaption}
+      sort={sort}
+      onSort={handleSort}
+      defaultOrder={QUEUE_DEFAULT_ORDER}
+      onRowActivate={openException}
+      emptyMessage={emptySentence}
+    />
+  );
+
   return (
     <div className={SCREEN_CLASSES}>
       <PageHeader title={EXCEPTION_QUEUE_TEXT.title} description={EXCEPTION_QUEUE_TEXT.description} />
@@ -2039,7 +2293,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
         state={state}
         stale={staleRecord}
         onRetry={retryRead}
-        emptyMessage={EXCEPTION_QUEUE_TEXT.empty}
+        emptyContent={table}
         partialMessage={EXCEPTION_QUEUE_TEXT.partial}
         conflictMessage={EXCEPTION_QUEUE_TEXT.conflict}
         forbidden={forbiddenRecord}
@@ -2052,16 +2306,7 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
           */}
           <StatusIndicator meaning="simulated" label={CALCULATED_LABEL} />
           <p className={DETAIL_CLASSES}>{EXCEPTION_QUEUE_TEXT.revenueNote}</p>
-          <DataTable
-            columns={columns}
-            rows={rows}
-            getRowKey={(row) => row.id}
-            caption={EXCEPTION_QUEUE_TEXT.tableCaption}
-            sort={sort}
-            onSort={handleSort}
-            onRowActivate={openException}
-            emptyMessage={EXCEPTION_QUEUE_TEXT.empty}
-          />
+          {table}
         </div>
       </StateBoundary>
 

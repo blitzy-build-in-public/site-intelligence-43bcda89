@@ -13,30 +13,90 @@
  * queue's segment is derived from its shared declaration in `src/types/routes.ts`, because the
  * navigation entry, the stage-notice page, the not-found page and four screens all build that address:
  * the segment the router mounts and the address those links reach cannot drift apart.
+ *
+ * WHY EVERY SCREEN IS FETCHED WHEN ITS ROUTE IS FIRST MATCHED. A screen is the largest thing this
+ * application ships — a table of thirteen columns, a map with the bundled boundary geometry, an atlas
+ * of competitor networks — and exactly one of them is on screen at a time. Importing all twelve
+ * statically would put every route's code, and the boundary geometry only the canvas draws, into the
+ * module the browser must parse before the landing screen can paint, which is the whole-record cost the
+ * performance pass measured on every route. Each route therefore names a `lazy` loader: React Router
+ * awaits the module while the router initialises, in parallel with the shell's own boot pass, so a cold
+ * load pays for the landing screen alone and a navigation pays for the screen it moves to. The modules
+ * still ship inside the built bundle on the application's own origin, so no rule is touched — nothing
+ * is fetched from a third party (rule B-1) and the router still declares every route once here. The
+ * props each screen takes stay typed from the module itself, because the wrappers below import their
+ * screens' prop types only: a type import is erased, so it names the contract without pulling the
+ * screen's code into this chunk.
  */
-import type { ReactElement } from 'react';
+import type { ComponentType, ReactElement } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import type { RouteObject } from 'react-router';
 
-import { OverviewScreen } from '../features/scr-01-overview/overview-screen';
-import type { OverviewNarrowing } from '../features/scr-01-overview/overview-screen';
-import { ExceptionQueueScreen } from '../features/scr-02-exception-queue/exception-queue-screen';
-import { InvestigationScreen } from '../features/scr-03-investigation/investigation-screen';
-import { ScenarioComparisonScreen } from '../features/scr-04-scenario-comparison/scenario-comparison-screen';
-import { ApprovalDetailScreen } from '../features/scr-05-approvals-and-audit/approval-detail-screen';
-import { ApprovalsScreen } from '../features/scr-05-approvals-and-audit/approvals-screen';
-import { AuditScreen } from '../features/scr-05-approvals-and-audit/audit-screen';
-import { AssistantScreen } from '../features/scr-06-evidence-assistant/assistant-screen';
-import { PolicyDetailScreen } from '../features/scr-07-sovereignty-and-policies/policy-detail-screen';
-import { SovereigntyScreen } from '../features/scr-07-sovereignty-and-policies/sovereignty-screen';
-import { FilemapCanvasScreen } from '../features/scr-12-filemap-canvas/filemap-canvas-screen';
-import { CompetitiveAtlasScreen } from '../features/scr-13-competitive-atlas/competitive-atlas-screen';
+import { StateBoundary } from '../components/state-boundary';
+import type {
+  OverviewNarrowing,
+  OverviewScreenProps,
+} from '../features/scr-01-overview/overview-screen';
+import type { ExceptionQueueScreenProps } from '../features/scr-02-exception-queue/exception-queue-screen';
+import type { InvestigationScreenProps } from '../features/scr-03-investigation/investigation-screen';
+import type { ScenarioComparisonScreenProps } from '../features/scr-04-scenario-comparison/scenario-comparison-screen';
+import type { ApprovalsScreenProps } from '../features/scr-05-approvals-and-audit/approvals-screen';
+import type { ApprovalDetailScreenProps } from '../features/scr-05-approvals-and-audit/approval-detail-screen';
+import type { AuditScreenProps } from '../features/scr-05-approvals-and-audit/audit-screen';
+import type { AssistantScreenProps } from '../features/scr-06-evidence-assistant/assistant-screen';
+import type { SovereigntyScreenProps } from '../features/scr-07-sovereignty-and-policies/sovereignty-screen';
+import type { PolicyDetailScreenProps } from '../features/scr-07-sovereignty-and-policies/policy-detail-screen';
+import type { FilemapCanvasScreenProps } from '../features/scr-12-filemap-canvas/filemap-canvas-screen';
+import type { CompetitiveAtlasScreenProps } from '../features/scr-13-competitive-atlas/competitive-atlas-screen';
 import type { IsoDate } from '../types';
 import { EXCEPTION_QUEUE_PATH } from '../types/routes';
 import { STAGE_NOTICE_ROUTES, entryRouteFor } from './nav-items';
 import { NotFoundPage } from './not-found-page';
 import { useActiveRole, useShellStore } from './providers';
 import { StageNoticePage } from './stage-notice-page';
+
+/* ---------------------------------------------------------------------------------------------
+ * The on-demand route helper
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The loading region the outlet shows while a screen's module is on its way, taken from the component
+ * that owns that region for the whole application.
+ *
+ * It is `StateBoundary` in its `'loading'` state and carries no content, because that boundary withholds
+ * the content it is given for exactly that state: the region announces itself as busy through its own
+ * caption and bars, so a cold load of a detail address is never a silent empty region (rule B-3) and
+ * nothing here paints a second kind of placeholder beside the one the screens already use.
+ */
+const CHUNK_LOADING_REGION = <StateBoundary state="loading">{null}</StateBoundary>;
+
+/**
+ * A route whose screen arrives as its own module when the route is first matched.
+ *
+ * `load` resolves the wrapper element for this route, which the loader builds from the module it
+ * imported; the wrapper itself lives above, so the shell state a screen needs is still read here rather
+ * than in a feature folder.
+ *
+ * Two behaviours this depends on are the router's own. `lazy` is resolved while the router initialises,
+ * so on a cold load the screen's module is fetched in parallel with the shell's boot pass rather than
+ * after it. And a client-side navigation waits for the module before it commits the new location, so the
+ * screen the reader was reading stays on screen instead of being replaced by a loading region.
+ *
+ * `hydrateFallbackElement` is the one state the router cannot wait in: if a cold load's module is still
+ * on its way when the shell first renders, the outlet shows {@link CHUNK_LOADING_REGION} rather than an
+ * empty content region, and the router is told what to render instead of warning that it has nothing.
+ *
+ * @param path - The child path, relative as every child of the shell layout route is.
+ * @param load - Resolves the element this route renders, once its module is in the browser.
+ * @returns The route object, with the screen's code out of the initial chunk.
+ */
+function lazyRoute(path: string, load: () => Promise<ReactElement>): RouteObject {
+  return {
+    path,
+    hydrateFallbackElement: CHUNK_LOADING_REGION,
+    lazy: async () => ({ element: await load() }),
+  };
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The child-path helper
@@ -126,35 +186,48 @@ function EntryRedirect(): ReactElement {
   return <Navigate to={entryRouteFor(activeRole)} replace />;
 }
 
-/** SCR-01's route element: the shell's scope, and what a figure on the overview does to the queue. */
-function OverviewRoute(): ReactElement {
+/**
+ * SCR-01's route element: the shell's scope, and what a figure on the overview does to the queue.
+ *
+ * The wrapper takes the screen as a prop rather than importing it: the route's loader hands it the
+ * component its `import()` resolved, so this element keeps the shell wiring while the screen's own
+ * module stays out of the initial chunk — the arrangement every wrapper below shares.
+ */
+function OverviewRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<OverviewScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
   const setScope = useShellStore((state) => state.setScope);
   const navigate = useNavigate();
 
   /*
-   * Narrows the shell's plant selection to the plant the reader activated (AAP 0.12.4).
+   * Narrows the queue the reader asked for, and opens it (AAP 0.12.4).
    *
-   * A plant taken from the risk bars becomes the top bar's plant selection, so the overview, the queue and
-   * every other screen describe one population rather than two; the product selection the reader already
-   * made is kept. The session stays on the overview, because the bar declares a dialog and opens the
-   * evidence behind its figure in the same gesture: navigating away here would discard the drawer the
-   * reader had just opened, and the overview re-reads the narrowed scope in place rather than substituting
-   * its loading state for the content already on screen. The narrowed queue is reached the way the screen
-   * offers it — the primary action "Review critical exceptions", or the queue's navigation entry.
+   * A plant taken from the risk bars becomes the top bar's plant selection, so the overview, the queue
+   * and every other screen describe one population rather than two; the product selection the reader
+   * already made is kept. The gesture then navigates to the queue it narrowed, because the narrowing a
+   * reader cannot see is not a filter they made: the queue's own Plant control reflects the selection
+   * its read is narrowed by, and the rows beneath it are the ones the bar stands for (AAP 0.2.1's one
+   * scope resolver).
    *
    * A date taken from the day series travels as the queue entry's location state, which `ExceptionQueueRoute`
    * reads back and hands to the screen as the day its read is narrowed by. The state is the carrier that
    * keeps a chosen day out of the address and out of a global: either of those would be indistinguishable
    * from the test hook AAP §0.7 forbids, and a day is a narrowing one screen asks of another rather than a
    * place in the application. The top bar's selection is left as the reader set it, so a day narrows the
-   * queue to that day within the population they were already reading. The day's control is the series
-   * table's date cell rather than a chart mark, and it opens no drawer, so taking the reader to the queue it
-   * narrows costs that gesture nothing — which is why only this branch navigates.
+   * queue to that day within the population they were already reading.
+   *
+   * BOTH BRANCHES NAVIGATE, AND THE DRAWER IS NOT THE COST. Neither gesture opens a drawer: each chart
+   * reports the activation to its screen instead (see `LineChart`'s `activation` and
+   * `HorizontalBarChart`'s `onActivate`), so leaving the screen discards nothing the reader had opened,
+   * and every figure's evidence stays reachable from its chart's "View as table" grid.
    */
   const onNarrowQueue = (narrowing: OverviewNarrowing): void => {
     if (narrowing.kind === 'plant') {
       setScope({ plants: [narrowing.plantId], products: scope.products });
+      navigate(EXCEPTION_QUEUE_PATH);
 
       return;
     }
@@ -162,7 +235,7 @@ function OverviewRoute(): ReactElement {
     navigate(EXCEPTION_QUEUE_PATH, { state: { day: narrowing.date } });
   };
 
-  return <OverviewScreen scope={scope} onNarrowQueue={onNarrowQueue} />;
+  return <Screen scope={scope} onNarrowQueue={onNarrowQueue} />;
 }
 
 /**
@@ -182,7 +255,11 @@ function OverviewRoute(): ReactElement {
  * The element carries no key, because the day the screen holds is its own state and a navigation that
  * states no day must not throw away the filters the reader chose beside a day they were given.
  */
-function ExceptionQueueRoute(): ReactElement {
+function ExceptionQueueRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<ExceptionQueueScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
   const navigate = useNavigate();
   const location = useLocation();
@@ -200,7 +277,7 @@ function ExceptionQueueRoute(): ReactElement {
   };
 
   return (
-    <ExceptionQueueScreen
+    <Screen
       scope={scope}
       {...(day === undefined ? {} : { initialQuery: { date: day } })}
       onDayCleared={onDayCleared}
@@ -212,62 +289,94 @@ function ExceptionQueueRoute(): ReactElement {
  * SCR-03's route element. The exception's identifier is read by the screen's own `useParams()`, so no path
  * parameter travels through this wrapper.
  */
-function InvestigationRoute(): ReactElement {
+function InvestigationRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<InvestigationScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <InvestigationScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /** SCR-04's route element. The exception's identifier is read by the screen itself. */
-function ScenarioComparisonRoute(): ReactElement {
+function ScenarioComparisonRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<ScenarioComparisonScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <ScenarioComparisonScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /** SCR-05's approval inbox route element. */
-function ApprovalsRoute(): ReactElement {
+function ApprovalsRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<ApprovalsScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <ApprovalsScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /** SCR-05's approval detail route element. The approval's identifier is read by the screen itself. */
-function ApprovalDetailRoute(): ReactElement {
+function ApprovalDetailRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<ApprovalDetailScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <ApprovalDetailScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /** SCR-05's audit trail route element. */
-function AuditRoute(): ReactElement {
+function AuditRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<AuditScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <AuditScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /**
  * SCR-06's route element. No question is preselected: the assistant opens on its own suggested questions,
  * and a question reaches the composer only when a reader activates one.
  */
-function AssistantRoute(): ReactElement {
+function AssistantRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<AssistantScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <AssistantScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /** SCR-07's declared-configuration route element. */
-function SovereigntyRoute(): ReactElement {
+function SovereigntyRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<SovereigntyScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <SovereigntyScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /** SCR-07's policy detail route element. The policy's identifier is read by the screen itself. */
-function PolicyDetailRoute(): ReactElement {
+function PolicyDetailRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<PolicyDetailScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <PolicyDetailScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /**
@@ -276,14 +385,18 @@ function PolicyDetailRoute(): ReactElement {
  * The screen keeps both reported values itself while reporting every change, so one selection serves both
  * lenses, and the shell hides its navigation when wall mode comes on without importing `src/app`.
  */
-function CanvasRoute(): ReactElement {
+function CanvasRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<FilemapCanvasScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
   const selectedNodeId = useShellStore((state) => state.selectedNodeId);
   const setSelectedNodeId = useShellStore((state) => state.setSelectedNodeId);
   const setWallMode = useShellStore((state) => state.setWallMode);
 
   return (
-    <FilemapCanvasScreen
+    <Screen
       scope={scope}
       selectedNodeId={selectedNodeId}
       onSelectedNodeChange={setSelectedNodeId}
@@ -298,10 +411,14 @@ function CanvasRoute(): ReactElement {
  * The atlas read takes no scope — market intelligence is not a first-party record and is never narrowed by
  * a plant selection — so the selection travels only for the product class the atlas opens on.
  */
-function CompetitiveAtlasRoute(): ReactElement {
+function CompetitiveAtlasRoute({
+  Screen,
+}: {
+  readonly Screen: ComponentType<CompetitiveAtlasScreenProps>;
+}): ReactElement {
   const scope = useShellStore((state) => state.scope);
 
-  return <CompetitiveAtlasScreen scope={scope} />;
+  return <Screen scope={scope} />;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -347,24 +464,97 @@ function stageNoticeRoutes(): RouteObject[] {
  * A screen's detail routes are declared here as their own paths and read their parameters inside the
  * screen, because a record's identifier is the screen's to read and not this file's to hold.
  *
+ * Every screen enters through {@link lazyRoute}, so its module is fetched when its address is first
+ * matched and the landing screen is the only one a cold load pays for. The three elements this shell owns
+ * — the entry redirect, the stage notice and the not-found page — stay in the initial chunk, because each
+ * is a handful of lines and one of them is the answer to an address nothing matched.
+ *
  * React Router ranks the children by specificity rather than by declaration order, so a detail path is
  * matched ahead of the catch-all wherever it sits; the order below follows the screens' own order, with the
  * stage notices where the navigation table introduces them.
  */
 export const appRoutes: RouteObject[] = [
   { index: true, element: <EntryRedirect /> },
-  { path: 'overview', element: <OverviewRoute /> },
-  { path: childPathOf(EXCEPTION_QUEUE_PATH), element: <ExceptionQueueRoute /> },
-  { path: 'exceptions/:exceptionId', element: <InvestigationRoute /> },
-  { path: 'exceptions/:exceptionId/scenarios', element: <ScenarioComparisonRoute /> },
-  { path: 'approvals', element: <ApprovalsRoute /> },
-  { path: 'approvals/:approvalId', element: <ApprovalDetailRoute /> },
-  { path: 'audit', element: <AuditRoute /> },
-  { path: 'assistant', element: <AssistantRoute /> },
-  { path: 'admin/sovereignty', element: <SovereigntyRoute /> },
-  { path: 'admin/policies/:policyId', element: <PolicyDetailRoute /> },
+  lazyRoute('overview', async () => {
+    const { OverviewScreen } = await import('../features/scr-01-overview/overview-screen');
+
+    return <OverviewRoute Screen={OverviewScreen} />;
+  }),
+  lazyRoute(childPathOf(EXCEPTION_QUEUE_PATH), async () => {
+    const { ExceptionQueueScreen } = await import(
+      '../features/scr-02-exception-queue/exception-queue-screen'
+    );
+
+    return <ExceptionQueueRoute Screen={ExceptionQueueScreen} />;
+  }),
+  lazyRoute('exceptions/:exceptionId', async () => {
+    const { InvestigationScreen } = await import(
+      '../features/scr-03-investigation/investigation-screen'
+    );
+
+    return <InvestigationRoute Screen={InvestigationScreen} />;
+  }),
+  lazyRoute('exceptions/:exceptionId/scenarios', async () => {
+    const { ScenarioComparisonScreen } = await import(
+      '../features/scr-04-scenario-comparison/scenario-comparison-screen'
+    );
+
+    return <ScenarioComparisonRoute Screen={ScenarioComparisonScreen} />;
+  }),
+  lazyRoute('approvals', async () => {
+    const { ApprovalsScreen } = await import(
+      '../features/scr-05-approvals-and-audit/approvals-screen'
+    );
+
+    return <ApprovalsRoute Screen={ApprovalsScreen} />;
+  }),
+  lazyRoute('approvals/:approvalId', async () => {
+    const { ApprovalDetailScreen } = await import(
+      '../features/scr-05-approvals-and-audit/approval-detail-screen'
+    );
+
+    return <ApprovalDetailRoute Screen={ApprovalDetailScreen} />;
+  }),
+  lazyRoute('audit', async () => {
+    const { AuditScreen } = await import('../features/scr-05-approvals-and-audit/audit-screen');
+
+    return <AuditRoute Screen={AuditScreen} />;
+  }),
+  lazyRoute('assistant', async () => {
+    const { AssistantScreen } = await import(
+      '../features/scr-06-evidence-assistant/assistant-screen'
+    );
+
+    return <AssistantRoute Screen={AssistantScreen} />;
+  }),
+  lazyRoute('admin/sovereignty', async () => {
+    const { SovereigntyScreen } = await import(
+      '../features/scr-07-sovereignty-and-policies/sovereignty-screen'
+    );
+
+    return <SovereigntyRoute Screen={SovereigntyScreen} />;
+  }),
+  lazyRoute('admin/policies/:policyId', async () => {
+    const { PolicyDetailScreen } = await import(
+      '../features/scr-07-sovereignty-and-policies/policy-detail-screen'
+    );
+
+    return <PolicyDetailRoute Screen={PolicyDetailScreen} />;
+  }),
   ...stageNoticeRoutes(),
-  { path: 'canvas', element: <CanvasRoute /> },
-  { path: 'competitive', element: <CompetitiveAtlasRoute /> },
+  lazyRoute('canvas', async () => {
+    const { FilemapCanvasScreen } = await import(
+      '../features/scr-12-filemap-canvas/filemap-canvas-screen'
+    );
+
+    return <CanvasRoute Screen={FilemapCanvasScreen} />;
+  }),
+  lazyRoute('competitive', async () => {
+    const { CompetitiveAtlasScreen } = await import(
+      '../features/scr-13-competitive-atlas/competitive-atlas-screen'
+    );
+
+    return <CompetitiveAtlasRoute Screen={CompetitiveAtlasScreen} />;
+  }),
   { path: '*', element: <NotFoundPage /> },
 ];

@@ -7,11 +7,20 @@
  * never write a `<table>` of its own (AAP §0.5.2): this component is the application's only table
  * vocabulary, and `chart-frame.tsx` renders each chart's "View as table" view with it.
  *
- * The component is presentational by contract (rule P-6). It computes nothing, formats nothing and
- * sorts nothing: `column.render` returns the cell content the caller computed from the service's
- * response, and ordering is the caller's `sort` state reported back through `onSort`. It carries no
+ * The component is presentational by contract (rule P-6). It computes no figure of its own, formats
+ * nothing and sorts nothing: `column.render` returns the cell content the caller computed from the
+ * service's response, and ordering is the caller's `sort` state reported back through `onSort`. A
+ * caller whose rows arrive already ordered by the service states that order as `defaultOrder`, and the
+ * column it names announces it — through `aria-sort`, the caret and the label colour, exactly as a
+ * sorted column does — without the table applying it, reordering anything or reporting it through
+ * `onSort`, so the order in effect is announced before a reader touches a header. It carries no
  * simulated-data label of its own either (rule P-1) — a column whose figures came from a seed record
  * carries its own label inside the caller's `render`.
+ *
+ * A caller that bounds its rows (`pageSize`) gets one window of them, with its own controls and a
+ * sentence counting the window inside the whole row set. That window is the caller's bound shown, not
+ * a second computation of it: the rows it pages are exactly the rows it was handed, the position it
+ * prints is counted from them, and no count appears that the rows did not supply (rule P-6).
  *
  * A table with nothing to show renders the caller's `emptyMessage` in one cell spanning every
  * column, and that prop is required so the cell can never be blank. A table the caller declared no
@@ -26,6 +35,8 @@
 import { CaretDown } from '@phosphor-icons/react';
 import { useRef, useState } from 'react';
 import type { KeyboardEvent, ReactElement, ReactNode } from 'react';
+
+import { ActionButton } from './tooltip';
 
 /**
  * One column of a table: its identity, its visible and accessible header, and how a cell is drawn.
@@ -43,7 +54,11 @@ export interface TableColumn<Row> {
   readonly sortable?: boolean;
   /** `end` for numeric columns, so figures line up on their last digit. Defaults to `start`. */
   readonly align?: 'start' | 'end';
-  /** The cell content. Money, identifiers and timestamps arrive already wrapped by the caller. */
+  /**
+   * The cell content. Money, identifiers and timestamps arrive already wrapped by the caller. The
+   * index is the row's own position in the `rows` the caller supplied, so a windowed table hands a
+   * cell the position the row holds in the whole set rather than its offset in the window.
+   */
   readonly render: (row: Row, index: number) => ReactNode;
 }
 
@@ -57,6 +72,19 @@ export interface TableSort {
 export interface DataTableProps<Row> {
   readonly columns: readonly TableColumn<Row>[];
   readonly rows: readonly Row[];
+  /**
+   * The greatest number of rows the table shows at once, or absent for every row it is given.
+   *
+   * Absent, the component renders exactly the rows it was handed and no controls: no caller that
+   * supplies its own page, or none at all, changes. Supplied, it bounds the rendering the way the
+   * caller already bounded the read behind it — one window of `pageSize` rows, its Previous and Next
+   * controls, and a sentence counting the window inside the whole row set — while `aria-rowcount` keeps
+   * announcing the whole set and each row keeps announcing its own position in it, so a reader is told
+   * where the window sits rather than that the table shrank. The value is a count of rows and nothing
+   * else, so a caller whose page size is not a whole positive number, or is at least as wide as its
+   * rows, gets the unwindowed table rather than a control that could never act.
+   */
+  readonly pageSize?: number;
   /** A stable key per row, so a re-sort or a write-back re-render does not remount the rows. */
   readonly getRowKey: (row: Row) => string;
   /** The table's accessible name, rendered as its `<caption>`. Required: an unnamed table fails B-3. */
@@ -65,6 +93,17 @@ export interface DataTableProps<Row> {
   readonly sort: TableSort | null;
   /** Called with a column id when the user activates that column's sort control. */
   readonly onSort: (columnId: string) => void;
+  /**
+   * The order the caller's rows already arrived in, which this table announces but never applies.
+   *
+   * A read that orders its own rows — the queue's severity-then-days order, the audit trail's newest
+   * first, the inbox's identifier ascending — hands that order here, so the column it names reports
+   * `aria-sort` instead of leaving every header unsorted while the rows are visibly ordered. It is not
+   * sort state: it changes no row, re-sorts nothing, calls nothing and is reported through no prop, and
+   * it is ignored outright the moment `sort` is non-null, because `sort` is the order the caller is
+   * applying and this is only the one the caller was handed.
+   */
+  readonly defaultOrder?: TableSort | null;
   /**
    * Called when the user opens the row: `Enter` on the row cursor, or a pointer click on the row —
    * anywhere outside a control the row holds, whose own click stays with that control. One gesture
@@ -111,7 +150,9 @@ const CELL_CLASS = 'border-b border-hairline px-3 align-middle';
 
 /**
  * The sort control: a real button, at least 24 by 24 px (B-3's target minimum), carrying the 2px
- * focus ring of the theme on keyboard focus only.
+ * focus ring of the theme on keyboard focus only. The width and the colour are this list's; the
+ * offset is the one `:focus-visible` rule's in `src/styles/index.css`, so the ring sits the same
+ * distance out as every other control's rather than at a geometry of its own.
  *
  * The pointer states are role tokens: `hover:` fills the first surface and lifts the label to the
  * primary text role, `active:` holds the second surface under the press. The label colour the JSX
@@ -121,15 +162,17 @@ const CELL_CLASS = 'border-b border-hairline px-3 align-middle';
  * feedback is paced like theirs and a reduced-motion session gets it instantly.
  */
 const SORT_BUTTON_CLASS =
-  'inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control bg-transparent p-0 font-mono text-12 font-medium hover:bg-surface-1 hover:text-text-primary active:bg-surface-2 active:text-text-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring motion-safe:transition-colors motion-safe:duration-150';
+  'inline-flex min-h-6 min-w-6 items-center gap-1 rounded-control bg-transparent p-0 font-mono text-12 font-medium hover:bg-surface-1 hover:text-text-primary active:bg-surface-2 active:text-text-primary focus-visible:outline-2 focus-visible:outline-focus-ring motion-safe:transition-colors motion-safe:duration-150';
 
 /**
- * The row cursor's focus indicator, drawn inside the row so it is never clipped by a scroll box.
- * It carries no outline-hiding utility for the reason given above: the ring the `J`/`K` cursor is
- * followed by would lose its outline style and never paint.
+ * The row cursor's focus indicator: the same 2px theme ring, at the same geometry, as every other
+ * focus stop in the product — the width and the colour from this list, the offset from the one
+ * `:focus-visible` rule in `src/styles/index.css`. It carries no outline-hiding utility for the
+ * reason given above: the ring the `J`/`K` cursor is followed by would lose its outline style and
+ * never paint.
  */
 const ROW_CLASS =
-  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring';
+  'focus-visible:outline-2 focus-visible:outline-focus-ring';
 
 /**
  * A row that opens something also advertises it: a pointer cursor, a hover ground and a pressed
@@ -144,6 +187,46 @@ const ROW_CLASS =
 const ACTIVATABLE_ROW_CLASS =
   'cursor-pointer transition-colors duration-150 hover:bg-surface-2 active:bg-surface-1 motion-reduce:transition-none';
 
+/** The row of controls under a windowed table: the two controls and the sentence that counts them. */
+const WINDOW_ROW_CLASS = 'flex min-w-0 flex-wrap items-center gap-3 pt-2';
+
+/** The window's status sentence, one step down the type scale in the caption role. */
+const WINDOW_SUMMARY_CLASS = 'text-12 text-text-caption';
+
+/** The label of the control that shows the rows before the ones on screen. */
+const PREVIOUS_WINDOW_LABEL = 'Previous rows';
+
+/** The label of the control that shows the rows after the ones on screen. */
+const NEXT_WINDOW_LABEL = 'Next rows';
+
+/**
+ * Why the backward control cannot act, stated because a control that cannot act owes the reader the
+ * reason rather than an inert press (rule P-8). {@link ActionButton} paints it on hover and focus and
+ * keeps it on screen once an activation is refused.
+ */
+const FIRST_WINDOW_REASON =
+  'The table starts at its first row, so there is no earlier window to show.';
+
+/** Why the forward control cannot act, on the same rule and the same mechanism as the reason above. */
+const LAST_WINDOW_REASON =
+  'These are the last rows the table holds, so there is no later window to show.';
+
+/**
+ * What the window says about the rows it is showing, counted from the rows the caller supplied.
+ *
+ * A function of those counts rather than a template holding a figure: the component states no number
+ * of its own (rule P-6), so the positions and the total here can only be the ones its rows and its
+ * own window produced.
+ *
+ * @param firstShown - The position of the window's first row, counting the caller's rows from 1.
+ * @param lastShown - The position of the window's last row, on the same count.
+ * @param total - The number of rows the caller supplied.
+ * @returns The sentence, naming the window inside the whole row set.
+ */
+function windowSummary(firstShown: number, lastShown: number, total: number): string {
+  return `Rows ${String(firstShown)} to ${String(lastShown)} of ${String(total)}.`;
+}
+
 /**
  * Joins the class names that apply, dropping the ones a conditional left out, so a variant reads as
  * one list at the call site instead of a template string with stray spaces.
@@ -156,15 +239,20 @@ function classNames(
     .join(' ');
 }
 
-/** The direction the given column is sorted by, or `null` when it is not the sorted column. */
+/**
+ * The direction announced for the given column, or `null` when the order names another column.
+ *
+ * The order handed in is the caller's `sort` when it has one and the order its rows arrived in
+ * otherwise, so the header of a table nobody has sorted still states the order the service returned.
+ */
 function directionFor(
-  sort: TableSort | null,
+  order: TableSort | null,
   columnId: string,
 ): 'asc' | 'desc' | null {
-  if (sort === null || sort.columnId !== columnId) {
+  if (order === null || order.columnId !== columnId) {
     return null;
   }
-  return sort.direction;
+  return order.direction;
 }
 
 /**
@@ -192,6 +280,12 @@ function happenedInsideControl(target: EventTarget | null): boolean {
  * Each data row also states its position for assistive technology — `aria-rowindex` read against the
  * table's `aria-rowcount` — so a move with `J`/`K` announces where the cursor landed and not only
  * what the row holds.
+ *
+ * A `pageSize` narrows what the body paints, never what the row set is: the body holds one window of
+ * that many rows, `aria-rowcount` keeps announcing every row the caller supplied, each painted row
+ * keeps announcing its own position in that whole set, and `J`/`K` walk the window it can see — wrapping
+ * inside it, and following it when its controls move it. A reader is therefore told that the table holds
+ * rows the window does not show, which is the fact a bare shorter list would hide.
  */
 export function DataTable<Row>({
   columns,
@@ -200,11 +294,21 @@ export function DataTable<Row>({
   caption,
   sort,
   onSort,
+  defaultOrder,
   onRowActivate,
   emptyMessage,
+  pageSize,
 }: DataTableProps<Row>): ReactElement {
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [cursorIndex, setCursorIndex] = useState(0);
+  const [windowStart, setWindowStart] = useState(0);
+
+  /**
+   * The order the headers announce: the caller's sort while it has one, and the order its rows arrived
+   * in otherwise. A non-null `sort` is the caller applying an order, so it replaces the handed-in one
+   * entirely rather than combining with it.
+   */
+  const announcedOrder = sort ?? defaultOrder ?? null;
 
   /**
    * Whether the body shows the empty sentence instead of data rows. A caller that declares no
@@ -214,32 +318,75 @@ export function DataTable<Row>({
   const showsEmptyMessage = rows.length === 0 || columns.length === 0;
   /** The empty cell spans every column, and one when the caller declared no columns to span. */
   const columnCount = Math.max(columns.length, 1);
-  /** The rows the body actually renders: the caller's rows, or the one cell that explains them. */
+  /**
+   * The rows `aria-rowcount` counts beside the header: every row the caller supplied, or the one cell
+   * that explains their absence. A windowed body paints fewer of them, and the count still states the
+   * whole set, because that is what a row's announced position is measured against.
+   */
   const bodyRowCount = showsEmptyMessage ? 1 : rows.length;
   /**
    * What `aria-rowcount` announces: the body rows plus the header row, because ARIA numbers a
    * table's rows from 1 and this table's row 1 is the header. A data row's `aria-rowindex` is its
-   * 0-based list position plus 2 for the same reason.
+   * 0-based list position plus 2 for the same reason. A windowed table counts the rows the caller
+   * supplied rather than the window it paints, which is what tells a reader that rows are held back.
    */
   const rowCount = bodyRowCount + 1;
-  const lastRowIndex = rows.length - 1;
 
   /**
-   * The cursor is clamped to the rows this render has rather than trusted as stored: a filter, a
-   * write-back or a role switch can shrink the list under it, and a stale index would leave no row
-   * tabbable at all. It is also absent whenever the body shows the empty sentence, since that
-   * rendering has no data row for the cursor to sit on.
+   * The number of rows one window holds: the page size where the caller stated one this table can
+   * honour — a whole positive count, narrower than the rows it supplied — and every row otherwise, so
+   * an absent, fractional, non-positive or wider page size leaves the table it always was.
+   */
+  const statedPageSize = pageSize === undefined ? undefined : Math.trunc(pageSize);
+  const windowLength =
+    statedPageSize !== undefined &&
+    Number.isFinite(statedPageSize) &&
+    statedPageSize >= 1 &&
+    statedPageSize < rows.length
+      ? statedPageSize
+      : rows.length;
+  /** Whether the body paints one window of the rows rather than all of them. */
+  const windowed = !showsEmptyMessage && windowLength < rows.length;
+
+  /** The last start a full window can take, so the final window is a full one rather than a stub. */
+  const lastWindowStart = Math.max(rows.length - windowLength, 0);
+  /**
+   * The window this render shows, clamped rather than trusted as stored: a filter, a write-back or a
+   * role switch can hand this table fewer rows than the window it was left on, and an unclamped start
+   * would paint nothing at all. It is zero whenever the body shows the empty sentence, since there is
+   * no row for a window to hold.
+   */
+  const firstVisibleIndex = showsEmptyMessage
+    ? 0
+    : Math.min(Math.max(windowStart, 0), lastWindowStart);
+  const lastVisibleIndex = showsEmptyMessage ? -1 : firstVisibleIndex + windowLength - 1;
+
+  /**
+   * The cursor is clamped to the window this render shows rather than trusted as stored: a filter, a
+   * write-back or a role switch can shrink the list under it, a window control can move the window out
+   * from under it, and a stale index would leave no row tabbable at all. It is also absent whenever the
+   * body shows the empty sentence, since that rendering has no data row for the cursor to sit on.
    */
   const activeIndex = showsEmptyMessage
     ? -1
-    : Math.min(Math.max(cursorIndex, 0), lastRowIndex);
+    : Math.min(Math.max(cursorIndex, firstVisibleIndex), lastVisibleIndex);
 
   /** Moves the cursor and the DOM focus together, which is what makes `J`/`K` a roving cursor. */
   function moveCursorTo(index: number): void {
     setCursorIndex(index);
     const body = tableRef.current?.tBodies[0];
-    body?.rows[index]?.focus();
+    body?.rows[index - firstVisibleIndex]?.focus();
   }
+
+  /** Shows the window before this one; the cursor is clamped into it by the render that follows. */
+  const showPreviousWindow = (): void => {
+    setWindowStart(Math.max(firstVisibleIndex - windowLength, 0));
+  };
+
+  /** Shows the window after this one, which every full window's start allows. */
+  const showNextWindow = (): void => {
+    setWindowStart(Math.min(firstVisibleIndex + windowLength, lastWindowStart));
+  };
 
   const activateRow = (row: Row): void => {
     if (onRowActivate !== undefined) {
@@ -264,11 +411,11 @@ export function DataTable<Row>({
       event.preventDefault();
       moveCursorTo(
         key === 'j'
-          ? activeIndex === lastRowIndex
-            ? 0
+          ? activeIndex >= lastVisibleIndex
+            ? firstVisibleIndex
             : activeIndex + 1
-          : activeIndex === 0
-            ? lastRowIndex
+          : activeIndex <= firstVisibleIndex
+            ? lastVisibleIndex
             : activeIndex - 1,
       );
       return;
@@ -285,162 +432,208 @@ export function DataTable<Row>({
   };
 
   return (
-    /*
-      The scroll container is positioned so the absolutely positioned, visually hidden text a cell
-      carries — the caption, an evidence trigger's suffix, a tooltip's closed description — is laid
-      out against this box and clipped by its `overflow-x-auto`. Left static, those 1 by 1 px boxes
-      escape every ancestor with `overflow-x: auto` and widen the document instead, which scrolls the
-      whole page sideways however narrow the table's own container is.
-    */
-    <div className="relative w-full overflow-x-auto">
+    <>
       {/*
-        `aria-rowcount` counts the header row as row 1, so a reader given a data row's position also
-        knows how many rows the table holds in total: the row count includes it.
-      */}
-      <table
-        ref={tableRef}
-        className={TABLE_CLASS}
-        aria-rowcount={rowCount}
-        onKeyDown={handleKeyDown}
-      >
-        {/*
-          The caption is the table's accessible name and is read by assistive technology; it is
-          visually hidden because every screen already names the table it shows in its own page
-          header, and repeating that text inside the table would say it twice on screen.
-        */}
-        <caption className="sr-only">{caption}</caption>
-        <thead>
-          <tr>
-            {columns.map((column) => {
-              const direction = directionFor(sort, column.id);
-              const ariaSort =
-                direction === null
-                  ? 'none'
-                  : direction === 'asc'
-                    ? 'ascending'
-                    : 'descending';
+        The scroll container is positioned so the absolutely positioned, visually hidden text a cell
+        carries — the caption, an evidence trigger's suffix, a tooltip's closed description — is laid
+        out against this box and clipped by its `overflow-x-auto`. Left static, those 1 by 1 px boxes
+        escape every ancestor with `overflow-x: auto` and widen the document instead, which scrolls the
+        whole page sideways however narrow the table's own container is.
 
-              return (
-                <th
-                  key={column.id}
-                  scope="col"
-                  aria-sort={column.sortable === true ? ariaSort : undefined}
-                  className={classNames(
-                    HEADER_CELL_CLASS,
-                    column.align === 'end' ? 'text-end' : 'text-start',
-                  )}
-                >
-                  {column.sortable === true ? (
-                    <button
-                      type="button"
-                      className={classNames(
-                        SORT_BUTTON_CLASS,
-                        direction === null
-                          ? 'text-text-caption'
-                          : 'text-text-primary',
-                      )}
-                      onClick={() => {
-                        onSort(column.id);
-                      }}
-                    >
-                      <span>{column.header}</span>
-                      {/*
-                        Hidden from assistive technology: `aria-sort` on the header cell already
-                        announces the order, so the caret is decoration that must not rename the
-                        button. It points down for descending and flips for ascending.
-                      */}
-                      <CaretDown
-                        aria-hidden="true"
-                        weight="bold"
+        The 4 px of padding on each side is what the one `:focus-visible` ring in
+        `src/styles/index.css` needs: an outline is painted outside the row it is drawn on, and a scroll
+        container clips at its padding box, so a row cursor at an edge of the table would otherwise lose
+        that edge's stroke and read as two horizontal rules with no vertical ones. The equal negative
+        margin and the width raised by the same 8 px cancel the padding outside this box, so the table's
+        own box — its width and its left and top edge — stays exactly where it was.
+      */}
+      <div className="relative -mx-1 -my-1 w-[calc(100%_+_8px)] overflow-x-auto px-1 py-1">
+        {/*
+          `aria-rowcount` counts the header row as row 1, so a reader given a data row's position also
+          knows how many rows the table holds in total: the row count includes it.
+        */}
+        <table
+          ref={tableRef}
+          className={TABLE_CLASS}
+          aria-rowcount={rowCount}
+          onKeyDown={handleKeyDown}
+        >
+          {/*
+            The caption is the table's accessible name and is read by assistive technology; it is
+            visually hidden because every screen already names the table it shows in its own page
+            header, and repeating that text inside the table would say it twice on screen.
+          */}
+          <caption className="sr-only">{caption}</caption>
+          <thead>
+            <tr>
+              {columns.map((column) => {
+                const direction = directionFor(announcedOrder, column.id);
+                const ariaSort =
+                  direction === null
+                    ? 'none'
+                    : direction === 'asc'
+                      ? 'ascending'
+                      : 'descending';
+
+                return (
+                  <th
+                    key={column.id}
+                    scope="col"
+                    aria-sort={column.sortable === true ? ariaSort : undefined}
+                    className={classNames(
+                      HEADER_CELL_CLASS,
+                      column.align === 'end' ? 'text-end' : 'text-start',
+                    )}
+                  >
+                    {column.sortable === true ? (
+                      <button
+                        type="button"
                         className={classNames(
-                          'shrink-0',
-                          direction === 'asc' ? 'rotate-180' : undefined,
+                          SORT_BUTTON_CLASS,
+                          direction === null
+                            ? 'text-text-caption'
+                            : 'text-text-primary',
                         )}
-                      />
-                    </button>
-                  ) : (
-                    column.header
-                  )}
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {showsEmptyMessage ? (
-            <tr className={ROW_HEIGHT_CLASS}>
-              <td
-                colSpan={columnCount}
-                className={classNames(CELL_CLASS, 'text-text-secondary')}
-              >
-                {emptyMessage}
-              </td>
+                        onClick={() => {
+                          onSort(column.id);
+                        }}
+                      >
+                        <span>{column.header}</span>
+                        {/*
+                          Hidden from assistive technology: `aria-sort` on the header cell already
+                          announces the order, so the caret is decoration that must not rename the
+                          button. It points down for descending and flips for ascending.
+                        */}
+                        <CaretDown
+                          aria-hidden="true"
+                          weight="bold"
+                          className={classNames(
+                            'shrink-0',
+                            direction === 'asc' ? 'rotate-180' : undefined,
+                          )}
+                        />
+                      </button>
+                    ) : (
+                      column.header
+                    )}
+                  </th>
+                );
+              })}
             </tr>
-          ) : (
-            rows.map((row, index) => {
-              /*
-                `aria-rowindex` counts the header row as row 1, so this data row — at 0-based list
-                index `index` — is row `index + 2`. It is deliberately not `index + 1`: that is the
-                header's position, and announcing it would say the cursor sits on a different row.
-              */
-              return (
-                <tr
-                  key={getRowKey(row)}
-                  tabIndex={index === activeIndex ? 0 : -1}
-                  aria-rowindex={index + 2}
-                  className={classNames(
-                    ROW_HEIGHT_CLASS,
-                    ROW_CLASS,
-                    onRowActivate === undefined ? undefined : ACTIVATABLE_ROW_CLASS,
-                  )}
-                  onFocus={() => {
-                    setCursorIndex(index);
-                  }}
-                  onClick={
-                    onRowActivate === undefined
-                      ? undefined
-                      : (event) => {
-                          /*
-                            The first click of a double click has already opened the row, so the
-                            second is not a second activation: the row opens something, and opening
-                            it twice would push a duplicate history entry, which leaves one Back
-                            press with the URL where it already was and makes the row look broken.
-                            `detail` counts the clicks of the sequence, so anything after the first
-                            one is dropped here rather than opening the row again.
-                          */
-                          if (event.detail > 1) {
-                            return;
-                          }
-                          /*
-                            One click opens the row, the way `Enter` on the row cursor does. A click
-                            that started inside a control the row holds — a button, a link, a field,
-                            an evidence trigger — belongs to that control, so the row stays closed
-                            behind it rather than opening as well.
-                          */
-                          if (happenedInsideControl(event.target)) {
-                            return;
-                          }
-                          activateRow(row);
-                        }
-                  }
+          </thead>
+          <tbody>
+            {showsEmptyMessage ? (
+              <tr className={ROW_HEIGHT_CLASS}>
+                <td
+                  colSpan={columnCount}
+                  className={classNames(CELL_CLASS, 'text-text-secondary')}
                 >
-                  {columns.map((column) => (
-                    <td
-                      key={column.id}
-                      className={classNames(
-                        CELL_CLASS,
-                        column.align === 'end' ? 'text-end' : 'text-start',
-                      )}
-                    >
-                      {column.render(row, index)}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : (
+              rows.slice(firstVisibleIndex, firstVisibleIndex + windowLength).map((row, offset) => {
+                /*
+                  `aria-rowindex` counts the header row as row 1, so this data row — at 0-based index
+                  `index` in the rows the caller supplied — is row `index + 2`. It is deliberately not
+                  `index + 1`: that is the header's position, and announcing it would say the cursor
+                  sits on a different row. The index is the row's position in the whole row set rather
+                  than its offset inside the window, so a row of a windowed table still announces where
+                  it sits in the table `aria-rowcount` describes.
+                */
+                const index = firstVisibleIndex + offset;
+
+                return (
+                  <tr
+                    key={getRowKey(row)}
+                    tabIndex={index === activeIndex ? 0 : -1}
+                    aria-rowindex={index + 2}
+                    className={classNames(
+                      ROW_HEIGHT_CLASS,
+                      ROW_CLASS,
+                      onRowActivate === undefined ? undefined : ACTIVATABLE_ROW_CLASS,
+                    )}
+                    onFocus={() => {
+                      setCursorIndex(index);
+                    }}
+                    onClick={
+                      onRowActivate === undefined
+                        ? undefined
+                        : (event) => {
+                            /*
+                              The first click of a double click has already opened the row, so the
+                              second is not a second activation: the row opens something, and opening
+                              it twice would push a duplicate history entry, which leaves one Back
+                              press with the URL where it already was and makes the row look broken.
+                              `detail` counts the clicks of the sequence, so anything after the first
+                              one is dropped here rather than opening the row again.
+                            */
+                            if (event.detail > 1) {
+                              return;
+                            }
+                            /*
+                              One click opens the row, the way `Enter` on the row cursor does. A click
+                              that started inside a control the row holds — a button, a link, a field,
+                              an evidence trigger — belongs to that control, so the row stays closed
+                              behind it rather than opening as well.
+                            */
+                            if (happenedInsideControl(event.target)) {
+                              return;
+                            }
+                            activateRow(row);
+                          }
+                    }
+                  >
+                    {columns.map((column) => (
+                      <td
+                        key={column.id}
+                        className={classNames(
+                          CELL_CLASS,
+                          column.align === 'end' ? 'text-end' : 'text-start',
+                        )}
+                      >
+                        {column.render(row, index)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+      {windowed ? (
+        <div className={WINDOW_ROW_CLASS}>
+          {/*
+            One control per direction, written once per state on purpose: `ActionButtonProps` is a
+            discriminated union, so a control that cannot act cannot be constructed without the
+            sentence that says why, and each branch passes its own literal rather than a flag (rule
+            P-8).
+          */}
+          {firstVisibleIndex === 0 ? (
+            <ActionButton disabled disabledReason={FIRST_WINDOW_REASON}>
+              {PREVIOUS_WINDOW_LABEL}
+            </ActionButton>
+          ) : (
+            <ActionButton onClick={showPreviousWindow}>{PREVIOUS_WINDOW_LABEL}</ActionButton>
           )}
-        </tbody>
-      </table>
-    </div>
+          {lastVisibleIndex >= rows.length - 1 ? (
+            <ActionButton disabled disabledReason={LAST_WINDOW_REASON}>
+              {NEXT_WINDOW_LABEL}
+            </ActionButton>
+          ) : (
+            <ActionButton onClick={showNextWindow}>{NEXT_WINDOW_LABEL}</ActionButton>
+          )}
+          {/*
+            The sentence a reader needs to know the table holds rows this window does not show. It is a
+            live region so a move with the controls is announced rather than only painted, and every
+            count in it comes from the rows the caller supplied.
+          */}
+          <p role="status" className={WINDOW_SUMMARY_CLASS}>
+            {windowSummary(firstVisibleIndex + 1, lastVisibleIndex + 1, rows.length)}
+          </p>
+        </div>
+      ) : null}
+    </>
   );
 }

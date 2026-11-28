@@ -113,8 +113,21 @@ const PRESET_GROUP = 'Map view';
 const VIEW_AS_TABLE = /^View as table/;
 const VIEW_AS_CHART = /^View as chart/;
 
-/** The screen's one primary action, offered only while the selection resolves to an exception. */
+/**
+ * The screen's one primary action, on screen whatever the selection is: it investigates the exception
+ * the selection resolves to, and states why it cannot act while the selection reaches none (rule P-8).
+ */
 const INVESTIGATE = 'Investigate selected exception';
+
+/**
+ * The exact sentence the primary action carries while the selected node answers no exception.
+ *
+ * It is `FILEMAP_CANVAS_TEXT.primaryActionUnavailable` — the screen's own wording, naming the node to
+ * select and why a plant is that node — so it is quoted here character for character rather than
+ * paraphrased, the way {@link STAGE_FOUR_REASON} quotes the one fixed stage string.
+ */
+const INVESTIGATE_BLOCKED_REASON =
+  'Select a plant node on the canvas: an exception names the plant the disruption lands on, so a plant is the node this action can investigate.';
 
 /** The disabled control the graph lens carries for the stage that owns a part's own screen. */
 const OPEN_PART = 'Open part';
@@ -518,14 +531,25 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
     ).toBeVisible();
   }
 
-  /* The canvas opens the selection on a plant, which is the selection that reaches an exception.
-     GAP: a supplier, a material, an origin and a customer carry no member of an exception row to join
-     on, so a non-plant selection reaches no exception and the dock states that gap instead of
-     projecting one — the screen's own rule, asserted by its component suite as well. The assertion
-     below records the behaviour T-19's row would otherwise have stated differently; it is not a
-     workaround. */
+  /* The canvas opens the selection on a plant, which is the selection that reaches an exception. A
+     supplier, a material, an origin and a customer carry no member of an exception row to join on, so a
+     non-plant selection reaches no exception: the dock states that gap instead of projecting one, and
+     the primary action cannot act — so it stays on screen, reports itself unavailable and carries the
+     sentence that names the node to select, instead of vanishing and leaving a reader with no path
+     forward (rule P-8). Both are asserted here as the screen's own component suite asserts them. */
   await expect(page.getByRole('region', { name: DOCK_REGION })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: INVESTIGATE })).toHaveCount(0);
+
+  const blockedInvestigate = page.getByRole('button', { name: INVESTIGATE, exact: true });
+
+  await expect(blockedInvestigate).toHaveCount(1);
+  await expect(blockedInvestigate).toHaveAttribute('aria-disabled', 'true');
+  await blockedInvestigate.focus();
+  await expect(blockedInvestigate).toBeFocused();
+  expect(await disabledReason(page, blockedInvestigate)).toBe(INVESTIGATE_BLOCKED_REASON);
+
+  /* The activation is refused rather than performed: the reader is answered and stays where they were. */
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/canvas$/);
 
   /* The other direction: a node chosen in the map lens is the selection the graph lens marks, which is
      what makes the carry-across symmetric rather than one-way. The plant is chosen in the map, and the

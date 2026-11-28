@@ -10,12 +10,12 @@
  * therefore cross the same axes as separate outlines, which makes the separation structural rather
  * than a review note: a caller looking for a combined figure has nowhere to obtain one.
  *
- * WHY BOTH COMPANION STRINGS ARE IMPORTED AND NEVER WRITTEN (rule P-1). A competitor's name is
- * followed by `COMPETITOR_NAME_TAG` and its series by the market-intelligence label the record
- * carries; the client's series is followed by `CLIENT_SELF_ASSESSMENT_LABEL`, the longer
- * series-specific string that sits alongside the seven fixed section 5.3 labels rather than inside
- * them (AAP 0.10). Both are imported from `../types`, so a reworded tag moves in one place and this
- * module follows it, and neither literal appears in this file.
+ * WHY NO COMPANION STRING IS WRITTEN HERE (rule P-1). A competitor's name is followed by
+ * `COMPETITOR_NAME_TAG`, imported from `../types` so a reworded tag moves in one place and this module
+ * follows it, and every series' label line is the companion label its own record carries. For the
+ * client's series that is the longer series-specific string that sits alongside the seven fixed
+ * section 5.3 labels rather than inside them (AAP 0.10), so neither the tag nor a label literal appears
+ * in this file, and no series is relabelled from its provenance.
  *
  * WHY THE SWATCH LEGEND IS NOT HERE. The calling screen renders `./legend.tsx` from the same
  * `AtlasSeries` data, so a series' swatch and its polygon resolve the same role token — both from the
@@ -34,9 +34,9 @@
  * chart types no number onto the screen.
  *
  * WHY EVERY OUTLINE IS PAINTED UNDER EVERY MARK, AND THE PRESS IS RESOLVED BY PROXIMITY (pointer
- * hit-testing). An outline used to be drawn in the same group as its own series' marks, one series
- * layer after another, so a later series' polygon fill sat above an earlier series' vertex target
- * and swallowed the pointer. A polygon is decoration for the readings the marks carry and never acts
+ * hit-testing). Paint order protects the press, and the drawing paints in two passes for it: a
+ * polygon painted after a mark would sit above that mark's vertex target and take the press aimed
+ * at it. A polygon is decoration for the readings the marks carry and never acts
  * itself, so it is transparent to pointer events and every outline is painted before every mark,
  * both in payload order. Paint order alone cannot place a press, though: a target has to stay large
  * enough for a pointer (rule B-3), and two series' scores on one axis can put their dots closer
@@ -115,7 +115,7 @@ import type {
   MouseEvent as ReactMouseEvent,
 } from 'react';
 
-import { CLIENT_SELF_ASSESSMENT_LABEL, COMPETITOR_NAME_TAG } from '../types';
+import { COMPETITOR_NAME_TAG } from '../types';
 import type { AtlasSeries, RadarAxis } from '../types';
 
 import { EvidenceDrawer } from './evidence-drawer';
@@ -821,19 +821,19 @@ interface SeriesLabelLines {
  *
  * A competitor's name is followed by `COMPETITOR_NAME_TAG` and its label line is the
  * market-intelligence label the record carries, so no competitor element appears untagged or
- * unlabelled. The client's series carries `CLIENT_SELF_ASSESSMENT_LABEL` instead: it is a
- * first-party self-assessment whose companion string is the longer series-specific one that sits
- * alongside the seven fixed labels rather than inside them, and a competitor's label on it would
- * present the client's own reading as market intelligence.
- *
- * Both fixed strings are imported, so this function composes wording it does not own.
+ * unlabelled. Every other series — the client's own first-party self-assessment and a computed
+ * first-party figure alike — prints the companion label its own record carries, which for the client's
+ * series is the longer series-specific string that sits alongside the seven fixed labels rather than
+ * inside them; a competitor's label on it would present the client's own reading as market
+ * intelligence (rules P-1, P-5, AAP §0.8). The name tag is imported, so this function composes wording
+ * it does not own.
  */
 function labelLinesOf(one: AtlasSeries): SeriesLabelLines {
   if (one.provenance === 'market_intelligence') {
     return { name: `${one.label} ${COMPETITOR_NAME_TAG}`, companion: one.simLabel };
   }
 
-  return { name: one.label, companion: CLIENT_SELF_ASSESSMENT_LABEL };
+  return { name: one.label, companion: one.simLabel };
 }
 
 /**

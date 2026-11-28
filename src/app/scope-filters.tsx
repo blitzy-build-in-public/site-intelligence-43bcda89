@@ -173,12 +173,32 @@ const TOPOLOGY_QUERY_KEY = ['getTopology', ALL_SCOPE] as const;
 const ALL_VALUE = '';
 
 /**
- * The group's layout: a wrapping row on the 4 px grid, its items aligned to the bottom so the two
- * labels and their two controls line up however long each label is. No colour, surface or size is set
- * here — each field owns its own, and the token layer exposes no elevation utility to select
- * (specification §4.3).
+ * The group's layout: one column — the two fields on a row of their own, and the sentence explaining a
+ * control that cannot act beneath them — whose height is reserved before it is known which sentence the
+ * read will answer with.
+ *
+ * WHY THE HEIGHT IS RESERVED AND WHAT THE NOTICE MAY WIDEN. The top bar is one wrapping row
+ * (`ROW_CLASSES` in `src/app/top-bar.tsx`) whose height every control beside this one pays for, so a
+ * group that adds a line when its read answers re-breaks its neighbours' lines and moves the navigation
+ * and the page's own content under the reader. Measured on the desktop audit (QA finding QA1-01): the
+ * pending sentence this group paints made the box 77 px tall and widened it from 260 px to 484 px, and
+ * both reverted when the read settled, shifting `main#main-content` by 0.31 of the viewport. `min-h-20`
+ * therefore holds the 80 px the settled announcement occupies — the 51 px fields row, the 8 px grid step
+ * between the rows and the sentence's own 18 px line, which the grid's next step rounds up to 80 px —
+ * so the sentence's line is reserved in both states rather than added in one of them.
+ *
+ * No colour or surface is set here — each field owns its own, and the token layer exposes no elevation
+ * utility to select (specification §4.3). The one size is the reserved block, stated in the spacing
+ * scale's own steps so it stays on the 4 px grid.
  */
-const GROUP_CLASSES = 'flex min-w-0 flex-wrap items-end gap-2';
+const GROUP_CLASSES = 'flex min-w-0 flex-col gap-2 min-h-20';
+
+/**
+ * The two fields on one line, aligned on the bottom of their controls so the two labelled controls line
+ * up however long each label is, and wrapping among themselves rather than growing the group's width
+ * past the sentence's cap below.
+ */
+const FIELDS_ROW_CLASSES = 'flex min-w-0 flex-wrap items-end gap-2';
 
 /** One field: its label above its control, separated by one step of the grid rather than a margin. */
 const FIELD_CLASSES = 'flex min-w-0 flex-col gap-1';
@@ -212,11 +232,30 @@ const SELECT_CLASSES = [
 ].join(' ');
 
 /**
- * The explanation of a control that cannot act: plain text on its own line, not a hint behind a
- * hover. `basis-full` puts the sentence below both fields rather than between them, and
- * `break-words` lets a long adapter message wrap instead of overflowing the top bar.
+ * The explanation of a control that cannot act: plain text on the line beneath both fields, not a hint
+ * behind a hover. The group is a column (`GROUP_CLASSES`), so the sentence always takes that line
+ * rather than being squeezed between the two fields, and that line is reserved there in every state.
+ *
+ * ONE CLAMPED LINE, ITS WIDTH BOUNDED ON THE GRID. The sentence is the adapter's own message, and a
+ * refusal names the permission it needs, the role that is acting and every role that holds it, so it
+ * runs to some three hundred characters. Left to break, that set this group's preferred width and
+ * wrapped onto up to five lines, and the row then displaced the two fields and left the identifier
+ * search on a line of its own: one role's bar measured 420 px against 289 px for every other role
+ * (QA finding QA2-06). `truncate` keeps the whole sentence as this element's text — which is the
+ * text `aria-describedby` binds to the two disabled selects, so a screen reader is still given all
+ * of it — while painting a single line. The `title` carries the same sentence, so a reader using a
+ * pointer reads the remainder the ellipsis hides.
+ *
+ * HOW MUCH OF IT IS SHOWN IS THE ROW'S DECISION, NOT A FIXED CUT. `max-w-80` bounds the line at the
+ * scale's 80th step, so the sentence cannot widen this group past what the top bar's first line holds
+ * and cannot re-break that line when the notice appears or goes away (QA finding QA1-01); the reserved
+ * line the column holds then keeps the bar's height the same in both states. From `xl` up the row has
+ * width to spare, so the line may grow to the 36 rem step (`max-w-xl`): the notice then shows as much
+ * of the sentence as one top-bar line can hold with the identifier search still beside it and no extra
+ * row at the 1280 px width QA1-01 measures. Neither width is an arbitrary value: each is a named step
+ * of the scale, so the bar's boxes stay on the grid.
  */
-const NOTICE_CLASSES = 'min-w-0 basis-full text-12 break-words text-text-caption';
+const NOTICE_CLASSES = 'min-w-0 max-w-80 truncate text-12 text-text-caption xl:max-w-xl';
 
 /* ---------------------------------------------------------------------------------------------
  * The option lists, read from the payload rather than typed here
@@ -542,28 +581,36 @@ export function ScopeFilters(): ReactElement {
       aria-busy={network.status === 'pending'}
       className={GROUP_CLASSES}
     >
-      <ScopeField
-        selectId={plantSelectId}
-        label={SCOPE_FILTERS_TEXT.plantLabel}
-        allLabel={SCOPE_FILTERS_TEXT.allPlants}
-        value={selectionValueOf(scope.plants)}
-        options={plantOptions}
-        disabled={plantCannotAct}
-        describedBy={plantCannotAct && notice !== null ? noticeId : undefined}
-        onChange={handlePlantChange}
-      />
-      <ScopeField
-        selectId={productSelectId}
-        label={SCOPE_FILTERS_TEXT.productLabel}
-        allLabel={SCOPE_FILTERS_TEXT.allProducts}
-        value={selectionValueOf(scope.products)}
-        options={productOptions}
-        disabled={productCannotAct}
-        describedBy={productCannotAct && notice !== null ? noticeId : undefined}
-        onChange={handleProductChange}
-      />
+      <div className={FIELDS_ROW_CLASSES}>
+        <ScopeField
+          selectId={plantSelectId}
+          label={SCOPE_FILTERS_TEXT.plantLabel}
+          allLabel={SCOPE_FILTERS_TEXT.allPlants}
+          value={selectionValueOf(scope.plants)}
+          options={plantOptions}
+          disabled={plantCannotAct}
+          describedBy={plantCannotAct && notice !== null ? noticeId : undefined}
+          onChange={handlePlantChange}
+        />
+        <ScopeField
+          selectId={productSelectId}
+          label={SCOPE_FILTERS_TEXT.productLabel}
+          allLabel={SCOPE_FILTERS_TEXT.allProducts}
+          value={selectionValueOf(scope.products)}
+          options={productOptions}
+          disabled={productCannotAct}
+          describedBy={productCannotAct && notice !== null ? noticeId : undefined}
+          onChange={handleProductChange}
+        />
+      </div>
       {notice === null ? null : (
-        <p id={noticeId} role="status" aria-live="polite" className={NOTICE_CLASSES}>
+        <p
+          id={noticeId}
+          role="status"
+          aria-live="polite"
+          title={notice}
+          className={NOTICE_CLASSES}
+        >
           {notice}
         </p>
       )}

@@ -20,6 +20,14 @@
  * disabled with the sentence that says so, a step that is not failed carries no retry control at
  * all rather than a dead one, and a caller that supplies no handler gets no control.
  *
+ * EVERY STEP OPENS ITS OWN EVIDENCE. The row naming the record a step writes is wrapped in the shared
+ * {@link EvidenceRef}, which opens the drawer on the reference the caller composes through
+ * {@link WriteBackTrackerProps.evidenceRefFor} — the step's own record, system and state, rather than
+ * the plan's. The reference is the caller's because only the screen that read the record knows which
+ * record the steps belong to (rule P-2, principle PR-6: every figure opens its evidence), and the
+ * trigger is that primitive rather than a button written here, so it is keyboard operable with the
+ * visible focus ring rule B-3 requires and its accessible name begins with the reference a reader sees.
+ *
  * WHAT `WriteBack` DOES NOT CARRY (contracts §3). The record declares `sequence`, `system`, `recordRef`,
  * `description` and `state` — no failure-message member and no timestamp member — so on a failed step
  * the record's own `description` is the only text there is, and that description is what is shown with
@@ -35,6 +43,7 @@
 
 import type { ReactElement, ReactNode } from 'react';
 
+import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
@@ -67,6 +76,19 @@ export interface WriteBackTrackerProps {
    * or in which order it does it.
    */
   readonly writeBacks: readonly WriteBack[];
+
+  /**
+   * The evidence reference one step carries, composed by the caller.
+   *
+   * Every step's record reference is wrapped in {@link EvidenceRef}, so activating it opens the drawer
+   * on the step's own record, system and state. The reference is the caller's to compose because only
+   * the screen that read the steps knows which record holds them — an approval's write-back or an
+   * option's — and the grammar belongs to `writeBackStepRef` beside the drawer primitive, so no screen
+   * spells it. Required rather than optional: a tracker that rendered its steps with no way to open
+   * any of their evidence would be the surface AAP 0.2.1's F12 rules out, so a caller has to name the
+   * record the steps belong to.
+   */
+  readonly evidenceRefFor: (writeBack: WriteBack) => string;
 
   /**
    * Called with the reference of the step whose retry the reader asked for.
@@ -247,6 +269,9 @@ interface WriteBackStepProps {
   /** The step record, unmodified. */
   readonly writeBack: WriteBack;
 
+  /** The caller's evidence reference for this step, composed from the record that holds it. */
+  readonly evidenceRefFor: (writeBack: WriteBack) => string;
+
   /** The caller's retry handler, or `undefined` when the caller supplied none. */
   readonly onRetry: ((writeBackId: string) => void) | undefined;
 
@@ -261,9 +286,16 @@ interface WriteBackStepProps {
  * The state's label is the record's own state member rather than a sentence about it: `WriteBack`
  * carries no state text of its own, and a reworded status would be this component inventing wording
  * the service never sent (rule P-6). The status is an icon, that label and a colour together, so the
- * meaning never rests on colour alone (rule B-3).
+ * meaning never rests on colour alone (rule B-3). The record row is the step's way into the drawer:
+ * its reference is the control, so the evidence a reader opens is the one behind the record this step
+ * writes rather than the plan's (principle PR-6).
  */
-function WriteBackStep({ writeBack, onRetry, isRetrying }: WriteBackStepProps): ReactElement {
+function WriteBackStep({
+  writeBack,
+  evidenceRefFor,
+  onRetry,
+  isRetrying,
+}: WriteBackStepProps): ReactElement {
   const status = statusOfState(writeBack.state);
   const isFailed = writeBack.state === 'failed';
 
@@ -284,7 +316,12 @@ function WriteBackStep({ writeBack, onRetry, isRetrying }: WriteBackStepProps): 
 
       <p className={DETAIL_CLASSES}>
         <span>{RECORD_LABEL}</span>
-        <MonoValue value={writeBack.recordRef} kind="id" />
+        {/* The step's own way into the drawer: the trigger's accessible name starts with the reference
+            a reader sees, and the reference it opens is the caller's, so the evidence behind it is this
+            step's record, system and state rather than the plan's (principle PR-6, rule B-3). */}
+        <EvidenceRef ref={evidenceRefFor(writeBack)}>
+          <MonoValue value={writeBack.recordRef} kind="id" />
+        </EvidenceRef>
       </p>
 
       {/* Every step carries the fixed tag. On a failed step it sits in the same step as the record's
@@ -317,6 +354,7 @@ function WriteBackStep({ writeBack, onRetry, isRetrying }: WriteBackStepProps): 
  */
 export function WriteBackTracker({
   writeBacks,
+  evidenceRefFor,
   onRetry,
   retryingWriteBackId,
 }: WriteBackTrackerProps): ReactElement {
@@ -337,6 +375,7 @@ export function WriteBackTracker({
           <WriteBackStep
             key={writeBack.sequence}
             writeBack={writeBack}
+            evidenceRefFor={evidenceRefFor}
             onRetry={onRetry}
             isRetrying={retryingWriteBackId === writeBack.recordRef}
           />

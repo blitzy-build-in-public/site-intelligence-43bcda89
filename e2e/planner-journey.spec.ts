@@ -876,8 +876,12 @@ test("the planner journey: from the disruption to the audit record, with the sol
     const trail = page.getByRole('table', { name: /^Audit events, in chain order/ });
     await expect(trail, 'the trail lists the chain').toBeVisible();
 
-    /* Narrowed to the record the journey touched, so the events asserted are the journey's own. */
-    await page.getByLabel('Record', { exact: true }).fill(approval);
+    /* Narrowed to the record the journey touched, so the events asserted are the journey's own. The
+       trail's text filters commit on `Enter` rather than on every keystroke — one edit, one read — so
+       the record is typed and then committed. */
+    const recordFilter = page.getByLabel('Record', { exact: true });
+    await recordFilter.fill(approval);
+    await recordFilter.press('Enter');
 
     await expect(
       trail.getByRole('row').filter({ hasText: DECISION_ACTION }),

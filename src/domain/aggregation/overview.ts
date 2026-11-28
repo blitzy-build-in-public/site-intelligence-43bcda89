@@ -36,13 +36,14 @@
  * predicate over records — no clock, no state — and the aggregate's counts state the same rule, so
  * neither can be changed without the other's tests noticing.
  *
- * Where the figures come from. Every euro is computed by `revenueAtRisk` from the affected lines
- * `resolveAffectedLines` derives, and no revenue figure is summed a second way here: the by-plant rows
- * are a partition of the same per-exception amounts, so the revenue tile and the rows add up to the
- * cent. No price, quantity, business amount, threshold or record identifier is written in this file
- * (rule P-6); its only literal numbers are the arithmetic's own unit constants and the fourteen days the
- * specification fixes for the series, and the expected results of `platform-seed-data.md` are test
- * fixtures this module neither holds nor reads.
+ * Where the figures come from. Every euro is computed by `revenueOfAffectedLines` from the affected lines
+ * `resolveAffectedLines` derives, once per admitted exception, where those lines are already in hand: no
+ * caller here derives or values them a second time, the tile closes the sum of those per-exception
+ * amounts once through `halfUp2`, and the by-plant rows are a partition of exactly the same amounts, so
+ * the tile and the rows add up to the cent (AAP 0.2.1, AAP 0.8). No price, quantity, business amount,
+ * threshold or record identifier is written in this file (rule P-6); its only literal numbers are the
+ * arithmetic's own unit constants and the fourteen days the specification fixes for the series, and the
+ * expected results of `platform-seed-data.md` are test fixtures this module neither holds nor reads.
  *
  * Purity, determinism and the clock (AAP 0.2.1, AAP 0.18.2). The function is a pure function of its
  * two arguments: it reads no system clock, opens no random source, holds no module-level mutable value
@@ -53,8 +54,8 @@
  *
  * Rules this module is built to satisfy:
  * - P-6: every number is computed from the records handed in — a count of the exceptions in scope, a
- *   duration between two record instants, a euro amount `revenueAtRisk` computed, or a share of the
- *   material master — and the two helpers of `src/domain/solver/rounding.ts` are the only rounding
+ *   duration between two record instants, a euro amount `revenueOfAffectedLines` computed, or a share of
+ *   the material master — and the two helpers of `src/domain/solver/rounding.ts` are the only rounding
  *   applied: `halfUp2` for money and `wholePercent` for the readiness share.
  * - P-5: every value here is a first-party figure computed from first-party records. Nothing in this
  *   module reads a market-intelligence value, so no tile, row, series point or change can blend the
@@ -143,7 +144,7 @@ import type {
   SupplierId,
   Timestamp,
 } from '../../types';
-import type { BaselineView, ExceptionAggregateInput } from './exceptions';
+import type { ExceptionAggregateInput } from './exceptions';
 import { calendarDateOf, isWorkingDay, shiftIsoDate } from '../solver/calendar';
 import { halfUp2, wholePercent } from '../solver/rounding';
 // The queue's row-admission predicates are stated once, in `./exceptions`, and imported here: the
@@ -154,7 +155,7 @@ import {
   baselineViewFor,
   productIdsOf,
   resolveAffectedLines,
-  revenueAtRisk,
+  revenueOfAffectedLines,
 } from './exceptions';
 
 /* ---------------------------------------------------------------------------------------------
@@ -447,12 +448,14 @@ function medianOf(durations: readonly number[]): number {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One exception the resolved scope admits, with the plant it is grouped under and the records the
- * valuation needs.
+ * One exception the resolved scope admits, with the plant it is grouped under, the affected lines
+ * derived for it and the revenue those lines place at risk.
  *
- * The pair exists so that admission and grouping are the same decision: `assignedPlantOf` answers the
- * plant an exception is counted under, and an exception with no answer is one the scope does not admit.
- * No exception is counted twice, and none the queue would show is missing from the overview.
+ * The exception and its plant sit on one entry so that admission and grouping are the same decision:
+ * `assignedPlantOf` answers the plant an exception is counted under, and an exception with no answer is
+ * one the scope does not admit. No exception is counted twice, and none the queue would show is missing
+ * from the overview. The lines and their amount travel with it because both are computed once, where
+ * they are first in hand, and every tile and row that needs them reads them here (AAP 0.2.1).
  */
 interface ScopedException {
   /** The exception record itself, read and never modified. */
@@ -461,14 +464,16 @@ interface ScopedException {
   /** The plant in scope this exception is grouped under, and the row it contributes to. */
   readonly plantId: PlantId;
 
-  /**
-   * The exception's baseline: its solve, or `null` when it carries no solver case, together with the
-   * records its lines are derived and valued from.
-   */
-  readonly baseline: BaselineView;
-
   /** The affected lines `resolveAffectedLines` derived for it. */
   readonly lines: AffectedLine[];
+
+  /**
+   * The revenue those affected lines place at risk, valued once, where the lines are in hand.
+   *
+   * `revenueOfAffectedLines` computes it from the very lines this entry carries, so the revenue tile and
+   * the by-plant rows read an amount rather than valuing the same lines again (AAP 0.2.1, AAP 0.8).
+   */
+  readonly revenue: Money;
 }
 
 /**
@@ -505,7 +510,8 @@ function assignedPlantOf(exception: OperationalException, scope: Scope): PlantId
 }
 
 /**
- * Collects the exceptions the resolved scope admits, each with the plant it is grouped under.
+ * Collects the exceptions the resolved scope admits, each with the plant it is grouped under, the
+ * affected lines derived for it and the revenue those lines were valued at.
  *
  * The two filters are the queue's own: the plant selection, applied through `assignedPlantOf`, and the
  * product selection, applied through `admitsProducts` over the products the exception's affected lines
@@ -514,14 +520,19 @@ function assignedPlantOf(exception: OperationalException, scope: Scope): PlantId
  * describing different populations. Both modules also read the one `Scope` that `./scope` resolved
  * (AAP 0.2.1).
  *
- * The affected lines are derived once per admitted exception, which is why this module can count the
- * customer orders a tile reports and then value the same lines without resolving them twice. Ordering:
- * the exceptions come back in ascending identifier order, so two calls with the same records return the
- * same sequence and a caller can assert it.
+ * The affected lines are derived once per admitted exception and valued once, where they are in hand,
+ * which is why the customer-order count, the revenue tile and the by-plant rows all read one entry and
+ * no caller re-derives or re-values it (AAP 0.2.1). An exception the product selection rejects is never
+ * valued, so the refusal an unpriceable line raises stays about a line this overview actually counts.
+ * Ordering: the exceptions come back in ascending identifier order, so two calls with the same records
+ * return the same sequence and a caller can assert it.
  *
  * @param records The record bundle: the exceptions, the prices, the order book and the baseline solves.
  * @param scope The resolved scope, from `./scope`'s `resolveScope`.
  * @returns Fresh entries for the admitted exceptions, in ascending identifier order.
+ * @throws UnpriceableLineError when an admitted exception's affected line names a product the bundle
+ *   carries no price for, since its revenue could not be computed. The refusal is raised here because
+ *   this is where the lines are valued.
  */
 function scopedExceptions(records: OverviewInput, scope: Scope): ScopedException[] {
   const scoped: ScopedException[] = [];
@@ -540,7 +551,12 @@ function scopedExceptions(records: OverviewInput, scope: Scope): ScopedException
       continue;
     }
 
-    scoped.push({ exception, plantId, baseline, lines });
+    scoped.push({
+      exception,
+      plantId,
+      lines,
+      revenue: revenueOfAffectedLines(exception, baseline, lines),
+    });
   }
 
   return scoped.sort((left, right) => compareCodeUnits(left.exception.id, right.exception.id));
@@ -627,21 +643,21 @@ function alternateSourceReadiness(materials: readonly SourcedMaterial[], scope: 
 /**
  * Sums the revenue the open exceptions place at risk, in euro to two decimals.
  *
- * Every term is the figure `revenueAtRisk` computed for that exception from its own affected lines, and
- * no term is rounded on its way into the total: the total is closed once through `halfUp2`, which is the
- * only rounding this module applies (AAP 0.8, contracts §4 rule 5). The by-plant rows partition exactly
- * these amounts, so the tile and the rows add up to the cent.
+ * Every term is the amount `revenueOfAffectedLines` valued for that exception from the very lines
+ * `scopedExceptions` derived, so no term is derived or valued a second time here, and no term is rounded
+ * on its way into the total: the total is closed once through `halfUp2`, which is the only rounding this
+ * module applies (AAP 0.8, contracts §4 rule 5). The by-plant rows partition exactly these amounts, so
+ * the tile and the rows add up to the cent.
  *
- * @param open The open exceptions the scope admits, lines and baselines in hand.
+ * @param open The open exceptions the scope admits, each with the lines derived for it and the revenue
+ *   they were valued at.
  * @returns The revenue at risk in euro, at most two decimals, and `0` when nothing is open.
- * @throws Error when an affected line names a product the baseline carries no price for, which
- *   `revenueAtRisk` refuses rather than valuing at a price of its own.
  */
 function totalRevenue(open: readonly ScopedException[]): Money {
   let total = 0;
 
   for (const entry of open) {
-    total += revenueAtRisk(entry.exception, entry.baseline);
+    total += entry.revenue;
   }
 
   return halfUp2(total);
@@ -772,18 +788,17 @@ function medianHoursToApprovedPlan(
  * Groups the open exceptions across the plants in scope, one row per plant.
  *
  * The rows are the tiles split by plant: the open count and the revenue at risk of the exceptions
- * grouped under each plant, so the rows add up to the tiles exactly. The order is the scope's own, which
- * `resolveScope` returns in the canonical plant order `PLT-RGB`, `PLT-BRN`, `PLT-QRO`, `PLT-RAK`, never
- * the caller's click order — so the table reads the same way twice. A plant in scope with nothing open
- * still gets its row, with a count and an amount of zero, because a plant a planner can see and that has
- * no exception is a reading in its own right.
+ * grouped under each plant, so the rows add up to the tiles exactly. Each exception's amount is the one
+ * `scopedExceptions` valued where its lines were derived, so nothing is valued again here. The order is
+ * the scope's own, which `resolveScope` returns in the canonical plant order `PLT-RGB`, `PLT-BRN`,
+ * `PLT-QRO`, `PLT-RAK`, never the caller's click order — so the table reads the same way twice. A plant
+ * in scope with nothing open still gets its row, with a count and an amount of zero, because a plant a
+ * planner can see and that has no exception is a reading in its own right.
  *
  * @param records The record bundle: the plant names the rows are labelled with.
  * @param scope The resolved scope, which fixes the rows and their order.
- * @param open The open exceptions the scope admits, lines and baselines in hand.
+ * @param open The open exceptions the scope admits, each with the revenue its lines were valued at.
  * @returns A fresh row per plant in scope, in canonical plant order.
- * @throws Error when an affected line names a product the baseline carries no price for, as
- *   `totalRevenue` does.
  */
 function plantRows(
   records: OverviewInput,
@@ -795,11 +810,7 @@ function plantRows(
 
   for (const entry of open) {
     openCounts.set(entry.plantId, (openCounts.get(entry.plantId) ?? 0) + 1);
-    revenueByPlant.set(
-      entry.plantId,
-      (revenueByPlant.get(entry.plantId) ?? 0) +
-        revenueAtRisk(entry.exception, entry.baseline),
-    );
+    revenueByPlant.set(entry.plantId, (revenueByPlant.get(entry.plantId) ?? 0) + entry.revenue);
   }
 
   const rows: PlantRiskRow[] = [];
@@ -1132,8 +1143,8 @@ function groupHistoryByException(
  *
  * What each member is computed from:
  * - `openExceptions` counts the exceptions the scope admits whose status is open.
- * - `revenueAtRiskEur` sums `revenueAtRisk` over those exceptions and closes the total once through
- *   `halfUp2`.
+ * - `revenueAtRiskEur` sums the amount each of those exceptions was valued at once, where its affected
+ *   lines were derived, and closes the total once through `halfUp2`.
  * - `customerOrdersAtRisk` counts the distinct customer orders their affected lines name.
  * - `medianHoursToApprovedPlan` takes the middle detection-to-approval duration of the exceptions that
  *   carry both activities, unrounded.

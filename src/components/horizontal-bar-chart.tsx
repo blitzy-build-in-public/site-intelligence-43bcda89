@@ -16,7 +16,10 @@
  * cannot host that component's `<span>`. Formatting therefore keeps its single owner, and no amount,
  * identifier or timestamp is ever composed here. Each mark also carries an `evidenceRef`, which is
  * required so a mark cannot exist without the record behind it: activating a mark opens the shared
- * {@link EvidenceDrawer}, and the table view of the same figures belongs to `ChartFrame`, not here.
+ * {@link EvidenceDrawer}, and the table view of the same figures belongs to `ChartFrame`, not here. A
+ * caller that supplies `onActivate` owns the activation instead, and the mark then reports its datum
+ * and opens no drawer, because a handler may leave the screen while a drawer it left behind would
+ * never be read.
  *
  * COLOUR, AND WHY A TONE IS A NAME RATHER THAN A VALUE. {@link CHART_TONE_CLASSES} is the one
  * table in which a chart's tone becomes a role token, and it is shared by the four SVG surfaces and
@@ -350,10 +353,16 @@ export interface HorizontalBarChartProps {
   readonly xAxisLabel?: string | undefined;
 
   /**
-   * Called with a datum's `id` when its mark is activated, in addition to opening the evidence.
+   * Called with a datum's `id` when its mark is activated, and what the mark does instead of opening
+   * its own evidence.
    *
-   * SCR-01 uses this to filter the exception queue: the same gesture opens the figure's evidence and
-   * narrows the queue behind it.
+   * A CALLER THAT SUPPLIES THIS OWNS WHAT THE GESTURE DOES. The mark then reports the datum and opens
+   * no drawer — it declares no `aria-haspopup`, because it opens no dialog — and the handler performs
+   * the effect the mark has on that screen. SCR-01 narrows the exception queue by the plant a bar
+   * draws and takes the reader to it, which is a navigation a drawer opened in the same gesture could
+   * not survive; the figure stays an `EvidenceRef` in the frame's "View as table" grid (AAP criterion
+   * 9, rule B-3). Omitted, the mark opens the evidence behind its figure, which is the contract
+   * `evidenceRef` describes.
    */
   readonly onActivate?: ((id: string) => void) | undefined;
 
@@ -483,10 +492,12 @@ const ACTIVE_BAR_CLASSES = 'stroke-text-primary stroke-2';
 const LABEL_CLASSES = 'fill-text-secondary text-13';
 
 /**
- * The value label: the primary text role in the mono face, because an amount, an identifier and a
- * timestamp are set in tabular figures (AAP §0.5.3). The text itself arrives formatted.
+ * The value label: the primary text role in the mono face with tabular numerals, because an amount,
+ * an identifier and a timestamp are set in tabular figures so digits share one width down a column
+ * (AAP §0.5.3) — the reading the sibling `./grouped-bar-chart.tsx` value label carries. The text
+ * itself arrives formatted.
  */
-const VALUE_CLASSES = 'fill-text-primary font-mono text-13';
+const VALUE_CLASSES = 'fill-text-primary font-mono text-13 tabular-nums';
 
 /* ---------------------------------------------------------------------------------------------
  * The component
@@ -498,8 +509,9 @@ const VALUE_CLASSES = 'fill-text-primary font-mono text-13';
  * Each mark is reachable by `Tab`, operable with `Enter` or `Space`, and named by its category, its
  * value and its simulation label where it has one. Activating a mark opens the evidence behind the
  * figure — the drawer is HTML, so it is rendered as a sibling of the `<svg>` in this component's
- * fragment rather than inside the graphic — and reports the datum's `id` to `onActivate` when the
- * caller supplies it.
+ * fragment rather than inside the graphic — unless the caller supplied `onActivate`, which then owns
+ * the activation: the mark reports the datum's `id` and opens no drawer, because the caller's gesture
+ * may leave this screen behind. The two effects never run together.
  *
  * The selection (`activeId`) only marks a datum the screen has already chosen: this surface keeps no
  * selection of its own beyond the reference whose evidence is open, and it never decides what a
@@ -520,11 +532,20 @@ export function HorizontalBarChart({
 
   const divisor = Number.isFinite(max) && max > 0 ? max : 0;
   const height = bars.length * ROW_HEIGHT;
+  const opensDrawer = onActivate === undefined;
 
-  /** Opens the datum's evidence and reports the activation, in that order, for one gesture. */
+  /**
+   * Activates a mark for one gesture: reports the datum where the caller owns the activation, and
+   * opens the datum's evidence where this surface does. A caller that supplies the handler may leave
+   * the screen, so a drawer opened beside that report would never be read.
+   */
   function activate(datum: HorizontalBarDatum): void {
+    if (onActivate !== undefined) {
+      onActivate(datum.id);
+      return;
+    }
+
     setOpenEvidenceRef(datum.evidenceRef);
-    onActivate?.(datum.id);
   }
 
   /**
@@ -578,7 +599,7 @@ export function HorizontalBarChart({
               role="button"
               tabIndex={0}
               aria-label={markName(datum)}
-              aria-haspopup="dialog"
+              aria-haspopup={opensDrawer ? 'dialog' : undefined}
               aria-current={isActive ? 'true' : undefined}
               onClick={() => {
                 activate(datum);

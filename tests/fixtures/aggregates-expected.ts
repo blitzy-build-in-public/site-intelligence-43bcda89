@@ -43,11 +43,11 @@
  * to report rather than a number to adjust, because a fixture written to match what the modules return
  * would prove nothing. What pins the records rather than the implementation are the figures the
  * inputs fix from outside these modules, both reproduced below: PPAP-0219's 78 per cent readiness,
- * which AAP 0.8 quotes and which is the 14 passing elements of its 18; and the 1,512,800 delayed
- * revenue of `EXC-2026-1184`, which is also that exception's revenue at risk and which the AAP does
- * not state itself but which follows from the two late quantities it does quote — 580 and 640 units
- * for `CO-770233` and `CO-770251` — at the order book's own 1,240 price, the same derivation this
- * file sets out below.
+ * which AAP 0.8 quotes and which is the 14 passing elements of its 18; and the EUR 2,257,000 of
+ * delayed revenue that same quoted recommendation sentence names, which is `EXC-2026-1184`'s own
+ * revenue at risk — the 580 and 640 units it leaves late at the order book's 1,850 price, 1,220 ×
+ * 1,850 — so the largest cells below are anchored by the plan's own quotation rather than by the
+ * rules alone.
  *
  * THE REVERSAL. When `platform-seed-data.md` is supplied, its §13 aggregates are transcribed over the
  * values below and these arithmetic notes become commentary on them; the reversal changes no export,
@@ -78,9 +78,9 @@ import type { CustomerOrderId, ExceptionId, IsoDate, PlantId } from '../../src/t
  * - `openExceptions` counts the seeded exceptions whose status is `open`: nine of the twelve are open,
  *   and `EXC-2026-1187` and `EXC-2026-1194` are resolved while `EXC-2026-1188` is dismissed.
  * - `revenueAtRiskEur` sums the revenue at risk of those nine, each exception's own lines valued at
- *   their product's price: `EXC-2026-1184` 1,512,800 + `EXC-2026-1185` 132,000 + `EXC-2026-1186`
- *   719,200 + `EXC-2026-1189` 144,000 + `EXC-2026-1190` 1,116,000 + `EXC-2026-1191` 194,400 +
- *   `EXC-2026-1192` 86,400 + `EXC-2026-1193` 144,000 + `EXC-2026-1195` 144,000, which is 4,192,800.
+ *   their product's price: `EXC-2026-1184` 2,257,000 + `EXC-2026-1185` 132,000 + `EXC-2026-1186`
+ *   1,073,000 + `EXC-2026-1189` 144,000 + `EXC-2026-1190` 1,665,000 + `EXC-2026-1191` 194,400 +
+ *   `EXC-2026-1192` 86,400 + `EXC-2026-1193` 144,000 + `EXC-2026-1195` 144,000, which is 5,839,800.
  *   The figures of each term are derived export by export below, and the by-plant rows are a
  *   partition of exactly this sum.
  * - `customerOrdersAtRisk` counts the distinct customer orders those nine exceptions name on their
@@ -104,7 +104,7 @@ export const EXPECTED_OVERVIEW_TILES: {
   readonly alternateSourceReadinessPercent: number;
 } = {
   openExceptions: 9,
-  revenueAtRiskEur: 4192800,
+  revenueAtRiskEur: 5839800,
   customerOrdersAtRisk: 7,
   medianHoursToApprovedPlan: 80 / 3,
   alternateSourceReadinessPercent: 42,
@@ -127,23 +127,23 @@ export interface ExpectedPlantRow {
  *
  * DERIVATION. Every plant is in scope, so an exception is grouped under the plant it lands on, and no
  * exception is grouped by the second plant it reaches. The counts add to the nine-exception tile and
- * the amounts to the 4,192,800 one, which is the invariant the rows and the tiles share:
+ * the amounts to the 5,839,800 one, which is the invariant the rows and the tiles share:
  * - `PLT-RGB`, two open: `EXC-2026-1193` (480 × 120 for `CO-770257` plus 720 × 120 for `CO-770238` =
  *   57,600 + 86,400 = 144,000) and `EXC-2026-1195` (300 × 480 = 144,000) → 288,000.
- * - `PLT-BRN`, three open: `EXC-2026-1184` (580 × 1,240 + 640 × 1,240 = 719,200 + 793,600 =
- *   1,512,800, its lines the baseline solve's own late units), `EXC-2026-1190` (400 × 1,240 + 500 ×
- *   1,240 = 496,000 + 620,000 = 1,116,000) and `EXC-2026-1191` (900 × 120 + 720 × 120 = 108,000 +
- *   86,400 = 194,400) → 2,823,200.
+ * - `PLT-BRN`, three open: `EXC-2026-1184` (580 × 1,850 + 640 × 1,850 = 1,073,000 + 1,184,000 =
+ *   2,257,000, its lines the baseline solve's own late units), `EXC-2026-1190` (400 × 1,850 + 500 ×
+ *   1,850 = 740,000 + 925,000 = 1,665,000) and `EXC-2026-1191` (900 × 120 + 720 × 120 = 108,000 +
+ *   86,400 = 194,400) → 4,116,400.
  * - `PLT-QRO`, two open: `EXC-2026-1185` (275 × 480 = 132,000) and `EXC-2026-1189` (300 × 480 =
  *   144,000) → 276,000.
- * - `PLT-RAK`, two open: `EXC-2026-1186` (580 × 1,240 = 719,200) and `EXC-2026-1192` (720 × 120 =
- *   86,400) → 805,600.
+ * - `PLT-RAK`, two open: `EXC-2026-1186` (580 × 1,850 = 1,073,000) and `EXC-2026-1192` (720 × 120 =
+ *   86,400) → 1,159,400.
  */
 export const EXPECTED_BY_PLANT: readonly ExpectedPlantRow[] = [
   { plantId: 'PLT-RGB', openExceptions: 2, revenueAtRiskEur: 288000 },
-  { plantId: 'PLT-BRN', openExceptions: 3, revenueAtRiskEur: 2823200 },
+  { plantId: 'PLT-BRN', openExceptions: 3, revenueAtRiskEur: 4116400 },
   { plantId: 'PLT-QRO', openExceptions: 2, revenueAtRiskEur: 276000 },
-  { plantId: 'PLT-RAK', openExceptions: 2, revenueAtRiskEur: 805600 },
+  { plantId: 'PLT-RAK', openExceptions: 2, revenueAtRiskEur: 1159400 },
 ];
 
 /** One day of the overview's opened-and-resolved chart: the date and the two counts of whole exceptions. */
@@ -211,26 +211,26 @@ export interface ExpectedExceptionRevenue {
  *
  * DERIVATION. Every exception is listed, open or not, because the figure belongs to the record rather
  * than to the queue: a resolved exception still states what was at risk. The three products are
- * priced at 1,240 (`PRD-R75`), 480 (`PRD-A200`) and 120 (`PRD-V40`), and each line is valued at its
+ * priced at 1,850 (`PRD-R75`), 480 (`PRD-A200`) and 120 (`PRD-V40`), and each line is valued at its
  * own product's price:
  * - `EXC-2026-1184` takes its lines from the baseline solve rather than from its stored line counts,
- *   and the do-nothing measurement leaves 580 and 640 units late: 580 × 1,240 + 640 × 1,240 =
- *   1,512,800.
- * - `EXC-2026-1185` 275 × 480 = 132,000; `EXC-2026-1186` 580 × 1,240 = 719,200; `EXC-2026-1187`
+ *   and the do-nothing measurement leaves 580 and 640 units late: 580 × 1,850 + 640 × 1,850 =
+ *   2,257,000.
+ * - `EXC-2026-1185` 275 × 480 = 132,000; `EXC-2026-1186` 580 × 1,850 = 1,073,000; `EXC-2026-1187`
  *   275 × 480 = 132,000; `EXC-2026-1188` 300 × 120 = 36,000; `EXC-2026-1189` 300 × 480 = 144,000.
- * - `EXC-2026-1190` 400 × 1,240 + 500 × 1,240 = 1,116,000; `EXC-2026-1191` 900 × 120 + 720 × 120 =
+ * - `EXC-2026-1190` 400 × 1,850 + 500 × 1,850 = 1,665,000; `EXC-2026-1191` 900 × 120 + 720 × 120 =
  *   194,400; `EXC-2026-1192` 720 × 120 = 86,400; `EXC-2026-1193` 480 × 120 + 720 × 120 = 144,000.
  * - `EXC-2026-1194` carries one line at zero units, which places nothing at risk: 0.
  * - `EXC-2026-1195` 300 × 480 = 144,000.
  */
 export const EXPECTED_REVENUE_AT_RISK_BY_EXCEPTION: readonly ExpectedExceptionRevenue[] = [
-  { exceptionId: 'EXC-2026-1184', revenueAtRiskEur: 1512800 },
+  { exceptionId: 'EXC-2026-1184', revenueAtRiskEur: 2257000 },
   { exceptionId: 'EXC-2026-1185', revenueAtRiskEur: 132000 },
-  { exceptionId: 'EXC-2026-1186', revenueAtRiskEur: 719200 },
+  { exceptionId: 'EXC-2026-1186', revenueAtRiskEur: 1073000 },
   { exceptionId: 'EXC-2026-1187', revenueAtRiskEur: 132000 },
   { exceptionId: 'EXC-2026-1188', revenueAtRiskEur: 36000 },
   { exceptionId: 'EXC-2026-1189', revenueAtRiskEur: 144000 },
-  { exceptionId: 'EXC-2026-1190', revenueAtRiskEur: 1116000 },
+  { exceptionId: 'EXC-2026-1190', revenueAtRiskEur: 1665000 },
   { exceptionId: 'EXC-2026-1191', revenueAtRiskEur: 194400 },
   { exceptionId: 'EXC-2026-1192', revenueAtRiskEur: 86400 },
   { exceptionId: 'EXC-2026-1193', revenueAtRiskEur: 144000 },
@@ -383,7 +383,7 @@ export const EXPECTED_PACKAGE_READINESS: readonly ExpectedPackageReadiness[] = [
  * urgent first; days to impact ascending; revenue at risk descending; and the identifier ascending as
  * the tiebreak that makes the order total. Reading the records:
  * - `critical` first: `EXC-2026-1184` and `EXC-2026-1193` both sit 4 days from impact, and the more
- *   expensive one comes first (1,512,800 against 144,000).
+ *   expensive one comes first (2,257,000 against 144,000).
  * - `high` next: `EXC-2026-1187` 0 days, `EXC-2026-1191` 1, `EXC-2026-1185` 2, `EXC-2026-1190` 4.
  * - `medium` next: `EXC-2026-1186` 4 days, `EXC-2026-1192` 5, then `EXC-2026-1189` and
  *   `EXC-2026-1195` both at 6 days and both worth 144,000, which the identifier ascending breaks.

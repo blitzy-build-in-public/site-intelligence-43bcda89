@@ -11,13 +11,13 @@
  * view from THE SAME `series` array it hands to `LineChart`, so the two representations of one chart
  * cannot disagree (success criterion 9, rule B-3).
  *
- * NOTHING IS COMPUTED HERE (rule P-6). The window, the axis domain, the references, the markers, the
- * bands, the dates and every reading arrive as props; each point carries the value text the module
- * that computed it formatted, plus the evidence reference behind it. The zero line is the caller's own
- * `references` entry — AAP 0.12.4 SCR-03 fixes the zero reference line, so this file states no number
- * of its own, and a second clamp here would silently drop a negative reading that the solver reported
- * and that `LineChart` deliberately draws. Row order is the order the records state; nothing is
- * sorted, parsed or re-derived.
+ * NOTHING IS COMPUTED HERE (rule P-6). The window, the axis domain, the axis names, the references, the
+ * markers, the bands, the dates and every reading arrive as props; each point carries the value text
+ * the module that computed it formatted, plus the evidence reference behind it. The zero line is the
+ * caller's own `references` entry — AAP 0.12.4 SCR-03 fixes the zero reference line, so this file
+ * states no number of its own, and a second clamp here would silently drop a negative reading that the
+ * solver reported and that `LineChart` deliberately draws. Row order is the order the records state;
+ * nothing is sorted, parsed or re-derived.
  *
  * PROVENANCE (rule P-1). `ChartFrame`'s first-party branch requires a frame-level label, which is how
  * rule P-1 is made structural rather than remembered. A surface whose series all declare the same
@@ -240,6 +240,18 @@ export interface ProjectedStockChartProps {
   /** The idle window the solver reports, shaded behind the series. */
   readonly bands: readonly LineBand[];
 
+  /**
+   * The x axis' name, printed beneath the dates.
+   *
+   * The caller supplies the words and this module types none: the axis vocabulary is shared with every
+   * other chart instance of the screen's family — the canvas dock's projected stock reads the same two
+   * names — so it belongs to the caller's own text, not to a second copy here.
+   */
+  readonly xAxisLabel: string;
+
+  /** The y axis' name, printed up the plot's start edge, supplied by the caller for the same reason. */
+  readonly yAxisLabel: string;
+
   /** What the caller shows in place of the surface when no series carries a point. */
   readonly emptyMessage: string;
 }
@@ -266,6 +278,8 @@ export function ProjectedStockChart({
   references,
   markers,
   bands,
+  xAxisLabel,
+  yAxisLabel,
   emptyMessage,
 }: ProjectedStockChartProps): ReactElement {
   const drawsSeries = series.some((spec) => spec.points.length > 0);
@@ -283,7 +297,14 @@ export function ProjectedStockChart({
       tableRows={tableFor(series, caption)}
     >
       {drawsSeries ? (
-        <LineChart series={series} references={references} markers={markers} bands={bands} />
+        <LineChart
+          series={series}
+          references={references}
+          markers={markers}
+          bands={bands}
+          xAxisLabel={xAxisLabel}
+          yAxisLabel={yAxisLabel}
+        />
       ) : (
         <p className={EMPTY_MESSAGE_CLASS}>{emptyMessage}</p>
       )}

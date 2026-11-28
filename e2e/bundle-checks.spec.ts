@@ -1,18 +1,25 @@
 /**
- * The shipped artefact's own half of the rule checks: what the preview server serves, and what each
- * route renders, carry no barred product name, no real vendor name, no placeholder Latin, no claim of a
- * mechanism this build does not have, and no credential (rules B-1, B-2, P-1, P-4 and P-7).
+ * The shipped artefact's own half of the rule checks: every file `npm run build` writes into `dist/`,
+ * every text response the preview server serves, and every route as it renders, carry no barred product
+ * name, no real vendor name, no placeholder Latin, no claim of a mechanism this build does not have,
+ * and no credential (rules B-1, B-2, P-1, P-4 and P-7).
  *
- * WHY THE CORPUS IS WHAT THE SERVER SERVES, NOT `dist/` ON DISK. Rule B-1 is a statement about what a
- * reader's browser receives, so the check reads the application the way the reader does: one sweep of
- * the interface collects every text response through the page's own origin — the served document, the
- * hashed script and stylesheet, any text payload — and the rendered `outerHTML` of each route. Reading
- * `dist/` from disk would prove the bytes on the build machine rather than the bytes the server hands
- * out, and reading it would need Node's own file-system module, which this project does not install:
- * `tsconfig` includes `e2e` with `types: ["vite/client"]` and ships no Node type package, so importing
- * a Node built-in would fail the gate's first step. Everything here
- * is therefore read through the browser: `context.on('response')` with `response.text()`,
- * `page.evaluate(() => document.documentElement.outerHTML)`, and `context.request.get('/')`.
+ * WHY THE CORPUS IS BOTH `dist/` ON DISK AND WHAT THE SERVER SERVES. AAP 0.9 makes this file the built
+ * half of the forbidden-string and no-secret checks and says it reads the built files from disk during
+ * `npm run test:e2e`, and success criterion 8 asks for zero matches in `dist` — so the artefact is read
+ * from the file system: every file `npm run build` wrote, recursively, a source map or an unreferenced
+ * asset included, which is exactly the class of artefact a response sweep cannot see. The served sweep
+ * runs beside it rather than instead of it: one pass of the interface collects every text response
+ * through the page's own origin — the served document, the hashed script and stylesheet, any text
+ * payload — and the rendered `outerHTML` of each route, which is what proves rule B-1's statement about
+ * the bytes a reader's browser actually receives. Read together, the two halves describe one artefact
+ * from both ends, and the coverage test asserts that they do.
+ *
+ * HOW THE FILE SYSTEM IS REACHED WITHOUT NODE TYPES. `tsconfig` includes `e2e` with
+ * `types: ["vite/client"]` and the project installs no Node type package, so a static import of
+ * `node:fs/promises` fails the gate's first step. The two calls this file needs are therefore declared
+ * as the small structural interface below, and the module is loaded through a dynamic import of a
+ * variable specifier: its module type is untyped, so the cast names the only surface this scan uses.
  *
  * WHICH RULES THIS FILE OWNS. The source halves of the same rules run inside `npm test` over `src/`
  * (`tests/source-checks/forbidden-strings.test.ts` and `no-secrets.test.ts`); this file is the half
@@ -20,7 +27,8 @@
  * word lists below are its own, so the two halves can neither duplicate nor weaken each other.
  * - B-1: the served document references no origin but its own, and at least one `.woff2` arrives from
  *   that origin, proving the typefaces are bundled rather than fetched from a font host.
- * - B-2: no credential sits in the bundle, and nothing in it reads a build-time environment value.
+ * - B-2: no credential sits in the artefact `dist/` holds or in what the server serves, and nothing in
+ *   it reads a build-time environment value.
  * - P-4: the interface never states or implies that it establishes sovereignty, prevents copying or
  *   resists tampering, so the adjectival vocabulary of such a claim fails here.
  * - P-7: no barred product name, no real vendor, customer, carmaker or cloud product name, and no
@@ -35,9 +43,9 @@
  * rule P-7 governs, and the interface text of a single-page application is compiled into its script, so
  * the names have to be looked for there too. A broader rule cannot be used: a generic base64 or long-hex
  * scan would fire on the audit chain's own hashes and on the minified bundle's every literal, which
- * would fail the gate for reasons the rule does not name. If a name in the list does appear in a served
- * asset, this file fails and names the asset and the string — there is no exemption list to widen and no
- * silent exception to add.
+ * would fail the gate for reasons the rule does not name. If a name in the list does appear in a built
+ * file or a served asset, this file fails and names the file and the string — there is no exemption list
+ * to widen and no silent exception to add.
  *
  * WHY TWO PRECISION TIERS FOR THE VENDOR NAMES, MEASURED RATHER THAN GUESSED. A case-insensitive
  * whole-word match on every name in the list fires on the built bundle today: `meta` occurs 58 times as
@@ -53,9 +61,9 @@
  * WHAT IT DOES NOT DO. It asserts no business figure, types no record identifier and imports no seed
  * record or fixture (rule P-6 — the corpus counts reported below are the scan's own bookkeeping, not the
  * application's data). It does not assert which origins were contacted: that is the request-origin
- * spec's subject, and this file asserts only what the served text contains and which origin it declares.
- * It writes no storage, sets no timeout by sleeping, adds no test hook to the application, and never
- * skips: a violation is reported, never absorbed.
+ * spec's subject, and this file asserts only what the built and served text contains and which origin
+ * the served document declares. It writes no storage, sets no timeout by sleeping, adds no test hook to
+ * the application, and never skips: a violation is reported, never absorbed.
  */
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Locator, Page, Response } from '@playwright/test';
@@ -346,6 +354,22 @@ interface ServedAsset {
 }
 
 /**
+ * One file `npm run build` wrote into `dist/`, read from the file system.
+ *
+ * This is the corpus no response sweep can reach: a source map, an asset the page never requests, or
+ * anything else only the build writes still ships inside the artefact, so rule P-7's and rule B-2's
+ * shipped halves are asserted over these files as well as over what the server hands out (AAP 0.9,
+ * success criterion 8).
+ */
+interface BuiltFile {
+  /** The path relative to the project root, such as `dist/assets/index-XfupDZaF.js`. */
+  readonly path: string;
+
+  /** The file's bytes decoded as UTF-8 text; a binary decodes lossily and its ASCII survives. */
+  readonly text: string;
+}
+
+/**
  * One route as the interface rendered it.
  *
  * The rendered `outerHTML` is what rule P-7 governs: it is the interface a reader reads, and it carries
@@ -366,12 +390,23 @@ interface RenderedRoute {
 
   /** Whether the demonstration-wide badge was visible, which is what rule P-1 requires of the route. */
   readonly badgeVisible: boolean;
+
+  /**
+   * How many elements the shell's badge locator matched on this route.
+   *
+   * The shell mounts the badge once, so one is the number a correct route reports; the count travels
+   * with the capture so a route that rendered without it says so instead of only failing.
+   */
+  readonly badgeMatches: number;
 }
 
-/** Everything the single sweep observed, as the tests consume it. */
+/** Everything the tests assert over: what the build wrote, and what the single sweep observed. */
 interface ServedCorpus {
   /** The application's own origin; every foreign reference in a served document is a finding. */
   readonly origin: string;
+
+  /** Every file `npm run build` wrote into `dist/`, read from disk before the sweep began. */
+  readonly builtFiles: readonly BuiltFile[];
 
   /** Every text asset the server answered, one entry per path. */
   readonly assets: readonly ServedAsset[];
@@ -430,6 +465,223 @@ interface NavigationEntry {
 
   /** The path its `href` declares. */
   readonly path: string;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The built files on disk
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The directory `npm run build` writes, relative to the project root.
+ *
+ * `vite build` is configured with no `build.outDir`, so the artefact lands here, beside
+ * `playwright.config.ts` and the `package.json` the gate's scripts live in.
+ */
+const BUILT_DIRECTORY = 'dist';
+
+/**
+ * The Node module this scan loads for its two file-system calls.
+ *
+ * Annotated as `string` so the specifier is a variable rather than a literal: a literal specifier makes
+ * TypeScript resolve `node:fs/promises`'s declarations, and the project installs no Node type package —
+ * `tsconfig` includes `e2e` with `types: ["vite/client"]` — so that resolution fails the gate's type
+ * check. A variable specifier imports untyped, and the cast in `loadFileSystem` is then the only surface
+ * the scan is allowed to use.
+ */
+const FILE_SYSTEM_MODULE: string = 'node:fs/promises';
+
+/**
+ * One directory entry, as much of Node's `Dirent` as the walk below reads.
+ *
+ * Declared structurally for the reason above `FILE_SYSTEM_MODULE`: naming `Dirent` would need the same
+ * declarations the module specifier avoids. A directory is descended into and a regular file is read;
+ * anything else — a symbolic link, a socket — is reported rather than skipped, because it cannot be read
+ * as text and a scan with a hole in it is worse than one that says where it stopped.
+ */
+interface DirectoryEntry {
+  /** The entry's name within its directory, never a path. */
+  readonly name: string;
+
+  /** Whether the entry is a directory whose own entries the walk descends into. */
+  isDirectory(): boolean;
+
+  /** Whether the entry is a regular file whose bytes the scan reads. */
+  isFile(): boolean;
+}
+
+/**
+ * The two calls this file makes on Node's file system, as one structural interface.
+ *
+ * `readdir` carries `withFileTypes: true` because the walk asks each entry what it is rather than
+ * guessing from its name, and `readFile` carries the `utf8` encoding because every use of a built file's
+ * bytes here is a text scan.
+ */
+interface FileSystem {
+  /** The entries of the directory at `path`. */
+  readdir(
+    path: string,
+    options: { readonly withFileTypes: true },
+  ): Promise<readonly DirectoryEntry[]>;
+
+  /** The whole of the file at `path`, decoded as UTF-8 text. */
+  readFile(path: string, encoding: 'utf8'): Promise<string>;
+}
+
+/**
+ * Loads Node's file-system promises API behind the interface above.
+ *
+ * The import is dynamic and its specifier a variable, so it resolves when the first built-file scan runs
+ * rather than when this file loads, and the type check sees an untyped module the cast makes explicit.
+ *
+ * @returns The two calls the built-file scan makes.
+ */
+async function loadFileSystem(): Promise<FileSystem> {
+  const fileSystem: unknown = await import(FILE_SYSTEM_MODULE);
+
+  return fileSystem as FileSystem;
+}
+
+/**
+ * The directory holding `path`, tolerating either platform's separators and any trailing one.
+ *
+ * Written out rather than imported, because `node:path` needs the same Node declarations the file-system
+ * module does and the one operation needed is a string slice.
+ *
+ * @param path An absolute path.
+ * @returns The path without the separator and its last segment.
+ * @throws Error when the path has no parent segment, since no artefact could then be read beside it.
+ */
+function parentDirectoryOf(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '');
+  const separator = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+
+  if (separator <= 0) {
+    throw new Error(`"${path}" has no parent directory, so no built artefact can be read beside it.`);
+  }
+
+  return trimmed.slice(0, separator);
+}
+
+/**
+ * The project's root directory: the directory the loaded configuration file sits in.
+ *
+ * The artefact is located from the configuration rather than from the process's working directory, so
+ * the scan reads the bundle the build wrote however `playwright test` was invoked. `configFile` is
+ * `playwright.config.ts`, which sits beside `dist/`, `package.json` and the `check` script — that is the
+ * project root. `config.rootDir` is deliberately not used: this configuration declares
+ * `testDir: './e2e'`, and Playwright resolves `rootDir` to that test directory (`<project>/e2e`), one
+ * level below the artefact.
+ *
+ * @returns The absolute path of the project root.
+ * @throws Error when this run loaded no configuration file, because then no project root is known.
+ */
+function projectRoot(): string {
+  const { configFile } = test.info().config;
+
+  if (configFile === undefined || configFile === '') {
+    throw new Error(
+      'this run loaded no Playwright configuration file, so the directory holding `dist/` is unknown: run the gate as `npm run test:e2e`, which loads `playwright.config.ts` from the project root.',
+    );
+  }
+
+  return parentDirectoryOf(configFile);
+}
+
+/**
+ * Every regular file under `directory`, recursively, added to `into` as paths carrying `prefix`.
+ *
+ * @param fileSystem The file system to walk.
+ * @param directory The absolute path to walk.
+ * @param prefix The path the walk's result is labelled with, which starts as `dist` so every finding
+ *   names a file relative to the project root.
+ * @param into The list the paths are added to, in the order the platform lists their directories.
+ * @throws Error when an entry is neither a directory nor a regular file, since it could not be read.
+ */
+async function collectBuiltFilePaths(
+  fileSystem: FileSystem,
+  directory: string,
+  prefix: string,
+  into: string[],
+): Promise<void> {
+  const entries = await fileSystem.readdir(directory, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const path = `${prefix}/${entry.name}`;
+
+    if (entry.isDirectory()) {
+      await collectBuiltFilePaths(fileSystem, `${directory}/${entry.name}`, path, into);
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      throw new Error(
+        `"${path}" is neither a directory nor a regular file, so its bytes cannot be read: this scan reads every file \`npm run build\` writes, and skipping one would leave a hole in it.`,
+      );
+    }
+
+    into.push(path);
+  }
+}
+
+/**
+ * Every file `npm run build` writes into `dist/`, read as text for the three scans.
+ *
+ * AAP 0.9 makes this file the built half of the forbidden-string and no-secret checks and states that
+ * it reads the built files from disk; success criterion 8 asks for zero matches in `dist`. A response
+ * sweep cannot see a `dist`-only artefact — a source map, an asset the page never requests — so the
+ * artefact itself is read here, and the served sweep stays beside it as the proof of what a browser is
+ * actually handed.
+ *
+ * Every file is read as UTF-8, the bundled typefaces included: a `.woff2`'s bytes below 0x80 decode
+ * unchanged and the rest decode lossily, so the ASCII a font table carries — a family name, a foundry
+ * name — is still found, which is all a text scan of a font can be asked for. Nothing is skipped, so an
+ * artefact added to the build is covered by the next run of the gate.
+ *
+ * @param projectDirectory The absolute path of the project root.
+ * @returns One entry per file, sorted by path, each labelled with the path a failure names.
+ * @throws Error when `dist/` is absent or unreadable, naming the build that produces it.
+ */
+async function readBuiltFiles(projectDirectory: string): Promise<readonly BuiltFile[]> {
+  const directory = `${projectDirectory}/${BUILT_DIRECTORY}`;
+  const fileSystem = await loadFileSystem();
+  const paths: string[] = [];
+
+  try {
+    await collectBuiltFilePaths(fileSystem, directory, BUILT_DIRECTORY, paths);
+  } catch (cause) {
+    throw new Error(
+      `the built artefact at ${directory} could not be read (${String(cause)}): \`npm run build\` writes it and precedes \`npm run test:e2e\` in the \`check\` chain, so build first or run the whole gate with \`npm run check\` (AAP 0.7).`,
+    );
+  }
+
+  const files: BuiltFile[] = [];
+
+  for (const path of paths.sort()) {
+    try {
+      files.push({ path, text: await fileSystem.readFile(`${projectDirectory}/${path}`, 'utf8') });
+    } catch (cause) {
+      throw new Error(`the built file ${path} could not be read: ${String(cause)}`);
+    }
+  }
+
+  return files;
+}
+
+/**
+ * The path of the built file a served asset's path names.
+ *
+ * The preview server answers every route with the single-page fallback document, so a served HTML body
+ * is the one `dist/index.html` however the address that asked for it was spelled — the entry document
+ * and an address no route declares are the same file. Every other served text asset — the hashed script,
+ * the stylesheet, any text payload — sits at the same path inside the artefact.
+ *
+ * @param asset The asset the sweep collected.
+ * @returns Its path relative to the project root.
+ */
+function builtPathOf(asset: ServedAsset): string {
+  return asset.mediaType === 'text/html'
+    ? `${BUILT_DIRECTORY}/index.html`
+    : `${BUILT_DIRECTORY}${asset.path}`;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -498,9 +750,13 @@ function scanText(
 }
 
 /**
- * Every text rule P-7, P-4 or B-2 governs, as one list: each rendered route's document, then each
- * served text asset. The rendered documents come first because they are the interface itself, so a
- * failure a reader could see is reported before one buried in a bundle.
+ * Every text rule P-7, P-4 or B-2 governs, as one list: each rendered route's document, then each served
+ * text asset, then each file the build wrote into `dist/`.
+ *
+ * The rendered documents come first because they are the interface itself, so a failure a reader could
+ * see is reported before one buried in a bundle. The built files come last because they are the widest
+ * corpus — the whole artefact — and each is labelled with its own path, so a failure names the file to
+ * open. Nothing is filtered out of any of the three: a `dist`-only artefact has no served twin.
  */
 function scanTargets(corpus: ServedCorpus): readonly { target: string; text: string }[] {
   const documents = corpus.routes.map((route) => ({
@@ -513,7 +769,12 @@ function scanTargets(corpus: ServedCorpus): readonly { target: string; text: str
     text: asset.text,
   }));
 
-  return [...documents, ...assets];
+  const built = corpus.builtFiles.map((file) => ({
+    target: `the built file ${file.path}`,
+    text: file.text,
+  }));
+
+  return [...documents, ...assets, ...built];
 }
 
 /** Every finding for one rule's patterns across the whole corpus. */
@@ -669,16 +930,32 @@ async function captureRoute(
   }
 
   /*
-   * The badge is read by its own label rather than by role: the shell renders it as a button while the
-   * simulation popover is available and as a plain span otherwise, and rule P-1 is satisfied by the label
-   * being visible in either shape. A role-based locator would fail on the second shape for a reason the
-   * rule does not name.
+   * The badge is located as the shell's own control, never by a document-wide text match. It renders as
+   * the one button inside the page's `banner` landmark — the shell's `<header>` — whose accessible name
+   * begins with the label followed by the demonstration clock: `src/components/simulated-data-badge.tsx`
+   * renders `<label> at <clock>`, so the name is "Simulated data at 2026-12-03T08:00:00+01:00". Both
+   * halves of that are what let the assertion fail. A match on the label anywhere in the document passes
+   * on `/competitive` with the badge removed, because the atlas carries the companion label
+   * "Simulated data: client self-assessment" (AAP 0.10) inside `main`; scoping the search to the banner
+   * puts that text out of reach, and anchoring the name at the label keeps a control whose name merely
+   * ends in the same words from standing in for the badge. The label is fixed text of specification
+   * §5.3 and holds no regular-expression metacharacter.
    */
-  const badge = page.getByText(SIMULATED_DATA_LABEL, { exact: false });
-  const badgeVisible = (await badge.count()) > 0 && (await badge.first().isVisible());
+  const badge = page
+    .getByRole('banner')
+    .getByRole('button', { name: new RegExp(`^${SIMULATED_DATA_LABEL}\\b`) });
+  const badgeMatches = await badge.count();
+  const badgeVisible = badgeMatches > 0 && (await badge.first().isVisible());
   const html = await page.evaluate(() => document.documentElement.outerHTML);
 
-  draft.routes.push({ label, theme, path: new URL(page.url()).pathname, html, badgeVisible });
+  draft.routes.push({
+    label,
+    theme,
+    path: new URL(page.url()).pathname,
+    html,
+    badgeVisible,
+    badgeMatches,
+  });
 }
 
 /**
@@ -744,7 +1021,7 @@ function collectResponse(
 }
 
 /**
- * Sweeps the application once and returns everything the rules are asserted over.
+ * Sweeps the application once and returns everything the browser side of the corpus holds.
  *
  * The order is the order a reader moves in: the entry route, then every enabled navigation entry in both
  * themes, then the parameterised detail route a queue row opens, then the stage-notice page the S4 persona
@@ -752,16 +1029,20 @@ function collectResponse(
  * is needed and none exists; the only levers used are the theme switch and the role switcher, both of
  * which are product features.
  *
+ * The built files are absent from the result on purpose: a sweep sees only what the server hands out, and
+ * the artefact on disk is read by {@link readBuiltFiles} before the sweep begins, so the caller joins the
+ * two halves into one {@link ServedCorpus}.
+ *
  * @param context The browser context the sweep runs in, watched for responses.
  * @param page The page the sweep drives.
  * @param origin The application's own origin.
- * @returns The corpus every test below asserts over.
+ * @returns Everything the sweep observed, ready to be joined with the built files.
  */
 async function collectServedCorpus(
   context: BrowserContext,
   page: Page,
   origin: string,
-): Promise<ServedCorpus> {
+): Promise<Omit<ServedCorpus, 'builtFiles'>> {
   const draft: CorpusDraft = {
     assets: new Map<string, ServedAsset>(),
     routes: [],
@@ -965,12 +1246,14 @@ function servedCorpus(): ServedCorpus {
 }
 
 /**
- * Builds the corpus once, in a context of this file's own.
+ * Builds the corpus once: the artefact read from disk, then one sweep in a context of this file's own.
  *
- * The context is created from the browser fixture rather than taken from the page fixture because the
- * sweep belongs to the whole file, and its `baseURL` is read from the resolved project configuration so
- * the port stays the one `playwright.config.ts` derived for this checkout. Nothing else runs here: no
- * storage state, no global setup, and no dependency on another spec having gone first.
+ * The disk read comes first so an absent or unreadable `dist/` fails before the browser starts, rather
+ * than after a two-minute sweep has run for nothing. The context is created from the browser fixture
+ * rather than taken from the page fixture because the sweep belongs to the whole file, and its `baseURL`
+ * is read from the resolved project configuration so the port stays the one `playwright.config.ts`
+ * derived for this checkout. Nothing else runs here: no storage state, no global setup, and no
+ * dependency on another spec having gone first.
  */
 test.beforeAll(async ({ browser }) => {
   const configuredBaseURL = test.info().project.use.baseURL;
@@ -989,6 +1272,8 @@ test.beforeAll(async ({ browser }) => {
     );
   }
 
+  const builtFiles = await readBuiltFiles(projectRoot());
+
   const context = await browser.newContext({
     baseURL: origin,
     // The application registers no service worker. Blocking them keeps the corpus exactly the requests
@@ -998,22 +1283,31 @@ test.beforeAll(async ({ browser }) => {
   });
 
   try {
-    corpus = await collectServedCorpus(context, await context.newPage(), origin);
+    corpus = {
+      ...(await collectServedCorpus(context, await context.newPage(), origin)),
+      builtFiles,
+    };
   } finally {
     await context.close();
   }
 });
 
-test('collects a non-trivial served corpus from the application\'s own origin', () => {
+test('collects the built artefact from disk and a non-trivial served corpus', () => {
   const served = servedCorpus();
   const scripts = served.assets.filter(
     (asset) => asset.mediaType === 'text/javascript' || asset.mediaType === 'application/javascript',
   );
   const stylesheets = served.assets.filter((asset) => asset.mediaType === 'text/css');
   const documents = served.assets.filter((asset) => asset.mediaType === 'text/html');
+  const builtPaths = new Set(served.builtFiles.map((file) => file.path));
+  const builtScripts = served.builtFiles.filter((file) => file.path.endsWith('.js'));
+  const builtStylesheets = served.builtFiles.filter((file) => file.path.endsWith('.css'));
+  const builtFonts = served.builtFiles.filter((file) => file.path.endsWith(FONT_EXTENSION));
+  const otherBuilt =
+    served.builtFiles.length - builtScripts.length - builtStylesheets.length - builtFonts.length;
 
   console.log(
-    `bundle-checks: scanned ${served.assets.length} served text asset(s) — ${documents.length} html, ${stylesheets.length} css, ${scripts.length} javascript — and ${served.routes.length} rendered document(s) over ${served.themes.length} theme(s) (${served.themes.join(', ')}), with ${served.fontPaths.length} bundled typeface(s) fetched from ${served.origin}.`,
+    `bundle-checks: scanned ${served.builtFiles.length} built file(s) read from ${BUILT_DIRECTORY}/ on disk — ${builtFonts.length} woff2, ${builtStylesheets.length} css, ${builtScripts.length} javascript, ${otherBuilt} other — and ${served.assets.length} served text asset(s) — ${documents.length} html, ${stylesheets.length} css, ${scripts.length} javascript — and ${served.routes.length} rendered document(s) over ${served.themes.length} theme(s) (${served.themes.join(', ')}), with ${served.fontPaths.length} bundled typeface(s) fetched from ${served.origin}.`,
   );
   if (served.unsettledRoutes.length > 0) {
     console.log(
@@ -1045,6 +1339,47 @@ test('collects a non-trivial served corpus from the application\'s own origin', 
     served.servedDocument.status,
     `the server answered ${served.servedDocument.status} for ${SERVED_DOCUMENT_PATH}, so the document asserted below is not the application's entry document`,
   ).toBe(200);
+
+  expect(
+    served.builtFiles.length,
+    `no file was read from the built artefact, so the ${BUILT_DIRECTORY} half of every scan below covered nothing (AAP 0.9, success criterion 8)`,
+  ).toBeGreaterThan(0);
+  expect(
+    builtPaths.has(`${BUILT_DIRECTORY}/index.html`),
+    `the built artefact holds no ${BUILT_DIRECTORY}/index.html, so what was read is not the document the preview server serves`,
+  ).toBe(true);
+  expect(
+    builtScripts.length,
+    'the built artefact holds no script, so the interface text compiled into the bundle was never scanned on disk (rule P-7)',
+  ).toBeGreaterThan(0);
+  expect(
+    builtStylesheets.length,
+    'the built artefact holds no stylesheet, so the emitted CSS was never scanned on disk',
+  ).toBeGreaterThan(0);
+  expect(
+    builtFonts.length,
+    `the built artefact holds no ${FONT_EXTENSION} file, so the bundled typefaces were never scanned on disk (rule B-1)`,
+  ).toBeGreaterThan(0);
+
+  /*
+   * The two halves have to describe one artefact: every text asset the server answered, and every
+   * typeface it delivered, has to be a file the build wrote. A served path that is not on disk would
+   * mean the response sweep read something other than `dist/`, leaving the disk half to prove a
+   * different bundle from the one a browser is handed.
+   */
+  const servedButNotBuilt = [
+    ...new Set([
+      ...served.assets.map((asset) => builtPathOf(asset)),
+      ...served.fontPaths.map((path) => `${BUILT_DIRECTORY}${path}`),
+    ]),
+  ]
+    .filter((path) => !builtPaths.has(path))
+    .sort();
+
+  expect(
+    servedButNotBuilt,
+    'the server handed out a file the built artefact does not hold, so the served half and the disk half are describing two different artefacts',
+  ).toEqual([]);
 
   const thin = served.routes
     .filter((route) => route.html.length <= EMPTY_DOCUMENT_LENGTH)
@@ -1161,11 +1496,14 @@ test('serves an entry document that references no origin but its own', () => {
 test('labels every route it swept with the simulated-data badge', () => {
   const unlabelled = servedCorpus()
     .routes.filter((route) => !route.badgeVisible)
-    .map((route) => `${route.theme} theme, "${route.label}" at ${route.path}`);
+    .map(
+      (route) =>
+        `${route.theme} theme, "${route.label}" at ${route.path}: the banner-scoped badge control matched ${route.badgeMatches} element(s)`,
+    );
 
   expect(
     unlabelled,
-    'rule P-1 requires the "Simulated data" badge to be visible on every route — the stage-notice and not-found pages included — and a route that renders without it is also the first sign that the screen failed to mount',
+    'rule P-1 requires the "Simulated data" badge to be visible on every route — the stage-notice and not-found pages included — and a route that renders without it is also the first sign that the screen failed to mount; the count beside each route says whether nothing matched the badge or the match was not visible',
   ).toEqual([]);
 });
 

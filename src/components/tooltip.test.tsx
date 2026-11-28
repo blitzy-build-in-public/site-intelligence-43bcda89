@@ -569,6 +569,46 @@ describe('ActionButton', () => {
     expect(button).toHaveAttribute('aria-disabled', 'true');
   });
 
+  it('tells its owner an activation was refused, and never on a control that can act', async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const onRefusedActivation = vi.fn();
+
+    render(
+      <>
+        <ActionButton
+          disabled
+          disabledReason={STAGE_REASON}
+          onClick={onClick}
+          onRefusedActivation={onRefusedActivation}
+        >
+          Open part
+        </ActionButton>
+        <ActionButton onClick={onClick} onRefusedActivation={onRefusedActivation}>
+          Approve
+        </ActionButton>
+      </>,
+    );
+
+    /* A control that can act has no refusal to report: its own handler runs, nothing is held and
+       nothing is announced, so the owner is not told a gate turned the reader away. */
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onRefusedActivation).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    /* The refused activation answers exactly as it did before the callback existed — the held hint
+       paints the reason and the live region announces it — and the owner is told once, so a field of
+       its own can answer the same attempt. */
+    await user.click(screen.getByRole('button', { name: 'Open part' }));
+
+    expect(onRefusedActivation).toHaveBeenCalledTimes(1);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(STAGE_REASON);
+    expect(screen.getByRole('alert')).toHaveTextContent(STAGE_REASON);
+  });
+
   it('keeps the reason painted after a refused click once the pointer has left', async () => {
     const user = userEvent.setup();
     const button = renderDisabledButton(vi.fn());

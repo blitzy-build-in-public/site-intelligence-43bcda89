@@ -9,8 +9,11 @@
  * one lens is the node the other lens holds as selected, because the screen owns the one selection
  * both lenses are handed (AAP §0.12.4); wall mode reports every request to the shell that owns the
  * navigation and gives the drawing the whole row whether or not a shell is listening (rule P-8); the
- * dock prints exactly the five events the audit read returned, in the order it returned them, over a
- * series labelled a computed figure; each of the seven states specification §8 fixes renders for the
+ * dock prints exactly the five events the audit read returned, in the order it returned them, and draws
+ * the exception's own baseline together with the option in view on one scale, each series carrying its
+ * own §5.3 label in its own row, the frame stating the one label true of both, its table view
+ * reproducing those marks column by column, and an exception whose records project nothing stating that
+ * (rule P-1, rule B-3); each of the seven states specification §8 fixes renders for the
  * outcome the screen derives it from, driven only by what the stubbed reads and their `Result.meta`
  * report and never by a flag name (AAP §0.8, §0.12.1); the primary action exists only while the
  * selection reaches an exception, and it navigates to that exception's own route; a product card's
@@ -81,6 +84,7 @@ import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { formatHours, formatMoney } from '../../components/mono-value';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { TIMELINE_DOCK_TEXT } from '../../components/timeline-dock';
+import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
 import {
   APPROVAL_GATE_SOURCE,
@@ -120,8 +124,9 @@ import type {
   Timestamp,
   Topology,
 } from '../../types';
-import { FILEMAP_CANVAS_TEXT, FilemapCanvasScreen } from './filemap-canvas-screen';
+import { DOCK_EVENT_ORDER, FILEMAP_CANVAS_TEXT, FilemapCanvasScreen } from './filemap-canvas-screen';
 import type { FilemapCanvasScreenProps } from './filemap-canvas-screen';
+import { MAP_LENS_TEXT } from './map-lens';
 
 /* ---------------------------------------------------------------------------------------------
  * The port, replaced — rule P-2
@@ -491,14 +496,17 @@ const AUDIT_EVENTS: readonly AuditEvent[] = AUDIT_EVENT_SPECS.map((spec, positio
 }));
 
 /**
- * The cache key the screen reads the trail under: the method's own name and the window it asks for,
- * and no scope, by the port's own signature.
+ * The cache key the screen reads the trail under: the method's own name, the window it asks for and the
+ * newest-first order it asks for, and no scope, by the port's own signature.
  *
  * A case names it because a role switch leaves the previous role's successful read in the cache under
- * exactly this key and the screen re-reads it from there; it holds a window rather than a figure, so
- * nothing is typed that rule P-6 bars.
+ * exactly this key and the screen re-reads it from there; it holds a window and an ordering, so nothing
+ * is typed that rule P-6 bars.
  */
-const AUDIT_CACHE_KEY = ['listAuditEvents', { limit: AUDIT_WINDOW }] as const;
+const AUDIT_CACHE_KEY = [
+  'listAuditEvents',
+  { limit: AUDIT_WINDOW, sort: DOCK_EVENT_ORDER },
+] as const;
 
 /* ---------------------------------------------------------------------------------------------
  * The ribbon's six figures
@@ -634,17 +642,23 @@ const EXCEPTION_DETAIL: ExceptionDetail = {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One response option, at the smallest shape the type accepts.
+ * One response option, at the shape the type accepts.
  *
- * The screen reads an option's identifier and its name — it offers the option its set recommends and the
- * caption beside the switch names it — so every measure is zero and every collection empty. A figure
- * here would be one this suite invented, which rule P-6 bars from a test hook.
+ * The screen reads an option's identifier, its name and — for the dock's projection — the closing
+ * stock the solver measured for it, so a case supplies the series and every other measure is zero with
+ * every collection empty. A figure beside those would be one this suite invented, which rule P-6 bars
+ * from a test hook.
  *
  * @param id - The option's identifier, as the payload spells it.
  * @param name - The name the comparison matrix would label the option's column with.
+ * @param dailyClosingStock - The projection the option measured, in the order the record states it.
  * @returns The option.
  */
-function previewOption(id: ScenarioId, name: string): Scenario {
+function previewOption(
+  id: ScenarioId,
+  name: string,
+  dailyClosingStock: readonly DailyClosingStockPoint[] = [],
+): Scenario {
   return {
     id,
     exceptionId: PRIMARY_EXCEPTION_ID,
@@ -658,7 +672,7 @@ function previewOption(id: ScenarioId, name: string): Scenario {
     lineIdleDays: 0,
     revenueDelayedEur: 0,
     runOut: { day: 1, fractionOfDay: 0 },
-    dailyClosingStock: [],
+    dailyClosingStock: [...dailyClosingStock],
     orders: [],
     constraintCheck: 'pass',
     constraintMessages: [],
@@ -698,6 +712,50 @@ const EMPTY_OPTION_SET: ScenarioSet = {
   tradeOff: 'A trade-off the record states',
   rejected: [],
 };
+
+/**
+ * The option's own projection, as the solver measured it.
+ *
+ * It reports one date the exception's baseline does not, so a case can see that the dock's table view
+ * states every date either record reports — the baseline's reads beside the option's on the dates they
+ * share, and no reading where one of them reports none.
+ */
+const OPTION_STOCK_SERIES: readonly DailyClosingStockPoint[] = [
+  { date: CLOCK_DATE, units: 320 },
+  { date: dayAfter(dayAfter(CLOCK_DATE)), units: 40 },
+];
+
+/** Every date the dock's table must state once: the union of the two records' own dates. */
+const PROJECTION_DATES: readonly IsoDate[] = [
+  CLOCK_DATE,
+  dayAfter(CLOCK_DATE),
+  dayAfter(dayAfter(CLOCK_DATE)),
+];
+
+/**
+ * The option whose projection the dock draws over the baseline.
+ *
+ * Its measures are a seed record's, which is the label the dock's frame then states for the whole
+ * figure — the one label true of both series (AAP §0.10, rule P-1).
+ */
+const PROJECTION_OPTION: Scenario = previewOption(
+  'option-alpha',
+  'By air, then transfer',
+  OPTION_STOCK_SERIES,
+);
+
+/** A set holding that one option, in the place the set's recommendation rule puts it. */
+const PROJECTION_OPTION_SET: ScenarioSet = {
+  exceptionId: PRIMARY_EXCEPTION_ID,
+  scenarios: [PROJECTION_OPTION],
+  recommendedId: PROJECTION_OPTION.id,
+  recommendationRule: 'A rule the record states',
+  tradeOff: 'A trade-off the record states',
+  rejected: [],
+};
+
+/** The label the dock gives the option's series: its own wording, then the record's own name. */
+const OPTION_SERIES_LABEL = `${TIMELINE_DOCK_TEXT.selectedSeriesPrefix} ${PROJECTION_OPTION.name}`;
 
 /* ---------------------------------------------------------------------------------------------
  * The market-intelligence overlay the map lens draws, and the refusals a state case needs
@@ -1081,10 +1139,58 @@ describe('FilemapCanvasScreen', () => {
     /* Both windows are handed to the service rather than applied to its answer, so the ordering and
        the limit are the port's and the screen neither sorts nor truncates (rule P-6). */
     expect(port.listExceptions).toHaveBeenCalledWith({ limit: URGENT_WINDOW }, NO_SCOPE);
-    expect(port.listAuditEvents).toHaveBeenCalledWith({ limit: AUDIT_WINDOW });
+    /* The dock prints the five latest events, so the order they are asked for in is stated at the call
+       rather than left to the adapter's default, which the port does not promise. */
+    expect(port.listAuditEvents).toHaveBeenCalledWith({
+      limit: AUDIT_WINDOW,
+      sort: DOCK_EVENT_ORDER,
+    });
     /* The selected exception's own record is read once the selection resolves to it. */
     expect(port.getExceptionDetail).toHaveBeenCalledWith(PRIMARY_EXCEPTION_ID);
     expect(port.getAtlas).toHaveBeenCalledTimes(1);
+  });
+
+  it('states in the map lens’s caption why the overlay is absent when the atlas read is refused', async () => {
+    port.getAtlas.mockRejectedValue(DENIAL);
+
+    renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* The atlas is the screen's one optional read, so its refusal degrades the overlay and never the
+       surface: the canvas is still drawn, and the lens's caption carries the reason so a reader does not
+       mistake a refused read for a scope that holds no pack. */
+    expect(
+      screen.getByText(`${MAP_LENS_TEXT.description} ${FILEMAP_CANVAS_TEXT.atlasRefused}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.atlasUnavailable)).not.toBeInTheDocument();
+  });
+
+  it('says a source did not answer, never that the role may not read it, when the atlas read fails', async () => {
+    port.getAtlas.mockRejectedValue(FAILURE);
+
+    renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* A failure is not a permission, so the second sentence describes the cause the screen observed
+       rather than the one it did not (rule P-4 applied to a cause). */
+    expect(
+      screen.getByText(`${MAP_LENS_TEXT.description} ${FILEMAP_CANVAS_TEXT.atlasUnavailable}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.atlasRefused)).not.toBeInTheDocument();
+  });
+
+  it('states nothing about the overlay when the atlas read answers', async () => {
+    renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    /* An answered read is not a degradation, so the caption stays the lens's own line of words and a
+       reader sees the overlay's own legend rather than an explanation for its absence. */
+    expect(screen.getByText(MAP_LENS_TEXT.description)).toBeInTheDocument();
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.atlasRefused)).not.toBeInTheDocument();
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.atlasUnavailable)).not.toBeInTheDocument();
   });
 
   it('draws the lens in a 65% canvas region beside the stack, stacked below the wide breakpoint', async () => {
@@ -1236,18 +1342,20 @@ describe('FilemapCanvasScreen', () => {
        before anything is touched. */
     expect(
       screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
-    ).toBeInTheDocument();
+    ).not.toHaveAttribute('aria-disabled');
 
     const supplier = nodeControl('Halvard Components');
 
     supplier.focus();
     await user.keyboard('{Enter}');
 
-    /* A supplier node answers no exception, so the action that investigates one is gone: the screen
-       derives that from the record rather than from a flag. */
-    expect(
-      screen.queryByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
-    ).not.toBeInTheDocument();
+    /* A supplier node answers no exception, so the action that investigates one cannot act: the screen
+       derives that from the record rather than from a flag, and rule P-8 keeps the control on screen
+       reporting itself unavailable with the sentence that names the node to select instead. */
+    const blocked = screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction });
+
+    expect(blocked).toHaveAttribute('aria-disabled', 'true');
+    expect(blocked).toHaveAccessibleDescription(FILEMAP_CANVAS_TEXT.primaryActionUnavailable);
 
     await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
 
@@ -1469,8 +1577,8 @@ describe('FilemapCanvasScreen', () => {
       expect(within(row).getByText(event.result)).toBeInTheDocument();
     });
 
-    /* The two half-dock labels the components own: the projected series is a computed figure and the
-       trail is a simulated control (rules P-1, P-4). */
+    /* The two half-dock labels the components own: a figure drawing the exception's own baseline alone
+       states the computed label, and the trail is a simulated control (rules P-1, P-4). */
     const figure = dock.querySelector('figure');
 
     expect(figure).not.toBeNull();
@@ -1480,6 +1588,78 @@ describe('FilemapCanvasScreen', () => {
     }
 
     expect(within(dock).getByText(SIM_LABELS[4])).toBeInTheDocument();
+  });
+
+  it('draws the selected option over the exception’s baseline in the dock’s one projection', async () => {
+    const user = userEvent.setup();
+
+    port.getScenarioSet.mockResolvedValue(envelope(PROJECTION_OPTION_SET));
+
+    renderScreen();
+
+    const dock = await screen.findByRole('region', { name: TIMELINE_DOCK_TEXT.title });
+
+    /* One chart group carries both series, which is what puts them on one calendar and one y scale:
+       the contract states the baseline with the selected option plotted over the same series (T-03). */
+    const surface = await within(dock).findByRole('group', {
+      name: new RegExp(OPTION_SERIES_LABEL),
+    });
+    const surfaceName = surface.getAttribute('aria-label') ?? '';
+
+    expect(surfaceName).toContain(TIMELINE_DOCK_TEXT.baselineSeriesLabel);
+    expect(surfaceName).toContain(OPTION_SERIES_LABEL);
+
+    /* Every reading of both records is a mark on that one surface. */
+    expect(within(surface).getAllByRole('button')).toHaveLength(
+      STOCK_SERIES.length + OPTION_STOCK_SERIES.length,
+    );
+
+    /* The dock plots the option the screen reads from the service, and the projection it draws is the
+       one the exception's own baseline sits under — not the exception's series stated twice. */
+    expect(port.getScenarioSet).toHaveBeenCalledWith(PRIMARY_EXCEPTION_ID);
+
+    /* The option is a seed record, so the frame states the one label true of both series, while the
+       baseline's own row keeps the computed one (AAP §0.10, rule P-1). */
+    const figure = within(dock).getByRole('figure');
+    const caption = figure.querySelector('figcaption')?.textContent ?? '';
+
+    expect(caption).toContain(SIM_LABELS[0]);
+    expect(caption).not.toContain(SIM_LABELS[1]);
+
+    await user.click(
+      within(figure).getByRole('button', {
+        name: `${VIEW_AS_TABLE_LABELS.showTable}: ${TIMELINE_DOCK_TEXT.stockTitle}`,
+      }),
+    );
+
+    /* The table view reproduces the marks: a date column, one column per series headed by that
+       series' own label, and one row per date either record reports (success criterion 9, rule B-3). */
+    const table = within(dock).getByRole('table', { name: TIMELINE_DOCK_TEXT.stockTableCaption });
+
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      TIMELINE_DOCK_TEXT.stockDateColumn,
+      TIMELINE_DOCK_TEXT.baselineSeriesLabel,
+      OPTION_SERIES_LABEL,
+    ]);
+    expect(within(table).getAllByRole('row')).toHaveLength(PROJECTION_DATES.length + 1);
+  });
+
+  it('states the dock’s empty message when the selected exception carries no projection', async () => {
+    port.getExceptionDetail.mockResolvedValue(envelope({ ...EXCEPTION_DETAIL, stockSeries: [] }));
+
+    renderScreen();
+
+    const dock = await screen.findByRole('region', { name: TIMELINE_DOCK_TEXT.title });
+
+    /* A projection comes from a solver case, and the records carry one for one exception in this run
+       (AAP §0.12.2), so a selection reaching any other states the absence rather than drawing empty
+       axes. */
+    expect(within(dock).getByText(TIMELINE_DOCK_TEXT.stockEmpty)).toBeInTheDocument();
+    expect(within(dock).queryByRole('figure')).toBeNull();
   });
 
   it('prints the refusal instead of the events a previous role left cached', async () => {
@@ -1643,14 +1823,17 @@ describe('FilemapCanvasScreen', () => {
     expect(port.getTopology).toHaveBeenCalledTimes(2);
   });
 
-  it('offers the primary action only while the selection reaches an exception, and opens that one', async () => {
+  it('offers the primary action enabled once the selection reaches an exception, and opens that one', async () => {
     const user = userEvent.setup();
 
     renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
 
-    const action = await screen.findByRole('button', {
-      name: FILEMAP_CANVAS_TEXT.primaryAction,
-    });
+    /* By the time the canvas has drawn, the selection has resolved to the most urgent exception's
+       plant, so the action the screen exists to take can act. */
+    const action = screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction });
+
+    expect(action).not.toHaveAttribute('aria-disabled');
 
     action.focus();
     await user.keyboard('{Enter}');
@@ -1661,7 +1844,7 @@ describe('FilemapCanvasScreen', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders no primary action while the selection reaches no exception', async () => {
+  it('keeps the primary action on screen, disabled with its reason, while the selection reaches no exception', async () => {
     const user = userEvent.setup();
 
     renderScreen();
@@ -1669,19 +1852,32 @@ describe('FilemapCanvasScreen', () => {
 
     expect(
       screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
-    ).toBeInTheDocument();
+    ).not.toHaveAttribute('aria-disabled');
 
     const origin = nodeControl('Ordival Metals');
 
     origin.focus();
     await user.keyboard('{Enter}');
 
-    /* The specification fixes no reason string for a control that could not act here, so the control
-       is not rendered at all rather than shown dead (rule P-8), and the dock explains the gap in the
-       projection instead of drawing empty axes. */
+    /* A node that answers no exception leaves the action unable to act, and rule P-8 asks such a control
+       to say so in words rather than to vanish: it keeps its place, reports itself unavailable, and names
+       the node that would let it act. It stays focusable, so the reason reaches a keyboard reader too
+       (rule B-3), it refuses the activation rather than performing it, and the dock explains the gap in
+       the projection instead of drawing empty axes. */
+    const blocked = screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction });
+
+    expect(blocked).toHaveAttribute('aria-disabled', 'true');
+
+    blocked.focus();
+
+    expect(document.activeElement).toBe(blocked);
+    expect(blocked).toHaveAccessibleDescription(FILEMAP_CANVAS_TEXT.primaryActionUnavailable);
+
+    await user.keyboard('{Enter}');
+
     expect(
-      screen.queryByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction }),
-    ).not.toBeInTheDocument();
+      screen.getByRole('heading', { level: 1, name: FILEMAP_CANVAS_TEXT.title }),
+    ).toBeInTheDocument();
     expect(screen.getByText(FILEMAP_CANVAS_TEXT.dockEmpty)).toBeInTheDocument();
   });
 

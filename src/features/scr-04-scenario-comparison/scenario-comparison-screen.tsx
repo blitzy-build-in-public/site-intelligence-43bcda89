@@ -34,9 +34,10 @@
  * module, no adapter, no API client and no domain module is imported here, and the export's CSV text is
  * composed by the service rather than by this file.
  *
- * THE TWO READS, AND WHY THE SECOND ONE EXISTS — AAP 0.2.2, rule P-8. `getScenarioSet` states the
- * options and the steps each of them would write, and it states no approval: whether an option has
- * already been decided is the approval record's answer. The screen therefore reads the approval list
+ * THE THREE READS, AND WHY THE SECOND AND THIRD EXIST — AAP 0.2.2, AAP 0.2.1, rule P-8.
+ * `getScenarioSet` states the options and the steps each of them would write, and it states neither an
+ * approval nor a plant: whether an option has already been decided is the approval record's answer. The
+ * screen therefore reads the approval list
  * as a second query, keyed under `listApprovals` so the invalidation a request and a decision perform
  * reaches it, and derives from that list the plan that decides the selected option: the approved record
  * naming it, whichever request followed it in that list, because that is the record the adapter's own
@@ -48,6 +49,17 @@
  * it: the control decides from the option alone and the preview renders the option's own steps. Nothing
  * about the plan is typed here — the identifier, the status and the steps are the record's members.
  *
+ * THE THIRD READ IS THE EXCEPTION, AND IT ONLY EVER EXPLAINS — AAP 0.2.1, rule P-8. `requestApproval`
+ * refuses a plan when the exception does not stand `open`, and when no persona other than the one that
+ * would request it may decide a plan at the exception's plant, because POL-003 keeps the requester of a
+ * plan from deciding it; neither the option set nor the approval list carries the record's status or its
+ * plant, so the screen reads the exception itself for both. That read decides nothing here: it never
+ * reaches `deriveScreenState` and it never gates the screen. While it is pending, refused or absent,
+ * neither precondition blocks — the same treatment an unknown persona gets — because a control disabled
+ * on a fact nobody knows yet would lie about what it can do. The persona roster and the permission the
+ * adapter requires reach this screen through the service boundary's own hooks ({@link usePersonaRoster},
+ * {@link useRolesHolding}, {@link useActiveUser}), never through `src/domain` or `src/seed` (AAP 0.18.1).
+ *
  * THE FRESHNESS GATE, IN BOTH HALVES — AAP 0.2.1, T-13, rule P-8. `requestApproval` is refused while
  * `APPROVAL_GATE_SOURCE` reports `stale` or `unavailable`, and this screen states the same rule rather
  * than leaving it to the service: the boundary renders the stale banner naming the source and the
@@ -58,6 +70,17 @@
  * (AAP 0.18.1), so the wording is held here as well by design rather than shared. Only `stale` and
  * `unavailable` block the request: a source reported `partial` is one the service accepts, and a control
  * disabled where the service would act would lie about what it can do.
+ *
+ * WHAT THE GATE PREDICTS, AND HOW MANY PRECONDITIONS IT MIRRORS — AAP 0.2.1, rule P-8.
+ * `requestApproval` enforces seven preconditions before it records anything: the exception exists, the
+ * acting role holds `approval.request` over its plant, the exception stands `open`, the order book it
+ * reads is current, the option carries no approved plan, POL-005's constraint check passed, and some
+ * persona other than the one that would request the plan may decide a plan at the plant. This screen
+ * states every one of them before the reader presses, so no control here is offered enabled for a call
+ * the adapter would always refuse, and each refusal names what would have to change rather than only that
+ * it cannot act. The gate also owns one condition the adapter has no view of — the option set has not
+ * been read yet — because the empty sentence of AAP 0.12.4 describes a record that holds no option, and a
+ * read still in flight holds neither.
  *
  * FOUR GAPS THIS SCREEN REPORTS RATHER THAN WORKS AROUND.
  * 1. `getScenarioSet(exceptionId)` takes no `Scope`, so the shell's plant and product selection cannot
@@ -107,11 +130,12 @@ import { useNavigate, useParams } from 'react-router';
 
 import { Card } from '../../components/card';
 import { ChartFrame } from '../../components/chart-frame';
-import { EvidenceRef } from '../../components/evidence-drawer';
+import { EvidenceRef, writeBackStepRef } from '../../components/evidence-drawer';
 import { ForbiddenCard } from '../../components/forbidden-card';
 import { GroupedBarChart } from '../../components/grouped-bar-chart';
 import type { BarGroup, BarSeries, BarTone } from '../../components/grouped-bar-chart';
 import { MonoValue } from '../../components/mono-value';
+import { offerExportFile } from '../../components/offer-export-file';
 import { PageHeader } from '../../components/page-header';
 import {
   deriveScreenState,
@@ -122,16 +146,33 @@ import {
 import { STATE_BOUNDARY_TEXT, StateBoundary } from '../../components/state-boundary';
 import { StatusIndicator } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
-import { useService } from '../../services/service-provider';
-import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import {
+  useActiveUser,
+  usePersonaRoster,
+  useRolesHolding,
+  useService,
+} from '../../services/service-provider';
+import {
+  APPROVAL_GATE_SOURCE,
+  SEGREGATION_OF_DUTIES_POLICY_ID,
+  SIM_LABELS,
+  SOURCE_LABELS,
+} from '../../types';
 import type {
+  ActiveUser,
   Approval,
   ApprovalStatus,
+  ExceptionDetail,
+  ExceptionStatus,
   ExportPayload,
   Freshness,
   ListQuery,
+  OperationalException,
+  Permission,
+  PlantId,
   Problem,
   Result,
+  Role,
   Scenario,
   ScenarioId,
   ScenarioSet,
@@ -200,6 +241,29 @@ const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
  */
 const APPROVED_STATUS: ApprovalStatus = 'approved';
 
+/**
+ * The one status an exception must stand in before a plan can be put forward for it.
+ *
+ * `requestApproval` answers no other member of the contracts §3 `ExceptionStatus` union: a resolved
+ * record has been answered and a dismissed one has been set aside, so a completed change landing on
+ * either would contradict the state the workspace shows. The member is named once here rather than
+ * compared as a bare literal, so the sentence that explains the control and the record that supplies it
+ * state the same condition.
+ */
+const OPEN_EXCEPTION_STATUS: ExceptionStatus = 'open';
+
+/**
+ * The permission `requestApproval` requires of the acting role before a plan can be put forward, and the
+ * one that lets a persona decide a plan at all — contracts §7.1, as `handlers/approvals.ts` applies it.
+ *
+ * Each is named once, typed `Permission` so a renamed member of the matrix is a compile error here
+ * rather than a comparison that silently answers `false`, and read against the roster's own derived
+ * facts rather than against a second copy of the matrix: a feature may not import `src/domain`
+ * (AAP 0.18.1), and the persona records the adapter publishes already carry both facts.
+ */
+const REQUEST_PERMISSION: Permission = 'approval.request';
+const DECIDE_PERMISSION: Permission = 'approval.decide';
+
 /* ---------------------------------------------------------------------------------------------
  * The wording this screen states itself
  * ------------------------------------------------------------------------------------------- */
@@ -232,6 +296,63 @@ export const SCENARIO_COMPARISON_TEXT = {
 
   /** Why the primary action cannot act while a request is already in flight. */
   requestInFlight: 'A request for approval is in flight, and its outcome follows when it settles.',
+
+  /**
+   * Why the primary action cannot act while the option set is still being read.
+   *
+   * The fixed empty sentence of AAP 0.12.4 describes a record that holds no option, and a read that has
+   * not settled yet holds neither an option nor the absence of one, so it must not borrow that sentence:
+   * a reader would be told that an exception with four options has none (rule P-8).
+   */
+  optionsReading: 'The options are still being read, so there is nothing to put forward yet.',
+
+  /**
+   * Why the primary action cannot act for an exception that no longer stands open, in the three parts
+   * the sentence is assembled from: the record's own identifier and the status it stands in are filled
+   * in from the payload (rule P-6), and the closing clause states the rule the adapter applies, in the
+   * words its own refusal uses, so a reader quoting this screen and a reader quoting the service
+   * describe one condition.
+   *
+   * `requestApproval` answers only an `open` record: a dismissed exception has been set aside and a
+   * resolved one already carries its answer, so a request put forward for either would land a completed
+   * change on a record the workspace considers closed (AAP 0.2.1, rule P-8).
+   */
+  exceptionNotOpenPrefix: 'Exception',
+  exceptionNotOpenStandingPrefix: 'stands',
+  exceptionNotOpenSuffix: ', so only an open exception can have a plan put forward for approval.',
+
+  /**
+   * Why the primary action cannot act for a role the matrix does not let request an approval, in the
+   * three parts the sentence is assembled from: the acting role's own name, and — when the roster has
+   * answered — the roles that do hold the permission. Both come from the records rather than from a
+   * typed role name (rule P-6), and the sentence names who may act rather than only that this role may
+   * not (AAP 0.2.1, rule P-8).
+   *
+   * The permission itself is named in the sentence because the adapter's own refusal names it too, so a
+   * reader quoting this screen and a reader quoting the refusal describe one rule.
+   */
+  noRequestPermissionPrefix: 'The acting role (',
+  noRequestPermissionSuffix:
+    ') does not hold the approval.request permission, so no plan can be put forward from this ' +
+    'comparison.',
+  requestPermissionRolesPrefix: 'The roles that hold it are',
+
+  /**
+   * Why the primary action cannot act when no persona other than the one that would request the plan may
+   * decide a plan at the exception's plant, in the two forms the sentence takes: one naming the roles
+   * that may decide at that plant, and one for a plant no role may decide at all.
+   *
+   * POL-003 is persona-based — the requester of a plan never decides it — so a plant whose only decider
+   * is the requesting persona's own role leaves the request with nobody to decide it. The adapter
+   * refuses the request for exactly that reason, and this screen states it before the reader presses
+   * rather than after (AAP 0.2.1, rule P-8). The plant and the roles are the records' own (rule P-6),
+   * and the policy is cited by the shared identifier rather than by a typed rule id.
+   */
+  onlyDeciderPrefix: 'Only',
+  onlyDeciderSuffix: 'may decide a plan at',
+  noDeciderPrefix: 'No role may decide a plan at',
+  deciderPolicySuffix: 'keeps the requester of a plan from deciding it, so a plan requested by the',
+  deciderTailSuffix: 'role would reach nobody: a plan nobody may decide is not put forward.',
 
   /**
    * Why the primary action cannot act while the source the request is refused on is not current, in
@@ -529,55 +650,6 @@ function seriesDescriptionOf(scenarios: readonly Scenario[]): string {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The export: a file built in the browser from the payload the service composed
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * Offers one export payload as a downloaded file, and reports whether it could.
- *
- * The document arrives composed: this function writes nothing into it and rewrites no field, so the
- * `"simulated": true` marker its builder set survives untouched (rule P-1), and the name and media type
- * are the payload's own, which is why the saved file is the one the builder declared rather than a name
- * typed here (rule P-6). The blob is served from an object URL that is released on the next task rather
- * than in the task that activated the anchor, so an engine that takes the file after the click still
- * finds it; it leaves the application as a local file and no request is made (rule B-1).
- *
- * The feature check is deliberate: a browser — or a test environment — that exposes no object-URL factory
- * leaves nothing to offer, and letting the missing member throw would report a failure of the export
- * itself, which did not fail. The caller states that reason instead.
- *
- * @param payload - The download payload the service returned, unmodified.
- * @returns `true` when the file was offered, `false` when this page cannot offer one.
- */
-function offerExportFile(payload: ExportPayload): boolean {
-  if (typeof URL.createObjectURL !== 'function') {
-    return false;
-  }
-
-  const url = URL.createObjectURL(new Blob([payload.content], { type: payload.mediaType }));
-  const anchor = document.createElement('a');
-
-  anchor.href = url;
-  anchor.download = payload.filename;
-
-  /* The anchor is attached before it is activated and removed immediately after: a detached anchor's
-     synthetic click is ignored by some browsers, and leaving it in the document would add an element to
-     the page that no reader asked for. */
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-
-  /* The click above has handed the blob to the browser's download machinery, which may still be reading
-     it when this task ends: the URL is released on the next task so an engine that reads it
-     asynchronously still finds it. */
-  globalThis.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 0);
-
-  return true;
-}
-
-/* ---------------------------------------------------------------------------------------------
  * Why a control cannot act, in the order a reader can act on it
  * ------------------------------------------------------------------------------------------- */
 
@@ -691,53 +763,238 @@ function decidedPlanReason(plan: Approval): string {
 }
 
 /**
+ * Why no plan can be put forward for an exception that no longer stands open.
+ *
+ * `requestApproval` answers only an `open` record, and refuses every other status with these words, so
+ * the screen states the same condition before the reader presses rather than leaving them to discover it
+ * from the refusal (AAP 0.2.1, rule P-8). It states no identifier, no status and no number of its own:
+ * the record's own members are filled in, and the closing clause is the shared wording that makes this
+ * sentence and the adapter's refusal describe one rule.
+ *
+ * @param exception - The exception the plan would answer, as the third read reported it.
+ * @returns The sentence the disabled control explains itself with.
+ */
+function exceptionNotOpenReason(exception: OperationalException): string {
+  const { exceptionNotOpenPrefix, exceptionNotOpenStandingPrefix, exceptionNotOpenSuffix } =
+    SCENARIO_COMPARISON_TEXT;
+
+  return (
+    `${exceptionNotOpenPrefix} ${exception.id} ${exceptionNotOpenStandingPrefix} ` +
+    `${exception.status}${exceptionNotOpenSuffix}`
+  );
+}
+
+/**
+ * Why the acting role cannot put a plan forward, or `null` when the matrix lets it.
+ *
+ * The two forms differ only in the clause that answers "who may act instead": the roles the roster
+ * reports as holding the permission, or — while the roster has not answered, or reports nobody holding
+ * it — no clause at all. The first sentence stands in either case, because the fact it states is the
+ * acting persona's own `permissions` member rather than a guess about the other personas.
+ *
+ * @param role - The acting persona's role, as the adapter reported it.
+ * @param rolesThatMayRequest - The roles the roster reports as holding the permission, or `null` while
+ *   that is unknown.
+ * @returns The sentence the disabled control explains itself with.
+ */
+function approvalPermissionReason(
+  role: Role,
+  rolesThatMayRequest: readonly Role[] | null,
+): string {
+  const { noRequestPermissionPrefix, noRequestPermissionSuffix, requestPermissionRolesPrefix } =
+    SCENARIO_COMPARISON_TEXT;
+  const sentence = `${noRequestPermissionPrefix}${role}${noRequestPermissionSuffix}`;
+
+  if (rolesThatMayRequest === null || rolesThatMayRequest.length === 0) {
+    return sentence;
+  }
+
+  return `${sentence} ${requestPermissionRolesPrefix} ${rolesThatMayRequest.join(', ')}.`;
+}
+
+/**
+ * The roles whose personas may decide a plan at one plant, in the roster's own order.
+ *
+ * Each persona record carries the matrix's answer for its role and the plants its scope covers, so this
+ * is a lookup over records rather than a second copy of the matrix (rule P-6, AAP 0.2.1): a role counts
+ * when one of its personas holds the decide permission and its scope reaches the plant. The roster
+ * reports one persona per role, so the list is the roles themselves; it is de-duplicated anyway so a
+ * second persona of one role cannot name that role twice.
+ *
+ * @param roster - The personas the adapter reports.
+ * @param plantId - The plant the plan would land on.
+ * @returns The roles that may decide there, in the roster's order; empty when no role may.
+ */
+function rolesDecidingAt(roster: readonly ActiveUser[], plantId: PlantId): readonly Role[] {
+  const roles: Role[] = [];
+
+  for (const persona of roster) {
+    if (
+      persona.permissions.includes(DECIDE_PERMISSION) &&
+      persona.plantIds.includes(plantId) &&
+      !roles.includes(persona.role)
+    ) {
+      roles.push(persona.role);
+    }
+  }
+
+  return roles;
+}
+
+/**
+ * Why a plan requested from this screen would reach nobody, or `null` when someone else may decide it.
+ *
+ * `requestApproval` builds its audience from the roles that may decide, restricted to the exception's
+ * plant and less the requester's own role, and refuses the request when that leaves nobody. This
+ * function states the same condition before the reader presses, from the roster's own records.
+ *
+ * Three facts must be known before it can answer, and the absence of any one of them blocks nothing:
+ * the acting persona, the exception's plant, and the roster. Each is a read of its own, and a control
+ * disabled on a fact nobody knows yet would lie about what it can do — the treatment
+ * `decisionEligibilityReason` gives an unreported persona as well. The service keeps refusing the
+ * request either way (rule P-3).
+ *
+ * @param roster - The personas the adapter reports, or `null` while that is unknown.
+ * @param plantId - The plant the plan would land on, or `undefined` while that is unknown.
+ * @param actingUser - The acting persona the adapter reported, or `null` while it is unknown.
+ * @returns The sentence the disabled control explains itself with, or `null` when the request has an
+ *   audience.
+ */
+function noDeciderReasonOf(
+  roster: readonly ActiveUser[] | null,
+  plantId: PlantId | undefined,
+  actingUser: ActiveUser | null,
+): string | null {
+  if (roster === null || plantId === undefined || actingUser === null) {
+    return null;
+  }
+
+  const deciderRoles = rolesDecidingAt(roster, plantId);
+
+  if (deciderRoles.some((role) => role !== actingUser.role)) {
+    return null;
+  }
+
+  const { onlyDeciderPrefix, onlyDeciderSuffix, noDeciderPrefix, deciderPolicySuffix } =
+    SCENARIO_COMPARISON_TEXT;
+  const whoMayDecide =
+    deciderRoles.length === 0
+      ? `${noDeciderPrefix} ${plantId}`
+      : `${onlyDeciderPrefix} ${deciderRoles.join(', ')} ${onlyDeciderSuffix} ${plantId}`;
+
+  return (
+    `${whoMayDecide}, and ${SEGREGATION_OF_DUTIES_POLICY_ID} ${deciderPolicySuffix} ` +
+    `${actingUser.role} ${SCENARIO_COMPARISON_TEXT.deciderTailSuffix}`
+  );
+}
+
+/**
+ * Every fact the request gate decides from, gathered in one place so the order they are weighed in is
+ * visible at the call site.
+ */
+interface ApprovalGateFacts {
+  /** The option the reader has chosen, or `undefined` when the settled set holds none. */
+  readonly selected: Scenario | undefined;
+
+  /**
+   * The sentence the boundary states for the state that left no option to put forward: a set with no
+   * option, or the refusal that emptied it. Both the notice and the control state that one sentence, so
+   * a reader is never given two reasons for one condition.
+   */
+  readonly emptySentence: string;
+
+  /** Whether the option set has not been read yet for the exception the route names. */
+  readonly isOptionsReadPending: boolean;
+
+  /**
+   * The exception the plan would answer, as the third read reported it, or `undefined` while that read
+   * is pending, refused or absent — the state in which the status precondition declines to block.
+   */
+  readonly exception: OperationalException | undefined;
+
+  /** The acting persona the adapter reported, or `null` while it is unknown. */
+  readonly actingUser: ActiveUser | null;
+
+  /** The roles the roster reports as holding `approval.request`, or `null` while that is unknown. */
+  readonly rolesThatMayRequest: readonly Role[] | null;
+
+  /** Why the gating source blocks the request, or `null` when it is current. */
+  readonly gateReason: string | null;
+
+  /**
+   * Why a requested plan would reach nobody at the exception's plant, or `null` when another persona
+   * may decide it or when the facts that answer it are not known yet.
+   */
+  readonly noDeciderReason: string | null;
+
+  /** Whether a request is already in flight. */
+  readonly isRequesting: boolean;
+
+  /** The approved plan naming the selected option, or `undefined` when no read answered one. */
+  readonly decided: Approval | undefined;
+}
+
+/**
  * Why the approval request cannot act, or `null` when it can.
  *
- * One sentence per way the control is blocked, in the order a reader can act on: there is no option to
- * put forward, the source the request is refused on is not current (the same sentence the stale banner
- * states), the option already carries an approved plan so the decision is taken and nothing is left to
- * request, a request is already running, or the selected option's own constraint check failed and the
- * record's messages are the reason it cannot be recommended or sent. The gate decides presentation only
- * — the adapter refuses the write for the same reasons, so bypassing the control changes no outcome
- * (rule P-8), and the decided plan this gate reads is the one the adapter's own refusal reads, so the
- * control is disabled exactly where a click would be refused.
+ * One sentence per way the control is blocked, in the order the tests below run and a reader can act on
+ * them: the option set has not been read yet; the exception's status is not `open`, so only an open
+ * record can have a plan put forward for it; the acting role does not hold the `approval.request`
+ * permission the adapter requires, so no click could ever be accepted; there is no option to put
+ * forward; the source the request is refused on is not current (the same sentence the stale banner
+ * states); no persona other than the one that would request the plan may decide a plan at the
+ * exception's plant; the option already carries an approved plan so the decision is taken and nothing is
+ * left to request; a request is already running; or the selected option's own constraint check failed
+ * and the record's messages are the reason it cannot be recommended or sent.
  *
- * @param selected - The option the reader has chosen, or `undefined` when the set holds none.
- * @param emptySentence - The sentence the boundary states for the state that left no option to put
- *   forward: a set with no option, or the refusal that emptied it. Both the notice and the control
- *   state that one sentence, so a reader is never given two reasons for one condition.
- * @param gateReason - Why the gating source blocks the request, or `null` when it is current.
- * @param isRequesting - Whether a request is already in flight.
- * @param decided - The approved plan naming the selected option, or `undefined` when no read answered
- *   one.
+ * The gate decides presentation only — the adapter refuses the write for the same reasons, so bypassing
+ * the control changes no outcome (rule P-8), and the status, the decided plan and the audience this gate
+ * reads are the ones the adapter's own refusal reads, so the control is disabled exactly where a click
+ * would be refused. The first condition is the screen's alone: a read still in flight leaves no option to
+ * name, and the fixed empty sentence describes a record that holds none.
+ *
+ * @param facts - Everything the gate decides from, in the order {@link ApprovalGateFacts} lists it.
  * @returns The sentence the disabled control explains itself with, or `null` when it can act.
  */
-function approvalBlockerOf(
-  selected: Scenario | undefined,
-  emptySentence: string,
-  gateReason: string | null,
-  isRequesting: boolean,
-  decided: Approval | undefined,
-): string | null {
-  if (selected === undefined) {
-    return emptySentence;
+function approvalBlockerOf(facts: ApprovalGateFacts): string | null {
+  if (facts.isOptionsReadPending) {
+    return SCENARIO_COMPARISON_TEXT.optionsReading;
   }
 
-  if (gateReason !== null) {
-    return gateReason;
+  if (facts.exception !== undefined && facts.exception.status !== OPEN_EXCEPTION_STATUS) {
+    return exceptionNotOpenReason(facts.exception);
   }
 
-  if (decided !== undefined) {
-    return decidedPlanReason(decided);
+  if (
+    facts.actingUser !== null &&
+    !facts.actingUser.permissions.includes(REQUEST_PERMISSION)
+  ) {
+    return approvalPermissionReason(facts.actingUser.role, facts.rolesThatMayRequest);
   }
 
-  if (isRequesting) {
+  if (facts.selected === undefined) {
+    return facts.emptySentence;
+  }
+
+  if (facts.gateReason !== null) {
+    return facts.gateReason;
+  }
+
+  if (facts.noDeciderReason !== null) {
+    return facts.noDeciderReason;
+  }
+
+  if (facts.decided !== undefined) {
+    return decidedPlanReason(facts.decided);
+  }
+
+  if (facts.isRequesting) {
     return SCENARIO_COMPARISON_TEXT.requestInFlight;
   }
 
-  if (selected.constraintCheck === 'fail') {
-    return selected.constraintMessages.length > 0
-      ? selected.constraintMessages.join(' ')
+  if (facts.selected.constraintCheck === 'fail') {
+    return facts.selected.constraintMessages.length > 0
+      ? facts.selected.constraintMessages.join(' ')
       : CANNOT_COMPUTE_LABEL;
   }
 
@@ -747,17 +1004,35 @@ function approvalBlockerOf(
 /**
  * Why the comparison export cannot act, or `null` when it can.
  *
- * Two causes: a route that names no exception, so there is no comparison to build, and a download
- * already being prepared. The service composes the CSV whether or not the option set turned out to be
- * empty, so an empty comparison is still exportable.
+ * Three causes, in the order a reader can act on them: a route that names no exception, so there is no
+ * comparison to build; an option set holding no option, so there is nothing to compare; and a download
+ * already being prepared. An empty set is the condition the empty state already states in one sentence,
+ * and the sentence is the one the primary action carries, so the export control carries it too: a
+ * control that cannot produce a comparison is visibly disabled with the reason it cannot (rule P-8),
+ * rather than staying enabled to hand the reader a file with a header and no row. The service still
+ * composes the CSV for a caller that asks it directly — the export is the port's, not this screen's —
+ * so only the control is gated here, never the method.
  *
  * @param hasExceptionId - Whether the route names an exception.
+ * @param hasScenarios - Whether the option set holds an option to compare.
+ * @param emptySentence - The sentence the screen states for a set holding no option: the fixed empty
+ *   sentence, the refusal's own message when a refusal is what emptied the set, or the sentence about
+ *   the read in flight while the set has not settled and holds neither an option nor the absence of one.
  * @param isExporting - Whether a download is being prepared.
  * @returns The sentence the disabled control explains itself with, or `null` when it can act.
  */
-function exportBlockerOf(hasExceptionId: boolean, isExporting: boolean): string | null {
+function exportBlockerOf(
+  hasExceptionId: boolean,
+  hasScenarios: boolean,
+  emptySentence: string,
+  isExporting: boolean,
+): string | null {
   if (!hasExceptionId) {
     return SCENARIO_COMPARISON_TEXT.noException;
+  }
+
+  if (!hasScenarios) {
+    return emptySentence;
   }
 
   return isExporting ? SCENARIO_COMPARISON_TEXT.exportPreparing : null;
@@ -887,6 +1162,46 @@ function approvalGateReasonOf(gate: Freshness | undefined): string | null {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The case's own lever bounds, as the option set records them
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The case's own bound statements, collected from the option set this screen already reads.
+ *
+ * A lever's maximum and its step belong to the exception's solver case, and no member of the port
+ * carries them: a screen cannot reach `SolverCase` (rule P-2), and typing a bound here would state a
+ * figure no record carries (rule P-6). What a record does state is the solver's own account of a
+ * breach, in the `constraintMessages` of every option whose constraint check failed — the sentence
+ * naming the case's maximum, the one naming its step, the one refusing a negative value — and that is
+ * the only account of the bounds this screen can reach. It is handed to the sandbox in the set's own
+ * order and without repeats, to be rendered there verbatim above the lever fields: nothing is parsed
+ * here, nothing is reformatted, and no statement is composed. A set whose options all stayed inside
+ * their bounds records none, and then the sandbox publishes its own numberless statement of the rule
+ * alone rather than a bound this screen invented.
+ *
+ * @param scenarios - The options the set holds, in the order the service answered with them.
+ * @returns The records' statements, de-duplicated in that order, or an empty list when the set records
+ *   none.
+ */
+function caseBoundStatementsOf(scenarios: readonly Scenario[]): readonly string[] {
+  const statements: string[] = [];
+
+  for (const option of scenarios) {
+    if (option.constraintCheck !== 'fail') {
+      continue;
+    }
+
+    for (const message of option.constraintMessages) {
+      if (!statements.includes(message)) {
+        statements.push(message);
+      }
+    }
+  }
+
+  return statements;
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The screen — AAP 0.12.4 SCR-04, rules P-2, P-8 and P-1
  * ------------------------------------------------------------------------------------------- */
 
@@ -916,11 +1231,14 @@ export interface ScenarioComparisonScreenProps {
  * the reader puts forward.
  *
  * Each read is keyed on the method's name and exactly the arguments it receives — the option set on the
- * exception's identifier alone, the approval list on the query it sends and the shell's selection —
- * and the set's settled facts decide the state in one place ({@link deriveScreenState}); the boundary
- * owns how that state looks. The only state this component owns is what the reader chose — the
- * selected option, whether a request or a download is running, and what a refused request left
- * behind — so a re-render can never move a record (rule P-6).
+ * exception's identifier alone, the approval list on the query it sends and the shell's selection, and
+ * the exception itself on its identifier — and the set's settled facts decide the state in one place
+ * ({@link deriveScreenState}); the boundary owns how that state looks. The status and plant the request
+ * gate reads from the exception, and the acting persona with the roster's permission facts beside them,
+ * explain the primary action and nothing else: no state, no notice and no rendered record depends on
+ * them. The only state this component owns is what the reader chose — the selected option, whether a
+ * request or a download is running, and what a refused request left behind — so a re-render can never
+ * move a record (rule P-6).
  *
  * @param props - The shell's plant and product selection.
  * @returns The header with its three controls, the notices a refused request or export left, and — inside
@@ -972,6 +1290,29 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
     queryFn: () => service.listApprovals(APPROVALS_QUERY, scope),
     retry: false,
   });
+
+  /*
+   * The exception itself, for the two facts neither of the reads above carries: the plant its plan would
+   * land on, which is what says whether any persona besides the one that would request the plan may
+   * decide it, and the status it stands in, which is what says whether a plan can be put forward for the
+   * record at all. This read only ever explains: it never reaches `deriveScreenState` and never gates the
+   * screen, and while it is pending, refused or absent neither precondition blocks (see
+   * `noDeciderReasonOf` and `approvalBlockerOf`). Retries are off for the same reason as the other two
+   * reads, and a route that names no exception asks for nothing at all.
+   */
+  const detailQuery = useQuery<Result<ExceptionDetail>, unknown>({
+    queryKey: ['getExceptionDetail', exceptionId],
+    queryFn: exceptionId === undefined ? skipToken : () => service.getExceptionDetail(exceptionId),
+    retry: false,
+  });
+
+  /* Who is acting, which roles the roster reports as holding the permission the request needs, and which
+     personas it reports at all — the three facts the request gate reads instead of the permission matrix,
+     because a feature may not import `src/domain` (AAP 0.18.1). Each answers `null` while it is unknown,
+     and every gate that reads one of them declines to block on an unknown (rule P-8). */
+  const actingUser = useActiveUser();
+  const rolesThatMayRequest = useRolesHolding(REQUEST_PERMISSION);
+  const roster = usePersonaRoster();
 
   const result = scenarioQuery.data;
   const scenarioSet = result?.data;
@@ -1042,6 +1383,11 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
   const conflictMessage = isProblem(scenarioQuery.error)
     ? scenarioQuery.error.message
     : SCENARIO_COMPARISON_TEXT.conflict;
+
+  /* The case's own bound statements, which the sandbox publishes above its lever fields: the record
+     text of the set's failing option, handed over verbatim and derived nowhere else. Read once per
+     option set, as the chart's own data is, because the set is what states them. */
+  const caseBoundStatements = useMemo(() => caseBoundStatementsOf(scenarios), [scenarios]);
 
   /* The chart's data, built once per option set: the orders on the axis, one series per option, the
      ceiling their bars are scaled against, and the columns of the table view the frame requires. */
@@ -1144,19 +1490,49 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
       });
   };
 
-  const approvalBlocker = approvalBlockerOf(
+  /* The exception itself, which is the third read's whole answer for this screen: the plant the plan would
+     land on and the status the record stands in. Both are `undefined` while that read is pending, refused
+     or absent, which is the state neither the decider precondition nor the status one blocks on. */
+  const planException = detailQuery.data?.data.exception;
+  const planPlantId = planException?.plantId;
+
+  /*
+   * Whether the option set has not been read yet for the exception the route names. Both controls state
+   * this rather than the empty sentence, because the fixed sentence describes a record that holds no
+   * option and a read in flight holds neither an option nor the absence of one (rule P-8, AAP 0.12.4).
+   */
+  const isOptionsReadPending = exceptionId !== undefined && scenarioQuery.isPending;
+
+  const approvalBlocker = approvalBlockerOf({
     selected,
-    emptyMessage,
-    approvalGateReason,
+    emptySentence: emptyMessage,
+    isOptionsReadPending,
+    exception: planException,
+    actingUser,
+    rolesThatMayRequest,
+    gateReason: approvalGateReason,
+    noDeciderReason: noDeciderReasonOf(roster, planPlantId, actingUser),
     isRequesting,
-    decidedPlan,
+    decided: decidedPlan,
+  });
+  /* The export states the same condition the request does: while the set has not settled there is
+     nothing to compare yet, which is a fact about the read rather than about the record. */
+  const exportBlocker = exportBlockerOf(
+    exceptionId !== undefined,
+    scenarios.length > 0,
+    isOptionsReadPending ? SCENARIO_COMPARISON_TEXT.optionsReading : emptyMessage,
+    isExporting,
   );
-  const exportBlocker = exportBlockerOf(exceptionId !== undefined, isExporting);
 
   /* The steps the preview shows: the decided plan's own where the records hold the decision, because the
      state a step reached is what a reader returning to a decided plan needs, then the latest plan naming
      the option, then the option's own always-pending steps. */
   const previewWriteBacks = decidedPlan?.writeBacks ?? plan?.writeBacks ?? selected?.writeBacks;
+
+  /* The record the previewed steps belong to, read from the same three sources in the same order the
+     steps came from: a step's evidence reference names the record a reader is looking at rather than a
+     neighbour's, so this follows the line above member for member (principle PR-6). */
+  const previewOwnerId = decidedPlan?.id ?? plan?.id ?? selected?.id;
 
   return (
     <div className={SCREEN_CLASSES}>
@@ -1292,25 +1668,38 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
 
             {/*
               What the plan for this option would write — or has written, where the records hold a
-              decision — in the record's own order, each step labelled by the component that renders it.
-              The steps are the decided plan's own where one exists, because a recorded step that
-              succeeded or failed is what a reader returning to a decided plan needs to see; then the
-              latest plan naming the option; then the option's own. An option that sets nothing in motion
-              renders no block at all: no heading and no empty placeholder stands where a write-back
-              would be.
+              decision — in the record's own order, each step labelled by the component that renders it
+              and each step's record reference opening the evidence behind that step. The steps are the
+              decided plan's own where one exists, because a recorded step that succeeded or failed is
+              what a reader returning to a decided plan needs to see; then the latest plan naming the
+              option; then the option's own. An option that sets nothing in motion renders no block at
+              all: no heading and no empty placeholder stands where a write-back would be. A step whose
+              owning record the screen could not name composes no reference, so the block stands as it
+              did rather than offering a trigger that would open the wrong record (rule P-8).
             */}
-            {previewWriteBacks === undefined || previewWriteBacks.length === 0 ? null : (
+            {previewWriteBacks === undefined ||
+            previewWriteBacks.length === 0 ||
+            previewOwnerId === undefined ? null : (
               <Card title={WRITE_BACK_PREVIEW_LABEL}>
-                <WriteBackPreview writeBacks={previewWriteBacks} />
+                <WriteBackPreview
+                  writeBacks={previewWriteBacks}
+                  evidenceRefFor={(step) => writeBackStepRef(previewOwnerId, step)}
+                />
               </Card>
             )}
 
             {/*
               The sandbox: a duplicate of the selected option, measured again by the service at the
               reader's own lever values. Its measurement is rendered by the sandbox itself, because no
-              member of the port publishes a recomputed option into the set.
+              member of the port publishes a recomputed option into the set. The case's own bound
+              statements travel with it: the set's failing option names the maximum and the step the
+              solver holds the levers to, which is the one account of those bounds a screen can reach
+              (rule P-6), and the sandbox publishes them before a value is typed.
             */}
-            <ScenarioSandbox scenario={selected ?? null} />
+            <ScenarioSandbox
+              scenario={selected ?? null}
+              caseBoundStatements={caseBoundStatements}
+            />
           </div>
         )}
       </StateBoundary>

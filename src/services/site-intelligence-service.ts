@@ -470,12 +470,15 @@ export interface SiteIntelligenceService {
   /**
    * Reads one event of the chain, with the two payload halves the audit detail drawer shows.
    *
-   * SCR-05's audit table opens an event in a detail drawer that shows its before and after values
-   * (AAP 0.12.4), so this read serves the record itself rather than a second rendering of the action
-   * that wrote it: the payloads are the event's own, which is what makes the drawer a reading of
-   * the chain a verification walks. The chain is not plant-scoped — a persona either holds
-   * `audit.read` or does not — so the read takes no scope, and an identifier the chain does not hold
-   * is refused as a `'not-found'` naming it rather than answered with an empty event.
+   * SCR-05's audit table opens a selected row in a detail drawer that shows its before and after
+   * values (AAP 0.12.4), and the drawer renders the event the trail read already returned, so this
+   * member is carried for conformance with the single-event read derived from the chain's
+   * collection, as `getPlanGrid` and `getExitPackage` are carried for their stages (AAP 0.12.3). Its
+   * payloads are the event's own rather than a second rendering of the action that wrote it, which
+   * is what makes a read of this member a reading of the chain a verification walks. The chain is
+   * not plant-scoped — a persona either holds `audit.read` or does not — so the read takes no
+   * scope, and an identifier the chain does not hold is refused as a `'not-found'` naming it rather
+   * than answered with an empty event.
    *
    * contracts §9: `auditEventPath` is derived as one event of the collection the transcribed paths
    * fix, because §9 is not readable in this run (see the derivation record at the head of this
@@ -792,8 +795,15 @@ export interface SiteIntelligenceService {
    * strip renders them.
    *
    * contracts §9: the source-catalogue read. Both adapters carry it so the stage that shows the
-   * sources workspace calls the port rather than a second boundary; no screen in this run invokes it,
-   * and the six sources' freshness reaches every other screen through the result's `meta`.
+   * sources workspace calls the port rather than a second boundary, and the shell's freshness strip is
+   * this run's reader: mounted once in the top bar above the router outlet, it asks once when that bar
+   * mounts and caches the answer under this method's own key, so every route's pills come from that
+   * one reading rather than from a read per route. Nothing re-reads it on navigation: only the
+   * shell's cache maintenance does — a simulation change invalidates every cached read and a role
+   * switch resets every one but the roster, while a recorded write names only the reads it moved,
+   * which never includes this member. The freshness behind every other figure reaches its screen
+   * through `Result.meta`, the other half of the same record, so a pill and the stale banner beside a
+   * disabled control name one source and one as-of time (AAP 0.2.1, T-13).
    */
   getSourceCatalogue(): Promise<Result<SourceCatalogue>>;
 

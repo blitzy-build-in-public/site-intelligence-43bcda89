@@ -994,5 +994,25 @@ describe('MapLens', () => {
 
     expect(document.documentElement.dataset.theme).toBe(THEMES[THEMES.length - 1]);
   });
+
+  it('prints the caller’s reason in its caption when the overlay is absent, and nothing extra otherwise', () => {
+    /* The lens cannot know why a payload is missing — the scope may hold no pack, or the read may have
+       been refused — so the reason is the caller's sentence, handed down as data. */
+    const notice = 'The overlay is not drawn for this case, so the network is drawn alone.';
+
+    const unanswered = renderLens();
+
+    expect(within(frameOf(unanswered.container)).getByText(MAP_LENS_TEXT.description)).toBeInTheDocument();
+
+    unanswered.unmount();
+
+    const explained = renderLens({ atlasNotice: notice });
+
+    /* The reason joins the caption the lens already renders, so the figure states what it shows and why
+       it shows less in one place (rule P-8). */
+    expect(
+      within(frameOf(explained.container)).getByText(`${MAP_LENS_TEXT.description} ${notice}`),
+    ).toBeInTheDocument();
+  });
 });
 

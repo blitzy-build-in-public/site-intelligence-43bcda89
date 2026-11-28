@@ -113,6 +113,24 @@ export interface MetricTileProps {
   readonly kind?: FigureFormat;
 
   /**
+   * Which step of the closed specification §4.3 type scale the figure takes: the page tile's 28 px, or
+   * the ribbon tile's 16 px.
+   *
+   * Defaults to `'page'`, the step every tile has taken until now, so a caller that names nothing —
+   * the overview's four tiles — renders exactly as it did. `'ribbon'` answers a measured width rather
+   * than a preference: at the 1280 px breakpoint each tile of the canvas ribbon's six-across grid is
+   * 198 px wide with a 164 px content box, an amount such as `3.916.800 EUR` measures 221 px at the
+   * 28 px step before the 16 px evidence mark is added, and `./mono-value.tsx`'s money formatter puts
+   * a no-break space before the currency code, so the figure has no soft wrap point and paints past
+   * the tile's own boundary into its neighbour. At the 16 px step the same amount and mark measure
+   * 142 px and fit the box, and 16 px is the largest step §4.3 exposes that does: the scale holds 12,
+   * 13, 14, 16, 20 and 28 px only, so the steps below it would shrink the loudest figure on the tile
+   * without a width the layout needs. The figure is never truncated, clipped, ellipsised or rescaled
+   * to fit either step (rule P-6).
+   */
+  readonly valueStep?: 'page' | 'ribbon';
+
+  /**
    * A short qualifier under the figure, such as the window a count covers, when the screen defines
    * one.
    *
@@ -123,15 +141,36 @@ export interface MetricTileProps {
 }
 
 /**
- * The figure's own row: the 28 px type step of specification §4.3 in the primary text role, so the
- * value is the loudest thing on the tile in both themes.
+ * The figure's own row in a page tile: the 28 px type step of specification §4.3 in the primary text
+ * role, so the value is the loudest thing on the tile in both themes.
  *
  * The step sits on the wrapper rather than on the trigger, because the trigger keeps the type of the
  * figure it wraps (`./evidence-drawer.tsx` adds no font size to its content) and `MonoValue` sets no
- * colour of its own. `break-words` lets a sixty-four character digest wrap inside a narrow ribbon
- * cell instead of overflowing it: the whole digest is the value, so it is never truncated.
+ * colour of its own. `break-words` lets a sixty-four character digest wrap inside the column instead
+ * of overflowing it: the whole digest is the value, so it is never truncated.
  */
 const VALUE_CLASSES = 'min-w-0 break-words text-28 text-text-primary';
+
+/**
+ * The same row in a ribbon tile: the 16 px step of the same closed scale, in the same primary role.
+ *
+ * Only the step differs from {@link VALUE_CLASSES}, and only because a ribbon tile cannot carry the
+ * 28 px one — the width this step answers is measured in {@link MetricTileProps.valueStep}'s
+ * documentation. `min-w-0` still lets the cell decide the width and `break-words` still lets a long
+ * value wrap inside the card rather than escape it.
+ */
+const RIBBON_VALUE_CLASSES = 'min-w-0 break-words text-16 text-text-primary';
+
+/**
+ * The caption slot a ribbon tile reserves: two lines of the heading's own 16 px step, written as the
+ * 12-step of the 4 px spacing grid (AAP §0.5.3).
+ *
+ * A caption is the calling screen's wording, so its length is the screen's decision, and one of the
+ * six ribbon captions wraps to a second line in a 198 px tile. Reserving that second line on every
+ * tile keeps the six figures on one baseline instead of letting the wrapped caption push its figure a
+ * line lower than the rest. A page tile reserves nothing, so its heading is as tall as its own text.
+ */
+const RIBBON_TITLE_CLASSES = 'block min-h-12';
 
 /**
  * The qualifier: the 13 px step in the caption role, the one role the theme files assign to a
@@ -185,6 +224,12 @@ function figureOf(value: string | number, kind: FigureFormat | undefined): React
  * the tile's only focus stop, and the caller's `SimLabel` is painted as visible text beside the
  * status icon, so the tile labels its own figure rather than relying on a badge elsewhere on the
  * page (rule P-1, AAP §0.10). A figure with no qualifier renders two lines rather than three.
+ *
+ * {@link MetricTileProps.valueStep} chooses the figure's type step, and in `'ribbon'` mode it also
+ * wraps the caption in the element that reserves the second heading line so the row's figures share a
+ * baseline. A page tile's caption reaches the heading as the plain string it was given, and the
+ * heading's text is the caller's caption either way, so the tile's accessible name does not change
+ * with the step (rule B-3).
  */
 export function MetricTile({
   label,
@@ -192,12 +237,15 @@ export function MetricTile({
   evidenceRef,
   simLabel,
   kind,
+  valueStep = 'page',
   hint,
 }: MetricTileProps): ReactElement {
+  const ribbon = valueStep === 'ribbon';
+
   return (
-    <Card title={label}>
+    <Card title={ribbon ? <span className={RIBBON_TITLE_CLASSES}>{label}</span> : label}>
       <div className={GROUP_CLASSES}>
-        <span className={VALUE_CLASSES}>
+        <span className={ribbon ? RIBBON_VALUE_CLASSES : VALUE_CLASSES}>
           <EvidenceRef ref={evidenceRef}>{figureOf(value, kind)}</EvidenceRef>
         </span>
         {hint === undefined ? null : <span className={HINT_CLASSES}>{hint}</span>}

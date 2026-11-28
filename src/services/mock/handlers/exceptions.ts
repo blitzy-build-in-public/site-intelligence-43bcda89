@@ -14,14 +14,17 @@
  *
  * WHAT THIS MODULE DOES, IN ONE SENTENCE PER MEMBER. `getOverview` returns the aggregate
  * `src/domain/aggregation/overview.ts` computes — four tiles, the changed-since list, the by-plant
- * rows and the fourteen-day series (contracts §5). `listExceptions` projects the queue rows
- * `src/domain/aggregation/exceptions.ts` computes, narrows them by the filters `ExceptionQuery`
- * declares — the six SCR-02 filters, and the day a reader chose on the overview's series, which keeps
- * the exceptions that day was counted for through `openedOrResolvedOn` and nothing else — orders them
- * with `sortUrgent` in `src/domain/aggregation/urgency.ts`, and pages them.
+ * rows and the fourteen-day series (contracts §5). `listExceptions` narrows the exception population by
+ * the filters `ExceptionQuery` declares — the six SCR-02 filters, and the day a reader chose on the
+ * overview's series, which keeps the exceptions that day was counted for through `openedOrResolvedOn`
+ * and nothing else — projects the queue rows `src/domain/aggregation/exceptions.ts` computes over what
+ * those filters left, orders them with `sortUrgent` in `src/domain/aggregation/urgency.ts`, and pages
+ * them.
  * `getException` returns the investigation payload: the record, the impact chain from purchase order
  * to customer orders, the projected closing stock the solver measures, the affected orders, the
  * missing inputs and confidence the record carries, and the activity recorded against the exception.
+ * `getAffectedLines` returns one exception's stored `affectedLines` — the same lines the detail
+ * payload carries inside its record — from the record alone, without building any of that payload.
  * Each of the three writes a persona performs updates the session's record, appends one history
  * record and appends exactly one audit event; `recordApprovedPlan` is the fourth write of the family
  * and the exception's own account of the plan it decided, called by the approvals family once the
@@ -153,11 +156,22 @@
  * chosen in the top bar therefore narrows the queue and the overview through the same aggregate
  * predicate (`admitsProducts`) both already apply, and neither read is narrowed by a plant alone.
  *
- * THE CURSOR IS A ROW IDENTIFIER. `ListQuery.cursor` is opaque by contracts §9 and the method returns
- * rows rather than a paged envelope, so the position this module accepts is the identifier of the last
- * row the previous call returned, and the next page continues after it in the order that call reported.
- * A cursor no row carries is read as the start of the list rather than as a failure, because a page
- * that can answer is worth more than a refusal over a position.
+ * THE CURSOR IS A ROW IDENTIFIER, AND A CURSOR NO ROW CARRIES IS REFUSED. `ListQuery.cursor` is opaque
+ * by contracts §9 and the method returns rows rather than a paged envelope, so the position this module
+ * accepts is the identifier of the last row the previous call returned, and the next page continues
+ * after it in the order that call reported. A cursor the ordered page does not hold — a malformed one,
+ * or one from an order the caller has since changed — is refused as a `'validation'` failure, which is
+ * what the approvals, audit, governance and evidence families do with the same input: a page that
+ * silently began again at the top would read to a paging client as a truncated queue whose tail it had
+ * already seen, so the wrong answer would be dressed as a right one, where a refusal names the position
+ * that did not hold and the client can restart from the first page.
+ *
+ * THE PAGE THE QUEUE RETURNS IS BOUNDED, BY THE FOLDER'S ONE RULE. `limit` is `listLimitOf`'s, declared
+ * in `./audit.ts`: an absent parameter returns the default page, a parameter above the maximum returns
+ * the maximum, and one that is present and bounds no page is refused. The queue therefore cannot be read
+ * whole by an unbounded request, and the same bound holds in the inbox, the trail, the ledger, the
+ * policy set, the pins and the packages, so contracts §9's `limit` means one thing across the adapter
+ * rather than one thing per family.
  *
  * `ExceptionDetail.activity` CARRIES THE CHAIN'S EVENTS, NOT THE SEEDED HISTORY. The member is typed as
  * audit events, and `src/types/screen-dto.ts` fixes it as `AuditEvent[]` — "the audit events recorded
@@ -227,7 +241,7 @@ import {
   freshnessFor,
   isSimulationOn,
 } from '../simulation';
-import { appendAuditEvent } from './audit';
+import { appendAuditEvent, assertFreeTextLength, listLimitOf } from './audit';
 
 /* ---------------------------------------------------------------------------------------------
  * A. Structural constants — contracts §1, §4 and §7.1
@@ -693,65 +707,43 @@ function aggregateBundle(
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Indexes the exceptions a read was computed over by identifier.
+ * Whether an exception answers every filter the query set.
  *
- * The queue rows carry twelve members and no `alsoAffectsPlantIds` and no `supplierId`, so the two
- * filters that read those members reach the exception each row was projected from. The map is built once
- * per call rather than scanning the collection per row.
- *
- * @param exceptions - The exceptions the read was computed over.
- * @returns A fresh map from an exception identifier to its record.
- */
-function indexById(
-  exceptions: readonly OperationalException[],
-): Map<ExceptionId, OperationalException> {
-  const index = new Map<ExceptionId, OperationalException>();
-
-  for (const exception of exceptions) {
-    index.set(exception.id, exception);
-  }
-
-  return index;
-}
-
-/**
- * Whether a queue row answers every filter the query set.
- *
- * Each filter is applied only where the query states it. The type, severity, status and owner filters
- * read the row, because the row carries those members. The plant filter matches the plant the exception
- * lands on **or** one it also affects, which is the reading `src/types/service.ts` fixes for it and the
- * one the scoped aggregate applies. The supplier filter reads the supplier the exception buys its
- * material from, which is a record value rather than a row member. The day filter reads neither the row
- * nor the exception alone: the date a reader chose on SCR-01's series is a property of the records'
+ * The predicate is asked of the record rather than of the row projected from it, because every member it
+ * reads is the record's own: the type, severity, status and owner are the values `computeExceptionRows`
+ * copies onto the row unchanged, the supplier is the one the exception buys its material from, and the
+ * plant filter matches the plant the exception lands on **or** one it also affects, which is the reading
+ * `src/types/service.ts` fixes for it and the one the scoped aggregate applies. The day filter reads
+ * neither the record alone: the date a reader chose on SCR-01's series is a property of the records'
  * timeline, so it is asked of the exception and the activity trail together, through
  * `openedOrResolvedOn` — the predicate the series itself counts by — and no row is kept that the mark
- * which narrowed the queue did not count (AAP 0.12.4).
+ * which narrowed the queue did not count (AAP 0.12.4). Each filter is applied only where the query states
+ * it, and deciding the whole filter here is what lets the queue narrow the population before it measures
+ * it.
  *
- * @param row - The row to test.
- * @param exception - The exception the row was projected from.
+ * @param exception - The exception to test.
  * @param query - The query the call was served with.
  * @param history - The activity trail, which dates the exceptions the day filter keeps.
- * @returns `true` when the row answers every filter stated.
+ * @returns `true` when the exception answers every filter stated.
  */
 function admitsQuery(
-  row: ExceptionRow,
   exception: OperationalException,
   query: ExceptionQuery,
   history: readonly ActivityRecord[],
 ): boolean {
-  if (query.type !== undefined && row.type !== query.type) {
+  if (query.type !== undefined && exception.type !== query.type) {
     return false;
   }
 
-  if (query.severity !== undefined && row.severity !== query.severity) {
+  if (query.severity !== undefined && exception.severity !== query.severity) {
     return false;
   }
 
-  if (query.status !== undefined && row.status !== query.status) {
+  if (query.status !== undefined && exception.status !== query.status) {
     return false;
   }
 
-  if (query.ownerId !== undefined && row.ownerId !== query.ownerId) {
+  if (query.ownerId !== undefined && exception.ownerId !== query.ownerId) {
     return false;
   }
 
@@ -928,52 +920,62 @@ function orderRows(rows: readonly ExceptionRow[], order: RowSortOrder | null): E
  * The index of the first row a page returns, given the cursor the query carried.
  *
  * The cursor is the identifier of the last row the previous page returned, so the next page continues at
- * the row that follows it in the order that call reported. A cursor no row carries is read as the start
- * of the list rather than as a failure, which is what `ListQuery.cursor` being opaque allows.
+ * the row that follows it in the order that call reported. A cursor no row of that order carries — a
+ * malformed one, or one from an order the caller has since changed — is refused rather than read as the
+ * start of the list: a page beginning again at the top would report a queue that ends where the page the
+ * client already read ends, so the queue's tail would go unread behind an answer that looked complete.
+ * The refusal names the position and the ordering it named no row of, which is what lets the client
+ * restart from the first page instead of trusting a page it has already seen.
  *
+ * @param ctx - The call's context, whose trace a refusal carries.
  * @param rows - The ordered rows the page is taken from.
  * @param cursor - The cursor the query carried, or `undefined` when it carried none.
  * @returns The index to start at.
+ * @throws Problem - A `'validation'` failure when the cursor names no row of the ordered page.
  */
-function startIndexOf(rows: readonly ExceptionRow[], cursor: string | undefined): number {
+function startIndexOf(
+  ctx: HandlerContext,
+  rows: readonly ExceptionRow[],
+  cursor: string | undefined,
+): number {
   if (cursor === undefined) {
     return 0;
   }
 
   const found = rows.findIndex((row) => row.id === cursor);
 
-  return found === -1 ? 0 : found + 1;
-}
-
-/**
- * The greatest number of rows a page may hold, or `null` when the query sets no usable bound.
- *
- * A limit that is absent, negative or not a whole number bounds nothing, so the page runs to the end of
- * the list rather than returning nothing at all.
- *
- * @param limit - The limit the query carried, or `undefined` when it carried none.
- * @returns The bound to apply, or `null`.
- */
-function limitOf(limit: number | undefined): number | null {
-  if (limit === undefined || !Number.isInteger(limit) || limit < 0) {
-    return null;
+  if (found < 0) {
+    throw validationProblem(
+      ctx,
+      `The exception cursor ${cursor} names no row of this queue in the requested order.`,
+    );
   }
 
-  return limit;
+  return found + 1;
 }
 
 /**
  * Takes one page of the ordered rows.
  *
+ * The page starts at the row the cursor continues from and holds `listLimitOf`'s number of rows, so an
+ * absent, an oversized and an unusable `limit` are answered here exactly as every other list family
+ * answers them (contracts §9).
+ *
+ * @param ctx - The call's context, whose trace a refusal carries.
  * @param rows - The ordered rows.
  * @param query - The query, whose `cursor` and `limit` bound the page.
  * @returns The rows of the page, in the order the caller asked for.
+ * @throws Problem - A `'validation'` failure when the cursor names no row of the ordered page, or when
+ *   the limit bounds no page.
  */
-function pageOf(rows: readonly ExceptionRow[], query: ExceptionQuery): ExceptionRow[] {
-  const page = rows.slice(startIndexOf(rows, query.cursor));
-  const limit = limitOf(query.limit);
+function pageOf(
+  ctx: HandlerContext,
+  rows: readonly ExceptionRow[],
+  query: ExceptionQuery,
+): ExceptionRow[] {
+  const page = rows.slice(startIndexOf(ctx, rows, query.cursor));
 
-  return limit === null ? page : page.slice(0, limit);
+  return page.slice(0, listLimitOf(ctx, query.limit, 'exception queue'));
 }
 
 
@@ -1243,21 +1245,38 @@ export async function getOverview(
  * Reads the exception queue: one row per exception in scope, narrowed by the query's filters and ordered
  * as SCR-02 orders it.
  *
- * The rows are `computeExceptionRows`'s projection over the resolved scope and are not re-derived here;
- * the filters the row cannot answer on its own — the plant the exception also affects, the supplier its
- * material is bought from, and the day the overview's series was counted for — are read from the
- * exception the row was projected from and from the activity trail beside it, which is why the
- * collection is indexed once and one bundle serves both reads. Ordering and paging are applied last, so
- * a page holds the rows a reader asked for rather than a slice of an unordered list (contracts §9).
+ * The read has one delivered order, and it is the order of these four steps: the query's filters narrow
+ * the population, the narrowed population is measured, its rows are ordered, and one page of them is
+ * returned. The filters come first because every member they read is the exception's own — the type,
+ * severity, status and owner `computeExceptionRows` copies onto the row unchanged, the supplier the
+ * exception buys its material from, the plant it also affects, and the day `openedOrResolvedOn` states
+ * for it against the trail beside it — so a filtered or bounded read measures the exceptions it can
+ * return rather than building an aggregate bundle and a row for the whole record set and then discarding
+ * most of it in the filter and the page (contracts §9).
+ *
+ * Measuring cannot follow paging. A row's position in the queue is a function of members only the
+ * measurement produces — revenue at risk above all, and the urgency rank `sortUrgent` takes over the
+ * measures — so a slice cut before the ordering would hold the first `limit` records by identifier
+ * rather than the most urgent ones, which is neither SCR-02's default sort nor the order contracts §9's
+ * `sort` names. The ordering also states the position a `cursor` continues from, so it has to precede
+ * the page rather than follow it.
+ *
+ * The rows themselves are still `computeExceptionRows`'s projection over the resolved scope, and the
+ * plant and product narrowing stays inside it: the product selection admits a row by the products its
+ * derived affected lines name, which is a member of the measured row and not of the record, and the
+ * plant selection narrows beside it through the same predicate the overview applies, so a filtered queue
+ * and the overview read beside it cannot describe two populations (AAP 0.2.1). `scopeOf` resolves the
+ * scope once per call and the aggregate is handed that single answer unchanged.
  *
  * @param ctx - The session and the persona the call acts as.
  * @param query - The filters, order and page the queue read asked for.
  * @param selection - The shell's plant and product selection, resolved here once with the role's plant
- *   scope; the queue's own plant filter arrives in the query beside it and is applied to each row by
- *   `admitsQuery`, as is the day filter it may carry.
+ *   scope; the queue's own plant filter arrives in the query beside it and is applied to each exception
+ *   by `admitsQuery`, as is the day filter it may carry.
  * @returns The page's rows, in the requested order.
  * @throws Problem - A `'permission'` failure when the role may not read the family or the forbidden
- *   trigger is on, or a `'validation'` failure when a figure's record cannot be resolved.
+ *   trigger is on, or a `'validation'` failure when a figure's record cannot be resolved, the cursor
+ *   names no row of the ordered queue, or the limit bounds no page.
  */
 export async function listExceptions(
   ctx: HandlerContext,
@@ -1266,18 +1285,14 @@ export async function listExceptions(
 ): Promise<ExceptionRow[]> {
   requireRead(ctx);
 
-  const exceptions = exceptionsFor(ctx.state);
+  const history = ctx.state.records.exceptionHistory;
+  const exceptions = exceptionsFor(ctx.state).filter((exception) =>
+    admitsQuery(exception, query, history),
+  );
   const bundle = aggregateBundle(ctx, exceptions);
   const rows = computeExceptionRows(bundle, scopeOf(ctx, selection));
-  const byId = indexById(exceptions);
 
-  const filtered = rows.filter((row) => {
-    const exception = byId.get(row.id);
-
-    return exception !== undefined && admitsQuery(row, exception, query, bundle.history);
-  });
-
-  return pageOf(orderRows(filtered, sortOrderOf(query.sort)), query);
+  return pageOf(ctx, orderRows(rows, sortOrderOf(query.sort)), query);
 }
 
 /**
@@ -1326,6 +1341,37 @@ export async function getException(ctx: HandlerContext, id: ExceptionId): Promis
     confidence: { level: exception.confidence.level, reason: exception.confidence.reason },
     activity: activityOf(ctx.state, exception.id),
   };
+}
+
+/**
+ * Reads the customer order lines one exception places at risk, from the record that states them.
+ *
+ * The lines are the exception record's own `affectedLines`, copied member by member so a caller cannot
+ * reach the session's state through them, and they are the same lines the investigation payload carries
+ * inside `ExceptionDetail.exception`. The stored lines are the answer because the record states them: the
+ * baseline-measured view of the same orders travels as `ExceptionDetail.affectedOrders`, and the figure
+ * built from them is the detail read's revenue, so measuring them a second time here would be a second
+ * answer to one measurement.
+ *
+ * The narrow read exists because the two things it needs are the two checks a detail read makes before
+ * it reaches a record, and nothing else that read builds: `requireRead` and `visibleException` are called
+ * in the same order, so the permission refusal, the forbidden trigger's refusal, the out-of-scope
+ * `'not-found'` refusal and the trace identifier are the detail read's own answers rather than a second
+ * set that could drift from them (AAP 0.18.1). The aggregate bundle, the baseline solve, the impact
+ * chain and the filter of the activity trail belong to the payload that carries them, not to this one.
+ *
+ * @param ctx - The session and the persona the call acts as.
+ * @param id - The exception whose lines are read.
+ * @returns The affected lines, each a fresh copy.
+ * @throws Problem - A `'permission'` failure when the role may not read the family or the forbidden
+ *   trigger is on, or a `'not-found'` failure for an identifier this read does not reach.
+ */
+export function getAffectedLines(ctx: HandlerContext, id: ExceptionId): AffectedLine[] {
+  requireRead(ctx);
+
+  const exception = visibleException(ctx, id);
+
+  return exception.affectedLines.map((line) => ({ ...line }));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1504,7 +1550,7 @@ export async function assignException(
  * @returns The exception's investigation payload as the session now holds it.
  * @throws Problem - A `'permission'` failure when the role may not work the exception; a `'not-found'`
  *   failure for an identifier this write does not reach; or a `'validation'` failure when the note is
- *   empty.
+ *   empty or longer than `FREE_TEXT_MAX_LENGTH`.
  */
 export async function addExceptionNote(
   ctx: HandlerContext,
@@ -1524,6 +1570,8 @@ export async function addExceptionNote(
       `A note against ${exception.id} has to say something; this one is empty, so there is nothing to record.`,
     );
   }
+
+  assertFreeTextLength(ctx, `a note against ${exception.id}`, text);
 
   const event = await appendAuditEvent(ctx, {
     action: 'note',
@@ -1554,7 +1602,7 @@ export async function addExceptionNote(
  * @returns The exception's investigation payload as the session now holds it.
  * @throws Problem - A `'permission'` failure when the role may not work the exception; a `'not-found'`
  *   failure for an identifier this write does not reach; or a `'validation'` failure when the reason is
- *   empty or the exception is no longer open.
+ *   empty or longer than `FREE_TEXT_MAX_LENGTH`, or the exception is no longer open.
  */
 export async function dismissException(
   ctx: HandlerContext,
@@ -1575,6 +1623,8 @@ export async function dismissException(
         'not say why it was set aside.',
     );
   }
+
+  assertFreeTextLength(ctx, `a dismissal reason for ${exception.id}`, text);
 
   if (exception.status !== OPEN_STATUS) {
     throw validationProblem(

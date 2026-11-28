@@ -5,16 +5,20 @@
  * `platform-contracts.md` §1 fixes the conventions rendered here — a EUR amount carrying at most two
  * decimals with a thousands separator, an instant as ISO 8601 with an offset in Europe/Berlin, the
  * record identifier patterns, and the lowercase hex digest of the audit chain — and AAP §0.8 gives
- * the presentation half of those conventions exactly one owner: this module. Nothing else formats
- * the interface's own figures, because a second presentation formatter would let two screens show one
- * record at two different values.
+ * the presentation half of those conventions exactly one owner. For money that owner is
+ * `src/types/figure-text.ts`, which holds the rule and which this module imports and re-exports as
+ * {@link formatMoney}: the comparison CSV states the same amount the comparison matrix shows, that
+ * composer is a service module and may not import `src/components`, and a formatter each layer kept
+ * for itself is the drift the move removes. The two rules this module still states — the duration in
+ * hours and the mono face that aligns a value down a column — are formatted here and nowhere else.
  *
- * ONE MONEY FIGURE REACHES A READER IN FOUR SHAPES, AND ALL FOUR ARE DELIBERATE. This passage is the
+ * ONE MONEY FIGURE REACHES A READER IN THREE SHAPES, AND A FOURTH WAS RETIRED. This passage is the
  * only record of that decision, and every other site in the tree points here instead of restating it:
  *
- * 1. An amount in one of the interface's own figures — `MONEY_FORMAT` below. It is written with
- *    `de-DE`, the currency as the code `EUR`, and a full stop between thousands, which is the grouping
- *    locale AAP §0.8 names for the one locale the inputs fix (Europe/Berlin).
+ * 1. An amount in one of the interface's own figures — the money rule in `src/types/figure-text.ts`,
+ *    re-exported below as {@link formatMoney}. It is written with `de-DE`, the currency as the code
+ *    `EUR`, and a full stop between thousands, which is the grouping locale AAP §0.8 names for the one
+ *    locale the inputs fix (Europe/Berlin).
  * 2. An amount inside a record's own sentence — grouped with a comma, and marked by the `EUR ` prefix
  *    the sentence itself carries. `src/services/mock/assistant-script.ts` composes such a sentence from
  *    a template the seed owns, and the template writes the marker as its own text; AAP §0.8 quotes the
@@ -22,9 +26,12 @@
  *    days to avoid EUR 2,257,000 of delayed revenue." The prose formatter groups the digits and neither
  *    adds nor moves the marker, because that marker is the record's content and rule P-6 admits no
  *    currency marker a service module writes of its own accord.
- * 3. A CSV field — `src/services/mock/exports/scenario-csv.ts`. That file is a spreadsheet interchange
- *    format and never reaches a screen, so it is written for a reader's engine rather than a reader's
- *    eye: a dot decimal, no grouping separator and exactly two decimals.
+ * 3. A CSV field — `src/services/exports/scenario-csv.ts`. **Retired.** That module is the comparison's
+ *    export, and the checkpoint holds the export payload to the screen, so its money cells now print
+ *    rendering 1 through {@link formatMoney} rather than a shape of their own. The dot decimal, the
+ *    absent grouping separator and the exactly-two-decimals text it used to write were a second shape
+ *    of one amount, and the pair drifted the moment either side was edited: the matrix read
+ *    `18.600 EUR` while the file it exported read `18600.00` for that record's Added cost.
  * 4. An amount inside an aggregate's evidence — `src/services/mock/handlers/evidence.ts`. The drawer a
  *    computed figure opens states that figure as the aggregate's own number, ungrouped, with the
  *    currency code beside it rather than the grouped form above: the Overview's revenue tile prints
@@ -37,7 +44,7 @@
  *    at that site: the handler concatenates the member the aggregate returned and the words the reading
  *    already holds.
  *
- * A fifth rendering is not a fifth decision. A surface that needs an amount written another way adds
+ * Another rendering is not a quiet decision. A surface that needs an amount written another way adds
  * no formatter of its own — it records the departure in this passage first, so a maintainer reads one
  * record instead of four modules re-litigating the same figure.
  *
@@ -70,6 +77,8 @@
  * visible stranger can be traced back to its source where a plausible zero cannot.
  */
 import type { ReactElement } from 'react';
+
+import { formatMoney } from '../types';
 
 /**
  * The four kinds of value this component renders in the mono face, and the whole of its formatting
@@ -140,59 +149,16 @@ export const MONO_VALUE_CLASSES = {
 } as const;
 
 /**
- * The interface's one money formatter, created once at module load and reused for every amount it
- * renders, because compiling a locale's number pattern is the expensive part of formatting.
+ * The interface's one money formatter, re-exported from the module that states it.
  *
- * The options are AAP §0.8's: the `de-DE` locale supplies the thousands separator and the decimal
- * comma that Europe/Berlin business figures are read with, `currencyDisplay: 'code'` prints the
- * currency as a code rather than as a symbol, and the fraction range of zero to two digits prints a
- * whole amount without decimals and at most the two decimals `Money` carries. An amount is not
- * re-rounded here — two decimals is the contract's own precision, not a presentation choice.
- *
- * ICU separates the amount from the code with a no-break space, which is the shape the plan writes
- * as an amount followed by the code, joined by a space that cannot break across a line. That
- * separator is deliberately not rewritten to a plain space: no input fixes another one, and a
- * post-processing step would put a second formatting rule inside the module that is meant to hold
- * exactly one.
- *
- * This is the first of the four renderings the module header records, and the only one this module
- * emits: an amount in one of the interface's own figures. A sentence a record owns quotes its amount
- * with the code first and a comma between thousands — rendering 2 there — and neither shape is a typo
- * in the other, so do not "fix" the separator in a seed record or here.
+ * `src/types/figure-text.ts` holds the rule — the `de-DE` locale, the currency as the code `EUR`, the
+ * fraction range of zero to two digits, and the raw input for a value that has no formatted form —
+ * because the comparison CSV states the same amount the comparison matrix shows and its composer is a
+ * service module that may not import `src/components` (AAP §0.18.1). It is re-exported here so that
+ * every surface and suite that already reaches this module for an amount keeps reading the exact text
+ * from the module it imports, and so that no second copy of the rule can be written beside it.
  */
-const MONEY_FORMAT = new Intl.NumberFormat('de-DE', {
-  style: 'currency',
-  currency: 'EUR',
-  currencyDisplay: 'code',
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 2,
-});
-
-/**
- * Formats one amount, or hands back the input's own text when it has no formatted form.
- *
- * Exported so the surfaces that cannot host this component's `<span>` print the same text: an SVG
- * `<text>` has no children of another namespace, so a chart's displayed value label is this string
- * rather than the component, and a screen that passed its own rendering would put two money formats
- * of one amount in one view. Formatting still has one owner — this function — and no caller applies a
- * second rule to what it returns.
- *
- * Only a finite number is formatted. A string is returned untouched rather than parsed, because
- * parsing would silently reinterpret a caller's mistake — one dotted digit group is twenty-one and
- * three tenths to a number parser and twenty-one thousand to the reader — and a number that is not
- * finite has no formatted form at all. Both cases leave the raw input on screen as the marker of the
- * defect, which is what rule P-6 asks for: never a formatted `NaN` and never a substituted zero.
- *
- * @param value - The amount exactly as the record states it.
- * @returns The amount with the currency code and at most two decimals, or the input as text.
- */
-export function formatMoney(value: number | string): string {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return MONEY_FORMAT.format(value);
-  }
-
-  return String(value);
-}
+export { formatMoney };
 
 /**
  * The interface's one duration formatter, created once at module load beside the money rule, because

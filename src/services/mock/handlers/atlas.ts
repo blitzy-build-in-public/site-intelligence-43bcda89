@@ -62,20 +62,24 @@
  *
  * DETERMINISTIC AND SIDE-EFFECT FREE. The same state yields an equal payload on every call: records
  * are copied in the order the pack holds them, every member is written in one fixed order, and no
- * clock, random source, module-level mutable value or accumulator is read. The module performs no
- * I/O — it opens no address (rule B-1), reads no configuration and carries no credential (rule B-2),
- * and writes no console line. Every collection it returns is a fresh array of fresh objects, so a
- * screen that edited a payload would edit its own copy and not the session's records.
+ * clock, random source or accumulator is read. The one piece of module-level state the read consults
+ * is the validation memo below, which holds what the two pack validators found for this pack object
+ * and class list — identity and a signature, no record and no payload — so it changes no value the
+ * payload carries. The module performs no I/O — it opens no address (rule B-1), reads no
+ * configuration and carries no credential (rule B-2), and writes no console line. Every collection it
+ * returns is a fresh array of fresh objects, so a screen that edited a payload would edit its own copy
+ * and not the session's records.
  *
  * `getAtlas` is declared asynchronous to match the port's promise-returning read, so the adapter
  * awaits one shape for every call; its body awaits nothing and performs no I/O. The brief's gate is
  * synchronous, because evaluating the matrix and the pack's provenance reads nothing but the state it
- * is handed.
+ * is handed and the validation memo beside it.
  *
  * Rules this module is built to satisfy:
  * - P-5: the families are separate members, `provenance` is required, the client series and the
  *   competitor series carry their own labels, and the pack's provenance and its product-class
- *   classification are both checked before the pack is served.
+ *   classification are both checked before the pack is served, once per record set rather than once
+ *   per read (the validation memo below keeps the two verdicts).
  * - P-1: every label comes from the fixed vocabulary of `src/types/primitives.ts`; none is retyped
  *   or paraphrased, and the client series carries no second label from the seven-value union beside
  *   its own companion string.
@@ -391,6 +395,95 @@ function assertPackClassification(
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * Validation remembered per pack — immutable seed content, walked once per record set
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The packs whose provenance {@link assertPackProvenance} has already passed, one entry per record
+ * set.
+ *
+ * The pack is immutable seed content — `src/seed/market-intelligence.ts` is reached only through the
+ * clone `loadSeed()` hands back — and every session is built from a fresh clone: `createMockState`
+ * and `restoreSeed` in `mock-state.ts` each install the record set a new `buildSeededSession()` call
+ * produced. A new record set therefore always arrives as a pack object this set has not seen, which
+ * is what makes object identity the right key: the memo never spans two record sets, a reset
+ * re-validates because its pack is a different object, and a pack whose records a caller replaced —
+ * a test handing the handler a modified copy, say — is walked again before it is served. The entry is
+ * held weakly, so a record set a reset replaces is collected with its pack.
+ *
+ * It holds identity and nothing else: no record, no derived value and no payload, and it changes no
+ * value a read returns. A pack that fails the check is never recorded, so the failure is thrown,
+ * naming the record, on every read that reaches it.
+ */
+const provenanceChecked = new WeakSet<MarketIntelligencePack>();
+
+/**
+ * The offered product-class signature {@link assertPackClassification} last passed for, per pack.
+ *
+ * That verdict belongs to a pair rather than to the pack alone: the check compares the pack's
+ * networks with the classes the client's own product records publish, so a session whose product
+ * records changed under an unchanged pack must be classified again rather than served on the previous
+ * list's verdict. The signature is that list joined into one string and it is the map's value, so a
+ * changed list compares unequal and the check runs. The pack is the weak key for the reason
+ * {@link provenanceChecked} records.
+ *
+ * Like its sibling it holds no record content — a signature string and nothing else — and changes no
+ * value a read returns; a pack that fails the check is never recorded, so it throws on every read that
+ * reaches it.
+ */
+const classificationChecked = new WeakMap<MarketIntelligencePack, string>();
+
+/**
+ * Fails loudly when the pack's provenance is broken, walking it once per record set.
+ *
+ * The check itself is {@link assertPackProvenance}, unchanged and still the one place the rule P-5
+ * property is decided; this wrapper only remembers, against the pack object, that it has passed, so a
+ * session that reads the atlas or exports its brief repeatedly walks the competitors, the crossings
+ * and the series once instead of on every call. The verdict is state and never authority: the
+ * caller's permission is evaluated on every call, before this runs.
+ *
+ * @param pack - The seeded market-intelligence pack the call is about to serve.
+ * @throws Error - A competitor network or crossing is not market intelligence, or a series' label
+ *   contradicts its provenance.
+ */
+function assertPackProvenanceOnce(pack: MarketIntelligencePack): void {
+  if (provenanceChecked.has(pack)) {
+    return;
+  }
+
+  assertPackProvenance(pack);
+  provenanceChecked.add(pack);
+}
+
+/**
+ * Fails loudly when the pack's classification or a series join is broken, once per pack and class
+ * list.
+ *
+ * The check itself is {@link assertPackClassification}, unchanged; this wrapper remembers the class
+ * signature it passed for. The signature joins the classes with a NUL, which no identifier the records
+ * publish contains, so two different lists cannot produce one signature and a session whose product
+ * records gained or lost a class is classified again.
+ *
+ * @param pack - The seeded market-intelligence pack the call is about to serve.
+ * @param offered - The product classes the client's own product records publish.
+ * @throws Error - A market-intelligence series names no network the pack holds, or a competitor
+ *   network states no class the atlas offers.
+ */
+function assertPackClassificationOnce(
+  pack: MarketIntelligencePack,
+  offered: readonly ProductId[],
+): void {
+  const signature = offered.join('\u0000');
+
+  if (classificationChecked.get(pack) === signature) {
+    return;
+  }
+
+  assertPackClassification(pack, offered);
+  classificationChecked.set(pack, signature);
+}
+
+/* ---------------------------------------------------------------------------------------------
  * One element of the payload — every member copied, no value derived (rules P-5 and P-6)
  * ------------------------------------------------------------------------------------------- */
 
@@ -522,6 +615,11 @@ function radarSeriesOf(series: AtlasSeries): AtlasSeries {
  * class is record content the screen filters on as well as a read parameter (the module header records
  * that split).
  *
+ * Both pack checks are consulted through the memo beside them, so an unchanged pack is walked once per
+ * record set rather than on every read; only the two validators' verdicts on this pack object are
+ * remembered, while the permission above and the class argument below are still evaluated on every
+ * call.
+ *
  * Two calls over one session return equal payloads: the records are read in the order the pack holds
  * them and nothing is accumulated, ordered by a derived key or read from a clock.
  *
@@ -542,12 +640,10 @@ export async function getAtlas(
 
   const records = ctx.state.records;
   const pack = records.marketIntelligence;
-
-  assertPackProvenance(pack);
-
   const productClasses = records.products.map((product) => product.id);
 
-  assertPackClassification(pack, productClasses);
+  assertPackProvenanceOnce(pack);
+  assertPackClassificationOnce(pack, productClasses);
 
   if (productClass !== undefined && !productClasses.includes(productClass)) {
     throw unknownProductClassProblem(productClasses, productClass);
@@ -575,9 +671,11 @@ export async function getAtlas(
  * The export is the atlas family's own, so its gate is the atlas read's: the persona must hold
  * `competitive.read` — or the simulation's forbidden trigger must be in effect, which produces the
  * identical refusal — and the pack must be market-intelligence only, in every network, every crossing
- * and every series. Those are the two checks `getAtlas` performs before it serves the picture, so the
- * export is refused exactly where the picture is refused and the external supplier engineer, whom
- * AAP 0.12.3 forbids the read, reaches neither.
+ * and every series. Both are the checks `getAtlas` performs before it serves the picture, and the
+ * provenance verdict is read from the memo beside the validator, so a session that exports repeatedly
+ * walks the pack once rather than once per export. The export is therefore refused exactly where the
+ * picture is refused, and the external supplier engineer, whom AAP 0.12.3 forbids the read, reaches
+ * neither.
  *
  * Composing the document is not this module's work. The assembler
  * `src/services/mock/exports/chokepoint-brief.ts` calls the builder both adapters share, over the same
@@ -594,5 +692,5 @@ export async function getAtlas(
  */
 export function assertChokepointBriefReadable(ctx: HandlerContext): void {
   assertCompetitiveRead(ctx);
-  assertPackProvenance(ctx.state.records.marketIntelligence);
+  assertPackProvenanceOnce(ctx.state.records.marketIntelligence);
 }

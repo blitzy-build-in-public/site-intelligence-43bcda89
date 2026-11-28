@@ -78,7 +78,7 @@ const CONTROL_CLASSES = [
   'rounded-control border border-control-boundary px-2 py-1',
   'bg-transparent font-sans text-13 text-text-secondary',
   POINTER_STATE_CLASSES,
-  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus-ring',
+  'focus-visible:outline-2 focus-visible:outline-focus-ring',
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
 

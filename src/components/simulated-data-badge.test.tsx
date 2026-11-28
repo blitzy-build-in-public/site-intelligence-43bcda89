@@ -75,12 +75,21 @@ const REQUIRED_CONTROL_UTILITIES: readonly string[] = [
   'text-12',
 ];
 
-/** The focus-ring utilities, kept apart because only the interactive state may carry them. */
+/**
+ * The focus-ring utilities, kept apart because only the interactive state may carry them. The ring's
+ * geometry is not among them: `src/styles/index.css` states the 2 px and the +2 offset once, in the
+ * single `:focus-visible` rule, so a class list here carries the width and the colour role only.
+ */
 const FOCUS_RING_UTILITIES: readonly string[] = [
   'focus-visible:outline-2',
-  'focus-visible:outline-offset-1',
   'focus-visible:outline-focus-ring',
 ];
+
+/**
+ * An offset utility, in either sign and under any variant: the value the one global `:focus-visible`
+ * rule owns. A class list that matched this would draw the badge's ring at a geometry of its own.
+ */
+const LOCAL_OUTLINE_OFFSET = /(?:^|[\s:])-?outline-offset-/;
 
 /** Every class list that would show the badge reacting to something a non-control does not have. */
 const INTERACTIVE_ONLY_UTILITIES: readonly string[] = [...FOCUS_RING_UTILITIES, 'cursor-pointer'];
@@ -262,6 +271,22 @@ describe('SimulatedDataBadge', () => {
        from a reduced-motion session rather than shortened within it. */
     expect(root.className).toContain('motion-safe:transition-colors');
   });
+
+  /* Rule B-3 and the one geometry the product holds: the ring's 2 px and its +2 offset are fixed once
+     by the `:focus-visible` rule in `src/styles/index.css`, so neither state of the badge states an
+     offset of its own. A local offset would put this ring at a different distance from its boundary
+     than every other control's, which a keyboard user reads as a ring that moves about the page.
+     Asserted in both states, because either element can be the one a keyboard user lands on. */
+  for (const [state, interactive] of [
+    ['non-interactive', false],
+    ['interactive', true],
+  ] as const) {
+    it(`states no focus offset in the ${state} state, leaving the ring geometry to the global rule`, () => {
+      const root = renderBadge(interactive ? vi.fn() : undefined);
+
+      expect(root.className).not.toMatch(LOCAL_OUTLINE_OFFSET);
+    });
+  }
 
   /* The button declares the dialog it opens, so it also reports that dialog's state: the shell
      supplies the popover's real open state and either value reaches `aria-expanded` as the string a

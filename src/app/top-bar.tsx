@@ -139,14 +139,22 @@ const HEADER_CLASSES = 'w-full min-w-0 border-b border-hairline bg-ground text-t
  * when it wraps, with one step of padding on each side so a control's focus ring is never clipped by
  * the hairline.
  *
- * `items-center` aligns the wordmark, the pickers, the pills, the badge and the switches — which are
- * different heights — on one optical line. Nothing is justified or auto-margined: the bar's contents are
- * dense enough that they use every line they are given, and an auto margin on any one of them would
- * strand the spare width of a line as a gap while pushing later items onto a further line. Packed from
- * the inline-start, the row is as short as its contents allow and every line reads left to right in the
- * order the specification fixes.
+ * `items-start` puts every item on a line at one top edge, whatever its height. The nine positions
+ * are not the same height — a switch is a single 24 px control, while the role switcher stacks its
+ * label, its select, its note and its control tag — and centring the short items inside the tall
+ * one's line box lifted them below its top, so a later DOM item could be met before an earlier one:
+ * at 1920 px the role switcher's top edge sat 32.5 px above the sovereignty pill, the badge and the
+ * two switches that precede it, and the region under it was left empty (QA finding QA2-07). Sharing
+ * the top edge makes the visual sequence the DOM sequence at every width, which is the order
+ * AAP §0.12.1 fixes.
+ *
+ * Nothing is justified or auto-margined: the bar's contents are dense enough that they use every line
+ * they are given, and an auto margin on any one of them would strand the spare width of a line as a
+ * gap while pushing later items onto a further line. Packed from the inline-start, the row is as
+ * short as its contents allow and every line reads left to right in the order the specification
+ * fixes.
  */
-const ROW_CLASSES = 'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2';
+const ROW_CLASSES = 'flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2 px-4 py-2';
 
 /**
  * The wordmark's block: the two lines stacked, and `min-w-0` so a narrow window shortens it rather than

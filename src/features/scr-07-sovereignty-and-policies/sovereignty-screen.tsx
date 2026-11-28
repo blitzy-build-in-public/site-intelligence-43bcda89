@@ -105,6 +105,7 @@ import { DataTable } from '../../components/data-table';
 import type { TableColumn } from '../../components/data-table';
 import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
+import { offerExportFile } from '../../components/offer-export-file';
 import { PageHeader } from '../../components/page-header';
 import {
   deriveScreenState,
@@ -126,7 +127,6 @@ import type {
   ActiveUser,
   AuditEvent,
   AuditResult,
-  ExportPayload,
   ListQuery,
   Permission,
   PolicyDetail,
@@ -227,6 +227,16 @@ export const SOVEREIGNTY_SCREEN_TEXT = {
 
   /** What is reported beside the actions when the export did not produce a file. */
   exportFailed: 'The evidence pack could not be prepared, so no file was offered.',
+
+  /**
+   * What is reported beside the actions when the page itself has no way to save a file.
+   *
+   * The pack was composed and recorded before anything was offered, so this states the limit the reader
+   * actually met — a page that cannot hand a file over — rather than reporting a failed export the
+   * service did not perform (rule P-8).
+   */
+  downloadUnavailable:
+    'This page offers no way to save a file, so the evidence pack could not be downloaded.',
 
   /** The export control's reason when the bound adapter reports no acting persona. */
   exportNoIdentity:
@@ -416,9 +426,6 @@ const DETAIL_CLASSES = 'text-13 break-words text-text-secondary';
  */
 const LABEL_ROW_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2 text-13';
 
-/** The caption role for a label printed as text beside a status. */
-const CAPTION_CLASSES = 'text-12 text-text-caption';
-
 /** The summary's definition list: one column, one declared value per row. */
 const SUMMARY_LIST_CLASSES = 'flex min-w-0 flex-col gap-2';
 
@@ -483,13 +490,16 @@ const NO_PERSONAS: readonly ActiveUser[] = [];
 
 /**
  * The declared rows, in the order the record holds them: the row's key, what it declares, its status
- * beside the fixed label, the record the declaration rests on and the date it was last declared.
+ * under the fixed label, the record the declaration rests on and the date it was last declared.
  *
  * Every cell prints a member exactly as the payload supplied it — the two identifiers in the mono
  * face with tabular figures (AAP 0.5.3) and the date as the record states it. The status cell carries
- * the record's own word beside the `Declared, not verified` label, so the label travels with the row
- * rather than only with the panel above it (rules P-1, P-4). No column is sortable: re-ordering these
- * rows would replace the record's own order with one this module computed.
+ * the status encoding on the fixed `Declared, not verified` label: the label goes through
+ * `StatusIndicator`, whose flask, status colour and text are what state the row's status, and the
+ * record's own word sits beside it as detail, so the label travels with the row rather than only
+ * with the panel above it and the row shows one flask rather than one per string (rules P-1, P-4,
+ * B-3). No column is sortable: re-ordering these rows would replace the record's own order with one
+ * this module computed.
  */
 const SOVEREIGNTY_COLUMNS: readonly TableColumn<SovereigntyRow>[] = [
   {
@@ -507,8 +517,8 @@ const SOVEREIGNTY_COLUMNS: readonly TableColumn<SovereigntyRow>[] = [
     header: SOVEREIGNTY_SCREEN_TEXT.columnStatus,
     render: (row) => (
       <span className={LABEL_ROW_CLASSES}>
-        <StatusIndicator meaning="simulated" label={row.status} />
-        <span className={CAPTION_CLASSES}>{DECLARED_LABEL}</span>
+        <StatusIndicator meaning="simulated" label={DECLARED_LABEL} />
+        <span className={DETAIL_CLASSES}>{row.status}</span>
       </span>
     ),
   },
@@ -715,51 +725,6 @@ function policyRowKeyOf(policy: PolicyDetail): string {
 /** A decision row's key, composed once by {@link decisionRowsOf}. */
 function decisionRowKeyOf(row: DecisionRow): string {
   return row.key;
-}
-
-/* ---------------------------------------------------------------------------------------------
- * The export: a file built in the browser from the payload the service composed
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * Offers one export payload as a downloaded file.
- *
- * The document arrives composed: this function writes nothing into it, removes nothing from it and
- * rewrites no field, so the `"simulated": true` flag the service set at the payload's top level
- * survives untouched (rule P-1). The name and the media type are the payload's own, which is why the
- * file a reader saves is the one the builder declared rather than a name typed here (rule P-6). The
- * blob is served from an object URL that is released on the next task rather than in the task that
- * activated the anchor, so an engine that takes the file after the click still finds it; it leaves the
- * application's own origin as a local file and no request is made (rule B-1).
- *
- * The feature check is deliberate. A test environment that implements no object-URL factory leaves
- * nothing to revoke and no file to offer, and the alternative — letting the missing member throw —
- * would report a failure of the export itself, which did not fail. The service has already composed
- * and recorded the pack by the time this runs.
- */
-function offerExportFile(payload: ExportPayload): void {
-  if (typeof URL.createObjectURL !== 'function') {
-    return;
-  }
-
-  const url = URL.createObjectURL(new Blob([payload.content], { type: payload.mediaType }));
-  const anchor = document.createElement('a');
-
-  anchor.href = url;
-  anchor.download = payload.filename;
-
-  /* The anchor is attached before it is activated and removed immediately after: a detached anchor's
-     synthetic click is ignored by some browsers, and leaving it in the document would add an element
-     to the page that no reader asked for. */
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-
-  /* The click above has handed the blob to the browser's download machinery; the URL is released on the
-     next task so an engine that reads it asynchronously still finds it. */
-  globalThis.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 0);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1172,9 +1137,11 @@ export function SovereigntyScreen(_props: SovereigntyScreenProps): ReactElement 
   };
 
   /*
-   * The export and its two outcomes. The pack is built and recorded by the service before anything is
-   * offered, so a refusal is reported with the service's own message beside the actions rather than
-   * as a file that does not exist; a payload that arrived is offered exactly as it was returned.
+   * The export and its three outcomes. The pack is built and recorded by the service before anything is
+   * offered, so a refusal is reported with the service's own message beside the actions rather than as
+   * a file that does not exist; a payload that arrived is offered exactly as it was returned; and a page
+   * with no object-URL factory to offer it with says so, rather than leaving the reader answered by
+   * nothing (rule P-8).
    */
   const handleExport = (): void => {
     setIsExporting(true);
@@ -1183,7 +1150,9 @@ export function SovereigntyScreen(_props: SovereigntyScreenProps): ReactElement 
     void service
       .exportEvidencePack()
       .then((exported) => {
-        offerExportFile(exported.data);
+        if (!offerExportFile(exported.data)) {
+          setExportFailure(SOVEREIGNTY_SCREEN_TEXT.downloadUnavailable);
+        }
       })
       .catch((thrown: unknown) => {
         setExportFailure(

@@ -27,6 +27,14 @@
  * hover and focus and announced as its description. A disabled entry is never a link, so a
  * parameterised path such as `/plants/:plantId/plan` is never followed (rule P-8).
  *
+ * BELOW `md` THE NAVIGATION FOLDS, AND ITS TRIGGER IS THE SHELL'S TOO. The three group rows cost a
+ * phone viewport more height than the route they lead to, so the strip holds them behind one
+ * disclosure below Tailwind's `md` breakpoint and shows them unconditionally from `md` up (QA finding
+ * QA2-09). The trigger is a sibling of the landmark rather than a child of it, so the `nav` declares
+ * exactly the entries the navigation table declares; the open state is `PrimaryNavigation`'s own, and
+ * the panel is closed by a class rather than by unmounting, so the trigger's `aria-controls` always
+ * names an element that exists.
+ *
  * WALL MODE. The canvas's presentation mode hides the navigation, and the flag for it is the shell
  * store's `wallMode`: `src/app/router.tsx` hands the canvas screen the setter as `onWallModeChange`, so
  * the screen asks and the shell obeys. The top bar, the badge and the outlet stay mounted either way,
@@ -39,7 +47,8 @@
  *   diagnostic overlay. The top bar owns the simulation popover, the badge is singular, and the
  *   demonstration's diagnostics are the `traceId` a `Problem` carries.
  * - It types no figure, amount, identifier or record value (rule P-6), and it writes no user-facing
- *   string beyond the skip link and the landmark name — every navigation label comes from the table.
+ *   string beyond the skip link, the landmark name and the trigger that reveals the navigation — every
+ *   navigation label comes from the table.
  * - It claims nothing about the product: nothing here states or implies sovereignty, copy prevention,
  *   tamper resistance or a certification (rule P-4), and no real company, customer or model is named
  *   (rule P-7).
@@ -50,7 +59,7 @@
  * anything), B-2 (no configuration, no credential) and B-3 (the skip link, the named navigation
  * landmark, the single `main` landmark, DOM-order focus and a visible focus ring on every stop).
  */
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { ReactElement } from 'react';
 
 import { NavLink, Outlet, RouterProvider, createBrowserRouter } from 'react-router';
@@ -89,10 +98,11 @@ const SIMULATED_DATA_LABEL: SimLabel = SIM_LABELS[0];
 /**
  * The shell's own copy, which is the whole of the user-facing text this file writes.
  *
- * The skip link's label, the navigation landmark's accessible name and the id the skip link targets are
- * shell chrome rather than a screen's content, and rule P-7 leaves them nothing to name but "main
- * content" and the navigation itself. They are a `const` object rather than text inline in the JSX so a
- * suite can name them instead of retyping them, the way `TOP_BAR_TEXT` owns the wordmark.
+ * The skip link's label, the navigation landmark's accessible name, the trigger that reveals the
+ * navigation below `md` and the id the skip link targets are shell chrome rather than a screen's
+ * content, and rule P-7 leaves them nothing to name but "main content" and the navigation itself. They
+ * are a `const` object rather than text inline in the JSX so a suite can name them instead of retyping
+ * them, the way `TOP_BAR_TEXT` owns the wordmark.
  */
 export const APP_SHELL_TEXT = {
   /**
@@ -108,6 +118,15 @@ export const APP_SHELL_TEXT = {
    * screen could grow, so this one names itself to be distinguishable from any other (rule B-3).
    */
   navLandmark: 'Primary',
+
+  /**
+   * The label of the disclosure trigger that reveals the navigation below the `md` breakpoint.
+   *
+   * It names what it reveals rather than the state it is in, because `aria-expanded` already carries
+   * the state and a label repeating it would be announced twice. The landmark keeps its own name, so
+   * the trigger and the `nav` are never two names for one thing (rules B-3, P-8).
+   */
+  navigationToggle: 'Navigation',
 
   /**
    * The id the skip link targets and the `main` landmark carries.
@@ -150,11 +169,51 @@ const SKIP_LINK_CLASSES = [
  * hairline in its per-theme role — the token layer exposes no shadow, so a boundary is the only
  * separation available (specification §4.3).
  *
+ * Below `md` the disclosure trigger stands immediately above this strip and the strip is the box of the
+ * panel that trigger opens, so its ground and its closing hairline are unconditional: below `md` they
+ * close whatever the trigger revealed, and from `md` up they are the band every route shows.
+ *
  * `w-full min-w-0` is what lets the entry rows below wrap instead of overflowing sideways at a narrow
  * window and at 200 % zoom: no pixel width is fixed anywhere in the strip, so the rows reflow onto
  * further lines while keeping their DOM order (rule B-3).
  */
 const NAV_CLASSES = 'w-full min-w-0 border-b border-hairline bg-ground';
+
+/**
+ * The disclosure trigger that reveals the navigation below the `md` breakpoint, built from the shared
+ * control vocabulary rather than written out again — the composition `src/app/role-switcher.tsx` gives
+ * its own narrow trigger — so it keeps the 24x24 px target, the control radius, the 2 px `focus-ring`
+ * focus ring and the secondary control's role-token colours (rule B-3, AAP §0.5.3).
+ *
+ * `mx-4 my-2` puts it on the same gutter as the entry rows it reveals and one step of the grid inside
+ * the band the strip occupies, so its focus ring sits clear of both hairlines. `md:hidden` takes it out
+ * of the wide presentation, where the entries are always on screen and a trigger would reveal nothing;
+ * the responsive variant is emitted after the unprefixed display utility the shared structure sets, so
+ * it wins from `md` up, exactly as the current-route variants below rely on.
+ */
+const NAV_TOGGLE_CLASSES = [
+  CONTROL_STRUCTURE_CLASSES,
+  SECONDARY_CONTROL_CLASSES,
+  'mx-4 my-2 md:hidden',
+].join(' ');
+
+/**
+ * The region holding the three group rows, while the narrow disclosure is closed.
+ *
+ * The region stays in the document rather than being unmounted, because the trigger's `aria-controls`
+ * names it and a relationship pointing at an element that does not exist is not a relationship. It is
+ * closed with `hidden`, so a closed region takes neither width nor height in the strip, and `md:block`
+ * reasserts it from the `md` breakpoint up, where the trigger is not rendered at all: from `md` up the
+ * entries are on screen whichever state the disclosure was left in.
+ */
+const NAV_GROUPS_CLOSED_CLASSES = 'hidden md:block';
+
+/**
+ * The same region while the disclosure is open: one block box below `md`, holding the three groups
+ * exactly as the wide presentation lays them out. Above `md` the closed state's `md:block` already
+ * shows it, so the open state states no breakpoint of its own.
+ */
+const NAV_GROUPS_OPEN_CLASSES = 'block';
 
 /**
  * One group of entries: a wrapping row with its label first, so the three groups read as three lines
@@ -245,7 +304,8 @@ function NavEntry({ item }: { readonly item: NavItem }): ReactElement {
 }
 
 /**
- * The shell's navigation: one `nav` landmark holding the three labelled groups of the navigation table.
+ * The shell's navigation: the disclosure trigger that reveals it below `md`, and one `nav` landmark
+ * holding the three labelled groups of the navigation table.
  *
  * Each group is a caption and a list, so the entries are announced as a list of links and controls and
  * the caption above each list says what the group is for. The caption is a `<p>` rather than a heading
@@ -253,27 +313,62 @@ function NavEntry({ item }: { readonly item: NavItem }): ReactElement {
  * level-one heading, which is exactly the document outline a reader navigating by heading would then
  * have to wade through (rule B-3).
  *
- * The component reads the table and nothing else: it derives no route, holds no state and renders no
- * control of its own, so an entry it draws is exactly the entry the plan declares.
+ * BELOW `md` THE GROUP ROWS FOLD AWAY, AND THE TRIGGER STANDS OUTSIDE THE LANDMARK. The three rows cost
+ * a phone viewport more height than the route they lead to — at 390x844 the strip measured 328 px on
+ * top of the top bar, so nothing but shell chrome was visible on first paint (QA finding QA2-09). The
+ * trigger is therefore a sibling immediately before the landmark rather than a child of it, so the
+ * `nav` keeps exactly the entries the navigation table declares and no control of its own. It carries
+ * `type="button"` so it is never a form's default submit, `aria-expanded` carries the state a screen
+ * reader announces, and `aria-controls` names the region holding the groups. It is hidden from `md` up
+ * by {@link NAV_TOGGLE_CLASSES}, where the rows are always on screen, and the region is `hidden` while
+ * closed and `md:block` after it, so the narrow and the wide presentation cannot both be wrong.
  *
- * @returns The named navigation landmark with its three groups inside it.
+ * APART FROM THAT STATE IT READS THE TABLE AND NOTHING ELSE: it derives no route, and an entry it draws
+ * is exactly the entry the plan declares.
+ *
+ * @returns The disclosure trigger and the named navigation landmark with its three groups inside it.
  */
 function PrimaryNavigation(): ReactElement {
+  /** Whether the narrow presentation's disclosure is open; it starts closed, so the shell is short. */
+  const [isRevealed, setIsRevealed] = useState(false);
+
+  /** The id of the region the trigger names, generated once so `aria-controls` resolves. */
+  const groupsId = useId();
+
   return (
-    <nav aria-label={APP_SHELL_TEXT.navLandmark} className={NAV_CLASSES}>
-      {NAV_GROUPS.map((group) => (
-        <div key={group.id} className={NAV_GROUP_CLASSES}>
-          <p className={NAV_GROUP_LABEL_CLASSES}>{group.label}</p>
-          <ul className={NAV_LIST_CLASSES}>
-            {group.items.map((item) => (
-              <li key={item.id}>
-                <NavEntry item={item} />
-              </li>
-            ))}
-          </ul>
+    <>
+      <button
+        type="button"
+        aria-expanded={isRevealed}
+        aria-controls={groupsId}
+        className={NAV_TOGGLE_CLASSES}
+        onClick={() => {
+          setIsRevealed(!isRevealed);
+        }}
+      >
+        {APP_SHELL_TEXT.navigationToggle}
+      </button>
+
+      <nav aria-label={APP_SHELL_TEXT.navLandmark} className={NAV_CLASSES}>
+        <div
+          id={groupsId}
+          className={isRevealed ? NAV_GROUPS_OPEN_CLASSES : NAV_GROUPS_CLOSED_CLASSES}
+        >
+          {NAV_GROUPS.map((group) => (
+            <div key={group.id} className={NAV_GROUP_CLASSES}>
+              <p className={NAV_GROUP_LABEL_CLASSES}>{group.label}</p>
+              <ul className={NAV_LIST_CLASSES}>
+                {group.items.map((item) => (
+                  <li key={item.id}>
+                    <NavEntry item={item} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
-      ))}
-    </nav>
+      </nav>
+    </>
   );
 }
 
@@ -293,9 +388,9 @@ function PrimaryNavigation(): ReactElement {
  * positions. One element is built, so one badge renders — on every route, because the shell is above
  * the outlet rather than inside a route (rule P-1).
  *
- * Wall mode removes the navigation and nothing else: the top bar, the badge and the outlet are
- * unconditional, so a reader in presentation mode keeps the route they are on and every control the bar
- * carries.
+ * Wall mode removes the navigation — and, with it, the trigger that reveals it below `md` — and nothing
+ * else: the top bar, the badge and the outlet are unconditional, so a reader in presentation mode keeps
+ * the route they are on and every control the bar carries.
  *
  * @returns The shell's landmarks and the router outlet they frame.
  */

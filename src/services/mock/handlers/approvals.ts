@@ -5,10 +5,16 @@
  *
  * Implements the "Handlers" row of AAP 0.12.1 and the `handlers/` line of AAP 0.13.1, over
  * `platform-contracts.md` §3 (`Approval`, `ApprovalStatus`, `WriteBack`, `WriteBackState`,
- * `Decision`), §6 (the audited actions), §7.1 (the permission matrix) and §7.2 (POL-003). Three
+ * `Decision`), §6 (the audited actions), §7.1 (the permission matrix) and §7.2 (POL-003). The
  * invariants of this family are enforced here rather than only displayed, so no caller can bypass
  * any of them:
  *
+ * - A REQUEST ANSWERS AN OPEN EXCEPTION (one plan per open disruption). `requestApproval` refuses a
+ *   request against an exception whose status is not `open`, naming the record and the status it
+ *   stands in, before it reads a set, solves an option, asks a policy or writes anything. A resolved
+ *   or dismissed record has already been answered or set aside, and the change a plan sets in motion
+ *   would land nowhere: `./exceptions.ts`'s `recordApprovedPlan` leaves such a record untouched, so
+ *   the write-backs would report success against a record the workspace considers closed.
  * - A STALE OR UNAVAILABLE ORDER BOOK REFUSES BOTH APPROVAL WRITES (AAP 0.2.1, AAP 0.12.3).
  *   `requestApproval` and `decideApproval` — and the write-back writes that continue a decision —
  *   read the order-book source's freshness through `freshnessFor(ctx.state)` and throw a `Problem`
@@ -82,7 +88,10 @@
  *    that requests also covers the request gate for them, and on `approval.decide` it would hide from
  *    a requester the plan it put forward and may not decide. Each record's plant scope is then the
  *    matrix's own answer, `hasPermission` with the approval's exception as the subject, rather than a
- *    second copy of the scope rule.
+ *    second copy of the scope rule. The inbox resolves each approval's exception once for the whole
+ *    read and hands the resolved record to that answer, because the scope test and the query's
+ *    plant-set narrowing both read it: a scan of the exception set per predicate per row would look
+ *    the same record up twice to decide one row's place.
  * 4. A REQUESTER'S OWN DECISION IS REFUSED BY POL-003 BEFORE THE PERMISSION CHECK, so the refusal
  *    carries `policyId: 'POL-003'` and the rule's own plain-words reason instead of a permission
  *    failure the reader could not act on. The deny appends a policy-actor event and the failure
@@ -150,6 +159,7 @@ import type {
   AuditResult,
   Decision,
   ExceptionId,
+  ExceptionStatus,
   Freshness,
   Levers,
   ListQuery,
@@ -171,7 +181,7 @@ import type {
 import type { HandlerContext, MockState } from '../mock-state';
 import type { SeedRecordSet } from '../seed-loader';
 import { demonstrationForbiddenReason, freshnessFor, isSimulationOn } from '../simulation';
-import { appendAuditEvent } from './audit';
+import { appendAuditEvent, assertFreeTextLength, listLimitOf } from './audit';
 import { recordApprovedPlan } from './exceptions';
 import { getScenarioSet, protectedRevenueOf } from './scenarios';
 
@@ -209,6 +219,18 @@ const DO_NOTHING_LEVERS: Levers = {
   airSets: NO_SETS_RECOVERED,
   transferSets: NO_SETS_RECOVERED,
 };
+
+/**
+ * The status an exception must stand in before a plan may be put forward for it — `ExceptionStatus`.
+ *
+ * A request answers a disruption that is still open. A record already resolved or dismissed has been
+ * answered or set aside, and the change a plan sets in motion has no record left to land on: this
+ * family's own continuation, `./exceptions.ts`'s `recordApprovedPlan`, leaves such a record untouched,
+ * so a request against it would record five succeeded write-backs on a record the workspace considers
+ * closed. The member is named here, as `./exceptions.ts` names the three, rather than compared as a
+ * literal at the call.
+ */
+const OPEN_STATUS: ExceptionStatus = 'open';
 
 /** The status an approval carries before it is decided — `ApprovalStatus`. */
 const PENDING_STATUS: ApprovalStatus = 'pending';
@@ -404,6 +426,27 @@ function exceptionOf(state: MockState, approval: Approval): OperationalException
 }
 
 /**
+ * Indexes the session's exceptions by identifier for one inbox read.
+ *
+ * `exceptionOf` answers with a scan of the exception set, so an inbox that asked it per approval would
+ * read the whole collection once per row — and twice per row once the plant-set narrowing asks for the
+ * same exception the scope test already asked for. Building the index once and handing the resolved
+ * record down makes one scan serve every row of the read.
+ *
+ * @param state - The session whose exceptions are indexed. Not modified.
+ * @returns A fresh map from an exception identifier to its record.
+ */
+function exceptionsById(state: MockState): Map<ExceptionId, OperationalException> {
+  const index = new Map<ExceptionId, OperationalException>();
+
+  for (const exception of state.records.exceptions) {
+    index.set(exception.id, exception);
+  }
+
+  return index;
+}
+
+/**
  * The exception an identifier names, when the records hold it.
  *
  * @param state - The session whose records are searched. Not modified.
@@ -520,7 +563,9 @@ function requirePermission(
  * The matrix's own answer, taken with the approval's exception as the subject, so the role's plant
  * scope and the persona's narrower one are applied by the contracts §7.1 rule rather than by a
  * second copy of it (decision 3 in the module header). An approval whose exception the records do
- * not hold cannot be placed and is outside every scope.
+ * not hold cannot be placed and is outside every scope. The rule has one owner, `admitsInboxRead`,
+ * which the inbox itself calls: this is that answer with no query narrowing stated, so the
+ * single-record check and the inbox cannot disagree about who may see a record.
  *
  * @param ctx - The call's context, whose actor the matrix is evaluated for.
  * @param state - The session whose records the exception is read from.
@@ -528,13 +573,7 @@ function requirePermission(
  * @returns `true` when the approval's exception is inside the effective plant scope.
  */
 function landsInScope(ctx: HandlerContext, state: MockState, approval: Approval): boolean {
-  const exception = exceptionOf(state, approval);
-
-  if (exception === undefined) {
-    return false;
-  }
-
-  return hasPermission(ctx.actor.role, EXCEPTION_READ, exception, ctx.actor);
+  return admitsInboxRead(ctx, approval, exceptionOf(state, approval));
 }
 
 /**
@@ -891,10 +930,13 @@ function requireNoDecidedPlan(
  *
  * @param ctx - The call's context, whose trace the failure carries.
  * @param comment - The submitted comment, already trimmed by the caller.
- * @throws Problem - A `'validation'` failure naming the decision that needs a comment.
+ * @throws Problem - A `'validation'` failure naming the decision that needs a comment, and one when
+ *   the comment is longer than `FREE_TEXT_MAX_LENGTH`.
  */
 function requireComment(ctx: HandlerContext, comment: string): void {
   if (comment !== '') {
+    assertFreeTextLength(ctx, 'a decision comment', comment);
+
     return;
   }
 
@@ -933,38 +975,51 @@ function statusForDecision(ctx: HandlerContext, decision: Decision): ApprovalSta
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Whether an approval answers the two narrowings the inbox query carries beyond the role's scope.
+ * Whether an inbox read hands one approval out: its exception's plant scope, then the query's narrowings.
  *
- * Each is applied only where the query states it: the status the caller asked for, and the plant set
- * the shell's selection resolved to. The plant set is the resolver's answer for the acting role, so a
- * set that names no plant means nothing is in scope rather than everything, and the set is tested
- * against the exception the approval is the plan for, which is where an approval's plant lives. An
- * approval whose exception the records do not hold is excluded rather than admitted: a scope filter
- * fails closed, so a subject nobody can place is not a licence to hand the record to every role.
+ * The caller resolves the approval's exception once for the whole read and passes it here, because this
+ * predicate replaces two that each scanned the exception set for the same record — one for the matrix's
+ * scope answer and one for the plant-set narrowing.
  *
- * @param ctx - The call's context, whose state the approval's exception is read from.
+ * The scope answer is the matrix's own, taken with the approval's exception as the subject, so the
+ * role's plant scope and the persona's narrower one are applied by the contracts §7.1 rule rather than
+ * by a second copy of it (decision 3 in the module header). It is asked first, and an approval whose
+ * exception the records do not hold is refused rather than admitted: a subject nobody can place is not
+ * a licence to hand the record to every role, so the predicate fails closed.
+ *
+ * Each narrowing is then applied only where the query states it: the status the caller asked for, and
+ * the plant set the shell's selection resolved to, tested against the exception the approval is the plan
+ * for, which is where an approval's plant lives. The plant set is the resolver's answer for the acting
+ * role, so a set that names no plant means nothing is in scope rather than everything.
+ *
+ * @param ctx - The call's context, whose actor the matrix is evaluated for.
  * @param approval - The approval to test.
+ * @param exception - The approval's exception as the caller resolved it, or `undefined` when the records
+ *   hold none.
  * @param status - The status the query asked for, or `undefined` when it asked for every status.
  * @param plantIds - The plants in scope, or `undefined` when the read is narrowed by no plant at all.
- * @returns `true` when the approval answers every narrowing the query states.
+ * @returns `true` when the approval is inside the role's plant scope and answers every narrowing stated.
  */
-function admitsQuery(
+function admitsInboxRead(
   ctx: HandlerContext,
   approval: Approval,
-  status: ApprovalStatus | undefined,
-  plantIds: readonly PlantId[] | undefined,
+  exception: OperationalException | undefined,
+  status?: ApprovalStatus,
+  plantIds?: readonly PlantId[],
 ): boolean {
+  if (exception === undefined) {
+    return false;
+  }
+
+  if (!hasPermission(ctx.actor.role, EXCEPTION_READ, exception, ctx.actor)) {
+    return false;
+  }
+
   if (status !== undefined && approval.status !== status) {
     return false;
   }
 
-  if (plantIds === undefined) {
-    return true;
-  }
-
-  const exception = exceptionOf(ctx.state, approval);
-
-  return exception !== undefined && plantIds.includes(exception.plantId);
+  return plantIds === undefined || plantIds.includes(exception.plantId);
 }
 
 /**
@@ -1137,23 +1192,6 @@ function startIndexOf(
   }
 
   return found + 1;
-}
-
-/**
- * The greatest number of records a page may hold, or `null` when the query sets no boundary.
- *
- * A parameter that is absent, not an integer, or not positive asks for no page rather than for an
- * empty one: contracts §9 leaves `limit` optional, and a screen that omits it wants the inbox.
- *
- * @param limit - The parameter as the query carried it.
- * @returns The page's greatest length, or `null` for every remaining record.
- */
-function limitOf(limit: number | undefined): number | null {
-  if (limit === undefined || !Number.isInteger(limit) || limit <= 0) {
-    return null;
-  }
-
-  return limit;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1554,7 +1592,8 @@ function requireRecordEligibility(ctx: HandlerContext, approval: Approval): void
  * filtered population, so paging it neither skips nor repeats a record that answers the query (contracts
  * §9, and the port's own `listApprovals` states the same rule). The plant set is the shell's selection
  * resolved with the acting role's scope, so a set naming no plant leaves nothing in scope rather than
- * widening to every plant the role reaches.
+ * widening to every plant the role reaches. Each approval's exception is resolved once for the read —
+ * one scan of the exception set — because the scope test and the plant-set narrowing both read it.
  *
  * The ordering is `sort=field:dir` over the record's own members, the default is the identifier
  * ascending, `limit` bounds the page and `cursor` continues it — the list parameters contracts §9
@@ -1569,7 +1608,7 @@ function requireRecordEligibility(ctx: HandlerContext, approval: Approval): void
  *   plant set are applied to the population rather than to a page of it.
  * @returns One page of the approvals that answer the query, in the requested order.
  * @throws Problem - A `'permission'` failure when the plans are not readable, or a `'validation'`
- *   one when the cursor names no record of the ordered page.
+ *   one when the cursor names no record of the ordered page or the limit bounds no page.
  */
 export async function listApprovals(
   ctx: HandlerContext,
@@ -1577,18 +1616,21 @@ export async function listApprovals(
 ): Promise<Approval[]> {
   requireRead(ctx);
 
-  const visible = approvalsFor(ctx.state).filter(
-    (approval) =>
-      landsInScope(ctx, ctx.state, approval) &&
-      admitsQuery(ctx, approval, query.status, query.plantIds),
+  const exceptions = exceptionsById(ctx.state);
+  const visible = approvalsFor(ctx.state).filter((approval) =>
+    admitsInboxRead(
+      ctx,
+      approval,
+      exceptions.get(approval.exceptionId),
+      query.status,
+      query.plantIds,
+    ),
   );
   const order = sortOrderOf(query.sort);
   const ordered = [...visible].sort((left, right) => compareApprovals(left, right, order));
   const start = startIndexOf(ordered, query.cursor, ctx);
-  const limit = limitOf(query.limit);
-  const page = limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
 
-  return page.map(copyApproval);
+  return ordered.slice(start, start + listLimitOf(ctx, query.limit, 'inbox')).map(copyApproval);
 }
 
 /**
@@ -1616,11 +1658,12 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  *
  * The order the checks run in is the order the rules are stated in, and nothing is written before
  * the last of them passes: the forbidden trigger, the exception's existence and the actor's
- * permission over it, the order-book gate (AAP 0.2.1 — a stale or unavailable source refuses the
- * request and creates no record), the option's own constraint check, which the policy engine decides
- * as POL-005 (an option that cannot be measured is refused with the rule and the breach rather than
- * put forward, and the refusal appends its policy-actor event), and only then the record and its
- * event.
+ * permission over it, the exception's own status — only an open record can have a plan put forward
+ * for it, so a set-aside or already-answered disruption answers no request — the order-book gate
+ * (AAP 0.2.1 — a stale or unavailable source refuses the request and creates no record), the option's
+ * own constraint check, which the policy engine decides as POL-005 (an option that cannot be measured
+ * is refused with the rule and the breach rather than put forward, and the refusal appends its
+ * policy-actor event), and only then the record and its event.
  *
  * What the record carries. The requester is the acting persona, never a caller's claim. The audience is
  * the roles the matrix lets decide a plan at the exception's own plant, less the requester's own role:
@@ -1640,10 +1683,10 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * @returns The created approval, as a copy.
  * @throws Problem - A `'permission'` failure when the role may not request or while the forbidden
  *   trigger is on, a `'not-found'` failure for an exception or an option the records do not answer, a
- *   `'validation'` failure when the order book is stale or unavailable, when the option already
- *   carries an approved plan or when no role left in the audience could decide the plan at the
- *   exception's plant, or a `'policy'` failure when POL-005 refuses the option's constraint check,
- *   carrying the rule, its reason and the event it appended.
+ *   `'validation'` failure when the exception's status is not `open`, when the order book is stale or
+ *   unavailable, when the option already carries an approved plan or when no role left in the audience
+ *   could decide the plan at the exception's plant, or a `'policy'` failure when POL-005 refuses the
+ *   option's constraint check, carrying the rule, its reason and the event it appended.
  */
 export async function requestApproval(
   ctx: HandlerContext,
@@ -1664,6 +1707,15 @@ export async function requestApproval(
     exception,
     `${exceptionId} cannot be put forward for approval here.`,
   );
+
+  if (exception.status !== OPEN_STATUS) {
+    throw validationProblem(
+      ctx,
+      `Exception ${exception.id} stands ${exception.status}, so only an open exception can have a ` +
+        'plan put forward for approval.',
+    );
+  }
+
   requireFreshOrderBook(ctx);
   requireNoDecidedPlan(ctx, exceptionId, scenarioId);
 
@@ -1760,8 +1812,9 @@ export async function requestApproval(
  * @throws Problem - A `'permission'` failure when the role may not decide this plan or while the
  *   forbidden trigger is on; a `'policy'` failure when POL-003 refuses it, carrying the rule, the
  *   reason and the appended event; a `'validation'` failure when the record moved, the order book is
- *   stale or unavailable, the approval is no longer pending or the comment is blank; and a
- *   `'simulated-write-back'` failure when a step of the approved change did not complete.
+ *   stale or unavailable, the approval is no longer pending, or the comment is blank or longer than
+ *   `FREE_TEXT_MAX_LENGTH`; and a `'simulated-write-back'` failure when a step of the approved change
+ *   did not complete.
  */
 export async function decideApproval(
   ctx: HandlerContext,

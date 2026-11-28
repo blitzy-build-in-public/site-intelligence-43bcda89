@@ -18,12 +18,14 @@
  * 1. **Value and formula** — `Evidence.value`, rendered through the one presentation formatter with
  *    `Evidence.label` beside it, and `Evidence.formula`, the rule that produced it.
  * 2. **Source, record and time** — the reference the figure carries, `Evidence.provenance`, and the
- *    six sources' `Freshness` records from the result's metadata: each source's state through the
- *    shared freshness mapping, with the instant it last answered.
+ *    six sources' `Freshness` records from the result's metadata: each source's name as plain detail
+ *    text beside its state, which the shared freshness mapping turns into the status primitive's
+ *    meaning, icon and colour, with the instant it last answered.
  * 3. **Inputs, upstream and downstream** — `Evidence.inputs`, `Evidence.upstream` and
  *    `Evidence.downstream`, the records the value was built from and the records that depend on it.
- * 4. **Confidence, missing inputs and documents** — `Evidence.confidence` with its own reason,
- *    `Evidence.missingInputs` and the `Evidence.documents` behind it.
+ * 4. **Confidence, missing inputs and documents** — `Evidence.confidence`, whose level is shown as
+ *    the status it is (the meaning's icon, the level's own word and the status role colour) with its
+ *    reason beside it, `Evidence.missingInputs` and the `Evidence.documents` behind it.
  *
  * A section whose record carries no content for it is not rendered at all, so the drawer never
  * shows an empty heading or a blank line standing in for a value it does not have.
@@ -90,13 +92,14 @@ import { createPortal } from 'react-dom';
 
 import { useService } from '../services/service-provider';
 import { SOURCE_LABELS } from '../types';
-import type { Evidence, Freshness, Problem, ScreenState } from '../types';
+import type { ConfidenceLevel, Evidence, Freshness, Problem, ScreenState, WriteBack } from '../types';
 import { freshnessMeaning } from './freshness-pill';
 import { MonoValue } from './mono-value';
 import { Panel } from './panel';
 import { STATE_BOUNDARY_TEXT, StateBoundary } from './state-boundary';
 import type { StateBoundaryForbidden } from './state-boundary';
 import { StatusIndicator } from './status-indicator';
+import type { StatusMeaning } from './status-indicator';
 import { ActionButton, CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES } from './tooltip';
 
 /* ---------------------------------------------------------------------------------------------
@@ -201,6 +204,39 @@ export const EVIDENCE_DRAWER_TEXT = {
   /** The label the correlation identifier is printed under, so a reader can quote it. */
   traceLabel: 'Trace',
 } as const;
+
+/* ---------------------------------------------------------------------------------------------
+ * The references a figure is composed from
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The root of a write-back step's reference: `write-back:<ownerId>/<sequence>`.
+ *
+ * Held here, once, because this module owns the composing half of the grammar the evidence read
+ * resolves: a second spelling of the root in a screen or a component is how a reference and the read
+ * that answers it drift apart.
+ */
+const WRITE_BACK_STEP_REF_ROOT = 'write-back';
+
+/**
+ * The reference one step of a plan's simulated write-back carries.
+ *
+ * Contracts §3 gives `WriteBack` a position, a system, the reference it writes, its description and its
+ * state — and no identifier of its own — so a step is addressed by the record its steps belong to and
+ * the position the record states: `write-back:<ownerId>/<sequence>`, where the owner is an approval or
+ * a response option. Both values are the caller's: the owner's identifier arrives from the screen that
+ * read the record and the position is the record's own `sequence`, so this function names no record,
+ * counts no step and holds no figure (rules P-6 and P-2), and the two surfaces that draw steps compose
+ * one reference the same way rather than each spelling the grammar (AAP §0.5.2's one primitive for a
+ * figure's evidence).
+ *
+ * @param ownerId - The identifier of the approval or the option whose write-back the step belongs to.
+ * @param step - The step, exactly as the record states it.
+ * @returns The reference the evidence read resolves to that step.
+ */
+export function writeBackStepRef(ownerId: string, step: WriteBack): string {
+  return `${WRITE_BACK_STEP_REF_ROOT}:${ownerId}/${step.sequence}`;
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The class lists, built from role tokens only
@@ -308,7 +344,7 @@ const TEXT_CLASSES = 'min-w-0 break-words text-14 text-text-primary';
 /** The value row, one step up the type scale because it is the figure the drawer was opened for. */
 const VALUE_CLASSES = 'min-w-0 break-words text-16 text-text-primary';
 
-/** Supporting detail — a state token, an instant, a correlation identifier. */
+/** Supporting detail — a source's name, an instant, a reason, a correlation identifier. */
 const DETAIL_CLASSES = 'min-w-0 break-words text-13 text-text-secondary';
 
 /** A stacked list of record values. */
@@ -317,8 +353,25 @@ const LIST_CLASSES = 'flex min-w-0 flex-col gap-1';
 /** One list entry. */
 const LIST_ITEM_CLASSES = 'min-w-0 break-words';
 
-/** One source's freshness inside section 2: its status, its state and the instant it answered. */
+/** One source's freshness inside section 2: its name, its state as the status and the instant. */
 const FRESHNESS_ROW_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
+
+/**
+ * What each confidence level amounts to in the shared status vocabulary.
+ *
+ * A confidence level is an enumerated value, so the drawer shows it the way every other enumerated
+ * value in the interface is shown — the meaning's icon, the level's own word and a status role colour
+ * together (rule B-3, AAP §0.5.2) — rather than as unmarked mono prose. The mapping is the one the
+ * rest of the product already states for this field: a high reading is a pass, a medium one is
+ * something to review, and a low one is the warning that the evidence rests on little. It is
+ * exhaustive by type, so a fourth level fails compilation here rather than rendering a status with
+ * nothing to tell it apart but its word.
+ */
+const CONFIDENCE_MEANINGS = {
+  high: 'pass',
+  medium: 'review',
+  low: 'warning',
+} as const satisfies Record<ConfidenceLevel, StatusMeaning>;
 
 /**
  * A notice on the second raised surface, inside the decorative hairline at the card radius, as the
@@ -851,11 +904,18 @@ function EvidenceSections({
                 <ul className={LIST_CLASSES}>
                   {freshness.map((record) => (
                     <li key={record.source} className={FRESHNESS_ROW_CLASSES}>
+                      {/* The source's name is identity and the state is the status this row
+                          reports, so the state is the status primitive's label: the meaning's icon
+                          and status colour attach to the word that states a status rather than to
+                          the name of the source they describe, which would otherwise be painted as
+                          though the name were the reading (rule B-3). */}
+                      <span className={DETAIL_CLASSES}>
+                        {SOURCE_LABELS[record.source] ?? record.source}
+                      </span>
                       <StatusIndicator
                         meaning={freshnessMeaning(record.state)}
-                        label={SOURCE_LABELS[record.source] ?? record.source}
+                        label={record.state}
                       />
-                      <span className={DETAIL_CLASSES}>{record.state}</span>
                       <MonoValue
                         value={record.asOf}
                         kind="timestamp"
@@ -888,7 +948,13 @@ function EvidenceSections({
           <div className={GROUP_CLASSES}>
             <p className={LABEL_CLASSES}>{EVIDENCE_DRAWER_TEXT.confidenceLabel}</p>
             <p className={TEXT_CLASSES}>
-              <MonoValue value={evidence.confidence.level} kind="id" />{' '}
+              {/* The level is the enumerated value this section reports, so it carries the icon,
+                  the word and the status colour every other enumerated value carries, and the
+                  record's reason reads beside it (rule B-3, AAP §0.5.2). */}
+              <StatusIndicator
+                meaning={CONFIDENCE_MEANINGS[evidence.confidence.level]}
+                label={evidence.confidence.level}
+              />{' '}
               <span className={DETAIL_CLASSES}>{evidence.confidence.reason}</span>
             </p>
           </div>

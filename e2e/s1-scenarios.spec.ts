@@ -709,9 +709,10 @@ test('the sandbox recomputes every measure at once and refuses a position that b
 
   await expect(sandbox).toBeVisible();
 
-  /* ONE CHANGE OF POSITION, EVERY MEASURE AT ONCE. The two fields carry no bound of their own — the
-     solver holds the bounds and reports each breach as a message — so the position is read from the
-     fixture row rather than from a range the control does not publish. */
+  /* ONE CHANGE OF POSITION, EVERY MEASURE AT ONCE. The two fields carry no bound attribute of their
+     own — the solver holds the bounds and reports each breach as a message, and the panel states the
+     case's own bound sentences above the fields — so the position is read from the fixture row rather
+     than from a range the control does not publish. */
   await sandbox.getByLabel('airSets', { exact: true }).fill(String(target.levers.airSets));
   await sandbox.getByLabel('transferSets', { exact: true }).fill(String(target.levers.transferSets));
   await sandbox.getByRole('button', { name: RECOMPUTE_LABEL, exact: true }).click();

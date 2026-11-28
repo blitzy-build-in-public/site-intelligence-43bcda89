@@ -4,15 +4,19 @@
  * Each case asserts a contract the component promises rather than its markup: the caption that
  * names the table (B-3), the scoped column headers, the sort control that is a real button reporting
  * `aria-sort` while the order stays the caller's own and whose caret turns only for an ascending
- * column, the `J`/`K` row cursor with its wrap-around, its single tab stop, its focus-ring token and
+ * column, the order the caller's rows arrived in — announced by the column it names through
+ * `aria-sort`, the caret and the label colour, and applied and reported by nothing — the `J`/`K` row
+ * cursor with its wrap-around, its single tab stop, its focus-ring token and
  * the clamp that keeps it tabbable when the row list shrinks under it (AAP §0.12.4, T-16), the row
  * key that keeps each row on its own DOM node across a re-sort, `Enter` and click activation,
  * the keys the cursor must leave to the fields and controls it passes through and to a held modifier
  * or an event another handler already consumed, the alignment a column states in its header cell and
  * in its cells, row heights that resolve through `--row-height` rather than a pixel value, the same
- * table under both themes, and the empty sentence in both shapes that have nothing to show — no
- * rows, and no columns to show them in. The cells hold made-up labels because the component computes
- * nothing (P-6): what a cell shows is entirely the caller's `render`.
+ * table under both themes, the optional page size and the window it paints — its own controls, the
+ * reason a control at either end carries, the whole-set row count a windowed table keeps announcing,
+ * and the cursor confined to the rows on screen — and the empty sentence in both shapes that have
+ * nothing to show — no rows, and no columns to show them in. The cells hold made-up labels because
+ * the component computes nothing (P-6): what a cell shows is entirely the caller's `render`.
  */
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
@@ -55,6 +59,37 @@ const COLUMNS = [
 /** A callable that records nothing, for the props a case does not assert on. */
 const noop = (): void => {};
 
+/**
+ * A row set wide enough to window: seven rows, so a window of three has a first window, a middle one
+ * and a last one that is still full. The labels are this suite's own placeholders, because the
+ * component computes nothing and shows exactly what the caller rendered (rule P-6).
+ */
+const WINDOW_ROWS = Array.from({ length: 7 }, (_, index) => ({
+  key: `window-row-${String(index)}`,
+  name: `Window row ${String(index)}`,
+}));
+
+/** The page size the windowed cases hand the table: narrower than {@link WINDOW_ROWS}. */
+const WINDOW_SIZE = 3;
+
+/**
+ * The two window controls, named as the table names them.
+ *
+ * The labels are the component's own wording, which it does not export, so they are stated here once:
+ * a reworded label reaches a single place in the suite.
+ */
+const WINDOW_CONTROLS = { previous: 'Previous rows', next: 'Next rows' } as const;
+
+/** The name cell's text of every painted row, which is the row the caller rendered. */
+function paintedNames(): readonly string[] {
+  return bodyRows().map((row) => within(row).getAllByRole('cell')[0]?.textContent ?? '');
+}
+
+/** The `aria-rowindex` every painted row announces, in document order. */
+function rowIndexes(): readonly (string | null)[] {
+  return bodyRows().map((row) => row.getAttribute('aria-rowindex'));
+}
+
 /** Every rendered body row, in document order. */
 function bodyRows(): readonly HTMLTableRowElement[] {
   return Array.from(document.querySelectorAll('tbody tr')).filter(
@@ -84,13 +119,31 @@ function cursorRow(): HTMLTableRowElement {
   return row;
 }
 
+/**
+ * The caret's class list, which is where its rotation lives.
+ *
+ * Read from the one sort control this suite's columns declare, so a case asserts the rotation without
+ * reaching into the component's markup: the caret is decoration and `aria-sort` carries the meaning,
+ * but the direction it points is still a promise the caller's order decides — the sort it passes or,
+ * before anyone sorts, the order its rows arrived in.
+ */
+function caretClass(): string {
+  const caret = screen.getByRole('button', { name: 'Name' }).querySelector('svg');
+  if (caret === null) {
+    throw new Error('the sort control rendered no caret');
+  }
+  return caret.getAttribute('class') ?? '';
+}
+
 interface TableOptions {
   readonly columns?: readonly TableColumn<Row>[];
   readonly rows?: readonly Row[];
   readonly sort?: TableSort | null;
+  readonly defaultOrder?: TableSort | null;
   readonly onSort?: (columnId: string) => void;
   readonly onRowActivate?: (row: Row) => void;
   readonly emptyMessage?: string;
+  readonly pageSize?: number;
 }
 
 /**
@@ -108,8 +161,12 @@ function tableElement(
       caption={CAPTION}
       sort={options.sort ?? null}
       onSort={options.onSort ?? noop}
+      defaultOrder={options.defaultOrder ?? null}
       onRowActivate={options.onRowActivate ?? noop}
       emptyMessage={options.emptyMessage ?? EMPTY_MESSAGE}
+      /* Spread rather than passed through: absent is the unwindowed default, which a caller cannot
+         reach by handing the component an explicit `undefined`. */
+      {...(options.pageSize === undefined ? {} : { pageSize: options.pageSize })}
     />
   );
 }
@@ -259,6 +316,90 @@ describe('DataTable', () => {
     ]);
   });
 
+  it('renders every row it is given when the caller states no page size', () => {
+    renderTable({ rows: WINDOW_ROWS });
+
+    // The default the bound is added above: every supplied row is painted and no window control
+    // exists, which is what every caller that states no page size keeps receiving.
+    expect(paintedNames()).toEqual(WINDOW_ROWS.map((row) => row.name));
+    expect(screen.getByRole('table')).toHaveAttribute(
+      'aria-rowcount',
+      String(WINDOW_ROWS.length + 1),
+    );
+    expect(screen.queryByRole('button', { name: WINDOW_CONTROLS.previous })).toBeNull();
+    expect(screen.queryByRole('button', { name: WINDOW_CONTROLS.next })).toBeNull();
+  });
+
+  it('paints one window of the rows and still announces the whole set', () => {
+    renderTable({ rows: WINDOW_ROWS, pageSize: WINDOW_SIZE });
+
+    expect(paintedNames()).toEqual(
+      WINDOW_ROWS.slice(0, WINDOW_SIZE).map((row) => row.name),
+    );
+    /* The count is of every row the caller supplied, so the position a painted row announces is its
+       own position in that set rather than its offset inside the window: a reader is told the table
+       holds rows the window does not paint. */
+    expect(screen.getByRole('table')).toHaveAttribute(
+      'aria-rowcount',
+      String(WINDOW_ROWS.length + 1),
+    );
+    expect(rowIndexes()).toEqual(
+      WINDOW_ROWS.slice(0, WINDOW_SIZE).map((_, offset) => String(offset + 2)),
+    );
+  });
+
+  it('moves the window with its own controls, and counts the window it shows', async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: WINDOW_ROWS, pageSize: WINDOW_SIZE });
+
+    const summary = screen.getByRole('status');
+    expect(summary).toHaveTextContent(
+      `Rows 1 to ${String(WINDOW_SIZE)} of ${String(WINDOW_ROWS.length)}`,
+    );
+
+    await user.click(screen.getByRole('button', { name: WINDOW_CONTROLS.next }));
+
+    expect(paintedNames()).toEqual(
+      WINDOW_ROWS.slice(WINDOW_SIZE, WINDOW_SIZE * 2).map((row) => row.name),
+    );
+    expect(rowIndexes()).toEqual([
+      String(WINDOW_SIZE + 2),
+      String(WINDOW_SIZE + 3),
+      String(WINDOW_SIZE + 4),
+    ]);
+    expect(summary).toHaveTextContent(
+      `Rows ${String(WINDOW_SIZE + 1)} to ${String(WINDOW_SIZE * 2)} of ${String(WINDOW_ROWS.length)}`,
+    );
+
+    await user.click(screen.getByRole('button', { name: WINDOW_CONTROLS.previous }));
+
+    expect(paintedNames()).toEqual(
+      WINDOW_ROWS.slice(0, WINDOW_SIZE).map((row) => row.name),
+    );
+  });
+
+  it('explains a window control that cannot act instead of leaving it inert', async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: WINDOW_ROWS, pageSize: WINDOW_SIZE });
+
+    /* The first window cannot go back, so the control is disabled and carries the sentence saying so
+       rather than accepting a press that would do nothing (rule P-8). */
+    const backward = screen.getByRole('button', { name: WINDOW_CONTROLS.previous });
+    expect(backward).toHaveAttribute('aria-disabled', 'true');
+    expect(backward).toHaveAccessibleDescription(/no earlier window/);
+
+    const forward = screen.getByRole('button', { name: WINDOW_CONTROLS.next });
+    expect(forward).not.toHaveAttribute('aria-disabled');
+
+    /* Two moves reach the last window, whose own forward control cannot act for the same reason. */
+    await user.click(forward);
+    await user.click(screen.getByRole('button', { name: WINDOW_CONTROLS.next }));
+
+    const lastForward = screen.getByRole('button', { name: WINDOW_CONTROLS.next });
+    expect(lastForward).toHaveAttribute('aria-disabled', 'true');
+    expect(lastForward).toHaveAccessibleDescription(/no later window/);
+  });
+
   it('renders a sort control only for a sortable column, named by its header text', () => {
     renderTable();
 
@@ -293,19 +434,90 @@ describe('DataTable', () => {
     );
   });
 
+  /*
+   * The order the caller's rows arrived in, announced rather than applied.
+   *
+   * A read that orders its own rows — the service's default order on every table the application
+   * renders — hands that order to the table, so the header it names states the order in effect before a
+   * reader touches a control. The two directions are one case each because only the announcement
+   * differs.
+   */
+  it.each([
+    { direction: 'asc', ariaSort: 'ascending' },
+    { direction: 'desc', ariaSort: 'descending' },
+  ] as const)(
+    'announces the order its rows arrived in as $ariaSort',
+    ({ direction, ariaSort }) => {
+      renderTable({ defaultOrder: { columnId: 'name', direction } });
+
+      const [first, second] = screen.getAllByRole('columnheader');
+      expect(first).toHaveAttribute('aria-sort', ariaSort);
+      expect(second).not.toHaveAttribute('aria-sort');
+    },
+  );
+
+  it('turns the sort caret over for the order its rows arrived in', () => {
+    const { rerender } = renderTable({
+      defaultOrder: { columnId: 'name', direction: 'asc' },
+    });
+
+    expect(caretClass()).toContain('rotate-180');
+
+    rerender(tableElement({ defaultOrder: { columnId: 'name', direction: 'desc' } }));
+
+    expect(caretClass()).not.toContain('rotate-180');
+  });
+
+  it('lets the caller’s sort outrank the order its rows arrived in', () => {
+    const { rerender } = renderTable({
+      defaultOrder: { columnId: 'name', direction: 'asc' },
+      sort: { columnId: 'name', direction: 'desc' },
+    });
+
+    expect(screen.getAllByRole('columnheader')[0]).toHaveAttribute(
+      'aria-sort',
+      'descending',
+    );
+
+    /* A sort on another column replaces the handed-in order outright: once the caller applies an order
+       of its own, the column the rows arrived sorted by announces nothing. */
+    rerender(
+      tableElement({
+        defaultOrder: { columnId: 'name', direction: 'asc' },
+        sort: { columnId: 'state', direction: 'asc' },
+      }),
+    );
+
+    expect(screen.getAllByRole('columnheader')[0]).toHaveAttribute(
+      'aria-sort',
+      'none',
+    );
+  });
+
+  it('reorders no row and reports no sort for the order its rows arrived in', async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+
+    renderTable({ defaultOrder: { columnId: 'name', direction: 'desc' }, onSort });
+
+    // The order is the caller's: the announcement applies nothing, and only an activation of the sort
+    // control reaches `onSort`, which then reports the column and nothing about the handed-in order.
+    expect(onSort).not.toHaveBeenCalled();
+    expect(bodyRows().map((row) => row.textContent)).toEqual(
+      ROWS.map((row) => `${row.name}Awaiting review`),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Name' }));
+
+    expect(onSort).toHaveBeenCalledTimes(1);
+    expect(onSort).toHaveBeenCalledWith('name');
+    expect(bodyRows().map((row) => row.textContent)).toEqual(
+      ROWS.map((row) => `${row.name}Awaiting review`),
+    );
+  });
+
   it('flips the sort caret over only while the column is ascending', () => {
     const { rerender } = renderTable();
-
-    /** The caret's class list, which is where its rotation lives. */
-    function caretClass(): string {
-      const caret = screen
-        .getByRole('button', { name: 'Name' })
-        .querySelector('svg');
-      if (caret === null) {
-        throw new Error('the sort control rendered no caret');
-      }
-      return caret.getAttribute('class') ?? '';
-    }
 
     // `aria-sort` already announces the order, so the caret is decoration: it points down for the
     // caller's own order and for descending, and flips over for ascending.
@@ -408,6 +620,31 @@ describe('DataTable', () => {
 
     await user.keyboard('k');
     expect(document.activeElement).toBe(rowAt(ROWS.length - 1));
+  });
+
+  it('T-16 keeps the row cursor inside the window it paints, and clamps it when the window moves', async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: WINDOW_ROWS, pageSize: WINDOW_SIZE });
+    expect(cursorRow()).toBe(rowAt(0));
+
+    /* J walks the rows the window paints and wraps inside it: a cursor moved onto a row the window
+       does not paint would leave nothing in the table tabbable (rule B-3). */
+    rowAt(0).focus();
+    await user.keyboard('j');
+    await user.keyboard('j');
+    expect(document.activeElement).toBe(rowAt(WINDOW_SIZE - 1));
+
+    await user.keyboard('j');
+    expect(document.activeElement).toBe(rowAt(0));
+
+    /* The window moves out from under the cursor, so the cursor is clamped into the window that
+       replaced it rather than left on an index nothing paints. */
+    await act(async () => {
+      screen.getByRole('button', { name: WINDOW_CONTROLS.next }).click();
+    });
+
+    expect(cursorRow()).toBe(rowAt(0));
+    expect(rowIndexes()[0]).toBe(String(WINDOW_SIZE + 2));
   });
 
   it('T-16 keeps the cursor row tabbable when the row list shrinks under it', async () => {
@@ -714,6 +951,16 @@ describe('DataTable', () => {
     expect(
       bodyRows().filter((row) => row.getAttribute('tabindex') === '0'),
     ).toHaveLength(0);
+  });
+
+  it('offers no window controls under the empty sentence, even when the rows outnumber the page size', () => {
+    renderTable({ columns: [], rows: WINDOW_ROWS, pageSize: WINDOW_SIZE });
+
+    /* A window exists to move through rows the table paints, and this rendering paints none: offering
+       the controls over the caller's sentence would advertise rows nothing can show (rule P-8). */
+    expect(bodyRows()).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: WINDOW_CONTROLS.previous })).toBeNull();
+    expect(screen.queryByRole('button', { name: WINDOW_CONTROLS.next })).toBeNull();
   });
 
   it('requires an empty message of every caller, so no table can be silently blank', () => {

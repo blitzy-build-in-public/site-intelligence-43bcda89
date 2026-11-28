@@ -87,8 +87,17 @@ import { Panel } from '../../components/panel';
 import { runOutReading } from '../../components/run-out-reading';
 import { StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
-import { CANNOT_COMPUTE_LABEL, SIM_LABELS } from '../../types';
+import {
+  CANNOT_COMPUTE_LABEL,
+  COMPARISON_MEASURE_COLUMN_LABEL,
+  COMPARISON_MEASURE_LABELS,
+  COMPARISON_SET_ASIDE_LABEL,
+  CONSTRAINT_CHECK_LABELS,
+  SIDE_EFFECT_FIELD_LABELS,
+  SIM_LABELS,
+} from '../../types';
 import type {
+  ConfidenceLevel,
   ConstraintCheck,
   Rejected,
   Scenario,
@@ -119,58 +128,54 @@ export { CANNOT_COMPUTE_LABEL };
 /**
  * Every word this matrix states itself, held here so its wording has one owner.
  *
+ * WHAT IT STILL OWNS, AND WHAT IT NOW READS FROM THE SHARED VOCABULARY. The caption naming what the
+ * table compares and the one cell an empty set renders are the matrix's own and stay here. Everything
+ * else — the nine measure labels, the corner cell naming the row axis, the heading over the options the
+ * set held back, the two constraint states and the four field labels inside one side effect — reads
+ * `src/types/comparison-text.ts`, because the comparison CSV states the same words and a service module
+ * may not import a feature module (AAP §0.18.1). Each member below keeps the shape and the name its
+ * readers already use, so `COMPARISON_MATRIX_TEXT.rows.addedCost` is the same string it always was,
+ * and no reader in this feature changes.
+ *
  * Eight of the nine measure labels are AAP §0.12.4's SCR-04 row verbatim, in the order that row lists
  * them; the ninth names the run-out reading AAP §0.8 requires that row's screens to render beside them.
- * The rest is grouping vocabulary the plan leaves to the implementation — the caption naming what
- * the table compares, the corner cell naming the row axis, the constraint states a `ConstraintCheck`
- * reports, the field labels inside one side effect, and the two state markers for an empty set and
- * the options the set held back. None of them is a fixed specification string, none carries a figure,
- * an amount, a date or a record identifier, and no record sentence — a confidence reason, a
- * constraint message, a blocking constraint — is paraphrased here: those arrive with the record and
- * are rendered as the record states them (rule P-6).
+ * The three levels a `ConfidenceLevel` reports are the matrix's own words and stay here, beside the
+ * caption naming what the table compares and the one cell an empty set renders. None of these words
+ * carries a figure, an amount, a date or a record identifier, and no record sentence — a confidence
+ * reason, a constraint message, a blocking constraint — is paraphrased here: those arrive with the
+ * record and are rendered as the record states them (rule P-6).
  */
 export const COMPARISON_MATRIX_TEXT = {
   /** The table's accessible name, used when the screen supplies none of its own. */
   caption: 'Response options and the measures they are compared on',
 
   /** The corner cell, which names the row axis: every row below it is one measure. */
-  cornerLabel: 'Measure',
+  cornerLabel: COMPARISON_MEASURE_COLUMN_LABEL,
 
   /** The one cell an empty set renders, in place of the nine measure rows. */
   emptySet: 'No options',
 
   /** The heading of the list carrying the options the set held back. */
-  rejectedLabel: 'Set aside',
+  rejectedLabel: COMPARISON_SET_ASIDE_LABEL,
 
   /**
    * The nine measure rows: AAP §0.12.4's SCR-04 row in the order it states them, with the run-out
    * reading AAP §0.8 requires carried after the idle days it explains.
    */
-  rows: {
-    unitsLate: 'Units late',
-    maxDaysLate: 'Maximum days late',
-    ordersOnTime: 'Orders on time',
-    addedCost: 'Added cost',
-    lineIdleDays: 'Line idle days',
-    runOut: 'Run-out',
-    confidence: 'Confidence',
-    constraintCheck: 'Constraint check',
-    sideEffects: 'Side effects',
-  },
+  rows: COMPARISON_MEASURE_LABELS,
 
   /** The two states a `ConstraintCheck` reports, each shown with its icon and colour. */
-  constraint: {
-    pass: 'Pass',
-    fail: 'Fail',
+  constraint: CONSTRAINT_CHECK_LABELS,
+
+  /** The three levels a `ConfidenceLevel` reports, each shown with its icon and colour. */
+  confidence: {
+    high: 'High',
+    medium: 'Medium',
+    low: 'Low',
   },
 
   /** The field labels inside one side effect, so no bare number stands unexplained. */
-  sideEffect: {
-    product: 'Product',
-    kits: 'Kits deferred',
-    value: 'Value deferred',
-    days: 'Days deferred',
-  },
+  sideEffect: SIDE_EFFECT_FIELD_LABELS,
 } as const;
 
 /* ---------------------------------------------------------------------------------------------
@@ -225,6 +230,27 @@ interface ConstraintPresentation {
 const CONSTRAINT_PRESENTATION: Record<ConstraintCheck, ConstraintPresentation> = {
   pass: { meaning: 'pass', label: COMPARISON_MATRIX_TEXT.constraint.pass },
   fail: { meaning: 'fail', label: COMPARISON_MATRIX_TEXT.constraint.fail },
+};
+
+/**
+ * How one `ConfidenceLevel` is presented: the shared status meaning that selects the icon and the
+ * status colour role for it.
+ *
+ * The mapping is the one the application already states for this field — a high reading is a pass, a
+ * medium one is something to review, and a low one is the warning that the assessment rests on little
+ * — so a confidence level carries the icon, the word and the colour that every other enumerated value
+ * carries instead of arriving as unmarked prose (rule B-3, AAP §0.5.2). No meaning and no status
+ * colour outside the shared six is introduced here, and the visible word beside the icon is the
+ * level's own, read from {@link COMPARISON_MATRIX_TEXT} rather than spelled a second time in markup.
+ *
+ * Exported so the sandbox panel on this same screen draws the level of its recomputed option from this
+ * one map, and it is exhaustive by type: a fourth level fails to compile rather than rendering a
+ * status with nothing to tell it apart but a hue.
+ */
+export const CONFIDENCE_PRESENTATION: Record<ConfidenceLevel, StatusMeaning> = {
+  high: 'pass',
+  medium: 'review',
+  low: 'warning',
 };
 
 /* ---------------------------------------------------------------------------------------------
@@ -305,16 +331,23 @@ interface ConfidenceValuesProps {
 }
 
 /**
- * One option's confidence: the level the record states, then the sentence explaining it.
+ * One option's confidence: the level the record states, drawn as the status it is, then the sentence
+ * explaining it.
  *
  * Both members are rendered and neither is derived — `Confidence.reason` is a required field
- * precisely because SCR-04 shows the two together (AAP §0.12.4) — and the level is set in the mono
- * face the way the evidence drawer sets it, so the same vocabulary reads the same on both surfaces.
+ * precisely because SCR-04 shows the two together (AAP §0.12.4). The level goes through
+ * `StatusIndicator`, with the meaning {@link CONFIDENCE_PRESENTATION} maps onto it and the level's own
+ * word as the label, so the icon, the word and the status colour reach the cell together (§0.5.2,
+ * rule B-3). A confidence level is an enumerated value and not an identifier, so the identifier
+ * formatter `MonoValue` has no part in it.
  */
 function ConfidenceValues({ confidence }: ConfidenceValuesProps): ReactElement {
   return (
     <span className="flex flex-col items-start gap-1">
-      <MonoValue kind="id" value={confidence.level} />
+      <StatusIndicator
+        meaning={CONFIDENCE_PRESENTATION[confidence.level]}
+        label={COMPARISON_MATRIX_TEXT.confidence[confidence.level]}
+      />
       <span className="text-12 text-text-secondary">{confidence.reason}</span>
     </span>
   );
@@ -452,7 +485,9 @@ interface MeasureRow {
  * a presentation convention for them and `MonoValue`'s four kinds are money, identifier, timestamp
  * and hash. Money goes through `MonoValue kind="money"`, the application's one money formatter, the
  * run-out pair through the one component that owns its wording (AAP §0.8), and the confidence and
- * side-effect cells compose their several fields in the components above.
+ * side-effect cells compose their several fields in the components above — the confidence level among
+ * them as the status {@link CONFIDENCE_PRESENTATION} makes of it, because an enumerated value shows
+ * its icon, its word and its colour together (§0.5.2, rule B-3).
  */
 const MEASURE_ROWS: readonly MeasureRow[] = [
   {

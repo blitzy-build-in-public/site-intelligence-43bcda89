@@ -7,19 +7,20 @@
  * Every figure is `getOverview`'s payload, computed by `src/domain/aggregation` over the records the active
  * scope admits, and this module reaches records only through `useService()` (rule P-2): it derives, rounds
  * and formats nothing, places the payload's own values, draws its one formatter from
- * `src/components/mono-value.tsx`, and its one sort reorders the payload's own rows. Each tile and chart
- * frame carries `SIM_LABELS`' `Simulated calculation` member rather than relying on the page-level badge
- * (rules P-1, P-6), and every control here acts or opens its own evidence (rule P-8).
+ * `src/components/mono-value.tsx`, and its one sort reorders the payload's own rows. Each tile, each
+ * chart frame and each card of computed figures carries `SIM_LABELS`' `Simulated calculation` member
+ * rather than relying on the page-level badge (rules P-1, P-6), and every control here performs the
+ * action it presents or opens its own evidence (rule P-8).
  *
- * WHY THE DAY'S CONTROL IS THE SERIES TABLE'S DATE CELL, NOT THE CHART'S MARK. AAP 0.12.4 asks this
- * series for two things at once: every figure opens its 420 px evidence drawer (principle PR-6), and
- * the fourteen days' dates filter the queue. One gesture cannot do both — a mark's single activation
- * opens that day's evidence, so a second effect that navigated to the queue would unmount this screen,
- * and the drawer with it, before a reader could read a word of it. The mark therefore keeps its
- * evidence and nothing else, exactly as every other figure does, and the day's own row in the series'
- * table view carries the narrowing: its date cell is a control named for the day it narrows to, so the
- * affordance states the effect it performs (rule P-8) and the shared chart primitive keeps the one
- * contract it already has.
+ * THE BARS AND THE DATES ARE THE QUEUE'S CONTROLS (AAP 0.12.4). That row gives this screen's
+ * revenue-at-risk bars and its fourteen days one job — they filter the queue — so every mark on either
+ * chart narrows it: a bar to the plant it draws, a date mark to the day it counts. The reader is taken
+ * to the queue the gesture narrowed, because one gesture cannot both leave this screen and leave a
+ * screen-level drawer readable behind it (the shell's `OverviewRoute` states the navigation). The
+ * figures keep their evidence all the same: each is an `EvidenceRef` in its chart's mandatory "View as
+ * table" grid, where the record, the formula and the freshness behind the value open exactly as they
+ * do from a tile or a table cell (AAP criterion 9, rule B-3), and the series table's own date cell
+ * narrows to the day it prints for the reader who is already reading the table.
  *
  * GAPS THIS FILE HAS TO REPORT, each recorded where it bites:
  * 1. `Overview` carries no evidence reference for the four tiles, for the by-plant rows or for the
@@ -46,12 +47,13 @@ import { EvidenceRef } from '../../components/evidence-drawer';
 import { HorizontalBarChart } from '../../components/horizontal-bar-chart';
 import type { HorizontalBarDatum } from '../../components/horizontal-bar-chart';
 import { LineChart } from '../../components/line-chart';
-import type { LinePoint, LineSeriesSpec } from '../../components/line-chart';
+import type { LinePoint, LinePointActivation, LineSeriesSpec } from '../../components/line-chart';
 import { MetricTile } from '../../components/metric-tile';
 import { MonoValue, formatMoney } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
 import { deriveScreenState, forbiddenOf, staleSourceOf } from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
+import { StatusIndicator } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
 import { useService } from '../../services/service-provider';
 import { APPROVAL_GATE_SOURCE, EXCEPTION_QUEUE_PATH, SIM_LABELS } from '../../types';
@@ -97,11 +99,30 @@ const SCREEN_TEXT = {
 
   changedSinceTitle: 'Changed since your last visit',
 
+  /**
+   * What the `Simulated calculation` label at the head of the changed-since card refers to.
+   *
+   * The label itself is the exact specification §5.3 string; this sentence says what it covers, because
+   * one label stands over several figures and AAP 0.10 asks each simulated element to be labelled on
+   * screen rather than behind a page-level badge. It states no figure, amount, identifier or date of its
+   * own (rules P-1 and P-6).
+   */
+  changedSinceNote: 'Every entry beneath is a computed reading of what moved.',
+
   changedSinceEmpty: 'No record has changed since your last visit.',
 
   byPlantTitle: 'Risk by plant',
 
   byPlantCaption: 'Open exceptions and revenue at risk, by plant',
+
+  /**
+   * What the `Simulated calculation` label at the head of the risk-by-plant card refers to.
+   *
+   * The card mounts one label over the four counts and the four amounts its rows carry, so this sentence
+   * states what the label covers rather than leaving a reader to guess which figures it qualifies. It
+   * names no figure, amount, identifier or date (rules P-1 and P-6).
+   */
+  byPlantNote: 'Every count and amount beneath is a computed figure.',
 
   byPlantEmpty: 'No plant in this scope carries an open exception.',
 
@@ -140,12 +161,13 @@ const SCREEN_TEXT = {
   seriesChartCaption: 'Exceptions opened and resolved per day, as a table',
 
   /**
-   * What the series table view's date control does, as the start of a sentence that names the day.
+   * What narrowing the queue to one day does, as the start of a sentence that names the day.
    *
-   * It is this screen's own wording, not a specification §5.3 label: the control's accessible name is
-   * this sentence followed by the day the row carries, so a reader of the table hears the action and
-   * the day it acts on ("Narrow the queue to 2026-11-21") while the visible text stays the date
-   * (rules P-8 and B-3). It states no figure and no date of its own (rule P-6).
+   * It is this screen's own wording, not a specification §5.3 label, and both controls that narrow to a
+   * day are named with it followed by the day they carry: it ends the series mark's accessible name,
+   * after the figure that mark draws, and it is the whole name of the series table's date cell, whose
+   * visible text stays the date (rules P-8 and B-3). It states no figure and no date of its own (rule
+   * P-6).
    */
   narrowToDay: 'Narrow the queue to ',
 
@@ -273,10 +295,10 @@ function dayRef(kind: 'open' | 'resolved', date: IsoDate, scope: Scope): string 
  *
  * AAP 0.12.4 fixes both gestures: a revenue bar narrows the queue to the plant it draws, and a date
  * on the opened/resolved series narrows it to that day. This screen emits the member and nothing more,
- * because a screen may not read the shell's store; the shell turns it into the navigation and the day
- * it carries, and `ExceptionQuery.date` in `src/types/service.ts` is the member the queue's read
- * narrows by — so the date a reader chose is the date asked of the records, never a filter this screen
- * re-applies to rows it already has (rule P-2).
+ * because a screen may not read the shell's store; the shell turns it into the plant selection, the
+ * navigation to the queue and the day it carries, and `ExceptionQuery.date` in `src/types/service.ts`
+ * is the member the queue's read narrows by — so the date a reader chose is the date asked of the
+ * records, never a filter this screen re-applies to rows it already has (rule P-2).
  */
 export type OverviewNarrowing =
   | { readonly kind: 'plant'; readonly plantId: PlantId }
@@ -297,8 +319,12 @@ export interface OverviewScreenProps {
   readonly scope: Scope;
 
   /**
-   * What the shell does when a figure narrows the queue. Absent, a bar still opens its own evidence,
-   * so the control keeps performing its function with no handler in reach (rule P-8).
+   * What the shell does when a figure narrows the queue: a revenue bar narrows it to the plant it
+   * draws, and a date mark and the series table's date cell to the day they print (AAP 0.12.4).
+   *
+   * The shell is the only member that can carry the narrowing to the queue, because a screen reads no
+   * shell store and mounts no other screen (AAP 0.18.1), so the gesture reports the member through
+   * this handler and the route element that owns SCR-01 always supplies one.
    */
   readonly onNarrowQueue?: (narrowing: OverviewNarrowing) => void;
 }
@@ -494,10 +520,11 @@ function plantColumnsOf(scope: Scope): readonly TableColumn<PlantRiskRow>[] {
  * and the frame's "View as table" swaps one for the other. Each count is wrapped in `EvidenceRef`, so a
  * reader takes the same figure from the table as from the mark, and opens the same evidence behind it.
  *
- * The date cell is where the series narrows the queue to a day (AAP §0.12.4). It is a factory rather
- * than a constant because the activation belongs to the screen instance that renders it — the handler
- * arrives as a prop from the shell — and the day it reports is the row's own `date`, so the control
- * asks the records about the day it prints rather than about a position in the chart.
+ * The date cell narrows the queue to the day it prints, as the series' own marks do (AAP §0.12.4), so
+ * a reader already in the table view takes the same narrowing from the row they are reading. It is a
+ * factory rather than a constant because the activation belongs to the screen instance that renders
+ * it — the handler arrives as a prop from the shell — and the day it reports is the row's own `date`,
+ * so the control asks the records about the day it prints rather than about a position in the chart.
  *
  * THE CONTROL'S NAME IS ONE SENTENCE AND ITS FACE IS THE DAY. The action is stated in
  * `SCREEN_TEXT.narrowToDay` and the day follows it, so the name begins with what activating the control
@@ -593,10 +620,10 @@ function hasNothingToShow(overview: Overview): boolean {
  * One read, through the port: `getOverview`, keyed by the method's own name and the scope it was made
  * with (AAP 0.6.2), so a scope change re-reads the overview and a write that invalidates `getOverview`
  * reaches this entry. The settled facts decide the screen's state in one place
- * ({@link deriveScreenState}), and the boundary owns how that state looks. Nothing here writes: the
- * only state the component owns is what the reader chose — the table's ordering and the bar they last
- * activated — so a re-render can never move a record. A day the reader narrows the queue by is
- * reported to the shell rather than held here: the shell carries it to the queue, and nothing on this
+ * ({@link deriveScreenState}), and the boundary owns how that state looks. Nothing here writes, and the
+ * only state the component owns is the table's ordering, so a re-render can never move a record. A
+ * plant or a day the reader narrows the queue by is reported to the shell rather than held here: the
+ * shell narrows the scope, carries the day to the queue and takes the reader there, and nothing on this
  * screen's own rendering depends on it (rule P-2).
  *
  * @param props - The shell's plant and product selection, and the handler a figure reports to.
@@ -607,7 +634,6 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
   const navigate = useNavigate();
 
   const [sort, setSort] = useState<TableSort | null>(null);
-  const [selectedPlantId, setSelectedPlantId] = useState<PlantId | null>(null);
 
   /*
    * Retries are off on purpose: a refusal the records' own permissions produce fails the same way
@@ -615,10 +641,10 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
    * where repeating the call can succeed.
    *
    * The payload already on screen stays mounted while a narrowed scope re-reads
-   * (`placeholderData: keepPreviousData`), so the revenue bar the reader activated keeps the figure it
-   * draws and the evidence drawer that same gesture opened: substituting the pending state would
-   * unmount the chart, and the drawer with it. What stays up until the new read settles is the outgoing
-   * scope's reading of the same aggregate, never a figure the incoming scope would not report.
+   * (`placeholderData: keepPreviousData`), so a plant chosen from the top bar's own filter re-reads the
+   * overview in place rather than substituting the pending state for the content already on screen.
+   * What stays up until the new read settles is the outgoing scope's reading of the same aggregate,
+   * never a figure the incoming scope would not report.
    */
   const overviewQuery = useQuery<Result<Overview>, unknown>({
     queryKey: ['getOverview', scope],
@@ -671,6 +697,23 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
   const seriesColumns = useMemo(
     () => seriesColumnsOf(narrowToDate, scope),
     [narrowToDate, scope],
+  );
+
+  /*
+   * What a date mark does: it narrows the queue to the day it draws, exactly as that day's row in the
+   * series' table view does (AAP 0.12.4). The chart is handed the activation rather than left to open a
+   * drawer, because this gesture leaves the screen and a drawer opened here could never be read; the
+   * mark's accessible name ends with the action, so its effect is announced before it is performed
+   * (rules P-8 and B-3). Memoised on the handler and nothing else, as the table's columns are.
+   */
+  const seriesActivation = useMemo<LinePointActivation>(
+    () => ({
+      onActivate: (point) => {
+        narrowToDate(point.x);
+      },
+      actionName: (point) => `${SCREEN_TEXT.narrowToDay}${point.x}`,
+    }),
+    [narrowToDate],
   );
 
   /*
@@ -782,25 +825,20 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
   }
 
   /*
-   * One gesture, two effects, as AAP 0.12.4's SCR-01 row fixes them: the mark opens its own evidence —
-   * the chart owns that half, for a pointer and for `Enter` or `Space` alike — and the shell is asked
-   * to narrow the queue to the plant the bar draws. The reader stays on the overview, because the
-   * drawer the same gesture opened is the evidence behind this figure and leaving the screen would
-   * close it; the narrowed queue is reached through this screen's primary action "Review critical
-   * exceptions", or through the queue's navigation entry. The selection is held here only so the chart
-   * can mark the bar the reader chose.
+   * The plant a bar draws, asked of the shell. AAP 0.12.4 gives the revenue bars the queue-filtering
+   * job, so activating one reports the plant: the shell narrows the scope to it and opens the queue that
+   * narrowing produced, where the reader reads the rows the bar stands for. Nothing of the gesture is
+   * kept here — an activation that leaves the screen has no selection left to mark, and the shell's own
+   * Plant filter is what the narrowed queue reads (AAP 0.2.1's one scope resolver).
    */
   function narrowToPlant(plantId: string): void {
-    setSelectedPlantId(plantId);
     onNarrowQueue?.({ kind: 'plant', plantId });
   }
 
   /*
-   * The day the reader narrowed by, asked of the records. The date is the activated row's own, so the
-   * queue is asked about the day the control prints rather than about a position in the table; nothing
-   * is held here, because the shell carries the day to the queue and this screen's rendering does not
-   * depend on it (rule P-2). With no handler in reach the row's figures still open their own evidence,
-   * so the table keeps performing (rule P-8).
+   * The day the reader narrowed by, asked of the records. The date is the activated mark's or row's own,
+   * so the queue is asked about the day the control prints rather than about a position in the chart;
+   * nothing is held here, because the shell carries the day to the queue and opens it (rule P-2).
    */
   function narrowToDate(date: IsoDate): void {
     onNarrowQueue?.({ kind: 'date', date });
@@ -864,6 +902,13 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
             </div>
 
             <Card title={SCREEN_TEXT.changedSinceTitle}>
+              {/*
+                The computed figures' own label, inside the card it covers: AAP 0.10 assigns the label to
+                each simulated element, and a page-level badge does not satisfy it for an individual
+                figure (rule P-1). The sentence beneath says what the label refers to.
+              */}
+              <StatusIndicator meaning="simulated" label={CALCULATION_LABEL} />
+              <p className={DETAIL_CLASSES}>{SCREEN_TEXT.changedSinceNote}</p>
               {changed.length === 0 ? (
                 <p className={DETAIL_CLASSES}>{SCREEN_TEXT.changedSinceEmpty}</p>
               ) : (
@@ -881,6 +926,14 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
             </Card>
 
             <Card title={SCREEN_TEXT.byPlantTitle}>
+              {/*
+                The card's computed figures carry the label above them, as the queue's revenue column
+                does: `TableColumn.header` is a string, so a header cell cannot hold the indicator that
+                carries the meaning's icon and colour as well as its label (rule B-3), and one label over
+                the four counts and four amounts is the label those figures own (AAP 0.10, rule P-1).
+              */}
+              <StatusIndicator meaning="simulated" label={CALCULATION_LABEL} />
+              <p className={DETAIL_CLASSES}>{SCREEN_TEXT.byPlantNote}</p>
               <DataTable<PlantRiskRow>
                 columns={plantColumns}
                 rows={orderedByPlant}
@@ -904,7 +957,6 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
                     max={axisMax}
                     xAxisLabel={SCREEN_TEXT.revenueChartAxis}
                     onActivate={narrowToPlant}
-                    activeId={selectedPlantId ?? undefined}
                   />
                 </ChartFrame>
               </Card>
@@ -916,7 +968,11 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
                   simLabel={CALCULATION_LABEL}
                   tableRows={seriesTable}
                 >
-                  <LineChart series={lineSeries} yAxisLabel={SCREEN_TEXT.seriesChartAxis} />
+                  <LineChart
+                    series={lineSeries}
+                    yAxisLabel={SCREEN_TEXT.seriesChartAxis}
+                    activation={seriesActivation}
+                  />
                 </ChartFrame>
               </Card>
             </div>

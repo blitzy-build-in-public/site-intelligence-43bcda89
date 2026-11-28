@@ -178,7 +178,10 @@ const SCREEN_TEXT = {
   /** The protected-revenue column, before its simulation label is appended below. */
   protectedRevenueColumn: 'Protected revenue',
 
-  /** The status column. */
+  /**
+   * The status column: the record's own `ApprovalStatus` token, printed verbatim through the status
+   * indicator, with no label appended below it.
+   */
   statusColumn: 'Status',
 
   /** The freshness column, before the gating source's own display name is appended below. */
@@ -431,6 +434,17 @@ function freshnessCell(gate: Freshness | undefined): ReactNode {
 }
 
 /**
+ * The order the inbox's rows arrive in, which the table announces and never applies.
+ *
+ * The screen sends no `sort` and the service answers in its own default order —
+ * `src/services/mock/handlers/approvals.ts`'s `DEFAULT_SORT_ORDER`, the approval identifier ascending —
+ * so the approval column is the column the rows are already ordered by, in the ascending direction.
+ * Announcing it is what lets a reader hear that order before touching a header; it applies nothing,
+ * reorders nothing and reaches no `onSort`.
+ */
+const INBOX_DEFAULT_ORDER: TableSort = { columnId: 'approval', direction: 'asc' };
+
+/**
  * The inbox's columns, in the order AAP 0.12.4 states them: the identifier, the plan, the cost, the
  * protected revenue, the status and the freshness.
  *
@@ -596,12 +610,22 @@ export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
     void approvalsQuery.refetch();
   };
 
+  /**
+   * Moves the inbox's ordering to the column the reader activated, or reverses the column in effect.
+   *
+   * The order in effect is the controlled `sort` once a reader has sorted, and {@link INBOX_DEFAULT_ORDER}
+   * — the order the read answered in, which the table announces — before that. Starting from the declared
+   * order is what makes the first activation of the Approval header reverse the rows instead of asking for
+   * the ascending order they are already in, which would change nothing on screen (rule P-8).
+   */
   const handleSort = (columnId: string): void => {
-    setSort((current) =>
-      current !== null && current.columnId === columnId
-        ? { columnId, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { columnId, direction: 'asc' },
-    );
+    setSort((current) => {
+      const inEffect = current ?? INBOX_DEFAULT_ORDER;
+
+      return inEffect.columnId === columnId
+        ? { columnId, direction: inEffect.direction === 'asc' ? 'desc' : 'asc' }
+        : { columnId, direction: 'asc' };
+    });
   };
 
   /* The row's one behaviour: open the approval it names, at the route the detail screen answers on. */
@@ -629,6 +653,7 @@ export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
           caption={SCREEN_TEXT.tableCaption}
           sort={sort}
           onSort={handleSort}
+          defaultOrder={INBOX_DEFAULT_ORDER}
           onRowActivate={openApproval}
           emptyMessage={SCREEN_TEXT.empty}
         />

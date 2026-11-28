@@ -27,6 +27,10 @@
  *   kits, and its unit price is the price at which AAP 0.8's side-effect sentence — 900 Brno service
  *   kits, EUR 108,000 — is this order's own quantity times its own unit price. That price is record
  *   content, not a computed revenue (rule P-6).
+ * - `PRD-R75`'s unit price, 1,850, is reconstructed the same way from the other half of that same
+ *   sentence: the 580 and 640 units late AAP 0.8 quotes, valued at their own order's price, are the
+ *   EUR 2,257,000 of delayed revenue the recommendation states it avoids, and 1,220 × 1,850 =
+ *   2,257,000. `src/seed/products.ts` carries the arithmetic and the reversal.
  * - Each product ships from a plant whose lines build it: `PRD-R75` from `PLT-RGB`, `PRD-A200` from
  *   `PLT-QRO`, `PRD-V40` from `PLT-BRN`. Three of the four plants therefore appear in the book:
  *   `PLT-RAK` builds `PRD-V40` on `LN-RAK-1` and carries no customer order here, and no order pairs a
@@ -132,7 +136,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 210,
-    unitPriceEur: 1240,
+    unitPriceEur: 1850,
     dueDate: '2026-11-24',
     originalDueDate: '2026-11-24',
     status: 'shipped',
@@ -178,7 +182,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 580,
-    unitPriceEur: 1240,
+    unitPriceEur: 1850,
     dueDate: '2026-12-09',
     originalDueDate: '2026-12-09',
     status: 'at-risk',
@@ -212,7 +216,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 640,
-    unitPriceEur: 1240,
+    unitPriceEur: 1850,
     dueDate: '2026-12-16',
     originalDueDate: '2026-12-16',
     status: 'at-risk',
@@ -268,7 +272,7 @@ export const CUSTOMER_ORDERS: readonly CustomerOrder[] = [
     productId: 'PRD-R75',
     plantId: 'PLT-RGB',
     quantity: 240,
-    unitPriceEur: 1240,
+    unitPriceEur: 1850,
     dueDate: '2027-01-08',
     originalDueDate: '2027-01-08',
     status: 'open',

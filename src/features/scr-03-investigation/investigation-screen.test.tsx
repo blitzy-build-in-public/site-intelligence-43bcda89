@@ -11,17 +11,22 @@
  * evidence, that `Escape` returns focus to the node it was opened from, and that a node with no
  * evidence reference is static text with no focus stop (rule P-8); that the projection labels its zero
  * reference and draws every reading the records state, a negative one included, because `LineChart`
- * never clamps one, and that it shades the idle window the record's own zero closing days span — with
- * no span at all where no day reads zero — naming it in the screen's own words; that the projection's
- * table view holds the same dates and readings the marks
- * carried and that the chart is unmounted rather than hidden while the table is up (success criterion
- * 9, rule B-3); that the missing-inputs panel lists the inputs the assessment could not read beside
+ * never clamps one, that its two axes carry the names the canvas dock gives the same figure, and that
+ * it shades the idle window the plotted series' own zero closing days span — the designated option's
+ * run where it states one, the baseline's otherwise — with no span at all where neither series reads
+ * zero, naming it in the screen's own words and in the legend row beneath the plot; that the
+ * projection's table view holds the same dates and readings the marks carried and that the chart is
+ * unmounted rather than hidden while the table is up (success criterion 9, rule B-3); that the
+ * missing-inputs panel lists the inputs the assessment could not read beside
  * the confidence, that the screen states "Cannot compute" instead of a partial figure, and that a
  * partial read warns without withholding the figures; that each of the seven states specification §8
  * fixes renders for the outcome the screen maps it to, and that a `not-found` refusal lands on the
  * panel linking back to the queue rather than a blank page; that the four controls act — two navigate,
- * two write once through the port and re-read what they moved — and that a control which cannot act is
- * disabled with a reason reachable from the keyboard; and that both themes render the same content.
+ * two write once through the port and re-read what they moved — that the note form takes focus into its
+ * field as it opens and gives it back to the control that opened it as it closes, and that a control
+ * which cannot act is disabled with a reason reachable from the keyboard, the two writes among them for
+ * a persona that does not hold `exception.work` over the exception's plant, whose reason names the
+ * roles that do; and that both themes render the same content.
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a screen
  * may read through (rule P-2), so no seed module, adapter or domain module is reached and the suite
@@ -43,8 +48,8 @@
  * `fixture-…` placeholder and the series' dates are derived from the imported demonstration clock —
  * and the wording the screen owns is imported from `INVESTIGATION_TEXT` rather than retyped, as is
  * every string a sibling component owns (`IMPACT_CHAIN_TEXT`, `EVIDENCE_DRAWER_TEXT`,
- * `STATE_BOUNDARY_TEXT`, `VIEW_AS_TABLE_LABELS`, `SIM_LABELS`, `SOURCE_LABELS`, `STATUS_LABEL_CLASS`,
- * `MONO_VALUE_CLASSES`, `CONTROL_STRUCTURE_CLASSES`).
+ * `STATE_BOUNDARY_TEXT`, `VIEW_AS_TABLE_LABELS`, `TIMELINE_DOCK_TEXT`, `SIM_LABELS`, `SOURCE_LABELS`,
+ * `STATUS_LABEL_CLASS`, `MONO_VALUE_CLASSES`, `CONTROL_STRUCTURE_CLASSES`).
  *
  * THREE CONSTRAINTS THE SUITE WORKS WITHIN. No state is driven through a prop: the screen derives each of
  * the seven from what the read settled to, so every state case drives it through the stub alone (AAP
@@ -69,6 +74,7 @@ import { MONO_VALUE_CLASSES } from '../../components/mono-value';
 import { runOutStatement } from '../../components/run-out-reading';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { STATUS_LABEL_CLASS } from '../../components/status-indicator';
+import { TIMELINE_DOCK_TEXT } from '../../components/timeline-dock';
 import { CONTROL_STRUCTURE_CLASSES } from '../../components/tooltip';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
 import {
@@ -95,6 +101,7 @@ import type {
   Permission,
   Problem,
   Result,
+  Role,
   RunOut,
   Scenario,
   ScenarioSet,
@@ -209,6 +216,31 @@ const STOCK_ALL_WINDOW_SERIES: readonly DailyClosingStockPoint[] = [
   { date: isoDateAt(LAST_DAY), units: 240 },
 ];
 
+/** The reading the option's own series opens with, before it runs out. */
+const OPTION_STOCK_READING = 240;
+
+/** The reading that marks a day with no closing stock left. */
+const OPTION_EMPTY_READING = 0;
+
+/**
+ * The designated option's own closing stock: it runs out on the second day and stays at zero to the last.
+ *
+ * The baseline beside it carries stock on every day, so the shaded window can only come from this series
+ * — which is what a case needs to prove the figure shades the run-out its own selected scenario states.
+ */
+const OPTION_IDLE_SERIES: readonly DailyClosingStockPoint[] = [
+  { date: isoDateAt(FIRST_DAY), units: OPTION_STOCK_READING },
+  { date: isoDateAt(NEGATIVE_DAY), units: OPTION_EMPTY_READING },
+  { date: isoDateAt(LAST_DAY), units: OPTION_EMPTY_READING },
+];
+
+/** The same option's series with stock on hand on every day: no idle day, so no shaded span. */
+const OPTION_STOCKED_SERIES: readonly DailyClosingStockPoint[] = [
+  { date: isoDateAt(FIRST_DAY), units: OPTION_STOCK_READING },
+  { date: isoDateAt(NEGATIVE_DAY), units: OPTION_STOCK_READING },
+  { date: isoDateAt(LAST_DAY), units: OPTION_STOCK_READING },
+];
+
 /** The customer order lines the exception puts at risk, which supply the table's promised dates. */
 const AFFECTED_LINES: readonly AffectedLine[] = [
   {
@@ -304,13 +336,76 @@ const EXCEPTION: OperationalException = {
   detectedAt: DEMO_CLOCK,
 };
 
-/** The persona the session acts as, so "assign to me" has somebody to assign the exception to. */
+/**
+ * The persona the session acts as, so "assign to me" has somebody to assign the exception to.
+ *
+ * `permissions` is the matrix row the adapter derives for this persona's role, which grants both the
+ * read this screen needs and `exception.work` — the permission the adapter's two writes require over the
+ * exception's plant. A persona that held the read alone would find both write controls disabled, and
+ * that condition has its own case below.
+ */
 const ACTIVE_USER: ActiveUser = {
   id: ACTOR_ID,
   name: 'Fixture planner',
   role: 'material-planner',
   plantIds: [PLANT_ID],
+  permissions: ['exception.read', 'exception.work'],
+  homeRoute: '/overview',
+};
+
+/**
+ * The permission a write to an exception needs, as the adapter's own gate checks it.
+ *
+ * Both write controls are disabled without it, so a case asserts the sentence names this permission
+ * rather than a paraphrase of it.
+ */
+const WORK_PERMISSION: Permission = 'exception.work';
+
+/**
+ * The roles the roster reports as holding {@link WORK_PERMISSION}, in the order it lists them.
+ *
+ * The persona roster derives these from the matrix, so this is the suite's input for what
+ * `useRolesHolding` answers, standing for what the provider reads at run time: the disabled control's
+ * sentence is composed from it and must name every one of them, in this order.
+ */
+const ROLES_WITH_WORK: Role[] = [
+  'material-planner',
+  'plant-manager',
+  'production-planner',
+  'supplier-quality-engineer',
+];
+
+/**
+ * The persona a role that may only read the exception acts as.
+ *
+ * `permissions` is the matrix as the adapter derives it for that role, so this persona reaches the record
+ * and holds no `exception.work` over any plant — the case both write controls must explain before the
+ * attempt rather than refuse after it (AAP 0.2.1, rule P-8).
+ */
+const READ_ONLY_USER: ActiveUser = {
+  id: 'fixture-auditor',
+  name: 'Fixture auditor',
+  role: 'auditor',
+  plantIds: [PLANT_ID],
   permissions: ['exception.read'],
+  homeRoute: '/audit',
+};
+
+/** A plant this suite's records do not land on, so a persona scoped to it may not work the exception. */
+const OTHER_PLANT = 'fixture-other-plant';
+
+/**
+ * The persona that holds {@link WORK_PERMISSION} while its plant scope misses the exception's plant.
+ *
+ * The permission is the persona's and the plant is the record's, so this case tells the two halves of
+ * the gate apart: the role may work records in general and this one is still out of its reach.
+ */
+const ELSEWHERE_SCOPED_USER: ActiveUser = {
+  id: 'fixture-planner-elsewhere',
+  name: 'Fixture planner elsewhere',
+  role: 'production-planner',
+  plantIds: [OTHER_PLANT],
+  permissions: ['exception.read', 'exception.work'],
   homeRoute: '/overview',
 };
 
@@ -405,6 +500,18 @@ const UNDESIGNATED_OPTION: ScenarioSet = {
   recommendationRule: 'the fewest units late first, then the lowest added cost',
   tradeOff: 'the service states no trade-off while it recommends nothing',
   rejected: [],
+};
+
+/** The set that designates the option whose own series runs out inside the window. */
+const RUN_OUT_OPTION_SET: ScenarioSet = {
+  ...DESIGNATED_OPTION,
+  scenarios: [{ ...OPTION, dailyClosingStock: [...OPTION_IDLE_SERIES] }],
+};
+
+/** The set that designates an option with stock on hand on every day of the window. */
+const STOCKED_OPTION_SET: ScenarioSet = {
+  ...DESIGNATED_OPTION,
+  scenarios: [{ ...OPTION, dailyClosingStock: [...OPTION_STOCKED_SERIES] }],
 };
 
 /**
@@ -522,26 +629,33 @@ const port = vi.hoisted(() => ({
 }));
 
 /**
- * The persona the provider reports, held outside the mock factory so a case can change it.
+ * The persona the provider reports and the roles it reports as holding `exception.work`, held outside the
+ * mock factory so a case can change either.
  *
- * `useActiveUser()` is read beside the service, and the screen's "assign to me" control is enabled
- * exactly when a persona exists and does not already own the exception — so a case that wants the
- * disabled control sets this to `null` rather than reaching into the screen.
+ * `useActiveUser()` is read beside the service, and the screen's two write controls are enabled exactly
+ * when a persona exists, holds the permission the adapter's writes require over the exception's plant and
+ * — for the assignment — does not already own the record. A case that wants a disabled control sets the
+ * persona or the role list here rather than reaching into the screen.
  */
-const session = vi.hoisted(() => ({ activeUser: null as ActiveUser | null }));
+const session = vi.hoisted(() => ({
+  activeUser: null as ActiveUser | null,
+  rolesWithWork: null as Role[] | null,
+}));
 
 /**
  * The provider replaced before the screen is imported, so the real binding — and with it the
  * in-browser adapter — is never reached from a component test (rule P-2).
  *
  * Every hook the rendered tree can reach is exported, not only the ones the screen calls:
- * `evidence-drawer.tsx` reads `useService()`, the shell's provider is stubbed as a pass-through, and
- * the demonstration capability is stubbed with the module's own "none bound" value so a component that
+ * `evidence-drawer.tsx` reads `useService()`, the shell's provider is stubbed as a pass-through, the
+ * persona roster is stubbed with the roles the screen names in a disabled control's sentence, and the
+ * demonstration capability is stubbed with the module's own "none bound" value so a component that
  * starts reading it finds a shape rather than `undefined`.
  */
 vi.mock('../../services/service-provider', () => ({
   useService: () => port,
   useActiveUser: () => session.activeUser,
+  useRolesHolding: () => session.rolesWithWork,
   useDemonstration: () => null,
   ServiceProvider: ({ children }: { children: ReactNode }) => children,
 }));
@@ -730,6 +844,28 @@ const APPEARANCES = [
 ] as const;
 
 /**
+ * The sentence the screen is expected to disable a write control with, composed from its own text map.
+ *
+ * Composed rather than retyped, so a reworded sentence reaches these assertions from its one owner: what
+ * a case proves is that the sentence names the role the adapter enforces, the permission that role lacks,
+ * the plant the exception lands on and — once the roster has answered — the roles that may act instead
+ * (AAP 0.2.1, rules P-6 and P-8).
+ */
+function expectedWorkReason(
+  actingUser: ActiveUser,
+  rolesWithWork: readonly Role[] | null,
+): string {
+  const opening =
+    `${INVESTIGATION_TEXT.noWorkActor} (${actingUser.role}) ${INVESTIGATION_TEXT.noWorkLacks} ` +
+    `${WORK_PERMISSION} ${INVESTIGATION_TEXT.noWorkOver} ${EXCEPTION.plantId}, ` +
+    INVESTIGATION_TEXT.noWorkOutcome;
+
+  return rolesWithWork === null || rolesWithWork.length === 0
+    ? opening
+    : `${opening} ${INVESTIGATION_TEXT.noWorkRoles} ${rolesWithWork.join(', ')}.`;
+}
+
+/**
  * The two conditions that leave "assign to me" disabled, each with the persona the session acts as,
  * the owner the record states and the sentence the reader receives with the control.
  *
@@ -773,6 +909,33 @@ function projectionSurfaceIsDrawn(): boolean {
   );
 }
 
+/** The accessible name one point's mark carries, composed the way the surface composes it. */
+function markNameOf(seriesLabel: string, date: string, reading: number): string {
+  return `${seriesLabel}, ${date}: ${String(reading)}`;
+}
+
+/**
+ * The x coordinate the surface places one date at, read from the mark that date carries.
+ *
+ * The mark's own dot is the chart's statement of where a date sits, so a case compares a shaded span with
+ * the dates it covers without restating the plot's geometry of its own.
+ *
+ * @param chart - The projection's drawn surface.
+ * @param name - The accessible name of the mark whose date is wanted.
+ * @returns The dot's x coordinate in the surface's own viewBox units.
+ * @throws Error when no mark carries that name, or the mark drew no dot.
+ */
+function markXOf(chart: HTMLElement, name: string): number {
+  const mark = within(chart).getByRole('button', { name: patternOf(name) });
+  const cx = mark.querySelector('circle')?.getAttribute('cx');
+
+  if (cx === undefined || cx === null) {
+    throw new Error(`the mark named "${name}" drew no dot`);
+  }
+
+  return Number(cx);
+}
+
 /* ---------------------------------------------------------------------------------------------
  * Per-case state
  * ------------------------------------------------------------------------------------------- */
@@ -795,6 +958,7 @@ beforeEach(() => {
   });
 
   session.activeUser = ACTIVE_USER;
+  session.rolesWithWork = [...ROLES_WITH_WORK];
 });
 
 /** Leaves `<html>` on the theme and density of whichever suite runs next, and no persona behind. */
@@ -802,6 +966,7 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.removeAttribute('data-density');
   session.activeUser = null;
+  session.rolesWithWork = null;
 });
 
 /* ---------------------------------------------------------------------------------------------
@@ -993,8 +1158,67 @@ describe('SCR-03 investigation screen', () => {
       expect(Number(band.getAttribute('width'))).toBeGreaterThan(0);
       expect(Number(band.getAttribute('height'))).toBeGreaterThan(0);
 
-      // The span carries the screen's own words, so it is not left to the shade alone (rule B-3).
-      expect(within(chart).getByText(INVESTIGATION_TEXT.idleWindowLabel)).toBeVisible();
+      // The span carries the screen's own words in the plot and in the legend row beside it, so it is
+      // not left to the shade alone (rule B-3).
+      const bandLabels = screen.getAllByText(INVESTIGATION_TEXT.idleWindowLabel);
+      expect(bandLabels.some((label) => chart.contains(label))).toBe(true);
+      expect(bandLabels.some((label) => !chart.contains(label))).toBe(true);
+    });
+
+    it('shades the run-out the designated option states rather than the baseline’s whole window', async () => {
+      port.getExceptionDetail.mockResolvedValue(
+        envelope(detail({ stockSeries: [...STOCK_ALL_WINDOW_SERIES] })),
+      );
+      port.getScenarioSet.mockResolvedValue(optionsEnvelope(RUN_OUT_OPTION_SET));
+
+      renderScreen();
+      await settledScreen();
+
+      const chart = chartSurface();
+      const bands = Array.from(chart.querySelectorAll('rect'));
+
+      // The baseline carries stock on every day, so the one span can only be the option's own run-out.
+      expect(bands).toHaveLength(1);
+
+      const band = at(bands, 0, 'shaded idle window');
+      const optionLabel = `${INVESTIGATION_TEXT.selectedSeriesPrefix} ${OPTION_NAME}`;
+      const openingX = markXOf(
+        chart,
+        markNameOf(optionLabel, isoDateAt(FIRST_DAY), OPTION_STOCK_READING),
+      );
+      const firstZeroX = markXOf(
+        chart,
+        markNameOf(optionLabel, isoDateAt(NEGATIVE_DAY), OPTION_EMPTY_READING),
+      );
+      const lastZeroX = markXOf(
+        chart,
+        markNameOf(optionLabel, isoDateAt(LAST_DAY), OPTION_EMPTY_READING),
+      );
+
+      // The span opens on the option's first empty day and closes on its last, at those two dates' own
+      // positions on the axis, so it states the run-out rather than the window the baseline spans.
+      expect(Number(band.getAttribute('x'))).toBeCloseTo(firstZeroX);
+      expect(Number(band.getAttribute('x')) + Number(band.getAttribute('width'))).toBeCloseTo(
+        lastZeroX,
+      );
+      expect(Number(band.getAttribute('x'))).toBeGreaterThan(openingX);
+    });
+
+    it('shades nothing where neither the option nor the baseline reads zero', async () => {
+      port.getExceptionDetail.mockResolvedValue(
+        envelope(detail({ stockSeries: [...STOCK_ALL_WINDOW_SERIES] })),
+      );
+      port.getScenarioSet.mockResolvedValue(optionsEnvelope(STOCKED_OPTION_SET));
+
+      renderScreen();
+      await settledScreen();
+
+      const chart = chartSurface();
+
+      // Neither plotted series states an empty day, so nothing is shaded and nothing claims a window
+      // (rule P-6).
+      expect(chart.querySelectorAll('rect')).toHaveLength(0);
+      expect(screen.queryByText(INVESTIGATION_TEXT.idleWindowLabel)).toBeNull();
     });
 
     it('shades no idle window where no closing day reads zero', async () => {
@@ -1081,6 +1305,22 @@ describe('SCR-03 investigation screen', () => {
          baseline alone and states no reading about an option it does not plot (AAP §0.8). */
       expect(screen.queryByText(OPTION_DESCRIPTION)).toBeNull();
       expect(screen.queryByText(runOutStatement(OPTION_RUN_OUT))).toBeNull();
+    });
+
+    it('names both axes of the projection in the words the canvas dock gives the same figure', async () => {
+      renderScreen();
+      await settledScreen();
+
+      const chart = chartSurface();
+
+      /* One projection, one axis vocabulary: the dock that draws the same series names its axes with
+         these words, so a reader meets the same two names wherever the projected stock is drawn. */
+      expect(INVESTIGATION_TEXT.projectionXAxisLabel).toBe(TIMELINE_DOCK_TEXT.stockXAxisLabel);
+      expect(INVESTIGATION_TEXT.projectionYAxisLabel).toBe(TIMELINE_DOCK_TEXT.stockYAxisLabel);
+
+      /* And both names are painted inside the surface rather than left to the caption. */
+      expect(within(chart).getByText(INVESTIGATION_TEXT.projectionXAxisLabel)).toBeVisible();
+      expect(within(chart).getByText(INVESTIGATION_TEXT.projectionYAxisLabel)).toBeVisible();
     });
   });
 
@@ -1357,6 +1597,47 @@ describe('SCR-03 investigation screen', () => {
       });
     });
 
+    it('moves focus into the note field as the form opens, so a keyboard reader’s first keystrokes land there', async () => {
+      const user = userEvent.setup();
+      const note = 'fixture note';
+
+      renderScreen();
+      await settledScreen();
+
+      await user.click(screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote }));
+
+      // The field the label names is the active element the moment the form is on screen.
+      const field = screen.getByLabelText(INVESTIGATION_TEXT.noteField);
+
+      expect(field).toHaveFocus();
+      expect(document.activeElement).toBe(field);
+
+      /* Typed at the document rather than at the field: what proves the move is that a keystroke naming no
+         control arrives in the note, which is the keystroke a keyboard reader makes. */
+      await user.keyboard(note);
+      expect(field).toHaveValue(note);
+    });
+
+    it('returns focus to the control that opened the note form when it is cancelled', async () => {
+      const user = userEvent.setup();
+
+      renderScreen();
+      await settledScreen();
+
+      const addNote = screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote });
+
+      await user.click(addNote);
+      expect(screen.getByLabelText(INVESTIGATION_TEXT.noteField)).toHaveFocus();
+
+      await user.click(screen.getByRole('button', { name: INVESTIGATION_TEXT.cancelNote }));
+
+      // Nothing was written, the form is gone, and the reader stands where they left off.
+      expect(screen.queryByLabelText(INVESTIGATION_TEXT.noteField)).toBeNull();
+      expect(port.noteException).not.toHaveBeenCalled();
+      expect(addNote).toHaveFocus();
+      expect(document.activeElement).toBe(addNote);
+    });
+
     it.each(DISABLED_ASSIGN_CONDITIONS)(
       'explains a control that cannot act when $condition, from the keyboard, without performing it',
       async ({ actingUser, ownerId, reason }) => {
@@ -1383,6 +1664,78 @@ describe('SCR-03 investigation screen', () => {
         expect(port.assignException).not.toHaveBeenCalled();
       },
     );
+
+    it('disables both write controls for a persona that does not hold the work permission, naming the roles that do', async () => {
+      const user = userEvent.setup();
+
+      session.activeUser = READ_ONLY_USER;
+
+      renderScreen();
+      await settledScreen();
+
+      const assign = screen.getByRole('button', { name: INVESTIGATION_TEXT.assignToMe });
+      const addNote = screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote });
+      const reason = expectedWorkReason(READ_ONLY_USER, ROLES_WITH_WORK);
+
+      expect(assign).toHaveAttribute('aria-disabled', 'true');
+      expect(addNote).toHaveAttribute('aria-disabled', 'true');
+
+      /* The reason is each control's own description, so it reaches a reader the moment focus arrives. */
+      expect(assign).toHaveAccessibleDescription(reason);
+      expect(addNote).toHaveAccessibleDescription(reason);
+
+      await user.click(assign);
+      await user.click(addNote);
+
+      /* Neither control performed its function: no write was sent and the note form never opened. */
+      expect(screen.queryByLabelText(INVESTIGATION_TEXT.noteField)).not.toBeInTheDocument();
+      expect(port.assignException).not.toHaveBeenCalled();
+      expect(port.noteException).not.toHaveBeenCalled();
+    });
+
+    it('disables the write controls where the exception’s plant is outside the acting persona’s scope', async () => {
+      session.activeUser = ELSEWHERE_SCOPED_USER;
+
+      renderScreen();
+      await settledScreen();
+
+      const assign = screen.getByRole('button', { name: INVESTIGATION_TEXT.assignToMe });
+      const addNote = screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote });
+      const reason = expectedWorkReason(ELSEWHERE_SCOPED_USER, ROLES_WITH_WORK);
+
+      /* The permission is held and the plant is the record's, which the sentence names as the reason. */
+      expect(assign).toHaveAttribute('aria-disabled', 'true');
+      expect(addNote).toHaveAttribute('aria-disabled', 'true');
+      expect(assign).toHaveAccessibleDescription(reason);
+      expect(addNote).toHaveAccessibleDescription(reason);
+    });
+
+    it('leaves both write controls enabled for a persona that holds the permission over the plant', async () => {
+      renderScreen();
+      await settledScreen();
+
+      expect(screen.getByRole('button', { name: INVESTIGATION_TEXT.assignToMe })).not.toHaveAttribute(
+        'aria-disabled',
+      );
+      expect(screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote })).not.toHaveAttribute(
+        'aria-disabled',
+      );
+    });
+
+    it('names no role while the roster has not reported the roles that may act', async () => {
+      session.activeUser = READ_ONLY_USER;
+      session.rolesWithWork = null;
+
+      renderScreen();
+      await settledScreen();
+
+      const addNote = screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote });
+
+      expect(addNote).toHaveAttribute('aria-disabled', 'true');
+      expect(addNote).toHaveAccessibleDescription(
+        expectedWorkReason(READ_ONLY_USER, session.rolesWithWork),
+      );
+    });
   });
 
   describe('both themes', () => {

@@ -6,12 +6,14 @@
  * of the graphic with and without the caller's axis label; one operable mark per datum and no
  * figure element, no table element and no toggle of its own, because `chart-frame.tsx` owns those;
  * a name and a drawn value that state the category and carry the caller's pre-formatted string
- * untouched; keyboard reachability by `Tab` and activation by `Enter` and by `Space` on any mark; a
+ * untouched, the value drawn in the mono face with tabular numerals (AAP §0.5.3);
+ * keyboard reachability by `Tab` and activation by `Enter` and by `Space` on any mark; a
  * pointer activation, and the row-wide pointer target that lets a click land anywhere in a mark's
  * row rather than only on the bar it paints; the evidence drawer opening on the datum's own
- * reference — outside the graphic, where HTML belongs — beside the `onActivate` report a screen
- * filters its queue with; a zero value drawn at zero length with its mark still focusable and its
- * labels intact; a value beyond the caller's axis held inside the track; the bar and its focus ring
+ * reference — outside the graphic, where HTML belongs — where this surface owns the activation, and
+ * the `onActivate` report that replaces it where the calling screen does; a zero value drawn at zero
+ * length with its mark still focusable and its labels intact; a value beyond the caller's axis held
+ * inside the track; the bar and its focus ring
  * rounded from the control radius token rather than a literal radius (AAP §0.5.3); the focus ring
  * drawn on the mark that holds keyboard focus and hidden on the rest (rule B-3); the one tone table
  * in which every chart surface resolves a role token and its four utilities, drawn one datum per
@@ -236,19 +238,29 @@ function drawnLabelOf(mark: HTMLElement): string {
 }
 
 /**
- * The value text the mark draws: its second text element, the first being the category.
+ * The value `<text>` a mark draws: its second text element, the first being the category.
  *
- * Read back verbatim so a chart that re-formatted, rounded or re-labelled the caller's string fails
- * here — formatting has one owner, and it is not this surface (rule P-6).
+ * Kept apart from {@link drawnValueOf} so a case can read the node a reader's value is painted with
+ * as well as its characters: the face and the numeral width are AAP §0.5.3's requirement for every
+ * amount, identifier and timestamp, and both are classes on this element.
  */
-function drawnValueOf(mark: HTMLElement): string {
+function drawnValueTextOf(mark: HTMLElement): Element {
   const value = Array.from(mark.querySelectorAll('text')).at(1);
 
   if (value === undefined) {
     throw new Error('the mark drew no value text');
   }
 
-  return value.textContent ?? '';
+  return value;
+}
+
+/**
+ * The value text the mark draws, read back verbatim so a chart that re-formatted, rounded or
+ * re-labelled the caller's string fails here — formatting has one owner, and it is not this surface
+ * (rule P-6).
+ */
+function drawnValueOf(mark: HTMLElement): string {
+  return drawnValueTextOf(mark).textContent ?? '';
 }
 
 beforeEach(() => {
@@ -315,6 +327,19 @@ describe('HorizontalBarChart', () => {
     });
   });
 
+  it('draws every value label in the mono face with tabular numerals', () => {
+    renderBars();
+
+    for (const mark of screen.getAllByRole('button')) {
+      const value = drawnValueTextOf(mark);
+
+      /* AAP §0.5.3 sets every amount in Geist Mono with tabular numerals, so the labels of one chart
+         share one numeral width instead of the proportional face's. */
+      expect(value.getAttribute('class')).toContain('font-mono');
+      expect(value.getAttribute('class')).toContain('tabular-nums');
+    }
+  });
+
   it('draws each bar in proportion to its value against the caller’s maximum', () => {
     renderBars();
 
@@ -336,7 +361,7 @@ describe('HorizontalBarChart', () => {
     }
   });
 
-  it('reaches the first mark with Tab and opens its evidence with Enter', async () => {
+  it('reaches the first mark with Tab and reports the datum with Enter where the caller owns the activation', async () => {
     const user = userEvent.setup();
     const onActivate = vi.fn();
 
@@ -350,10 +375,13 @@ describe('HorizontalBarChart', () => {
 
     await user.keyboard('{Enter}');
 
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveAccessibleName(EVIDENCE_DRAWER_TEXT.title);
-    expect(getEvidence).toHaveBeenCalledWith('evidence-alpha');
+    /* The handler owns the gesture, so the mark reports its datum and opens nothing: a handler that
+       leaves the screen would take a drawer opened here with it, and the mark therefore declares no
+       dialog either. */
     expect(onActivate).toHaveBeenCalledWith('mark-alpha');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(first).not.toHaveAttribute('aria-haspopup');
+    expect(getEvidence).not.toHaveBeenCalled();
   });
 
   it('reaches a second mark with Tab and opens its evidence with Space as well as with Enter', async () => {
@@ -399,16 +427,16 @@ describe('HorizontalBarChart', () => {
     expect(second.getAttribute('class')).toContain('focus-visible:outline-focus-ring');
   });
 
-  it('opens a mark’s evidence on a pointer activation and reports the datum it activated', async () => {
+  it('reports a datum on a pointer activation where the caller owns the activation, and opens no drawer', async () => {
     const user = userEvent.setup();
     const onActivate = vi.fn();
 
     renderBars({ onActivate });
     await user.click(screen.getByRole('button', { name: BETA_NAME }));
 
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(getEvidence).toHaveBeenCalledWith('evidence-beta');
     expect(onActivate).toHaveBeenCalledWith('mark-beta');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(getEvidence).not.toHaveBeenCalled();
   });
 
   it('opens the evidence whether or not the caller asked to hear about the activation', async () => {
@@ -417,8 +445,10 @@ describe('HorizontalBarChart', () => {
     renderBars();
     await user.click(screen.getByRole('button', { name: ALPHA_NAME }));
 
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAccessibleName(EVIDENCE_DRAWER_TEXT.title);
     expect(getEvidence).toHaveBeenCalledTimes(1);
+    expect(getEvidence).toHaveBeenCalledWith('evidence-alpha');
   });
 
   it('draws the drawer outside the graphic, where HTML belongs', async () => {
@@ -457,12 +487,12 @@ describe('HorizontalBarChart', () => {
     }
 
     // A click delivered to that rect alone — the area beside the bar, where a reader aiming at a
-    // full-row mark aims — opens the drawer and reports the datum it activated.
+    // full-row mark aims — reaches the mark and reports the datum it activated. The caller owns the
+    // activation here, so the mark opens no drawer beside that report.
     await user.click(pointerTargetOf(screen.getByRole('button', { name: BETA_NAME })));
 
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(getEvidence).toHaveBeenCalledWith('evidence-beta');
     expect(onActivate).toHaveBeenCalledWith('mark-beta');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('draws a zero value at zero length and keeps its mark focusable, named and labelled', async () => {

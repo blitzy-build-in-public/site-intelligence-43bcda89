@@ -25,9 +25,19 @@
  * records, is not part of this repository, so no value below is transcribed from it. What the
  * inputs fix is the scale and the keys: AAP 0.2.3's three products, the three identifiers
  * `src/types/primitives.ts` carries, and AAP 0.12.2's rule that a product is built at one or two
- * lines. Each name, description, unit price and product class is authored, because no input fixes
- * any of them; the price is the record value the exception aggregation multiplies, never a
- * revenue, and the classes exist so the atlas selector of AAP 0.12.4 SCR-13 has three to separate.
+ * lines. Each name, description and product class is authored, because no input fixes any of them;
+ * the price is the record value the exception aggregation multiplies, never a revenue, and the
+ * classes exist so the atlas selector of AAP 0.12.4 SCR-13 has three to separate.
+ *
+ * One price is not free to choose. AAP 0.8 quotes the recommendation's sentence out of the absent §4
+ * verbatim — "… to avoid EUR 2,257,000 of delayed revenue" — and three of that sentence's figures
+ * reconstruct three records exactly (600 × 31 + 900 × 3 = 21,300; 900 × 120 = 108,000). Its fourth
+ * reconstructs this one: the baseline leaves 580 + 640 = 1,220 units of `PRD-R75` late, and
+ * 1,220 × 1,850 = 2,257,000, so `PRD-R75`'s price is 1,850 rather than an arbitrary authored value.
+ * The other two prices are fixed the same way where a quoted figure reaches them — `PRD-V40`'s 120 by
+ * the 900 kits at EUR 108,000 (`src/seed/customer-orders.ts` states it) — and no further figure is
+ * invented here.
+ *
  * If §1 is supplied later, its table transcribes over these records and supersedes them with no
  * change to any consumer, because every consumer reads a product through the service.
  *
@@ -82,7 +92,9 @@ export const PRODUCTS: readonly Product[] = [
     id: 'PRD-R75',
     name: 'R75 Rotor Assembly',
     productClass: 'Rotating assembly',
-    priceEur: 1240,
+    // 1,850, not an arbitrary authored value: 1,220 late units of this product at this price are the
+    // EUR 2,257,000 of delayed revenue AAP 0.8's quoted recommendation sentence names (module note).
+    priceEur: 1850,
     lineIds: ['LN-RGB-1', 'LN-BRN-1'],
     description:
       'Balanced twin-stage rotor assembly built to a customer drawing, produced at two plants.',

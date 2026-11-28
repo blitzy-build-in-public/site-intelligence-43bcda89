@@ -12,7 +12,8 @@
  * presentation rules when the caller names a `kind` — grouped and code-labelled by the money rule for
  * an amount, presented as whole hours by the duration rule for a duration, and the raw figure
  * otherwise; one control and no second; no elevation, since the token layer exposes no
- * shadow; and both themes rendering the same three lines.
+ * shadow; the 16 px step a ribbon tile takes, with the caller's caption still the card's level-2
+ * heading; and both themes rendering the same three lines.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary a component is allowed to read
  * through (rule P-2), so no adapter, seed module or seeded record is involved and the suite observes
@@ -139,6 +140,7 @@ interface TileOverrides {
   readonly kind?: FigureFormat;
   readonly value?: string | number;
   readonly simLabel?: SimLabel;
+  readonly valueStep?: 'ribbon';
 }
 
 /**
@@ -158,6 +160,7 @@ function tileElement(overrides: TileOverrides = {}): ReactElement {
       simLabel={overrides.simLabel ?? SIM_LABEL}
       {...(overrides.hint === undefined ? {} : { hint: overrides.hint })}
       {...(overrides.kind === undefined ? {} : { kind: overrides.kind })}
+      {...(overrides.valueStep === undefined ? {} : { valueStep: overrides.valueStep })}
     />
   );
 }
@@ -232,6 +235,30 @@ describe('MetricTile', () => {
     expect(figure.parentElement).toHaveClass('text-28', 'text-text-primary');
     // One control and no second: the tile adds no focus stop of its own beyond the trigger (B-3).
     expect(within(tileRegion()).getAllByRole('button')).toHaveLength(1);
+  });
+
+  /*
+   * A ribbon tile takes the 16 px step of the §4.3 scale, because a 198 px slot cannot hold the amount
+   * the ribbon shows at the page tile's 28 px step, and the step keeps the primary role so the figure
+   * gains no colour of its own with the smaller size. The caption is still the card's level-2 heading
+   * by its full name, so the tile's accessible name does not change with the step, and the tile
+   * reserves a second heading line, which is what aligns the six ribbon figures on one baseline
+   * (AAP §0.5.3, rule B-3).
+   */
+  it('puts a ribbon figure in the 16 px step and keeps its caption as the level-2 heading', () => {
+    renderTile(tileElement({ valueStep: 'ribbon' }));
+
+    const figure = evidenceTrigger();
+    expect(figure.parentElement).toHaveClass('text-16', 'text-text-primary');
+    // The 28 px step belongs to the page tile alone: it is not on this figure beside the 16 px one.
+    expect(figure.parentElement).not.toHaveClass('text-28');
+
+    const heading = within(tileRegion()).getByRole('heading', { level: 2, name: LABEL });
+    expect(heading).toBeVisible();
+    // Two heading lines reserved, which is the 48 px 12-step of the 4 px spacing grid.
+    const caption = heading.firstElementChild;
+    expect(caption).not.toBeNull();
+    expect(caption).toHaveClass('min-h-12');
   });
 
   it('starts the trigger accessible name with the figure a reader sees', () => {

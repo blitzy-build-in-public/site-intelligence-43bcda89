@@ -263,10 +263,11 @@ export const APPROVALS: readonly Approval[] = [
   // Pending: the supply-delay plan the planner journey approves end to end. Its option is the
   // recommended one, so its two euro figures are what that option measures, and this record states
   // them: the spend is 600 sets by air at 31 plus 900 by transfer at 3, 21,300, and the protected
-  // revenue is the case's do-nothing delayed revenue — 580 + 640 = 1,220 units late at 1,240 each,
-  // 1,512,800 — less the option's own residual, which is none of it because neither order is served
-  // late. The five steps are the set an approval sets in motion, in the plan's order, and every one of
-  // them awaits the decision.
+  // revenue is the case's do-nothing delayed revenue — 580 + 640 = 1,220 units late at 1,850 each,
+  // 2,257,000 — less the option's own residual, which is none of it because neither order is served
+  // late. Both figures are the ones AAP 0.8's quoted recommendation sentence states, and the adapter
+  // recomputes them from the plan at read time. The five steps are the set an approval sets in
+  // motion, in the plan's order, and every one of them awaits the decision.
   {
     id: 'APR-2026-104',
     exceptionId: 'EXC-2026-1184',
@@ -275,7 +276,7 @@ export const APPROVALS: readonly Approval[] = [
     eligibleApproverRoles: ['plant-manager', 'head-of-supply-chain'],
     status: 'pending',
     addedCostEur: 21300,
-    protectedRevenueEur: 1512800,
+    protectedRevenueEur: 2257000,
     writeBacks: [
       {
         sequence: 1,

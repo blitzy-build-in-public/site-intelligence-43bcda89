@@ -34,10 +34,11 @@
  * amount with its currency and a count as it arrived.
  *
  * THE RESOLUTION ORDER, STATED ONCE — `getEvidence`. A reference selects its family by its own shape:
- * a composed figure by its root, an atlas series by `atlas:`, a record by its identifier prefix. Each
- * family then looks its own records up by exact identifier. The order below is the order the lookup
- * walks, and it is deterministic: the two composed roots first, because they are the screens' own
- * references and match no identifier prefix; then `atlas:`; then the record families with the longer
+ * a composed figure by its root, a write-back step by its `write-back:` root, an atlas series by
+ * `atlas:`, a record by its identifier prefix. Each family then looks its own records up by exact
+ * identifier. The order below is the order the lookup walks, and it is deterministic: the two composed
+ * roots first, because they are the screens' own references and match no identifier prefix; then
+ * `write-back:` and then `atlas:`, for the same reason; then the record families with the longer
  * prefixes first, so `PPAP-` is tested before `PO-` and `POL-` before the shorter `PO-`; then the four
  * families the atlas's own marks carry, so the evidence behind a crossing, a competitor site or network
  * and a radar reading is exactly as readable as the mark itself; then the seven node families the
@@ -46,10 +47,23 @@
  * refused as `'not-found'` naming the reference. There is no fuzzy match, no prefix search over the
  * records and no fall-back to "the first record" — a drawer that silently showed a neighbouring figure
  * would be worse than one that reports the reference it could not resolve. The families, in order:
- * composed aggregate (`overview:`, `canvas:`), atlas series (`atlas:`), package, exception, scenario,
- * approval, audit event, evidence pin, document, customer order, policy, purchase order, shared
- * chokepoint, competitor site and network, radar series reading, plant, supplier, origin, customer,
- * material, production line, product, outbound endpoint.
+ * composed aggregate (`overview:`, `canvas:`), write-back step (`write-back:`), atlas series
+ * (`atlas:`), package, exception, scenario, approval, audit event, evidence pin, document, customer
+ * order, policy, purchase order, shared chokepoint, competitor site and network, radar series reading,
+ * plant, supplier, origin, customer, material, production line, product, outbound endpoint.
+ *
+ * THE WRITE-BACK STEP REFERENCE — principle PR-6, AAP 0.2.2. SCR-05's post-approval tracker and
+ * SCR-04's write-back preview draw the steps a plan would write, and each step is a figure of its own —
+ * a record in a named system of record, in a state the run reached — so each step opens the evidence
+ * behind itself rather than the plan's. Contracts §3 gives `WriteBack` no identifier, so the reference
+ * names the record the steps belong to and the step's position within it:
+ * `write-back:<ownerId>/<sequence>`, where the owner is an approval or a response option and the
+ * sequence is the position the record itself states. The owner is resolved the way its own family
+ * resolves it — an approval by its identifier, an option through `scenarioForIdentifier`, so a shipped
+ * option and one the adapter measures at call time both answer — and the position is then read against
+ * the steps that record holds. A form the grammar does not state is refused as `'validation'`; an owner
+ * or a position the records do not hold is refused as `'not-found'`, and the second names the
+ * sequences the record does state.
  *
  * THE COMPOSED AGGREGATE REFERENCE — AAP 0.2.1 F12, principle PR-6. A computed figure has no record
  * identifier of its own, so the two surfaces that draw one compose a reference naming the aggregate and
@@ -166,7 +180,13 @@ import type { ScopeFilterInput } from '../../../domain/aggregation/scope';
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
 import type { ScopedSubject } from '../../../domain/policy/permissions';
 import { wholePercent } from '../../../domain/solver/rounding';
-import { CLIENT_SELF_ASSESSMENT_LABEL, DEMO_CLOCK, LEDGER_WINDOW_DAYS, SIM_LABELS } from '../../../types';
+import {
+  CLIENT_SELF_ASSESSMENT_LABEL,
+  DEMO_CLOCK,
+  LEDGER_WINDOW_DAYS,
+  SIM_LABELS,
+  SOURCE_LABELS,
+} from '../../../types';
 import type {
   ActiveUser,
   Approval,
@@ -207,6 +227,7 @@ import type {
   Scenario,
   SimLabel,
   SupplierId,
+  WriteBack,
 } from '../../../types';
 import type { HandlerContext } from '../mock-state';
 import type {
@@ -225,7 +246,7 @@ import type {
 } from '../seed-loader';
 import { demonstrationForbiddenReason, isSimulationOn } from '../simulation';
 import { getAtlas } from './atlas';
-import { appendAuditEvent } from './audit';
+import { appendAuditEvent, assertFreeTextLength, listLimitOf } from './audit';
 import { getOverview } from './exceptions';
 import { scenarioForReference } from './scenarios';
 import { getCanvasRibbon } from './topology';
@@ -276,6 +297,13 @@ const SIMULATED_DATA: SimLabel = SIM_LABELS[0];
  * (rule P-1).
  */
 const SIMULATED_CALCULATION: SimLabel = SIM_LABELS[1];
+
+/**
+ * `Simulated write-back` — one step of a plan's simulated write-back, quoted exactly as specification
+ * §5.3 fixes it (rule P-1, AAP 0.10). Read from the owning tuple, so the label the tracker and the
+ * preview print on every step and the label this payload returns are one string.
+ */
+const SIMULATED_WRITE_BACK: SimLabel = SIM_LABELS[3];
 
 /**
  * `Simulated control` — the audit chain, whose wording AAP 0.10 places on it wherever it surfaces;
@@ -509,6 +537,42 @@ type SharedAggregateKey = (typeof SHARED_AGGREGATE_KEYS)[number];
 
 /** Every aggregate key either surface draws. */
 type OverviewAggregateKey = SharedAggregateKey | typeof CRITICAL_EXCEPTIONS_KEY;
+
+/* ---------------------------------------------------------------------------------------------
+ * The write-back step reference — one step of a plan's simulated write-back
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The root the write-back family is composed from: a step carries `write-back:<ownerId>/<sequence>`.
+ *
+ * A step has no identifier of its own. Contracts §3 gives `WriteBack` a position, a system, the
+ * reference it writes, its description and its state, and nothing a reference could address it by, so
+ * the reference names the record the steps belong to and the step's own position within it.
+ */
+const WRITE_BACK_REF_ROOT = 'write-back';
+
+/**
+ * The prefix every write-back step reference opens with, `write-back:`, built from the root above so
+ * the two cannot drift apart.
+ */
+const WRITE_BACK_REF_PREFIX = `${WRITE_BACK_REF_ROOT}${ROOT_SEPARATOR}`;
+
+/**
+ * The grammar, in the form a refusal quotes it, written once from the constants above rather than
+ * spelled a second time in the sentence that reports a malformed reference.
+ */
+const WRITE_BACK_REF_GRAMMAR = `${WRITE_BACK_REF_PREFIX}<ownerId>${KEY_SEPARATOR}<sequence>`;
+
+/**
+ * The shape a step's position takes in a reference: a whole number from one upwards, with no sign, no
+ * fraction, no padding and no surrounding space.
+ *
+ * Anchored, so `3x` and `3.5` are refused rather than read as the third step, and stated as a pattern
+ * rather than left to `Number` because `Number('')` is zero and `Number(' 3 ')` is three: a reference
+ * the grammar does not state is refused, not repaired.
+ */
+const STEP_POSITION_PATTERN = /^[1-9][0-9]*$/;
+
 /* ---------------------------------------------------------------------------------------------
  * The failures this family refuses with — contracts §2, rule P-8
  * ------------------------------------------------------------------------------------------- */
@@ -641,11 +705,17 @@ function assertPlantReach(ctx: HandlerContext, subject: ScopedSubject): void {
 }
 
 /**
- * Whether a resolved reference is one of the four node families of the FileMap canvas.
+ * Whether a resolved reference is one of four of the canvas's five node families.
  *
- * Written as a type guard over the union's own discriminant, so `assertNodeReach` and the four node
- * builders can take a node and nothing else: the compiler then proves no plant-scoped record is
- * narrowed by the node rule, and no node by a single plant.
+ * The fifth family, a material, is not answered here: a material record names no plant — it is bought
+ * from a supplier and produced at a tier-2 origin, and the products it goes into are its own
+ * `productIds`, the reach a supplier's node is derived from (`src/seed/materials.ts`) — so
+ * `getEvidence` answers for it through `subjectOf`, which returns `null` for it, with the permission
+ * alone deciding whether its evidence is readable.
+ *
+ * Written as a type guard over the union's own discriminant, so `assertNodeReach` and the four
+ * evidence builders behind this guard can take a node and nothing else: the compiler then proves no
+ * plant-scoped record is narrowed by the node rule, and no node by a single plant.
  *
  * @param resolved - The record the reference named.
  * @returns Whether it is a plant, supplier, origin or customer.
@@ -1451,6 +1521,21 @@ function plantRowEvidence(
 }
 
 /**
+ * The noun a count of exceptions is stated with, so a sentence the service composes agrees with its
+ * own figure.
+ *
+ * A count of one reads `1 exception` and every other count reads `2 exceptions`: a drawer that said
+ * "1 exceptions" would misreport a figure the reader is about to reconcile with the chart it came
+ * from. The inflection is one word, so it is decided here rather than through a formatting library.
+ *
+ * @param count - The count the sentence states.
+ * @returns `'exception'` for exactly one, and `'exceptions'` for every other count.
+ */
+function exceptionNoun(count: number): string {
+  return count === 1 ? 'exception' : 'exceptions';
+}
+
+/**
  * The evidence behind one day of the opened-and-resolved series: the two counts the point carries.
  *
  * The point is the read's own, so both counts are stated even when the reference names one of them:
@@ -1471,12 +1556,13 @@ function dayPointEvidence(
   selection: ScopeFilterInput,
 ): Evidence {
   const figure = series === DAY_OPEN_READING ? point.open : point.resolved;
+  const noun = exceptionNoun(figure);
 
   return {
     value:
       series === DAY_OPEN_READING
-        ? `${figure} exceptions opened on ${point.date}`
-        : `${figure} exceptions resolved on ${point.date}`,
+        ? `${figure} ${noun} opened on ${point.date}`
+        : `${figure} ${noun} resolved on ${point.date}`,
     provenance: 'computed',
     label: SIMULATED_CALCULATION,
     formula:
@@ -1685,6 +1771,12 @@ interface RadarReading {
 type ResolvedRef =
   | { readonly family: 'aggregate'; readonly figure: AggregateFigure }
   | {
+      readonly family: 'write-back';
+      readonly owner: Approval | Scenario;
+      readonly ownerId: string;
+      readonly step: WriteBack;
+    }
+  | {
       readonly family: 'atlas-series';
       readonly series: AtlasSeries;
       readonly axes: readonly RadarAxis[];
@@ -1742,7 +1834,11 @@ function isPackFamily(resolved: ResolvedRef): boolean {
 }
 
 /**
- * The four arms of {@link ResolvedRef} that stand for a node of the FileMap canvas.
+ * The four of the canvas's five node families whose plant scope the records decide rather than a
+ * single plant on the record: a plant, a supplier, a tier-2 origin and a customer.
+ *
+ * The fifth family, a material, names no plant at all, so `subjectOf` returns `null` for it and the
+ * permission alone decides whether its evidence is readable.
  *
  * Separated from the union so the reach check and the payload builder can take a node and nothing
  * else: a node's plant scope is decided over every plant the records place it in, which no other
@@ -1755,21 +1851,184 @@ type NodeRef = Extract<
 >;
 
 /**
+ * The one arm of {@link ResolvedRef} that stands for a step of a plan's simulated write-back.
+ *
+ * Separated from the union so the payload builder takes a step and nothing else: a step's evidence is
+ * read from the record that holds the plan and from the step's own members, which no other family
+ * needs, and the compiler then proves the builder is never handed a record that carries no step.
+ */
+type WriteBackStepRef = Extract<ResolvedRef, { readonly family: 'write-back' }>;
+
+/**
+ * The option a `SCN-` identifier names, read from the two places the records state one.
+ *
+ * The sets the dataset ships are scanned first, so a shipped option answers with the record the dataset
+ * holds rather than with a measurement of the same position. The sets the adapter measures at call time
+ * — the comparison screen's columns, the options the sandbox duplicates, and the option the
+ * recommended plan of the case belongs to, none of which a shipped record holds — are answered second,
+ * by `scenarioForReference` in the sibling `handlers/scenarios.ts`, the module that produces them for a
+ * screen. Both are exact-identifier lookups: neither searches for a prefix or a neighbour.
+ *
+ * The scan and the measured lookup are one function because two references name an option — a bare
+ * `SCN-` identifier and the owner of a `write-back:` reference — and the option one path answers has to
+ * be the option the other answers, or the drawer behind an option and the drawer behind its own steps
+ * would describe two different records.
+ *
+ * @param ctx - The call's context, whose records state the option sets. The state is not modified.
+ * @param scenarioId - The identifier the reference names.
+ * @returns The option that identifier names, or `undefined` when no set states one.
+ */
+function scenarioForIdentifier(ctx: HandlerContext, scenarioId: string): Scenario | undefined {
+  for (const seeded of ctx.state.records.exceptionScenarios) {
+    const found = seeded.scenarioSet.scenarios.find((candidate) => candidate.id === scenarioId);
+
+    if (found !== undefined) {
+      return found;
+    }
+  }
+
+  return scenarioForReference(ctx, scenarioId);
+}
+
+/**
+ * Whether a write-back's owner is an approval rather than a response option.
+ *
+ * The two records share the members this family reads — the identifier, the exception the plan answers
+ * and the steps themselves — so the member only one of them carries is what tells them apart: an
+ * approval states where the plan stands, an option states the measures it was chosen on, and the two
+ * reach different neighbouring records (see `writeBackStepEvidence`).
+ *
+ * @param owner - The record the steps belong to.
+ * @returns `true` when the owner is an approval.
+ */
+function isApprovalOwner(owner: Approval | Scenario): owner is Approval {
+  return 'status' in owner;
+}
+
+/**
+ * The record a `write-back:` reference's owner names — an approval or an option — or nothing.
+ *
+ * The owner is resolved the way its own family resolves it: an `APR-` identifier is an exact lookup
+ * among the approvals the session holds, and an `SCN-` identifier is answered by
+ * `scenarioForIdentifier`, so a shipped option and one measured at call time both resolve. An
+ * identifier under neither prefix is no owner at all and answers `undefined`, which the caller refuses.
+ *
+ * @param ctx - The call's context, whose records are searched. The state is not modified.
+ * @param ownerId - The owner the reference names.
+ * @returns The approval or option that identifier names, or `undefined` when none does.
+ */
+function writeBackOwner(ctx: HandlerContext, ownerId: string): Approval | Scenario | undefined {
+  if (ownerId.startsWith(APPROVAL_PREFIX)) {
+    return ctx.state.records.approvals.find((candidate) => candidate.id === ownerId);
+  }
+
+  if (ownerId.startsWith(SCENARIO_PREFIX)) {
+    return scenarioForIdentifier(ctx, ownerId);
+  }
+
+  return undefined;
+}
+
+/**
+ * The owner identifier and the step position a `write-back:` reference states.
+ *
+ * The reference is read against the grammar a refusal quotes rather than repaired: an owner has to be
+ * named, the reference has to carry exactly one position after it, and that position has to have the
+ * shape {@link STEP_POSITION_PATTERN} fixes. A reference failing any of those is refused as
+ * `'validation'`, because the caller composed a reference this family does not have — as distinct from
+ * a well-formed reference whose owner or step the records do not hold, which is the `'not-found'`
+ * refusal {@link resolveWriteBackRef} states.
+ *
+ * @param ctx - The call's context, whose correlation identifier the failure carries.
+ * @param ref - The reference the displayed step carries.
+ * @returns The owner identifier the reference names and the step position it states.
+ * @throws Problem - A `'validation'` failure naming the `write-back:<ownerId>/<sequence>` grammar.
+ */
+function writeBackPartsOf(
+  ctx: HandlerContext,
+  ref: string,
+): { readonly ownerId: string; readonly sequence: number } {
+  const parts = ref.slice(WRITE_BACK_REF_PREFIX.length).split(KEY_SEPARATOR);
+  const ownerId = parts[0] ?? '';
+  const positionText = parts[1] ?? '';
+
+  if (ownerId.trim() === '' || !STEP_POSITION_PATTERN.test(positionText) || parts.length !== 2) {
+    throw validationProblem(
+      ctx,
+      `The reference "${ref}" is not a write-back step reference. A write-back step is named ` +
+        `${WRITE_BACK_REF_GRAMMAR}, where the owner is an approval or a response option and the ` +
+        "sequence is the step's own position in that write-back, counted from one.",
+    );
+  }
+
+  return { ownerId, sequence: Number(positionText) };
+}
+
+/**
+ * Resolves a `write-back:` reference to the step it names and the record that holds it.
+ *
+ * The reference is parsed first, so one the family does not state is refused as `'validation'` before
+ * any record is looked at; the owner is resolved second, so an identifier neither an approval nor an
+ * option answers is refused as `'not-found'` naming that owner; and the position is read last, against
+ * the steps the record itself holds, so a position the plan does not hold is refused as `'not-found'`
+ * naming the position and listing the sequences the record does state. That list is what a reader needs
+ * to address a step correctly instead of guessing at one.
+ *
+ * The steps are the record's own array and the one found is returned by reference, so the payload built
+ * from it reports the state the record stands in at the instant of the read: a step a retry has since
+ * moved reads in its new state rather than in the state a screen drew it in.
+ *
+ * @param ctx - The call's context, whose records hold the plan and the option.
+ * @param ref - The reference the displayed step carries.
+ * @returns The family, the record the steps belong to and the step the reference names.
+ * @throws Problem - A `'validation'` failure naming the grammar, or a `'not-found'` failure naming the
+ *   owner or the position that the records do not hold.
+ */
+function resolveWriteBackRef(ctx: HandlerContext, ref: string): WriteBackStepRef {
+  const { ownerId, sequence } = writeBackPartsOf(ctx, ref);
+  const owner = writeBackOwner(ctx, ownerId);
+
+  if (owner === undefined) {
+    throw notFoundProblem(
+      ctx,
+      `The record set holds no approval and no response option with the identifier ${ownerId}, so no ` +
+        `write-back step of it can be resolved. The reference ${ref} names the steps of a record as ` +
+        `${WRITE_BACK_REF_GRAMMAR}.`,
+    );
+  }
+
+  const step = owner.writeBacks.find((candidate) => candidate.sequence === sequence);
+
+  if (step === undefined) {
+    const held = owner.writeBacks.map((candidate) => candidate.sequence).join(', ');
+
+    throw notFoundProblem(
+      ctx,
+      `The write-back of ${ownerId} holds no step at position ${sequence}: the steps it holds are ` +
+        `${held === '' ? 'none at all, so the plan writes nothing back' : held}.`,
+    );
+  }
+
+  return { family: 'write-back', owner, ownerId, step };
+}
+
+/**
  * Resolves one reference to the record that answers it, in the module's documented order.
  *
  * The root or the prefix selects the family and that family's own records are then searched for the
  * exact identifier, so a reference either names a record the session holds or is refused. The order is
- * the one this module's header states — composed aggregate, atlas series, package, exception, scenario,
- * approval, audit event, pin, document, customer order, policy, purchase order, shared chokepoint,
- * competitor site and network, radar series reading, then the seven node families and the declared
- * outbound endpoint — and it is written out here rather than derived from a table so a reader can see
- * it. `PPAP-` is tested first among the record families because a package identifier begins with the
- * two letters a purchase order's begins with, and a shorter prefix tested first would shadow it;
- * `POL-` is tested before the shorter `PO-` for the same longer-prefix-first reason, and the two cannot
- * actually collide, because a policy identifier's third character is a letter where a purchase order's
- * is the separator. The composed roots are tested before every prefix because `overview:` and
- * `canvas:` match none of them, and the endpoint family is tested once every prefix branch has declined
- * the reference, so no prefix can shadow an endpoint and no endpoint can be read as an identifier.
+ * the one this module's header states — composed aggregate, write-back step, atlas series, package,
+ * exception, scenario, approval, audit event, pin, document, customer order, policy, purchase order,
+ * shared chokepoint, competitor site and network, radar series reading, then the seven node families and
+ * the declared outbound endpoint — and it is written out here rather than derived from a table so a
+ * reader can see it. `PPAP-` is tested first among the record families because a package identifier
+ * begins with the two letters a purchase order's begins with, and a shorter prefix tested first would
+ * shadow it; `POL-` is tested before the shorter `PO-` for the same longer-prefix-first reason, and the
+ * two cannot actually collide, because a policy identifier's third character is a letter where a
+ * purchase order's is the separator. The composed roots and the write-back root are tested before every
+ * prefix because `overview:`, `canvas:` and `write-back:` match none of them, and the endpoint family is
+ * tested once every prefix branch has declined the reference, so no prefix can shadow an endpoint and no
+ * endpoint can be read as an identifier.
  *
  * Two families resolve more than one record. A `CMP-` reference is looked up as a site across the
  * pack's networks first and as a network second, so a site identifier answers with the network that
@@ -1777,11 +2036,20 @@ type NodeRef = Extract<
  * axis is then looked up among the pack's own axes and read at the position that list gives it, because
  * `AtlasSeries.values` is aligned to the axis order and carries no axis name of its own.
  *
- * The scenario family is the one family whose records are not all in one list. The options the dataset
- * ships are scanned in place, and the options measured from an exception's own solver case are answered
- * by `scenarioForReference` in the sibling `handlers/scenarios.ts` — the module that produces that set
- * for the comparison screen — after that scan and before the refusal. Both are exact-identifier
- * lookups: the second reads the set the records state and never searches for a prefix or a neighbour.
+ * The scenario family is the one family whose records are not all in one list. `scenarioForIdentifier`
+ * holds that pair of lookups: it scans the options the dataset ships in place, then answers the options
+ * measured from an exception's own solver case through `scenarioForReference` in the sibling
+ * `handlers/scenarios.ts` — the module that produces that set for the comparison screen — and it is
+ * called from here and from the write-back family's owner resolution alike, so a shipped option and a
+ * measured one answer the same way whichever reference reaches them. Both are exact-identifier lookups,
+ * and neither searches for a prefix or a neighbour.
+ *
+ * THE WRITE-BACK FAMILY NAMES A STEP, NOT A RECORD. `WriteBack` declares no identifier, so
+ * `write-back:<ownerId>/<sequence>` names the record the steps belong to — an approval or a response
+ * option — and the step's own position within it, and `resolveWriteBackRef` states the parse, the owner
+ * lookup and the position refusal it needs. Its refusals are the two this family already has: a
+ * reference the grammar does not state is `'validation'`, and an owner or position the records do not
+ * hold is `'not-found'`.
  *
  * The messages of the refusals quote the reference the caller sent, never a neighbour's identifier:
  * an unresolvable drawer reports what it could not resolve.
@@ -1793,8 +2061,9 @@ type NodeRef = Extract<
  * @param ref - The reference the displayed element carries.
  * @returns The family and the record it names, or the composed figure's own payload.
  * @throws Problem - A `'not-found'` failure naming the reference when no record answers it, a
- *   `'validation'` failure naming a query parameter a composed reference cannot carry, or the failure
- *   the aggregate read itself raises for a figure it may not serve.
+ *   `'validation'` failure naming a query parameter a composed reference cannot carry or a write-back
+ *   form the grammar does not state, or the failure the aggregate read itself raises for a figure it
+ *   may not serve.
  */
 async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef> {
   const records = ctx.state.records;
@@ -1802,6 +2071,13 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
 
   if (composed !== null) {
     return resolveComposed(ctx, ref, composed);
+  }
+
+  /* The write-back family's root carries the same `:` separator the composed roots do and matches no
+     identifier prefix, so it is read here — before `atlas:` and before every prefix branch — rather
+     than left to the prefix walk to decline. */
+  if (ref.startsWith(WRITE_BACK_REF_PREFIX)) {
+    return resolveWriteBackRef(ctx, ref);
   }
 
   if (ref.startsWith(ATLAS_SERIES_PREFIX)) {
@@ -1835,23 +2111,15 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
   }
 
   if (ref.startsWith(SCENARIO_PREFIX)) {
-    // The sets the dataset ships first, so a shipped option answers with the record the dataset holds
-    // rather than with a measurement of the same position.
-    for (const seeded of records.exceptionScenarios) {
-      const found = seeded.scenarioSet.scenarios.find((candidate) => candidate.id === ref);
+    // The sets the dataset ships first, and then the sets the adapter measures at call time, which
+    // are the comparison screen's columns and the options the sandbox duplicates: no shipped record
+    // holds those, so the scan alone would leave the figure behind such a reference reaching no record
+    // at all (AAP 0.12.4, F12). `scenarioForIdentifier` is that pair of lookups, in that order, so the
+    // owner of a write-back resolves the way the option itself does.
+    const found = scenarioForIdentifier(ctx, ref);
 
-      if (found !== undefined) {
-        return { family: 'scenario', record: found };
-      }
-    }
-
-    // Then the sets the adapter measures at call time, which are the comparison screen's columns and
-    // the options the sandbox duplicates: no shipped record holds those, so the scan above cannot find
-    // them and the figure behind such a reference would reach no record at all (AAP 0.12.4, F12).
-    const measured = scenarioForReference(ctx, ref);
-
-    if (measured !== undefined) {
-      return { family: 'scenario', record: measured };
+    if (found !== undefined) {
+      return { family: 'scenario', record: found };
     }
 
     throw notFoundProblem(
@@ -2130,7 +2398,7 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
 
   throw notFoundProblem(
     ctx,
-    `The deployment record declares no outbound endpoint named ${ref}, so the evidence behind it cannot be resolved. No record family answers the reference ${ref}. A reference names a package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a customer order, a purchase order, a policy, an outbound endpoint, a shared chokepoint, a competitor site or network, a radar series reading, a plant, a supplier, a tier-2 origin, a customer, a material, a production line or a product; or it names a computed figure as ${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, or one radar series as ${ATLAS_SERIES_PREFIX}<seriesId>.`,
+    `The deployment record declares no outbound endpoint named ${ref}, so the evidence behind it cannot be resolved. No record family answers the reference ${ref}. A reference names a package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a customer order, a purchase order, a policy, an outbound endpoint, a shared chokepoint, a competitor site or network, a radar series reading, a plant, a supplier, a tier-2 origin, a customer, a material, a production line or a product; or it names a computed figure as ${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, one radar series as ${ATLAS_SERIES_PREFIX}<seriesId>, or one step of a plan's write-back as ${WRITE_BACK_REF_GRAMMAR}.`,
   );
 }
 
@@ -2144,9 +2412,10 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
  *
  * A record that names a plant is narrowed by it, so a persona cannot read the evidence of a plant
  * outside its scope. The records that reach a plant indirectly are resolved to the plant the records
- * give them: a scenario and an approval to the plant of the exception they answer, a pin to its own
- * node when that node is a plant, and a production line to the plant it belongs to (AAP 0.12.2: a line
- * belongs to one plant). A package, an audit event, a document, a material and a product name no plant,
+ * give them: a scenario and an approval to the plant of the exception they answer, a step of a
+ * write-back to the plant of the record that holds it — an approval, or the option an approval was
+ * requested for — a pin to its own node when that node is a plant, and a production line to the plant
+ * it belongs to (AAP 0.12.2: a line belongs to one plant). A package, an audit event, a document, a material and a product name no plant,
  * and neither does a radar series, which reports a market reading rather than a record placed at a
  * plant, so none of them is plant-scoped and the permission alone decides whether it is readable —
  * which is the reading `hasPermission` documents for a `null` subject. A composed aggregate names a
@@ -2155,8 +2424,10 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
  * `./atlas.ts` documents for the atlas read itself, so they are never narrowed by a plant scope and are
  * refused by `assertPackReach` instead. The declared configuration is group-wide by construction — the
  * ledger's endpoints and the policy set are the same records for every plant — so a policy and an
- * outbound endpoint name no plant either. The four node families are the one case a single subject
- * cannot state, and they are answered below rather than here.
+ * outbound endpoint name no plant either. Four of the canvas's five node families — plant, supplier,
+ * origin and customer — are the one case a single subject cannot state, and they are answered below
+ * rather than here. A material is the fifth family and names no plant, so it takes the `null` case
+ * already stated for it above.
  *
  * @param ctx - The call's context, whose records resolve the indirect plants.
  * @param resolved - The record the reference named.
@@ -2168,6 +2439,8 @@ function subjectOf(ctx: HandlerContext, resolved: ResolvedRef): ScopedSubject | 
   switch (resolved.family) {
     case 'aggregate':
       return resolved.figure.plantId === null ? null : { plantId: resolved.figure.plantId };
+    case 'write-back':
+      return plantOfException(records, resolved.owner.exceptionId);
     case 'exception':
       return { plantId: resolved.record.plantId };
     case 'customer-order':
@@ -2248,6 +2521,8 @@ function evidenceFor(ctx: HandlerContext, resolved: ResolvedRef): Evidence {
   switch (resolved.family) {
     case 'aggregate':
       return resolved.figure.evidence;
+    case 'write-back':
+      return writeBackStepEvidence(ctx, resolved);
     case 'package':
       return packageEvidence(ctx.state.records, resolved.record);
     case 'exception':
@@ -2500,6 +2775,86 @@ function approvalEvidence(ctx: HandlerContext, approval: Approval): Evidence {
     confidence: recordConfidence(),
     missingInputs: [],
     documents: documentsCiting(records, approval.exceptionId),
+  };
+}
+
+/**
+ * The evidence behind one step of a plan's simulated write-back: the record it writes, the system it
+ * writes into and the state the run left it in.
+ *
+ * The value is the step's own row — its position, the record that holds it, the system's display name,
+ * the reference it writes and the state it stands in — and every part of it is a field of a record, so
+ * nothing is computed here (rule P-6). The label is the fixed `Simulated write-back` string of
+ * specification §5.3, because a step is a write-back element and rule P-1 labels each element rather
+ * than the list it sits in; the provenance is `first_party`, because a step is a record of this
+ * workspace rather than a market reading or a computed figure.
+ *
+ * The formula states in the product's own words what a write-back step is: the record a plan writes
+ * into a system of record, the steps running in the order the plan records, no system behind them
+ * contacted, and the change all-or-nothing — a step that does not complete stops the run and leaves
+ * every later step pending until the failed step is retried, and a retry never writes a step that
+ * already succeeded.
+ *
+ * The neighbours follow the record the steps belong to. For an approval the upstream records are the
+ * exception it answers and the option it was requested for, and the downstream records are the audit
+ * events the chain holds against it, which is the trail a reader follows from a step back to the
+ * decision. For an option the upstream record is the exception whose case the option was measured from,
+ * and the downstream records are the approvals naming it. The missing inputs are the owner's
+ * exception's, because an input the case could not read is the exception's (AAP 0.8), and the documents
+ * are those citing that exception.
+ *
+ * @param ctx - The call's context: the records the plan and its neighbours are read from, and the chain
+ *   behind an approval.
+ * @param resolved - The step the reference named, with the record that holds it.
+ * @returns The step's evidence payload.
+ */
+function writeBackStepEvidence(ctx: HandlerContext, resolved: WriteBackStepRef): Evidence {
+  const records = ctx.state.records;
+  const { owner, ownerId, step } = resolved;
+  const exception = records.exceptions.find((candidate) => candidate.id === owner.exceptionId);
+  const neighbours = isApprovalOwner(owner)
+    ? {
+        upstream: uniqueRefs([owner.exceptionId, owner.scenarioId]),
+        downstream: uniqueRefs(
+          ctx.state.auditEvents
+            .filter((event) => event.objectRef === owner.id)
+            .map((event) => event.id),
+        ),
+      }
+    : {
+        upstream: uniqueRefs([owner.exceptionId]),
+        downstream: uniqueRefs(
+          records.approvals
+            .filter((approval) => approval.scenarioId === owner.id)
+            .map((approval) => approval.id),
+        ),
+      };
+
+  return {
+    value:
+      `write-back step ${step.sequence} of ${ownerId} to ${SOURCE_LABELS[step.system]} record ` +
+      `${step.recordRef} stands ${step.state}`,
+    provenance: 'first_party',
+    label: SIMULATED_WRITE_BACK,
+    formula:
+      'A write-back step is the record a plan writes into one system of record, and the steps of a ' +
+      'plan run in the order the plan records. Every step is simulated: no system behind it is ' +
+      'contacted and no live record is written. The change is all-or-nothing — a step that does not ' +
+      'complete stops the run and leaves every later step pending until the failed step is retried, ' +
+      'and a retry never writes a step that already succeeded.',
+    inputs: [
+      `sequence = ${step.sequence}`,
+      `system = ${step.system}`,
+      `recordRef = ${step.recordRef}`,
+      `state = ${step.state}`,
+      `description = ${step.description}`,
+      `owner = ${ownerId}`,
+    ],
+    upstream: neighbours.upstream,
+    downstream: neighbours.downstream,
+    confidence: recordConfidence(),
+    missingInputs: exception === undefined ? [] : [...exception.missingInputs],
+    documents: documentsCiting(records, owner.exceptionId),
   };
 }
 
@@ -3549,6 +3904,14 @@ function policyEvidence(ctx: HandlerContext, policy: SeededPolicy): Evidence {
  * is the `LEDGER_WINDOW_DAYS` constant, which is also the constant that aggregate measures against, so
  * the sentence cannot name a window the counts were not taken over.
  *
+ * The trail is read once. The events whose `objectRef` is the endpoint are selected in a single pass,
+ * and that one selection answers both halves of the payload: the counts and the last attempt come from
+ * handing it to `computeLedger`, and the attempt identifiers come from the same slice, so the counts and
+ * the attempt list cannot be drawn from two different readings of the trail (AAP 0.2.1). The row is the
+ * one the whole trail yields, because the aggregate counts only the events whose object reference is
+ * that endpoint and derives `lastAttempt` from those same events, so narrowing its input removes work
+ * and no figure. `upstream` stays the trail's own order, de-duplicated as every reference list here is.
+ *
  * @param ctx - The call's context: the trail the counts come from and the declared configuration.
  * @param endpoint - The declared ledger row the reference named, whose counted members are the aggregate's.
  * @returns The endpoint's evidence payload.
@@ -3559,8 +3922,17 @@ function outboundEndpointEvidence(
   ctx: HandlerContext,
   endpoint: SeedRecordSet['sovereignty']['ledger'][number],
 ): Evidence {
+  /*
+   * One selection of the trail, read by both halves of the payload. The aggregate counts only the
+   * events whose object reference is the endpoint, so handing it these events gives the row the whole
+   * trail would give, and the attempt ids below come from the same slice rather than from a second
+   * filter of everything (AAP 0.2.1).
+   */
+  const namingEndpoint = ctx.state.auditEvents.filter(
+    (event) => event.objectRef === endpoint.endpoint,
+  );
   const row = computeLedger(
-    ctx.state.auditEvents,
+    namingEndpoint,
     ctx.state.records.sovereignty,
     DEMO_CLOCK,
   ).find((candidate) => candidate.endpoint === endpoint.endpoint);
@@ -3572,9 +3944,7 @@ function outboundEndpointEvidence(
     );
   }
 
-  const attempts = ctx.state.auditEvents
-    .filter((event) => event.objectRef === row.endpoint)
-    .map((event) => event.id);
+  const attempts = namingEndpoint.map((event) => event.id);
 
   return {
     value: `${row.allowed} allowed and ${row.blocked} blocked over the last ${LEDGER_WINDOW_DAYS} days`,
@@ -3654,7 +4024,10 @@ export async function getEvidence(ctx: HandlerContext, ref: string): Promise<Evi
     }
   }
 
-  if (resolved.family === 'pin' && !pinVisibleTo(ctx, resolved.record)) {
+  if (
+    resolved.family === 'pin' &&
+    !pinVisibleTo(ctx, resolved.record, pinAudienceOf(ctx))
+  ) {
     throw permissionProblem(
       ctx,
       EVIDENCE_READ,
@@ -3925,24 +4298,6 @@ function startIndexFor<TRow>(
   return found + 1;
 }
 
-/**
- * The greatest number of records a page may hold, or `null` when the query sets no boundary.
- *
- * A parameter that is absent, not an integer, or not positive asks for no page rather than for an
- * empty one: contracts §9 leaves `limit` optional, and a caller that omits it wants the whole read.
- * The bound is the parameter's alone, so no page size is fixed here (rule P-6).
- *
- * @param limit - The parameter as the query carried it.
- * @returns The page's greatest length, or `null` for every remaining record.
- */
-function limitOf(limit: number | undefined): number | null {
-  if (limit === undefined || !Number.isInteger(limit) || limit <= 0) {
-    return null;
-  }
-
-  return limit;
-}
-
 /* ---------------------------------------------------------------------------------------------
  * Which pins a persona may see — AAP 0.2.1, contracts §7.1 `EvidencePin`
  * ------------------------------------------------------------------------------------------- */
@@ -4046,31 +4401,100 @@ function vendorsFor(records: SeedRecordSet, actor: ActiveUser): SupplierId[] {
 }
 
 /**
+ * The audience one evidence read is narrowed by: the suppliers the session's records attribute to the
+ * acting persona, and the plants the records place the nodes that read looks at in.
+ *
+ * It is built once per call and kept nowhere. A role switch must be served the new persona's own
+ * audience and never the one resolved for the persona before it, so nothing here may outlive the
+ * request that derived it: the pin filter asks who is reading, and what the records place each node in,
+ * on every read, which is how the adapter's own enforcement stays true to the persona the call acts as
+ * rather than to the last one (rule P-3, AAP 0.18.2).
+ *
+ * `plantsByNode` fills as the read walks its pins, so a node several pins hang on is resolved from the
+ * records once and that answer serves the rest of the same read only.
+ */
+interface PinAudience {
+  /** The suppliers the records attribute to the acting persona, declared vendors first. */
+  readonly vendors: readonly SupplierId[];
+
+  /** The plants the records place each node of this read in, keyed by node reference. */
+  readonly plantsByNode: Map<string, PlantId[]>;
+}
+
+/**
+ * The audience the acting persona's pin filter is narrowed by, resolved once for one read.
+ *
+ * `vendorsFor` runs here and nowhere else in a read, so a page of pins costs one scan of the persona
+ * records and one of the exception set rather than one of each per pin. The plant half is resolved
+ * lazily, by `plantsOfNodeOnce`, because the external supplier engineer's narrowing never needs it.
+ *
+ * Nothing about the audience is retained between calls: a role switch must never be served another
+ * persona's audience, so the reach is re-derived for the persona the call acts as, which is what keeps
+ * the adapter's enforcement (rule P-3) a decision about this caller rather than about the previous one.
+ *
+ * @param ctx - The call's context: the persona the audience is resolved for and the records it is read from.
+ * @returns The audience for this call, with no node resolved yet.
+ */
+function pinAudienceOf(ctx: HandlerContext): PinAudience {
+  return { vendors: vendorsFor(ctx.state.records, ctx.actor), plantsByNode: new Map() };
+}
+
+/**
+ * The plants the records place one node in, resolved from the records at most once per read.
+ *
+ * `plantsOfNode` is several scans of the node families, and a node carries several pins, so the read
+ * keeps the first answer it derives and hands it back for every later pin on the same node. The map
+ * this fills belongs to the call's own `PinAudience` and is discarded with it, so no node is ever
+ * answered from another read or from another persona.
+ *
+ * @param records - The session's record set.
+ * @param audience - The audience this read is narrowed by, whose node half this fills.
+ * @param nodeRef - The node a pin is attached to.
+ * @returns The plants the records place that node in, in record order.
+ */
+function plantsOfNodeOnce(
+  records: SeedRecordSet,
+  audience: PinAudience,
+  nodeRef: string,
+): PlantId[] {
+  const resolved = audience.plantsByNode.get(nodeRef);
+
+  if (resolved !== undefined) {
+    return resolved;
+  }
+
+  const plants = plantsOfNode(records, nodeRef);
+  audience.plantsByNode.set(nodeRef, plants);
+
+  return plants;
+}
+
+/**
  * Whether one pin is inside what the acting persona may see.
  *
  * Two narrowings, decided against one persona. The suppliers the records attribute to the acting
- * persona are resolved once, here, and both halves read that one set. An external supplier engineer
- * sees only the pins its own vendor's evidence carries, which is the vendor-scoped read AAP 0.2.1
- * names and the reason a pin on a supplier node records that supplier. Every other role sees the pins
- * of the plants its scope admits, decided by the same matrix and the same persona scope every scoped
- * read uses; a pin on a node the records place in no plant has no plant to narrow it by, so it is
- * released only when it names a vendor that set holds, and withheld otherwise. Both halves therefore
- * close on the same empty set, because withholding another party's evidence is recoverable and
- * releasing it is not.
+ * persona arrive resolved, once for the whole read (`pinAudienceOf`), and both halves read that one set
+ * rather than deriving it again per pin. An external supplier engineer sees only the pins its own
+ * vendor's evidence carries, which is the vendor-scoped read AAP 0.2.1 names and the reason a pin on a
+ * supplier node records that supplier. Every other role sees the pins of the plants its scope admits,
+ * decided by the same matrix and the same persona scope every scoped read uses; a pin on a node the
+ * records place in no plant has no plant to narrow it by, so it is released only when it names a vendor
+ * that set holds, and withheld otherwise. Both halves therefore close on the same empty set, because
+ * withholding another party's evidence is recoverable and releasing it is not.
  *
  * @param ctx - The call's context: the persona and the records its reach is resolved from.
  * @param pin - The pin under consideration.
+ * @param audience - The persona's audience for this call, resolved once by `pinAudienceOf`.
  * @returns `true` when the pin may be released to this persona.
  */
-function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin): boolean {
-  const vendors = vendorsFor(ctx.state.records, ctx.actor);
-  const namesOwnVendor = pin.vendorId !== undefined && vendors.includes(pin.vendorId);
+function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin, audience: PinAudience): boolean {
+  const namesOwnVendor = pin.vendorId !== undefined && audience.vendors.includes(pin.vendorId);
 
   if (ctx.actor.role === EXTERNAL_SUPPLIER_ROLE) {
     return namesOwnVendor;
   }
 
-  const plants = plantsOfNode(ctx.state.records, pin.nodeRef);
+  const plants = plantsOfNodeOnce(ctx.state.records, audience, pin.nodeRef);
 
   if (plants.length === 0) {
     return namesOwnVendor;
@@ -4089,7 +4513,9 @@ function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin): boolean {
  * boundary: an external supplier engineer receives its own vendor's pins and no other, which is the
  * vendor-scoped read AAP 0.2.1 requires, and every other role receives the pins its plant scope admits
  * and, for a pin the records place in no plant, only a pin naming a vendor the persona's own records
- * attribute to it.
+ * attribute to it. That audience is resolved once for the whole read — the vendors `vendorsFor` unions,
+ * and each node's plants the first time a pin on that node is judged — so the records are asked about a
+ * node once for the page rather than once for every pin hanging on it.
  *
  * The per-node counts travel with the topology, so the canvas badges a node without this call; the pin
  * records themselves belong to the stage that opens them, and this read exists for interface
@@ -4107,7 +4533,8 @@ function pinVisibleTo(ctx: HandlerContext, pin: EvidencePin): boolean {
  * @param nodeId - The node to narrow the read to, when the caller names one.
  * @returns One page of the pins this persona may see, in the requested order.
  * @throws Problem - A `'permission'` failure when the persona may not read evidence or the forbidden
- *   trigger is in effect; a `'validation'` failure when the cursor names no record of the ordered page.
+ *   trigger is in effect; a `'validation'` failure when the cursor names no record of the ordered page
+ *   or the limit bounds no page.
  */
 export async function listVisiblePins(
   ctx: HandlerContext,
@@ -4116,17 +4543,18 @@ export async function listVisiblePins(
 ): Promise<EvidencePin[]> {
   assertEvidenceRead(ctx);
 
+  const audience = pinAudienceOf(ctx);
   const visible = ctx.state.records.evidencePins
     .filter((pin) => nodeId === undefined || pin.nodeRef === nodeId)
-    .filter((pin) => pinVisibleTo(ctx, pin));
+    .filter((pin) => pinVisibleTo(ctx, pin, audience));
   const order = sortOrderOf(isPinSortField, query.sort);
   const ordered =
     order === null ? visible : [...visible].sort((left, right) => comparePins(left, right, order));
   const start = startIndexFor(ordered, query.cursor, (pin) => pin.id, ctx, 'pin');
-  const limit = limitOf(query.limit);
-  const page = limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
 
-  return page.map((pin) => ({ ...pin }));
+  return ordered
+    .slice(start, start + listLimitOf(ctx, query.limit, 'pin'))
+    .map((pin) => ({ ...pin }));
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -4274,10 +4702,11 @@ export async function getPackage(ctx: HandlerContext, id: PackageId): Promise<Pp
  *
  * The list gates on `evidence.read` before it reads any record, the order every other collection read
  * in this family takes: an empty record set then refuses exactly as a populated one does, rather than
- * answering a page of nothing to a role the matrix does not admit. Each record is still read through
- * `getPackage`, so one copy rule serves the list and the detail rather than two (AAP 0.12.3).
- * Readiness travels on the record — it is the package's own whole-percent figure and no percentage is
- * computed here (rule P-6).
+ * answering a page of nothing to a role the matrix does not admit. Its rows are then copied through
+ * `copyPackage`, the same copy rule the detail read applies (AAP 0.12.3), so one rule serves the list
+ * and the detail and a read of the whole collection does not re-ask the permission or re-search the
+ * records once per row. Readiness travels on the record — it is the package's own whole-percent figure
+ * and no percentage is computed here (rule P-6).
  *
  * The list parameters are the ones contracts §9 fixes: `sort` as `member:dir` over the package's own
  * members, `limit` as the page's greatest length, and `cursor` as the identifier of the package a
@@ -4290,7 +4719,8 @@ export async function getPackage(ctx: HandlerContext, id: PackageId): Promise<Pp
  * @param query - The ordering and page position the read carries.
  * @returns One page of the packages, in the requested order.
  * @throws Problem - A `'permission'` failure when the persona may not read evidence or the forbidden
- *   trigger is in effect; a `'validation'` failure when the cursor names no record of the ordered page.
+ *   trigger is in effect; a `'validation'` failure when the cursor names no record of the ordered page
+ *   or the limit bounds no page.
  */
 export async function listPackages(
   ctx: HandlerContext,
@@ -4298,11 +4728,7 @@ export async function listPackages(
 ): Promise<PpapPackage[]> {
   assertEvidenceRead(ctx);
 
-  const packages: PpapPackage[] = [];
-
-  for (const record of ctx.state.records.ppapPackages) {
-    packages.push(await getPackage(ctx, record.id));
-  }
+  const packages = ctx.state.records.ppapPackages.map((record) => copyPackage(record));
 
   const order = sortOrderOf(isPackageSortField, query.sort);
   const ordered =
@@ -4310,9 +4736,8 @@ export async function listPackages(
       ? packages
       : [...packages].sort((left, right) => comparePackages(left, right, order));
   const start = startIndexFor(ordered, query.cursor, (partPackage) => partPackage.id, ctx, 'package');
-  const limit = limitOf(query.limit);
 
-  return limit === null ? ordered.slice(start) : ordered.slice(start, start + limit);
+  return ordered.slice(start, start + listLimitOf(ctx, query.limit, 'package'));
 }
 
 /**
@@ -4342,7 +4767,8 @@ export async function listPackages(
  * @returns The package as it stands after the rules were re-run, copied.
  * @throws Problem - `'permission'` when the persona may not review extracted values or the forbidden
  *   trigger is in effect; `'not-found'` when no package or element answers the request; `'validation'`
- *   when the review contradicts the arguments it arrived with or carries no corrected value.
+ *   when the review contradicts the arguments it arrived with, carries no corrected value, or carries
+ *   one longer than `FREE_TEXT_MAX_LENGTH`.
  */
 export async function reviewPackageElement(
   ctx: HandlerContext,
@@ -4382,6 +4808,19 @@ export async function reviewPackageElement(
     throw validationProblem(
       ctx,
       `A correction of element ${elementNumber} of package ${packageId} has to carry the value the reviewer supplies; this review supplies none.`,
+    );
+  }
+
+  if (review.decision === 'correct') {
+    /*
+     * The corrected value is the one free-text member this family stores: it becomes the element's own
+     * reading and travels in the audit event's payload, so the same ceiling the exceptions, approvals
+     * and governance writes apply to their prose applies here.
+     */
+    assertFreeTextLength(
+      ctx,
+      `a corrected value for element ${elementNumber} of package ${packageId}`,
+      correctedValue,
     );
   }
 

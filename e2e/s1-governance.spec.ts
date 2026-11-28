@@ -403,6 +403,10 @@ async function countEventsFor(page: Page, objectRef: string): Promise<number> {
   const record = filters.getByLabel('Record', { exact: true });
   await record.fill(objectRef);
 
+  /* The trail's text filters commit on `Enter` rather than on every keystroke — one edit, one read —
+     so the record is committed here, before the trail the filter leaves is awaited. */
+  await record.press('Enter');
+
   /*
    * The settled condition is the trail the filter leaves, not the busy region: a read the session has
    * already made for this filter answers from the cache on a second visit, so no loading rendering

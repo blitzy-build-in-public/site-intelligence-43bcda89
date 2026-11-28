@@ -7,12 +7,22 @@
  * its records are in, and this component owns what that state looks like, so no screen composes a
  * banner, a skeleton or a denial card of its own.
  *
- * Two of the seven are warnings about the data rather than replacements for it. `'stale'` and
+ * Two of the seven report a condition on the data rather than replacing it. `'stale'` and
  * `'partial'` render their notice **above** the content, because a figure that is out of date or
- * missing an input is still the figure a planner came to read, and hiding it would answer the warning
- * by taking the question away. The other five replace the content: there is nothing behind
- * `'loading'` or `'empty'`, nothing answered for `'offline'`, the acting role may not read it for
- * `'forbidden'`, and the record moved under the reader for `'conflict'`.
+ * missing an input is still the figure a planner came to read, and hiding it would answer the
+ * condition by taking the question away. The two are told apart by their status meaning rather than
+ * by one shared warning: an aged source takes the warning triangle at the warning hue, and an
+ * incompletely answered one takes the review eye at the review hue, because aged data and an
+ * incomplete reading are different things to report and neither may rest on colour alone (rule B-3).
+ * The other five replace the content: there is nothing behind `'loading'` or `'empty'`, nothing
+ * answered for `'offline'`, the acting role may not read it for `'forbidden'`, and the record moved
+ * under the reader for `'conflict'`.
+ *
+ * The empty state replaces the content with whichever rendering the caller supplied for it: the notice
+ * on its own, or — through `emptyContent` — the caller's own statement of the emptiness, for a caller
+ * whose structure carries it better than a sentence on its own can. A table with no rows to show is
+ * that second case: it keeps its caption and its scoped column headers and holds the sentence in one
+ * cell spanning every column, so the columns a reader was comparing do not vanish with the rows.
  *
  * The stale banner is one of the two required halves of the freshness rule (AAP §0.2.1, T-13). The
  * service refuses `requestApproval` and `decideApproval` with a `Problem` naming the source and its
@@ -211,6 +221,17 @@ const NOTICE_STACK_CLASSES = 'flex min-w-0 flex-col gap-2';
 const NOTICE_CLASSES =
   'flex min-w-0 flex-col gap-1 rounded-card border border-hairline bg-surface-2 px-3 py-2';
 
+/**
+ * The region a caller's own empty rendering stands in, when it supplied one.
+ *
+ * It adds no surface, border or padding of its own: the caller's structure is what states the
+ * emptiness — a table that keeps its caption and scoped headers and holds the sentence in the cell
+ * that spans them — and a notice frame around it would draw a second boundary inside the one the
+ * caller already paints. The region stays on the 4 px grid through the caller's own spacing, and
+ * `min-w-0` is all this box owes it, so a wide structure inside a flex column can still shrink.
+ */
+const EMPTY_CONTENT_CLASSES = 'min-w-0';
+
 /** The secondary text role for a notice's supporting sentence, one step down the type scale. */
 const DETAIL_CLASSES = 'text-13 text-text-secondary';
 
@@ -260,10 +281,30 @@ export interface StateBoundaryProps {
   /**
    * The screen's content.
    *
-   * Rendered as given for the absent state and for `'stale'` and `'partial'`, which warn about the
-   * data without withholding it, and withheld for the five states that replace it.
+   * Rendered as given for the absent state and for `'stale'` and `'partial'`, which report a
+   * condition on the data rather than withholding it, and withheld for the five states that replace
+   * it.
    */
   readonly children: ReactNode;
+
+  /**
+   * The caller's own rendering of the empty state, for a caller whose content states the emptiness
+   * inside its own structure rather than in a sentence on its own.
+   *
+   * A table whose rows are all the read returned is that caller: it keeps its `<caption>`, its scoped
+   * column headers and its body, and holds the sentence in the one cell that spans every column, so a
+   * reader who narrowed the view to nothing still sees the columns they were choosing between.
+   *
+   * Rendered inside this boundary's single `role="status"` region in place of the notice, and only for
+   * `state === 'empty'`: every other state's rendering is unchanged, and the content handed as
+   * `children` is withheld exactly as it is when the notice stands in. Absent, the empty state renders
+   * the notice built from `emptyMessage` and {@link STATE_BOUNDARY_TEXT}'s `emptyFallback`, which is
+   * what a screen with no structure of its own hands in.
+   *
+   * The region stays exactly one whatever it holds — a caller inspecting the boundary by role finds
+   * one region, not one per rendering — because a state is announced once rather than twice.
+   */
+  readonly emptyContent?: ReactNode | undefined;
 
   /**
    * The source behind a stale screen, with the display name to print and the instant it last
@@ -346,13 +387,23 @@ function joinClassNames(...values: readonly string[]): string {
  * minimum target and focus ring the token layer fixes (rule B-3), and it exists only when a handler
  * was supplied (rule P-8). It sits outside the notice's live region, so a reader is told the failure
  * once and then finds the control beside it rather than inside the announced text.
+ *
+ * `self-start` keeps the control at its own width inside the column that holds it. That column stretches
+ * its children by default, which made the retry span the whole content width and read as a broken bar
+ * rather than as an action (QA finding QA2-18); the alignment is set here rather than on the column
+ * because the loading region reuses the same column for its skeleton bars, and those bars are meant to
+ * fill it.
  */
 function retryControl(label: string, onRetry: (() => void) | undefined): ReactNode {
   if (onRetry === undefined) {
     return null;
   }
 
-  return <ActionButton onClick={onRetry}>{label}</ActionButton>;
+  return (
+    <ActionButton className="self-start" onClick={onRetry}>
+      {label}
+    </ActionButton>
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -376,6 +427,7 @@ function retryControl(label: string, onRetry: (() => void) | undefined): ReactNo
 export function StateBoundary({
   state,
   children,
+  emptyContent,
   stale,
   onRetry,
   emptyMessage,
@@ -422,9 +474,21 @@ export function StateBoundary({
         </div>
       );
 
-    /* The call succeeded and returned nothing to show: the caller's fixed sentence, or the neutral
-       caption when it supplied none. */
+    /* The call succeeded and returned nothing to show. A caller whose own structure states the
+       emptiness — a table keeping its caption and scoped headers with the sentence in the cell that
+       spans them — supplies that structure as `emptyContent`, and it stands in the region in place of
+       the notice; the content handed as `children` is withheld either way, because there is nothing
+       behind an empty answer. Absent it, the caller's fixed sentence, or the neutral caption when it
+       supplied none. */
     case 'empty':
+      if (emptyContent !== undefined) {
+        return (
+          <div role="status" className={EMPTY_CONTENT_CLASSES}>
+            {emptyContent}
+          </div>
+        );
+      }
+
       return (
         <div role="status" className={NOTICE_CLASSES}>
           <StatusIndicator
@@ -471,13 +535,16 @@ export function StateBoundary({
       );
 
     /* A source answered incompletely: the notice names the condition above the content, which keeps
-       rendering so the missing inputs can be read beside the figures they affect. */
+       rendering so the missing inputs can be read beside the figures they affect. The condition reads
+       as the review to inspect — the eye at the review hue — rather than as the warning triangle the
+       stale banner carries, because an incomplete answer is a different thing to report than an aged
+       one, and the two states must be told apart by more than their words (rule B-3). */
     case 'partial':
       return (
         <div className={STACK_CLASSES}>
           <div className={NOTICE_STACK_CLASSES}>
             <div role="status" className={NOTICE_CLASSES}>
-              <StatusIndicator meaning="warning" label={STATE_BOUNDARY_TEXT.partialHeadline} />
+              <StatusIndicator meaning="review" label={STATE_BOUNDARY_TEXT.partialHeadline} />
               {hasText(partialMessage) ? <p className={DETAIL_CLASSES}>{partialMessage}</p> : null}
             </div>
             {retryControl(STATE_BOUNDARY_TEXT.retryLabel, onRetry)}

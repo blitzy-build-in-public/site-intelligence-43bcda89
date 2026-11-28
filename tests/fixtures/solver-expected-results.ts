@@ -34,9 +34,12 @@
  * to the record's own fields and the rule without running anything; a disagreement between this table
  * and the module is then a defect to report rather than a number to adjust, because a fixture written
  * to match what the solver returns would prove nothing. What pins the record rather than the
- * implementation are the figures the AAP quotes from that same table, both reproduced below: the
- * do-nothing baseline's 580 and 640 units late for `CO-770233` and `CO-770251`, 1,220 in total, and the
- * recommended option's EUR 21,300 spend of 600 × 31 by air plus 900 × 3 by transfer. The case record
+ * implementation are the figures the AAP quotes from that same table, three of them reproduced below:
+ * the do-nothing baseline's 580 and 640 units late for `CO-770233` and `CO-770251`, 1,220 in total;
+ * the recommended option's EUR 21,300 spend of 600 × 31 by air plus 900 × 3 by transfer; and the
+ * 2,257,000 of delayed revenue that same sentence says the option avoids, which is the baseline row's
+ * own `revenueDelayedEur` — the figure that fixes the orders' 1,850 price, since 1,220 × 1,850 is
+ * exactly 2,257,000. The case record
  * itself is pinned the same way, by that option's side effect — 900 kits worth EUR 108,000 deferred by
  * 10 days — which is what fixes its two lever rates, the transferred product's price and its lead time.
  *
@@ -48,8 +51,9 @@
  * finished goods 0 (the delayed purchase order is the whole supply behind the two orders), a build
  * rate of 300 units per working day, and a window of 3 to 23 December 2026 whose fifteen working days
  * are 3, 4, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 21, 22 and 23 December — Monday to Friday with no
- * public holidays (contracts §1). The orders are `CO-770233`, 580 units promised 9 December at 1,240
- * each, and `CO-770251`, 640 units promised 16 December at 1,240 each. Air freight costs 31 per set
+ * public holidays (contracts §1). The orders are `CO-770233`, 580 units promised 9 December at 1,850
+ * each, and `CO-770251`, 640 units promised 16 December at 1,850 each — the price
+ * `src/seed/products.ts` reconstructs from the delayed-revenue figure AAP 0.8 quotes. Air freight costs 31 per set
  * recovered and a transfer costs 3 per set (AAP 0.8's EUR 21,300 sentence is the pair that reproduces
  * the spend: 600 × 31 + 900 × 3 = 21,300).
  *
@@ -141,7 +145,8 @@ export const EXPECTED_SOLVER_ROWS: readonly ExpectedSolverRow[] = [
    * `CO-770233`'s 10 working days from 9 December to the window's last working day on 23 December
    * ([9..23) holds 9, 10, 11, 14, 15, 16, 17, 18, 21 and 22 December), against `CO-770251`'s 5 from 16
    * December (16, 17, 18, 21 and 22). No set is recovered, so nothing is added to cost, and the 1,220
-   * late units at 1,240 each delay 1,512,800 of revenue.
+   * late units at 1,850 each delay 2,257,000 of revenue — the figure AAP 0.8's quoted recommendation
+   * sentence states the plan avoids, which is what fixes the price at 1,850.
    */
   {
     id: 'SCN-1184-A',
@@ -152,7 +157,7 @@ export const EXPECTED_SOLVER_ROWS: readonly ExpectedSolverRow[] = [
     ordersOnTime: 0,
     addedCostEur: 0,
     lineIdleDays: 15,
-    revenueDelayedEur: 1512800,
+    revenueDelayedEur: 2257000,
     constraintCheck: 'pass',
   },
 
@@ -165,7 +170,7 @@ export const EXPECTED_SOLVER_ROWS: readonly ExpectedSolverRow[] = [
    * promise date of 9 December (580 of the 600, leaving 20), so that order is on time and `CO-770251`
    * takes the remaining 20 on 16 December against a promise of 640: 620 units late, 5 working days late
    * measured from 16 December to the window's last working day ([16..23) holds 16, 17, 18, 21 and 22
-   * December). Cost is the 600 air sets at 31 = 18,600, and the 620 late units at 1,240 delay 768,800.
+   * December). Cost is the 600 air sets at 31 = 18,600, and the 620 late units at 1,850 delay 1,147,000.
    */
   {
     id: 'SCN-1184-B',
@@ -176,7 +181,7 @@ export const EXPECTED_SOLVER_ROWS: readonly ExpectedSolverRow[] = [
     ordersOnTime: 1,
     addedCostEur: 18600,
     lineIdleDays: 13,
-    revenueDelayedEur: 768800,
+    revenueDelayedEur: 1147000,
     constraintCheck: 'pass',
   },
 

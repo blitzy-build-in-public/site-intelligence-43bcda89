@@ -65,16 +65,29 @@
  * fact nobody knows yet is the control rule P-8 forbids. The comment and the acknowledgements are held
  * in this component, sent to the port, and never written to a record locally: a refused decision
  * changes nothing on screen except the message the service returned, which is what keeps the service
- * the only author of what happened.
+ * the only author of what happened. A decision attempted while the comment gate holds is answered at
+ * the field as well as by the control: {@link ActionButton} reports the refusal to this screen, which
+ * marks the comment field invalid — `aria-invalid`, `aria-errormessage` naming
+ * {@link APPROVAL_DETAIL_TEXT.commentRequiredReason} beside the field, and that sentence carried in the
+ * field's description too — until the reader types the comment it asks for. The description is how the
+ * message is conveyed: a second live region for the field would announce the sentence twice, on top of
+ * the announcement the control that refused has already made, so the field states instead where the
+ * value is wrong and what is wrong with it whenever it is reached. Only the comment turns the field
+ * invalid, because it is the one gate the field can answer: a stale source, an ineligible persona, a
+ * policy block, a decided plan or a write in flight is not a sentence the reader can type their way out
+ * of, and the control's own hint and announcement already answer those.
  *
  * THE SEVEN STATES — `platform-specification.md` §8, AAP §0.12.4. `src/components/screen-state.ts` is
  * the one place any screen decides which state its records are in, from facts the queries settled to: a
  * permission refusal (of any read, or of a decision) is `forbidden`, a non-`Problem` rejection is
- * `offline`, a validation refusal of the read is `conflict`, a `'not-found'` one is `empty`, a stale
- * gating source is `stale`, an unavailable one is `offline`, an incomplete one is `partial`, a pending
- * read is `loading`, and a route that named no approval is `empty`. A record missing a member this
- * screen shows, or a plan whose option could not be read, is `partial`. `StateBoundary` owns what each
- * state looks like.
+ * `offline`, a validation refusal of the read is `conflict`, a stale gating source is `stale`, an
+ * unavailable one is `offline`, an incomplete one is `partial`, and a pending read is `loading`. A
+ * record missing a member this screen shows, or a plan whose option could not be read, is `partial`. A
+ * `'not-found'` refusal, which the union reads as `empty`, is answered by the not-found panel naming
+ * the record rather than by the boundary's empty state, as the exception route answers it; and a route
+ * that named no approval — which the union reads the same way — is answered by that same panel, so no
+ * reader is told the address carried no approval when it carried one the records do not hold.
+ * `StateBoundary` owns what each remaining state looks like.
  *
  * PERMISSION AND POLICY FAILURES. A decision refused for permission renders `ForbiddenCard` through
  * the boundary's forbidden state, naming `requiredPermission`, `rolesWithPermission` and `traceId`. A
@@ -101,28 +114,34 @@
  * it carries no evidence reference, so the two euro members open the drawer through the approval's own
  * identifier as the inbox's figure columns do (`APR-` reference to `GET /evidence?ref=`).
  *
- * THE INVALIDATION, AND THE ONE ACTION THE CARD DOES NOT OFFER. The cache is invalidated after a
- * decision through `queryClient.invalidateQueries` with the port member's own name as the key prefix
- * rather than through a helper owned by the shell: this module may not import `src/app`, and a write's
- * invalidation is one call per read, so the grant-exception dialog declares the same helper beside its
- * own write. The reads a decision moves are named once, below, and both writes invalidate them whichever
- * way the call settled, because a decision can move the record even when it throws. No control reviews
- * the outcome (`reviewApprovalOutcome`): AAP §0.12.4's SCR-05 row asks the card to set planned against
- * resulting figures and names no review action, so none is offered.
+ * THE INVALIDATION, AND THE ACTION THE CARD OFFERS. The cache is invalidated after a decision through
+ * `queryClient.invalidateQueries` with the port member's own name as the key prefix rather than through
+ * a helper owned by the shell: this module may not import `src/app`, and a write's invalidation is one
+ * call per read, so the grant-exception dialog declares the same helper beside its own write. The reads
+ * each write moves are named once, below, and every write invalidates them whichever way the call
+ * settled, because a decision can move the record even when it throws.
+ *
+ * The approved plan's card offers the outcome review AAP §0.6.2 enumerates among the audited writes: a
+ * control that calls `reviewApprovalOutcome` once the comparison has been read, invalidating
+ * `getApproval` — whose `outcomeReviewed` member the write sets — and `listAuditEvents`, whose trail
+ * gained its event. The control is gated in the order the service refuses in: the acting persona's
+ * eligibility, which mirrors the handler's own permission and record checks; a record that already
+ * carries its review, which the handler refuses rather than recording twice; and the call in flight. It
+ * takes no freshness gate, because the review writes no source and the handler consults none.
  *
  * Rules this module is built to satisfy:
  * - P-1: the two euro members carry `Simulated calculation` from `SIM_LABELS`, every write-back step
  *   carries `WRITE_BACK_TAG` from its own module, and the outcome card carries its own label.
- * - P-2: every read and both writes go through `useService()`; no seed, adapter, domain or HTTP module
- *   is reachable, and no record is mutated locally.
+ * - P-2: every read and all three writes go through `useService()`; no seed, adapter, domain or HTTP
+ *   module is reachable, and no record is mutated locally.
  * - P-3: nothing here presents a browser-side check as the authorisation a deployment would make.
  * - P-4: no sentence claims that the flow establishes a configuration, prevents a copy or resists an
  *   edit; the write-backs are labelled simulated wherever they appear.
  * - P-6: no figure, amount, date, identifier or missing input is typed — each is a record's own.
  * - P-7: every name on screen is a seeded persona, plant or record reference; no real company or
  *   product is named and no placeholder prose stands in for a record.
- * - P-8: all three decisions and every retry either act or are disabled with the sentence explaining
- *   why, reachable by keyboard through the shared control.
+ * - P-8: all three decisions, every retry and the outcome review either act or are disabled with the
+ *   sentence explaining why, reachable by keyboard through the shared control.
  * - B-1, B-2: nothing here fetches, reads configuration or carries a credential.
  * - B-3: WCAG 2.2 AA — the comment field has a programmatic label, every control keeps the 24x24 px
  *   target and the 2 px focus ring, the acknowledgement's state is carried by `aria-pressed` and by a
@@ -138,7 +157,7 @@ import { Link, useParams } from 'react-router';
 
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
-import { EvidenceRef } from '../../components/evidence-drawer';
+import { EvidenceRef, writeBackStepRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { PageHeader } from '../../components/page-header';
 import { Panel } from '../../components/panel';
@@ -401,12 +420,60 @@ export const APPROVAL_DETAIL_TEXT = {
   /** What the outcome block reads as when its measurement could not be read at all. */
   outcomeUnavailable: 'The planned-against-resulting comparison could not be read.',
 
+  /**
+   * The heading of the review block the outcome card offers once its comparison has been read: the
+   * record's own review state, and the one control that records the reader's review of it.
+   */
+  reviewSection: 'Outcome review',
+
+  /** Caption of the record's own review state. */
+  reviewStateLabel: 'Review state',
+
+  /** The status label beside a record that already carries the review of its outcome. */
+  reviewed: 'Reviewed',
+
+  /** The status label beside a record whose outcome has not been reviewed yet. */
+  notReviewed: 'Not reviewed',
+
+  /** The label of the one control that records the reader's review of the comparison. */
+  reviewAction: 'Record the outcome review',
+
+  /**
+   * Why the review cannot be recorded again: the record already carries it, and the service refuses a
+   * second review rather than recording one twice.
+   */
+  alreadyReviewedReason:
+    'This approval already carries the review of its outcome, and a review is recorded once.',
+
+  /** Why the review cannot be recorded while one is being recorded. */
+  reviewInFlightReason: 'The outcome review is being recorded.',
+
+  /** The label of the region announcing a review that is being recorded. */
+  reviewInFlight: 'Recording the outcome review',
+
+  /**
+   * What a refused review reads as when the service reported no cause of its own, so the review block
+   * is never left holding a rejection the port's `Problem` shape did not describe.
+   */
+  reviewUnexpectedFailure:
+    'The outcome review could not be recorded, and the service reported no cause.',
+
   /** What a decided plan reads as when the decision was not an approval. */
   noWriteBackAfterDecision:
     'No simulated write-back follows a plan that was not approved, so this plan wrote nothing.',
 
-  /** The inbox's sentence for a route that named no approval at all. */
-  empty: 'No approval was named, so there is nothing to show.',
+  /**
+   * The heading of the page a reader reaches when the address names no approval, or names one the
+   * records do not hold: the same panel answers both, so neither case leaves the generic title
+   * standing over a page with nothing on it.
+   */
+  notFoundTitle: 'Approval not found',
+
+  /**
+   * What an address that named no approval says: nothing is claimed about a record that was never
+   * asked for, and the way back to the inbox sits beside it.
+   */
+  noIdentifier: 'This address names no approval, so there is nothing to show here.',
 
   /** What the boundary says above a read that did not report every member this screen shows. */
   partial:
@@ -591,9 +658,9 @@ function isApprovalStatus(value: string): value is ApprovalStatus {
  * Whether one approval holds every member this screen shows.
  *
  * The check is the resolved payload's own: the identifier the header renders, the two references the
- * plan summary names, a status the status vocabulary can map, and the write-back list the preview and
- * the tracker walk. A record that arrived without one of them is `partial` rather than silently blank,
- * and the boundary says so above the content.
+ * plan summary names, a status the status vocabulary can map, the write-back list the preview and the
+ * tracker walk, and the review state the outcome block reports. A record that arrived without one of
+ * them is `partial` rather than silently blank, and the boundary says so above the content.
  */
 function isRenderable(approval: Approval): boolean {
   return (
@@ -604,7 +671,8 @@ function isRenderable(approval: Approval): boolean {
     typeof approval.scenarioId === 'string' &&
     approval.scenarioId !== '' &&
     isApprovalStatus(approval.status) &&
-    Array.isArray(approval.writeBacks)
+    Array.isArray(approval.writeBacks) &&
+    typeof approval.outcomeReviewed === 'boolean'
   );
 }
 
@@ -710,6 +778,15 @@ const DECISION_INVALIDATES: readonly CachedRead[] = [
 
 /** The reads a write-back retry moves: the steps it left behind, the outcome, and the trail. */
 const RETRY_INVALIDATES: readonly CachedRead[] = ['getApproval', 'getApprovalOutcome', 'listAuditEvents'];
+
+/**
+ * The reads an outcome review moves: the approval, whose `outcomeReviewed` member the write sets, and
+ * the audit trail that gained the `outcome review` event.
+ *
+ * The comparison the review is about is unchanged by it, and the review writes no source and no record
+ * behind the approval, so no other read moves (AAP §0.6.2).
+ */
+const REVIEW_INVALIDATES: readonly CachedRead[] = ['getApproval', 'listAuditEvents'];
 
 /**
  * Invalidates every cached entry of each read a write touched.
@@ -832,10 +909,10 @@ export function decisionEligibilityReason(
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The comment as the screen holds it and the single callback that moves it: this field owns only the
- * copy a shared textarea primitive must not — the visible caption and the hint that states the
- * requirement — so a keystroke has to reach the screen that will send the text to the port rather
- * than be kept here (AAP §0.5.2).
+ * The comment as the screen holds it and the callbacks that move it: this field owns only the copy a
+ * shared textarea primitive must not — the visible caption, the hint that states the requirement, and
+ * the sentence that answers a decision attempted without one — so a keystroke has to reach the screen
+ * that will send the text to the port rather than be kept here (AAP §0.5.2).
  */
 interface CommentFieldProps {
   /** The comment as it stands, held by the screen. */
@@ -843,6 +920,13 @@ interface CommentFieldProps {
 
   /** Called with the whole textarea value on every keystroke. */
   readonly onChange: (value: string) => void;
+
+  /**
+   * Whether a decision has been refused for want of a comment, which is the one thing this field can
+   * state about itself: the screen decides it, because only the screen knows which gate refused the
+   * attempt and whether this field is the gate that refused.
+   */
+  readonly invalid: boolean;
 }
 
 /**
@@ -855,10 +939,29 @@ interface CommentFieldProps {
  * rather than only once a control refuses. `aria-required` states the requirement the
  * `disabledReason` on the buttons enforces, and the control keeps the 24x24 px minimum target and the
  * theme's focus ring.
+ *
+ * A decision attempted without a comment marks the field invalid, which is the field-level half of
+ * that answer: `aria-invalid` says the field's value is what is wrong, `aria-errormessage` names the
+ * sentence beside it, and that sentence is the same one the control refuses with
+ * ({@link APPROVAL_DETAIL_TEXT.commentRequiredReason}) so the wording has one owner. Both attributes
+ * are present exactly while the message is: an `aria-errormessage` naming an element the document does
+ * not hold would describe nothing, and the reference exists only while the field is invalid anyway.
+ *
+ * HOW THE MESSAGE IS CONVEYED. While the field is invalid the message is part of its description as
+ * well: `aria-describedby` names the hint and then the message, in that order, so the standing
+ * requirement reads before the refusal and a reader who reaches the field hears both. That is what
+ * makes the `aria-errormessage` reference one the message is conveyed by: an audit of the screen
+ * accepts the attribute's reference only where the element it names is an explicit `role="alert"`, an
+ * `aria-live` region, or an element the control also describes itself with, and this is the one of the
+ * three that fits here. The message element carries no `role="alert"` and no `aria-live` of its own,
+ * because the control that refused has already announced the same sentence from its own live region and
+ * a second one would read it twice. So the refusal is announced once, by the control, and the field
+ * carries where the value is wrong and what is wrong with it for as long as it is invalid.
  */
-function CommentField({ value, onChange }: CommentFieldProps): ReactElement {
+function CommentField({ value, onChange, invalid }: CommentFieldProps): ReactElement {
   const fieldId = useId();
   const hintId = useId();
+  const errorId = useId();
 
   return (
     <div className={FIELD_CLASSES}>
@@ -871,9 +974,16 @@ function CommentField({ value, onChange }: CommentFieldProps): ReactElement {
         value={value}
         rows={3}
         aria-required="true"
-        aria-describedby={hintId}
+        aria-invalid={invalid ? true : undefined}
+        aria-errormessage={invalid ? errorId : undefined}
+        aria-describedby={invalid ? `${hintId} ${errorId}` : hintId}
         onChange={onChange}
       />
+      {invalid ? (
+        <p id={errorId} className={PROBLEM_TEXT_CLASSES}>
+          {APPROVAL_DETAIL_TEXT.commentRequiredReason}
+        </p>
+      ) : null}
       <p id={hintId} className={CAPTION_CLASSES}>
         {APPROVAL_DETAIL_TEXT.commentHint}
       </p>
@@ -902,6 +1012,13 @@ interface DecisionButtonProps {
 
   /** What activating the control does. Never called while it is blocked. */
   readonly onActivate: () => void;
+
+  /**
+   * Called when the reader activates the control while it is blocked, so the screen is told the
+   * attempt happened and can answer it at the field a gate is waiting on. Absent on a control whose
+   * gate no field of this screen can answer.
+   */
+  readonly onRefusedActivation?: (() => void) | undefined;
 }
 
 /**
@@ -911,12 +1028,18 @@ interface DecisionButtonProps {
  * `ActionButton`'s discriminated props require `disabledReason` on a disabled control and forbid it on an
  * enabled one, and a single call site that passed both through conditionally would be the one place the
  * union could be defeated by a spread. Rule P-8 therefore holds by construction.
+ *
+ * A blocked control also passes a refused activation on to the screen, which is how the comment field
+ * learns that a decision was attempted without one: {@link ActionButton} keeps its own hint and
+ * announcement for that attempt, and the callback adds the field-level answer beside them. A control
+ * that can act has no refusal to report, so the enabled branch does not forward it.
  */
 function DecisionButton({
   label,
   variant,
   blockedReason,
   onActivate,
+  onRefusedActivation,
 }: DecisionButtonProps): ReactElement {
   if (blockedReason === null) {
     return (
@@ -927,7 +1050,12 @@ function DecisionButton({
   }
 
   return (
-    <ActionButton variant={variant} disabled={true} disabledReason={blockedReason}>
+    <ActionButton
+      variant={variant}
+      disabled={true}
+      disabledReason={blockedReason}
+      onRefusedActivation={onRefusedActivation}
+    >
       {label}
     </ActionButton>
   );
@@ -1118,6 +1246,16 @@ function PolicyBlockPanel({ block }: PolicyBlockPanelProps): ReactElement {
 interface WriteBackPreviewProps {
   /** The approval's write-back steps, exactly as the service returned them. */
   readonly writeBacks: readonly WriteBack[];
+
+  /**
+   * The evidence reference one step carries, composed from the approval that holds the steps.
+   *
+   * The same required member the tracker takes, for the same reason: a step of this list is a record
+   * in a named system of record and has to open its own evidence rather than the plan's (principle
+   * PR-6). The grammar stays with `writeBackStepRef` beside the drawer primitive, so this mirrored list
+   * and the tracker compose one reference.
+   */
+  readonly evidenceRefFor: (writeBack: WriteBack) => string;
 }
 
 /**
@@ -1127,10 +1265,13 @@ interface WriteBackPreviewProps {
  * states it, which is what T-08 asserts of the tracker and of this list alike. Each step carries the
  * fixed {@link WRITE_BACK_TAG} in its own item, because a page-level badge does not label an individual
  * write-back (rule P-1), and its state through `StatusIndicator` so the meaning, the record's own state
- * token and a colour are always present together (rule B-3). An approval with no step states the
- * absence in words rather than rendering an empty list.
+ * token and a colour are always present together (rule B-3). The record reference the step writes is the
+ * step's own way into the drawer: the caller composes its reference and the shared `EvidenceRef` supplies
+ * the keyboard-operable trigger and the focus ring, so the reader opens this step's evidence rather than
+ * the plan's (principle PR-6). An approval with no step states the absence in words rather than rendering
+ * an empty list.
  */
-function WriteBackPreview({ writeBacks }: WriteBackPreviewProps): ReactElement {
+function WriteBackPreview({ writeBacks, evidenceRefFor }: WriteBackPreviewProps): ReactElement {
   if (writeBacks.length === 0) {
     return <p className={CAPTION_CLASSES}>{APPROVAL_DETAIL_TEXT.noWriteBackPreview}</p>;
   }
@@ -1147,7 +1288,11 @@ function WriteBackPreview({ writeBacks }: WriteBackPreviewProps): ReactElement {
               <span className={CAPTION_CLASSES}>{APPROVAL_DETAIL_TEXT.writeBackSystemLabel}</span>
               <span>{SOURCE_LABELS[step.system]}</span>
               <span className={CAPTION_CLASSES}>{APPROVAL_DETAIL_TEXT.writeBackRecordLabel}</span>
-              <MonoValue value={step.recordRef} kind="id" />
+              {/* The record a step writes is the step's own way into the drawer, so the evidence a
+                  reader opens is behind this record rather than behind the plan (principle PR-6). */}
+              <EvidenceRef ref={evidenceRefFor(step)}>
+                <MonoValue value={step.recordRef} kind="id" />
+              </EvidenceRef>
             </span>
             <StatusIndicator meaning={status.meaning} label={step.state} icon={status.icon} />
             <span className={CAPTION_CLASSES}>{WRITE_BACK_TAG}</span>
@@ -1207,10 +1352,11 @@ export interface ApprovalDetailScreenProps {
  * The approval detail.
  *
  * Four reads through `useService()` (rule P-2), a fifth — the acting persona — through the
- * demonstration capability beside it, the state its records are in decided in one place, and two
- * writes — a decision and a write-back retry — that go to the port and invalidate the reads they
- * moved. Nothing on this screen writes a record itself, holds a figure of its own, or decides whether
- * an action is permitted: the service is the authority and this screen is the explanation beside it.
+ * demonstration capability beside it, the state its records are in decided in one place, and three
+ * writes — a decision, a write-back retry and the outcome review — that go to the port and invalidate
+ * the reads they moved. Nothing on this screen writes a record itself, holds a figure of its own, or
+ * decides whether an action is permitted: the service is the authority and this screen is the
+ * explanation beside it.
  *
  * @param _props - The shell's plant and product selection, accepted for the router's uniform route
  *   contract; no read on this screen is parameterised by it.
@@ -1223,11 +1369,19 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
   const { approvalId } = useParams<{ approvalId: string }>();
 
   const [comment, setComment] = useState('');
+  /* Whether a decision has been refused for want of the comment: the screen holds it because only the
+     screen knows which gate refused the attempt, and only the comment gate marks the field invalid. */
+  const [commentAttempted, setCommentAttempted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [writeError, setWriteError] = useState<unknown>(null);
   const [policyBlock, setPolicyBlock] = useState<PolicyBlockRecord | null>(null);
   const [retryingWriteBackId, setRetryingWriteBackId] = useState<string | null>(null);
   const [acknowledgedKeys, setAcknowledgedKeys] = useState<readonly string[]>([]);
+
+  /* The outcome review: whether the call is running, and whatever it threw. Both are this screen's own
+     facts about itself; the record's `outcomeReviewed` member is what the block reports. */
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState<unknown>(null);
 
   /*
    * The approval read. Retries are off on purpose, matching the cache the shell creates: the records are
@@ -1310,18 +1464,18 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
    * nothing to read. A permission refusal from the last write or from a plan read means the acting role
    * may not decide this plan, so the forbidden card that names the role which may act replaces the
    * content rather than sitting beside controls that cannot work; any other write failure is
-   * deliberately *not* a screen state, because a refusal that changed nothing is reported in the
-   * decision block in the service's own sentence, so a reader who has typed a comment does not lose the
-   * screen they were working in. The approval-gate source is the one `decideApproval` refuses on, so the
-   * stale notice names it first (AAP 0.2.1, T-13). A record missing a member this screen shows, or a
-   * plan whose option could not be read, reports itself incomplete.
+   * deliberately *not* a screen state, because a refusal that changed nothing is reported in the block
+   * that owns the control, in the service's own sentence, so a reader who has typed a comment does not
+   * lose the screen they were working in. The approval-gate source is the one `decideApproval` refuses
+   * on, so the stale notice names it first (AAP 0.2.1, T-13). A record missing a member this screen
+   * shows, or a plan whose option could not be read, reports itself incomplete.
    */
   const state = deriveScreenState({
     namedNoRecord: approvalId === undefined,
     isPending: approvalQuery.isPending,
     error: approvalQuery.error,
     freshness: result?.meta.freshness,
-    refusals: [writeError, planError],
+    refusals: [writeError, reviewError, planError],
     staleSourcePreference: APPROVAL_GATE_SOURCE,
     payloadReportsPartial:
       result !== undefined &&
@@ -1330,7 +1484,10 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
   const staleRecord =
     result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
   const forbiddenRecord =
-    forbiddenOf(writeError) ?? forbiddenOf(approvalQuery.error) ?? forbiddenOf(planError);
+    forbiddenOf(writeError) ??
+    forbiddenOf(reviewError) ??
+    forbiddenOf(approvalQuery.error) ??
+    forbiddenOf(planError);
   const conflictMessage = problemMessageOf(approvalQuery.error) ?? APPROVAL_DETAIL_TEXT.conflict;
 
   /*
@@ -1359,6 +1516,21 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
     commentReason;
 
   /*
+   * Whether the comment is the gate that refused: it holds only when nothing ahead of it in the chain
+   * above does. The field-level message is this gate's alone, because a comment is the one condition
+   * of the six the reader lifts by typing — marking the field invalid for a stale source, an
+   * ineligible persona, a policy block, a decided plan or a write in flight would blame the field for
+   * a gate no keystroke can clear.
+   */
+  const commentGateHolds =
+    gateReason === null &&
+    eligibilityReason === null &&
+    policyReason === null &&
+    decidedReason === null &&
+    inFlightReason === null &&
+    commentReason !== null;
+
+  /*
    * Approve carries one further condition: every side effect the plan defers another product's supply for
    * has to be acknowledged first. An option whose side effects could not be read blocks the decision
    * rather than letting it proceed unacknowledged, because the reader cannot acknowledge what the screen
@@ -1381,6 +1553,46 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
             ? APPROVAL_DETAIL_TEXT.acknowledgementRequiredReason
             : null;
   const approveReason = sharedBlockReason ?? acknowledgementReason;
+
+  /*
+   * The review's own blocker, in the order the service refuses in: the acting persona's eligibility is
+   * the handler's permission and record checks stated before the attempt rather than after it (rule
+   * P-8, AAP §0.2.2); a record that already carries the review is a fact of the record the handler
+   * refuses on rather than recording it twice; and a review being recorded is transient. No freshness
+   * gate applies, because the review writes no source and the handler consults none.
+   */
+  const reviewedReason =
+    approval !== undefined && approval.outcomeReviewed
+      ? APPROVAL_DETAIL_TEXT.alreadyReviewedReason
+      : null;
+  const reviewInFlightReason = reviewing ? APPROVAL_DETAIL_TEXT.reviewInFlightReason : null;
+  const reviewBlockReason = eligibilityReason ?? reviewedReason ?? reviewInFlightReason;
+
+  /**
+   * Moves the comment into the screen and lifts the field-level refusal with it.
+   *
+   * The message exists only while the reader has yet to supply what the gate asked for, so the first
+   * keystroke that supplies it ends the message: a reader is never left reading an error about the
+   * field they are filling in.
+   */
+  const updateComment = (value: string): void => {
+    setComment(value);
+    setCommentAttempted(false);
+  };
+
+  /**
+   * Answers a refused decision at the field that can be corrected.
+   *
+   * The three controls are refused by the first gate that holds, and the comment is the one of those
+   * gates the reader lifts by typing, so an attempt it refused marks the comment field invalid with the
+   * sentence beside it. An attempt refused by any other gate leaves the field alone, because the
+   * control has already answered that one with its own held hint and its announcement.
+   */
+  const handleCommentRefused = (): void => {
+    if (commentGateHolds) {
+      setCommentAttempted(true);
+    }
+  };
 
   const retryRead = (): void => {
     void approvalQuery.refetch();
@@ -1472,8 +1684,68 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
     void retryWriteBackStep(writeBackId);
   };
 
+  /**
+   * Records the reader's review of the approved plan's comparison through the port.
+   *
+   * The review is the `outcome review` audited write AAP §0.6.2 enumerates: it states that the
+   * comparison was read, and the service answers with the record it marked, so nothing here restates a
+   * figure or writes a record itself. A refusal sets nothing but the message the service returned, which
+   * the review block reports in the service's own words, and the reads the write moves are invalidated
+   * whichever way the call settled, because a review can move the record even when it throws.
+   */
+  const submitReview = async (): Promise<void> => {
+    if (approvalId === undefined || reviewing) {
+      return;
+    }
+
+    setReviewing(true);
+    setReviewError(null);
+
+    try {
+      await service.reviewApprovalOutcome(approvalId);
+    } catch (error) {
+      setReviewError(error);
+    } finally {
+      setReviewing(false);
+      invalidateReads(queryClient, REVIEW_INVALIDATES);
+    }
+  };
+
+  const handleReview = (): void => {
+    void submitReview();
+  };
+
   const isDecided = approval !== undefined && approval.status !== PENDING_STATUS;
   const outcome = outcomeQuery.data;
+
+  /* A route that names no approval, and an identifier the records do not hold, are both answered by
+     the not-found panel below rather than by an empty page: the union has no member for the second, a
+     page must not render blank, and a reader who mistyped an address or followed a stale link is owed
+     the way back. The second case prints the service's own sentence, which names the identifier it was
+     asked for and the records the session holds, so the refusal can be diagnosed and quoted — the
+     identifier is the record's own and is never typed here (rule P-6). */
+  const notFoundSentence =
+    approvalId === undefined
+      ? APPROVAL_DETAIL_TEXT.noIdentifier
+      : isProblem(approvalQuery.error) && approvalQuery.error.type === 'not-found'
+        ? approvalQuery.error.message
+        : null;
+
+  if (notFoundSentence !== null) {
+    return (
+      <div className={SCREEN_CLASSES}>
+        <PageHeader title={APPROVAL_DETAIL_TEXT.notFoundTitle} />
+        <Card as="div">
+          <p className={BODY_CLASSES}>{notFoundSentence}</p>
+          {/* `self-start` keeps the control the size of its label inside the card's column, as the
+              exception route's own back link does, rather than stretching it across the surface. */}
+          <Link to={APPROVALS_ROUTE} className={`${LINK_CLASSES} self-start`}>
+            {APPROVAL_DETAIL_TEXT.backToInbox}
+          </Link>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className={SCREEN_CLASSES}>
@@ -1502,7 +1774,7 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
         state={state}
         stale={staleRecord}
         onRetry={retryRead}
-        emptyMessage={APPROVAL_DETAIL_TEXT.empty}
+        emptyMessage={APPROVAL_DETAIL_TEXT.noIdentifier}
         partialMessage={APPROVAL_DETAIL_TEXT.partial}
         conflictMessage={conflictMessage}
         forbidden={forbiddenRecord}
@@ -1599,7 +1871,12 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
             </Card>
 
             <Card title={APPROVAL_DETAIL_TEXT.writeBackPreviewSection}>
-              <WriteBackPreview writeBacks={approval.writeBacks} />
+              {/* Every step opens its own evidence: the steps belong to this approval and the position
+                  is the record's own, so the drawer reports the step rather than the plan (PR-6). */}
+              <WriteBackPreview
+                writeBacks={approval.writeBacks}
+                evidenceRefFor={(step) => writeBackStepRef(approval.id, step)}
+              />
             </Card>
 
             <Card title={APPROVAL_DETAIL_TEXT.decisionSection}>
@@ -1636,7 +1913,11 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
                   </Panel>
                 )}
 
-                <CommentField value={comment} onChange={setComment} />
+                <CommentField
+                  value={comment}
+                  onChange={updateComment}
+                  invalid={commentAttempted && commentGateHolds}
+                />
 
                 {sideEffects.length === 0 ? null : (
                   <Panel label={APPROVAL_DETAIL_TEXT.sideEffectSection}>
@@ -1666,18 +1947,21 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
                     variant="primary"
                     blockedReason={approveReason}
                     onActivate={handleApprove}
+                    onRefusedActivation={handleCommentRefused}
                   />
                   <DecisionButton
                     label={APPROVAL_DETAIL_TEXT.reject}
                     variant="secondary"
                     blockedReason={sharedBlockReason}
                     onActivate={handleReject}
+                    onRefusedActivation={handleCommentRefused}
                   />
                   <DecisionButton
                     label={APPROVAL_DETAIL_TEXT.requestChanges}
                     variant="secondary"
                     blockedReason={sharedBlockReason}
                     onActivate={handleRequestChanges}
+                    onRefusedActivation={handleCommentRefused}
                   />
                 </div>
 
@@ -1703,6 +1987,7 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
               <Card title={APPROVAL_DETAIL_TEXT.trackerSection}>
                 <WriteBackTracker
                   writeBacks={approval.writeBacks}
+                  evidenceRefFor={(step) => writeBackStepRef(approval.id, step)}
                   onRetry={handleRetry}
                   retryingWriteBackId={retryingWriteBackId}
                 />
@@ -1726,11 +2011,63 @@ export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactEl
                   </p>
                 </Card>
               ) : (
-                <OutcomeCard
-                  planned={outcome.data.planned}
-                  resulting={outcome.data.resulting}
-                  evidenceRef={outcome.data.evidenceRef}
-                />
+                <>
+                  <OutcomeCard
+                    planned={outcome.data.planned}
+                    resulting={outcome.data.resulting}
+                    evidenceRef={outcome.data.evidenceRef}
+                  />
+
+                  {/* The review sits with the comparison it is about, and only once that comparison
+                      has been read: a review of figures the screen could not show would be a reading
+                      nobody can check. It states the record's own review member and offers the one
+                      control that records the review, and it restates no figure and invents no
+                      simulation label of its own — the card above carries `Simulated calculation`
+                      for the figures and the shell carries the `Simulated data` badge (rule P-1). */}
+                  <Card title={APPROVAL_DETAIL_TEXT.reviewSection}>
+                    <div className={STACK_CLASSES}>
+                      <span className={DETAIL_ROW_CLASSES}>
+                        <span className={CAPTION_CLASSES}>
+                          {APPROVAL_DETAIL_TEXT.reviewStateLabel}
+                        </span>
+                        <StatusIndicator
+                          meaning={approval.outcomeReviewed ? 'pass' : 'review'}
+                          label={
+                            approval.outcomeReviewed
+                              ? APPROVAL_DETAIL_TEXT.reviewed
+                              : APPROVAL_DETAIL_TEXT.notReviewed
+                          }
+                        />
+                      </span>
+
+                      <div className={ACTIONS_CLASSES}>
+                        <DecisionButton
+                          label={APPROVAL_DETAIL_TEXT.reviewAction}
+                          variant="secondary"
+                          blockedReason={reviewBlockReason}
+                          onActivate={handleReview}
+                        />
+                      </div>
+
+                      {reviewing ? (
+                        <p role="status">
+                          <StatusIndicator
+                            meaning="warning"
+                            label={APPROVAL_DETAIL_TEXT.reviewInFlight}
+                            icon={PENDING_CLOCK_ICON}
+                          />
+                        </p>
+                      ) : null}
+
+                      {reviewError === null ? null : (
+                        <p role="status" className={PROBLEM_TEXT_CLASSES}>
+                          {problemMessageOf(reviewError) ??
+                            APPROVAL_DETAIL_TEXT.reviewUnexpectedFailure}
+                        </p>
+                      )}
+                    </div>
+                  </Card>
+                </>
               )
             ) : null}
           </>

@@ -33,10 +33,11 @@
  * control a reader bypassed in the interface gains nothing here. `askAssistant` then resolves the
  * question and the model entry, derives the material the question carries, asks
  * `src/domain/policy/evaluate.ts` for a decision, and only an allowed question reaches a builder. A
- * denial appends one policy-actor event and throws the `Problem` the block card renders; an allowed
- * question then has the documents it cites checked against the body redaction of the evidence family,
- * and only a question whose cited bodies the acting persona may read appends one `assistant question`
- * event and returns the builder's answer.
+ * denial appends the question's own event — `blocked`, carrying the rule that refused it — and, beside
+ * it, the policy-actor event the block card opens, then throws the `Problem` that card renders; an
+ * allowed question then has the documents it cites checked against the body redaction of the evidence
+ * family, and only a question whose cited bodies the acting persona may read is answered and appends
+ * the same event with `succeeded` as its outcome.
  *
  * THE ANSWER PATH APPLIES THE SAME MESSAGE-LEVEL REDACTION THE DOCUMENT READ DOES — AAP 0.2.1,
  * AAP 0.12.3. `getDocument` withholds a customer-confidential body from a persona without
@@ -58,12 +59,17 @@
  * permission-free by design (AAP 0.12.1's assistant-builder row: they fill a template and evaluate
  * nothing), which is why the check lives here, once, beside the other refusal this family makes.
  *
- * WHY THE APPEND COMES BEFORE THE THROW. The `Problem` carries the identifier of the event the refusal
- * itself recorded, and the block card opens that record (AAP 0.8, AAP 0.12.4). Throwing first would
- * hand the screen an identifier for an event that does not exist yet, so the event is appended and
- * then reported. Exactly one event is appended per policy refusal: the refusal is recorded by the
- * mechanism that made it, and a second copy beside it would say the same thing twice. A permission
- * refusal appends nothing here, as every other permission refusal of this adapter appends nothing.
+ * WHY THE APPENDS COME BEFORE THE THROW. The `Problem` carries the identifier of the policy event the
+ * refusal itself recorded, and the block card opens that record (AAP 0.8, AAP 0.12.4). Throwing first
+ * would hand the screen an identifier for an event that does not exist yet, so both events are appended
+ * and then reported. Two are appended, in the order the seeded trail states for every block it holds:
+ * the `assistant question` the persona put, recorded as `blocked` with the rule that refused it, and
+ * then the policy-actor event itself — which is why a reader filtering the trail by `assistant
+ * question` counts the refused questions as well as the answered ones. Both carry the call's
+ * `traceId`, because both are appended within one call, so a quoted trace leads back to the pair rather
+ * than to one half of it. One event is appended per record, so neither half is written twice. A
+ * permission refusal appends nothing here, as every other permission refusal of this adapter appends
+ * nothing.
  *
  * WHAT A QUESTION'S CONTEXT IS, AND WHERE IT COMES FROM. The engine reads one classification and one
  * residency for a question, so the documents the question runs over are gathered from three record
@@ -90,8 +96,9 @@
  * value is the record's, read from the catalogue entry and never typed here (rule P-6); an entry that
  * declares no endpoint cannot be counted anywhere, so `policyBlockRefusal` throws instead of falling
  * back to the model identifier, which no ledger row matches. The `assistant question` events keep the
- * model identifier as their object, because a question that was answered was put to a model and
- * reaches no destination.
+ * model identifier as their object whatever their outcome: a question is put to a model and reaches no
+ * destination, so a blocked one stays off the endpoints the ledger counts, and the block beside it is
+ * the event counted there.
  *
  * THE ONE MEMBER THIS MODULE SETS ON THE BUILDER'S ANSWER — `modelId`. The builders stamp the
  * catalogue's default entry on every answer they compose, while the question was put to the entry the
@@ -153,6 +160,7 @@ import type {
   Answer,
   AuditAction,
   AuditPayload,
+  AuditResult,
   DocumentBody,
   ModelCatalogue,
   ModelEntry,
@@ -184,8 +192,9 @@ import { DOCUMENT_CONFIDENTIAL_READ, mayReadDocumentBody } from './evidence';
 const EVIDENCE_READ: Permission = 'evidence.read';
 
 /**
- * The action a question that was answered records, spelled as contracts §6 and the seeded trail spell
- * it: an `assistant question` names the model entry the question was put to.
+ * The action a question records, spelled as contracts §6 and the seeded trail spell it: an
+ * `assistant question` names the model entry the question was put to, and carries the rule that
+ * refused it where a rule did.
  */
 const ASSISTANT_QUESTION_ACTION: AuditAction = 'assistant question';
 
@@ -655,45 +664,69 @@ function blockEventPayload(
 }
 
 /**
- * Appends the one event a question that was answered records.
+ * Appends the one event a question records, whatever the policy made of it.
  *
- * AAP 0.6.2 lists the assistant question among the audited writes, so every question that reaches an
- * answer — scripted or not — leaves a record of the entry it was put to. The outcome is `succeeded`
- * because the call was answered; a question the script could not answer still was.
+ * AAP 0.6.2 lists the assistant question among the audited writes, so every question that reaches the
+ * policy decision — scripted or not — leaves a record of the entry it was put to. The seeded trail
+ * holds the answered questions and the blocked ones alike, which is what keeps a reader who filters
+ * the trail by this action from under-reporting what was asked.
+ *
+ * The outcome is the caller's to state, because it is the caller that knows what the decision was:
+ * `succeeded` for a question the script answered — the notice counts, because the call was answered —
+ * and `blocked`, with the rule that refused it as the event's policy, for one a policy declined to
+ * answer. Exactly one event is appended per question, so a blocked one leaves this row beside the
+ * policy event and no second copy of the question itself.
  *
  * @param ctx - The call's context, whose chain is extended in place.
  * @param entry - The catalogue entry the question was put to.
  * @param documents - The documents the question carried.
+ * @param result - The outcome the question records: `succeeded`, or `blocked` where a rule refused it.
+ * @param policyId - The rule that blocked the question; absent, because no rule decided an answered one.
  */
 async function appendQuestionEvent(
   ctx: HandlerContext,
   entry: ModelEntry,
   documents: readonly DocumentBody[],
+  result: AuditResult,
+  policyId?: PolicyId,
 ): Promise<void> {
   await appendAuditEvent(ctx, {
     action: ASSISTANT_QUESTION_ACTION,
     objectRef: entry.id,
-    result: 'succeeded',
+    result,
+    ...(policyId === undefined ? {} : { policyId }),
     before: null,
     after: questionEventPayload(entry, documents),
   });
 }
 
 /**
- * Records a policy's refusal and builds the failure the block card renders.
+ * Records a policy's refusal — the question that was asked, then the block it met — and builds the
+ * failure the block card renders.
  *
- * The order is the whole point of the function: the event is appended first, through the one append
- * path of `./audit.ts`, so the `auditEventId` the `Problem` carries names a record that already exists
- * when the screen opens it. The event is a policy-actor event — the refusal is recorded by the
- * mechanism that made it — and it names the rule as its actor, as the seeded trail's own blocks do. The
- * rule, the reason and the permitted alternative are read from the engine's decision and reported
- * unchanged, so the card cannot disagree with the verdict that was taken and no reason is composed
- * here.
+ * The order is the whole point of the function, and it is the order the seeded trail holds for every
+ * block it carries: the `assistant question` the persona put is appended first, recorded as `blocked`
+ * with the rule that refused it, and the policy-actor event beside it is appended second. A reader of
+ * the chain therefore sees the question and then the verdict that refused it, and the two filters —
+ * by question and by block — report the same request. Both events are appended before the throw and
+ * both carry the call's `traceId`, because both are appended within one call, so a quoted trace leads
+ * to the pair rather than to one half of it.
  *
- * The event's object reference is the endpoint the refused entry declares, not the entry's identifier,
- * because that is what the outbound ledger counts a block by (AAP 0.6.3, AAP 0.8): a block recorded
- * against a model identifier lands on no ledger row. The payload keeps the model identifier and the
- * boundary, so the event still says which model was refused for which destination.
+ * The block event is the one the `Problem` carries: it is appended through the one append path of
+ * `./audit.ts`, so the `auditEventId` names a record that already exists when the screen opens it, and
+ * it stays the block rather than the question because the block card is what opens it. The event is a
+ * policy-actor event — the refusal is recorded by the mechanism that made it — and it names the rule
+ * as its actor, as the seeded trail's own blocks do. The rule, the reason and the permitted
+ * alternative are read from the engine's decision and reported unchanged, so the card cannot disagree
+ * with the verdict that was taken and no reason is composed here.
+ *
+ * The block event's object reference is the endpoint the refused entry declares, not the entry's
+ * identifier, because that is what the outbound ledger counts a block by (AAP 0.6.3, AAP 0.8): a block
+ * recorded against a model identifier lands on no ledger row. The payload keeps the model identifier
+ * and the boundary, so the event still says which model was refused for which destination. The
+ * question's own event names the model entry instead, because the question reaches no destination, so
+ * the ledger counts the block once — on the endpoint's row — and the trail still records what was
+ * asked.
  *
  * @param ctx - The call's context, whose chain is extended in place.
  * @param decision - The engine's denial.
@@ -730,6 +763,10 @@ async function policyBlockRefusal(
         'src/seed/models.ts declares the endpoint an inference through it would reach.',
     );
   }
+
+  // The question is recorded before the verdict that refused it, matching the seeded trail's own
+  // blocked pair: what was asked, then the rule that declined to answer it.
+  await appendQuestionEvent(ctx, entry, documents, 'blocked', rule);
 
   const event = await appendAuditEvent(ctx, {
     action: POLICY_BLOCK_ACTION,
@@ -832,8 +869,8 @@ export async function listModels(ctx: HandlerContext): Promise<ModelCatalogue> {
  * 6. The answer, from the scripted builder that matches the question or from the fixed notice for
  *    anything else, followed by the one event the question records.
  *
- * A denial never reaches step 5 or 6: the refusal is appended and thrown, and no answer, no citation
- * and no figure is composed for it.
+ * A denial never reaches step 5 or 6: the question's own event and the policy-actor event that refused
+ * it are appended, and the refusal is thrown with no answer, no citation and no figure composed for it.
  *
  * @param ctx - The session's state and the persona the call acts as.
  * @param input - The question, the model it is put to and the records it runs over.
@@ -882,7 +919,7 @@ export async function askAssistant(
 
   const answer = question === undefined ? unscriptedAnswer(ctx) : answerQuestion(ctx, question.id);
 
-  await appendQuestionEvent(ctx, entry, documents);
+  await appendQuestionEvent(ctx, entry, documents, 'succeeded');
 
   // `modelId` is the one member replaced on the builder's answer: the question was put to this entry,
   // and the event above records the same identifier (see the module header).

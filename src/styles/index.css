@@ -52,6 +52,16 @@
     color: var(--color-text-primary, var(--palette-text-primary));
   }
 
+  /* AAP §0.5.3 fixes the mono role as Geist Mono 500, and 500 is the only mono face the repository
+     bundles (the `@font-face` above, rule B-1). The `font-mono` utility states the family alone, so an
+     element that carries it and states no weight of its own would inherit the body's 400, and the one
+     bundled face would answer a weight it does not carry. Declared in the base layer because the
+     utilities layer is declared after it: an element that states its own weight — the `font-medium` on
+     a table header, say — still wins. */
+  .font-mono {
+    font-weight: 500;
+  }
+
   /* AAP §0.12.4: the evidence drawer is docked from 1280 px and an overlay below it. The drawer is
      portalled to <body> and fixed to the viewport's inline end, so the column it occupies is reserved
      here, on the body, for as long as a docked drawer holds the attribute the component sets on the
@@ -65,6 +75,11 @@
      against, and both of those move together with the root font size. */
   :root {
     --evidence-drawer-dock-width: 420px;
+
+    /* The theme ground is painted on the root as well as on the body, so the user agent's canvas,
+       overscroll past either end of the page and any area outside the body box show the theme ground
+       instead of the user agent's own canvas colour. */
+    background-color: var(--color-ground, var(--palette-ground));
   }
 
   /* The same 80rem breakpoint the class list's `xl:` variants and the drawer's own docked query

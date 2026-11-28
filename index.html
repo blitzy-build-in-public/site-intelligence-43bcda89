@@ -6,7 +6,7 @@
   The theme and density attributes are deliberately absent from the html element: the theme provider
   in src/theme is their only writer, so the document is not a second source of truth for them. Because
   that provider arrives in a deferred module script, the stylesheet is what themes the frame painted
-  before it runs: it carries the Command palette and the comfortable row as the document default. The
+  before it runs: it carries the Command palette and the compact row as the document default. The
   body holds the mount node alone, because the shell, the navigation, the skip link and the
   simulated-data badge are React components: static markup here would duplicate them outside the shell
   that has to own them.

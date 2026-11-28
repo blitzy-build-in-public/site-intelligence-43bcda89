@@ -65,9 +65,22 @@
  *     answering with no rows;
  * 25. the partial trigger, reported through the freshness every result carries and yielding to a stale or
  *     unavailable report beside it;
- * 26. the conflict trigger: every read the port declares refused with its own reason and its own trace,
- *     the decision it demonstrates refused rather than merged and left undecided, the control's lift
- *     answering those reads again, and the demonstration controls never refused.
+ * 26. the conflict trigger: every collection read refused with its own reason and its own trace, every
+ *     read of one record served so the act it carries can be attempted, the decision it demonstrates
+ *     refused rather than merged and left undecided, the control's lift answering those reads again, and
+ *     the demonstration controls never refused;
+ * 27. a request against a set-aside exception: refused with the status the record stands in, and
+ *     neither an approval record nor an audit event written for it;
+ * 28. the evidence behind one step of a plan's write-back: the composed reference
+ *     `write-back:<ownerId>/<sequence>` answered with the step's own record, system and state, for an
+ *     approval and for an option measured at call time, with the malformed, unknown-owner and
+ *     unknown-position refusals;
+ * 29. the queue's record filters and its page: each filter decided on the member the exception record
+ *     carries, the plant a row reaches as well as the one it lands on, and a page taken from the order
+ *     the whole queue states;
+ * 30. the free-text ceiling: the one bound the audited writes apply to the prose they store, refused as
+ *     a `'validation'` failure naming the field, the ceiling and the length submitted, with the record,
+ *     the history and the trail left as they stood — and a text of exactly the ceiling accepted.
  */
 
 /**
@@ -106,9 +119,11 @@ import type {
   Approval,
   ApprovalStatus,
   Atlas,
+  AuditQuery,
   DocumentBody,
   EvidencePin,
   ExceptionId,
+  ExceptionQuery,
   ExceptionRow,
   ExceptionStatus,
   Freshness,
@@ -148,7 +163,9 @@ import { buildEvidencePack } from '../exports/evidence-pack';
 import { buildScenarioComparisonCsv } from '../exports/scenario-csv';
 import { listApprovals } from './handlers/approvals';
 import { getAtlas } from './handlers/atlas';
-import { traceIdFor } from './handlers/audit';
+import { FREE_TEXT_MAX_LENGTH, traceIdFor } from './handlers/audit';
+import { getEvidence } from './handlers/evidence';
+import { getScenarioSet } from './handlers/scenarios';
 import { MockBackend } from './mock-backend';
 import { createMockState, type HandlerContext } from './mock-state';
 import {
@@ -192,6 +209,7 @@ const DECISION_ACTION = 'decision';
 const ROLE_SWITCH_ACTION = 'role switch';
 const WRITE_BACK_ACTION = 'simulated write-back';
 const RESOLVED_ACTION = 'resolved';
+const DISMISS_ACTION = 'dismiss';
 
 /**
  * How many questions the assistant panel offers, and therefore how many the assistant answers from
@@ -226,6 +244,13 @@ const PENDING_APPROVAL_STATUS: ApprovalStatus = 'pending';
  */
 const RESOLVED_STATUS: ExceptionStatus = 'resolved';
 
+/**
+ * The status a dismissal leaves an exception in, which is the one a request against it is refused for.
+ * Restated here for the same reason as `OPEN_STATUS`: a case reads the same member the record carries
+ * rather than a label of its own.
+ */
+const DISMISSED_STATUS: ExceptionStatus = 'dismissed';
+
 /* ---------------------------------------------------------------------------------------------
  * The personas the cases act as — `src/seed/users.ts`, addressed by identifier
  * ------------------------------------------------------------------------------------------- */
@@ -252,6 +277,7 @@ const AUDITOR: UserId = 'USR-06';
 const PLANT_MANAGER: UserId = 'USR-02';
 const HEAD_OF_SUPPLY_CHAIN: UserId = 'USR-03';
 const ADMINISTRATOR: UserId = 'USR-04';
+const SUPPLIER_QUALITY_ENGINEER: UserId = 'USR-07';
 const EXTERNAL_ENGINEER: UserId = 'USR-08';
 
 /* ---------------------------------------------------------------------------------------------
@@ -286,6 +312,10 @@ const EXCEPTION_READ_PERMISSION: Permission = 'exception.read';
 
 /** A note in a planner's own words, as SCR-02's row action records it. */
 const NOTE_TEXT = 'Waiting on the supplier to confirm a dispatch date.';
+
+/** The reason a dismissal carries, as SCR-02's row action records it in a planner's own words. */
+const DISMISS_REASON =
+  'The line was rerouted for the rest of the week, so this disruption is set aside.';
 
 /** The comment a decision carries, which the record keeps and the trail reports. */
 const DECISION_COMMENT = 'Approved against the transferred option, with the side effect acknowledged.';
@@ -383,6 +413,22 @@ const BODY_EXCERPT_LENGTH = 40;
  * passing case settles well inside it.
  */
 const CASE_TIMEOUT_MS = 30_000;
+
+/**
+ * The page a case asks for when it needs every event of the trail rather than one page of them.
+ *
+ * The adapter serves a list read one page at a time: a read that states no `limit` is answered with its
+ * default page and no read serves more than its maximum page, both of which
+ * `src/services/mock/handlers/audit.ts` declares. A case that counts, maps or re-hashes every event
+ * therefore has to ask for the widest page the adapter will serve, and this is that page — a bound
+ * above any trail this suite builds, which is the seeded trail plus the handful of events the cases
+ * here append. It is a parameter a caller passes rather than a figure of the domain: it bounds how many
+ * records a case looks at, is never shown and describes no record (rule P-6).
+ */
+const WHOLE_TRAIL_LIMIT = 500;
+
+/** The query every whole-trail case sends, so no case re-spells the bound above. */
+const WHOLE_TRAIL: AuditQuery = { limit: WHOLE_TRAIL_LIMIT };
 
 /**
  * How long a call held by the loading trigger is given before a case concludes that it never settles.
@@ -680,6 +726,42 @@ async function firstFailedOptionOf(
 }
 
 /**
+ * The first measured option of an exception the acting persona may set aside.
+ *
+ * Found through the port rather than by naming a record, for the same reason as the helper above: the
+ * queue is walked in its own order, and the first row that is open, laid on a plant the acting role
+ * works in and stating a measured option answers the call. The status and the plant are read from the
+ * row, so a row the acting role could not dismiss, and one whose plan was never measured and so has
+ * nothing to put forward, are both skipped rather than becoming the subject of a case that would then
+ * assert against a refusal the case did not mean to provoke.
+ *
+ * @param backend - The session to read.
+ * @returns The exception the option belongs to and the option's identifier.
+ * @throws Error - No open exception the acting role may work states a measured option.
+ */
+async function firstDismissableOptionOf(
+  backend: MockBackend,
+): Promise<{ readonly exceptionId: ExceptionId; readonly scenarioId: ScenarioId }> {
+  const actor = (await backend.getActiveUser()).data;
+
+  for (const row of await queueOf(backend)) {
+    if (row.status !== OPEN_STATUS || !actor.plantIds.includes(row.plantId)) {
+      continue;
+    }
+
+    const [option] = (await backend.getScenarioSet(row.id)).data.scenarios;
+
+    if (option !== undefined) {
+      return { exceptionId: row.id, scenarioId: option.id };
+    }
+  }
+
+  throw new Error(
+    'No open exception the acting role may set aside states a measured option, so the case cannot run.',
+  );
+}
+
+/**
  * The business figures of one measured option, which a determinism check compares.
  *
  * The identity members are left out on purpose: a sandbox option's identifier and name describe the
@@ -735,7 +817,7 @@ describe('the bootstrap', () => {
     // so the trail below holds the seeded events plus the switch made here.
     await actAs(backend, AUDITOR);
 
-    const trail = (await backend.listAuditEvents({})).data;
+    const trail = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
 
     expect(trail).toHaveLength(SEEDED_EVENT_COUNT + 1);
 
@@ -1453,6 +1535,92 @@ describe('policy enforcement', () => {
     expect(aboutModel.some((event) => event.id === recorded)).toBe(false);
   }, CASE_TIMEOUT_MS);
 
+  it('records the question a policy blocked beside the block it met, as one request under one trace', async () => {
+    const backend = await readyBackend();
+    const catalogue = (await backend.getModelCatalogue()).data;
+    const external = firstOf(
+      catalogue.models.filter((entry) => entry.boundary === 'external'),
+      'external model entry',
+    );
+    const confidential = await confidentialDocumentOf(backend);
+
+    // The endpoint the block is counted on, read from the record rather than typed here (rule P-6).
+    const endpoint = external.endpoint;
+
+    if (endpoint === undefined) {
+      throw new Error(
+        'The external entry of the model catalogue declares no outbound endpoint, so the block it ' +
+          'meets is counted on no ledger row and this case has no pair to read.',
+      );
+    }
+
+    // The persona the seeded blocked question was asked by. POL-007 decides on the entry's boundary
+    // before any body is opened, so this question meets the block rather than a redaction refusal.
+    await actAs(backend, ADMINISTRATOR);
+
+    const problem = await refusalOf(() =>
+      backend.askAssistant({
+        question: UNSEEDED_QUESTION,
+        modelId: external.id,
+        contextRefs: [confidential.id],
+      }),
+    );
+
+    expect(problem.type).toBe('policy');
+    expect(problem.policyId).toMatch(POLICY_ID_PATTERN);
+
+    if (problem.policyId === undefined || problem.auditEventId === undefined) {
+      throw new Error(
+        'A policy failure carries the rule that denied the call and the event it wrote.',
+      );
+    }
+
+    const rule = problem.policyId;
+    const recorded = problem.auditEventId;
+
+    await actAs(backend, AUDITOR);
+
+    // The pair is read the way the audit screen reads it — one filter per action — and told apart from
+    // the seeded trail's own rows by the trace of this call, which both appended rows carry.
+    const questionRows = (await backend.listAuditEvents({ action: 'assistant question' })).data.filter(
+      (event) => event.traceId === problem.traceId,
+    );
+    const blockRows = (await backend.listAuditEvents({ objectRef: endpoint })).data.filter(
+      (event) => event.traceId === problem.traceId,
+    );
+
+    const questionRow = firstOf(questionRows, 'assistant question event for the blocked question');
+    const blockRow = firstOf(blockRows, 'policy block event for the blocked question');
+
+    // One question, one record of it, and one block on the endpoint the blocked entry declares: this
+    // is the seeded pairing, and the ledger still counts the refusal once.
+    expect(questionRows).toHaveLength(1);
+    expect(blockRows).toHaveLength(1);
+
+    // The row records what was asked, as the seeded blocked question records it: the model entry the
+    // question was put to, the block, the rule that decided it and the persona that asked.
+    expect(questionRow.objectRef).toBe(external.id);
+    expect(questionRow.result).toBe('blocked');
+    expect(questionRow.policyId).toBe(rule);
+    expect(questionRow.actorType).toBe('user');
+    expect(questionRow.actorId).toBe(ADMINISTRATOR);
+    expect(questionRow.after?.modelId).toBe(external.id);
+    expect(questionRow.after?.context).toBe(confidential.id);
+
+    // The two rows are one request: one trace, and the question is written first, so a chain read from
+    // the question reaches the rule that answered it at the next position.
+    expect(blockRow.traceId).toBe(questionRow.traceId);
+    expect(blockRow.traceId).toBe(problem.traceId);
+    expect(questionRow.sequence).toBe(blockRow.sequence - 1);
+
+    // The failure still names the policy block, which is the record the block card opens, and the
+    // block is recorded by the mechanism that made the decision.
+    expect(blockRow.action).toBe('policy block');
+    expect(blockRow.actorType).toBe('policy');
+    expect(blockRow.id).toBe(recorded);
+    expect(questionRow.id).not.toBe(recorded);
+  }, CASE_TIMEOUT_MS);
+
   it('refuses a request for an option whose constraint check fails and points at the event it appended', async () => {
     const backend = await readyBackend();
 
@@ -1662,7 +1830,7 @@ describe('the audit append', () => {
     // The trail is readable by a persona holding `audit.read`.
     await actAs(backend, AUDITOR);
 
-    const trail = (await backend.listAuditEvents({})).data;
+    const trail = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
     /*
      * The count is of the events this session appended. The seeded trail may already carry a note on
      * the same exception, so the write's own event is the one past the seeded run and every note below
@@ -1709,7 +1877,7 @@ describe('the audit append', () => {
 
     await actAs(backend, AUDITOR);
 
-    const trail = (await backend.listAuditEvents({})).data;
+    const trail = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
 
     // The seeded trail plus one event, and that one is the role switch above: the four reads, one of
     // them refused, appended nothing. The seeded trail carries switches of its own inside its 200
@@ -1745,7 +1913,7 @@ describe('the audit append', () => {
 
     await actAs(backend, AUDITOR);
 
-    const trail = (await backend.listAuditEvents({ sort: 'sequence:asc' })).data;
+    const trail = (await backend.listAuditEvents({ ...WHOLE_TRAIL, sort: 'sequence:asc' })).data;
     const sequences = trail.map((event) => event.sequence);
 
     // The seeded trail, the two notes and the role switch: two writes issued together still append
@@ -1896,7 +2064,7 @@ describe('the tamper control', () => {
 
     await actAs(backend, AUDITOR);
 
-    const before = (await backend.listAuditEvents({})).data;
+    const before = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
     const hashesBefore = before.map((event) => ({
       id: event.id,
       eventHash: event.eventHash,
@@ -1908,7 +2076,7 @@ describe('the tamper control', () => {
 
     await backend.setSimulation('tampered-audit', true);
 
-    const after = (await backend.listAuditEvents({})).data;
+    const after = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
 
     // Nothing was re-hashed, re-sequenced or repaired: only the recorded result of the one addressed
     // event differs, which is what a verification then reports.
@@ -2021,12 +2189,14 @@ describe('the assistant', () => {
  *
  * An expected value rather than a record: it carries the figures the measurement produces — what the plan
  * spends, the kits it defers, their value, the days they wait and the delayed revenue avoided — so a
- * template filled from the wrong member of the scenario still reads as a sentence but fails here. The
- * delayed revenue it ends with is the baseline's own delayed revenue less the recommended option's
- * residual, which is the only figure the records state for it.
+ * template filled from the wrong member of the scenario still reads as a sentence but fails here. It is
+ * also AAP 0.8's sentence character for character, closing figure included, which is what makes it an
+ * anchor rather than a snapshot of current output: the delayed revenue it ends with is the baseline's own
+ * delayed revenue less the recommended option's residual, and the plan's quote fixes that figure at
+ * 2,257,000, the 1,220 late units of `CASE-1184` at the 1,850 price the order records carry.
  */
 const EXPECTED_TRADE_OFF =
-  'Spends EUR 21,300 and defers 900 Brno service kits (EUR 108,000) by 10 days to avoid EUR 1,512,800 of delayed revenue.';
+  'Spends EUR 21,300 and defers 900 Brno service kits (EUR 108,000) by 10 days to avoid EUR 2,257,000 of delayed revenue.';
 
 describe('the comparison option set', () => {
   it('serves the four seeded positions as measured columns, one recommended and one rejected', async () => {
@@ -2131,6 +2301,96 @@ describe('the comparison option set', () => {
 
     expect(refused.type).toBe('not-found');
     expect(refused.message).toContain(unanswered);
+  }, CASE_TIMEOUT_MS);
+
+  /**
+   * A session whose records a case may break, and the context a port call hands the evidence handler,
+   * acting as the persona a fresh session acts as.
+   *
+   * The adapter keeps its own state private, so a case that needs a broken record set builds the
+   * session's state directly, as the atlas cases do: the factory the bootstrap uses, the persona the
+   * matrix states for the session's own active user, and the trace identifier of the call about to be
+   * made.
+   *
+   * @returns The state, and the context a handler reads it through.
+   */
+  async function recordsSession(): Promise<HandlerContext> {
+    const state = await createMockState();
+    const record = firstOf(
+      state.records.users.filter((user) => user.id === state.activeUserId),
+      'seeded opening persona',
+    );
+
+    return { state, actor: personaFor(record), traceId: traceIdFor(state.requestCount + 1) };
+  }
+
+  it('reports a record defect rather than answering that no option set names the reference', async () => {
+    const context = await recordsSession();
+    const measured = firstOf(
+      context.state.records.exceptions.filter((record) => record.solverCaseId !== undefined),
+      'exception with a solver case',
+    );
+    const caseId = measured.solverCaseId;
+
+    if (caseId === undefined) {
+      throw new Error('The measured exception names no solver case, so the case cannot run.');
+    }
+
+    const set = await getScenarioSet(context, measured.id);
+    const recommended = set.scenarios.find((option) => option.id === set.recommendedId);
+
+    if (recommended === undefined) {
+      throw new Error('The measured set recommends no option, so the case cannot run.');
+    }
+
+    expect(recommended.origin).toBe('solver');
+
+    // The defect this case creates: a case identifier derived from the one the records state, which the
+    // loaded records therefore do not hold. No identifier is typed here (rule P-6).
+    const missingCaseId = `${caseId}-absent`;
+
+    // An exception the records give neither a case nor an option set of their own, laid ahead of the
+    // measured one so the walk meets the broken record first. That order is what the case is about: a
+    // broken record must not hide a reference to an option another exception's set does name.
+    const broken = firstOf(
+      context.state.records.exceptions.filter(
+        (record) =>
+          record.id !== measured.id &&
+          record.solverCaseId === undefined &&
+          !context.state.records.exceptionScenarios.some(
+            (seeded) => seeded.exceptionId === record.id,
+          ),
+      ),
+      'exception with no option set of its own',
+    );
+
+    expect(context.state.records.solverCases.map((record) => record.id)).not.toContain(missingCaseId);
+
+    context.state.records = {
+      ...context.state.records,
+      exceptions: [
+        { ...broken, solverCaseId: missingCaseId },
+        ...context.state.records.exceptions.filter((record) => record.id !== broken.id),
+      ],
+    };
+
+    // The reference the healthy set names still resolves: the failure is remembered and the walk carries
+    // on, so one exception's broken record does not hide another exception's option (AAP 0.18.1).
+    const payload = await getEvidence(context, recommended.id);
+
+    expect(payload.value).toContain(`${String(recommended.unitsLate)} units late`);
+    expect(payload.upstream).toContain(recommended.exceptionId);
+
+    // A reference of the same shape that no set names reaches the remembered defect at the end of its
+    // walk, and it arrives as the failure naming the case to repair rather than as the statement that
+    // the record set holds no such scenario, which the swallowed failure used to produce.
+    const unnamed: ScenarioId = `${recommended.id}-absent`;
+    const refused = await refusalOf(() => getEvidence(context, unnamed));
+
+    expect(refused.type).toBe('not-found');
+    expect(refused.message).toContain(missingCaseId);
+    expect(refused.message).toContain(broken.id);
+    expect(refused.message).not.toContain('The record set holds no scenario');
   }, CASE_TIMEOUT_MS);
 });
 
@@ -2384,6 +2644,31 @@ describe("the port's remaining reads", () => {
     expect(resolved.value.startsWith(`${point.resolved} `)).toBe(true);
     expect(opened.value).toContain(point.date);
     expect(resolved.value).toContain(point.date);
+
+    // The sentence agrees with the figure it states: a day that counts one exception reads "1
+    // exception opened on …", and a count of any other size reads "2 exceptions opened on …", so the
+    // drawer never says "1 exceptions". The wording is the service's own (rule P-6), and the series is
+    // the read's, so neither the day nor either count is written into this case.
+    const singularDays = overview.openResolvedSeries.filter(
+      (day) => day.open === 1 || day.resolved === 1,
+    );
+
+    expect(
+      singularDays.length,
+      'the series counts a day holding exactly one exception in one of its two readings',
+    ).toBeGreaterThan(0);
+
+    for (const day of singularDays) {
+      const dayOpened = (await backend.getEvidence(`overview:day/${day.date}/open`)).data;
+      const dayResolved = (await backend.getEvidence(`overview:day/${day.date}/resolved`)).data;
+
+      expect(dayOpened.value).toBe(
+        `${day.open} ${day.open === 1 ? 'exception' : 'exceptions'} opened on ${day.date}`,
+      );
+      expect(dayResolved.value).toBe(
+        `${day.resolved} ${day.resolved === 1 ? 'exception' : 'exceptions'} resolved on ${day.date}`,
+      );
+    }
   }, CASE_TIMEOUT_MS);
 
   it('answers every ribbon reference the canvas screen composes with the tile’s own figure', async () => {
@@ -2845,7 +3130,7 @@ const COLLECTION_READS: readonly {
   },
   {
     name: 'listAuditEvents',
-    read: async (backend) => (await backend.listAuditEvents({})).data,
+    read: async (backend) => (await backend.listAuditEvents(WHOLE_TRAIL)).data,
   },
   {
     name: 'getOutboundLedger',
@@ -3046,7 +3331,7 @@ describe('the browser-built exports', () => {
     // that records it, so a read taken afterwards would describe a longer trail.
     const sovereignty = (await backend.getSovereigntyStatus()).data;
     const ledgerRows = (await backend.getOutboundLedger({})).data;
-    const events = (await backend.listAuditEvents({})).data;
+    const events = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
     const report = (await backend.verifyAuditChain()).data;
 
     const expectedPack = buildEvidencePack({
@@ -3475,6 +3760,16 @@ describe('the list parameters of the collection reads', () => {
     });
   }, CASE_TIMEOUT_MS);
 
+  it('pages and orders the exception queue', async () => {
+    await expectPageableAndSortable<ExceptionRow>({
+      read: (backend, query) => backend.listExceptions(query, NO_SCOPE),
+      reader: HEAD_OF_SUPPLY_CHAIN,
+      keyOf: (row) => row.id,
+      sortField: 'id',
+      valueOf: (row) => row.id,
+    });
+  }, CASE_TIMEOUT_MS);
+
   // The approval inbox needs its own case rather than the shared helper above: `listApprovals` takes
   // the shell's scope beside the list parameters, and a status filter the other four reads do not
   // carry, so neither fits the helper's shape.
@@ -3663,7 +3958,7 @@ describe('the response envelope', () => {
     // either leads to the same call rather than to the call that happened to be served beside it.
     await actAs(backend, AUDITOR);
 
-    const trail = (await backend.listAuditEvents({})).data;
+    const trail = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
     const recorded = trail.filter(
       (event) =>
         event.objectRef === target.id &&
@@ -3780,11 +4075,11 @@ describe('the policy exception request', () => {
     await actAs(backend, ADMINISTRATOR);
 
     const policy = firstOf((await backend.listPolicies({})).data, 'policy');
-    const beforeRequest = (await backend.listAuditEvents({})).data.length;
+    const beforeRequest = (await backend.listAuditEvents(WHOLE_TRAIL)).data.length;
 
     await requestException(backend, policy.id, POLICY_EXCEPTION_REASON);
 
-    const afterRequest = (await backend.listAuditEvents({})).data.length;
+    const afterRequest = (await backend.listAuditEvents(WHOLE_TRAIL)).data.length;
 
     // The write appends one event, once.
     expect(afterRequest).toBe(beforeRequest + 1);
@@ -3794,7 +4089,7 @@ describe('the policy exception request', () => {
 
     // The reads that return the request append nothing: one event per accepted request, and none for
     // reading the request back (AAP 0.2.1).
-    expect((await backend.listAuditEvents({})).data.length).toBe(afterRequest);
+    expect((await backend.listAuditEvents(WHOLE_TRAIL)).data.length).toBe(afterRequest);
   }, CASE_TIMEOUT_MS);
 
   it('clears the pending requests with the rest of the session on reset', async () => {
@@ -3814,6 +4109,156 @@ describe('the policy exception request', () => {
     // A reset restores the seeded records, the chain and the persona, and clears the session's own
     // pending requests beside them, so the policy answers with none of them again.
     expect((await backend.getPolicy(policy.id)).data.pendingExceptions).toEqual([]);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 27. The free-text ceiling — the bound on the prose an audited write stores
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the free-text ceiling', () => {
+  it('refuses a note longer than the ceiling, and leaves the activity and the chain unextended', async () => {
+    const backend = await readyBackend();
+    const target = firstOf(await queueOf(backend), 'exception row');
+    const before = (await backend.getExceptionDetail(target.id)).data;
+    const chainBefore = (await backend.verifyAuditChain()).data.eventsChecked;
+
+    const refusal = await refusalOf(() =>
+      backend.noteException(target.id, 'x'.repeat(FREE_TEXT_MAX_LENGTH + 1)),
+    );
+
+    /*
+     * The refusal names the field, the ceiling and the length actually submitted, so a caller learns
+     * what was refused and by how much rather than that the write failed (CR4-F26).
+     */
+    expect(refusal.type).toBe('validation');
+    expect(refusal.message).toContain(`note against ${target.id}`);
+    expect(refusal.message).toContain(String(FREE_TEXT_MAX_LENGTH));
+    expect(refusal.message).toContain(String(FREE_TEXT_MAX_LENGTH + 1));
+
+    const after = (await backend.getExceptionDetail(target.id)).data;
+
+    // A refused note records nothing: no activity for the exception, and no event on the trail that
+    // the audit screen and every filter over it scan.
+    expect(after.activity).toHaveLength(before.activity.length);
+    expect((await backend.verifyAuditChain()).data.eventsChecked).toBe(chainBefore);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a dismissal reason longer than the ceiling, and leaves the exception as it stood', async () => {
+    const backend = await readyBackend();
+    const open = (await queueOf(backend)).find((row) => row.status === 'open');
+
+    if (open === undefined) {
+      throw new Error('The queue holds no open exception, so the case has nothing to dismiss.');
+    }
+
+    const refusal = await refusalOf(() =>
+      backend.dismissException(open.id, 'x'.repeat(FREE_TEXT_MAX_LENGTH + 1)),
+    );
+
+    expect(refusal.type).toBe('validation');
+    expect(refusal.message).toContain(`dismissal reason for ${open.id}`);
+    expect(refusal.message).toContain(String(FREE_TEXT_MAX_LENGTH + 1));
+
+    // The row still stands open, so the refusal left the record a dismissal would have moved untouched.
+    expect((await backend.getExceptionDetail(open.id)).data.exception.status).toBe('open');
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a decision comment longer than the ceiling, and leaves the approval pending', async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: PENDING_APPROVAL_STATUS }, NO_SCOPE)).data,
+      'pending approval',
+    );
+
+    await actAs(backend, PLANT_MANAGER);
+
+    const refusal = await refusalOf(() =>
+      backend.decideApproval(lodged.id, {
+        action: 'approve',
+        comment: 'x'.repeat(FREE_TEXT_MAX_LENGTH + 1),
+      }),
+    );
+
+    expect(refusal.type).toBe('validation');
+    expect(refusal.message).toContain('decision comment');
+    expect(refusal.message).toContain(String(FREE_TEXT_MAX_LENGTH + 1));
+
+    // Nothing was decided and no write-back ran, so the record is still the pending plan it was.
+    expect((await backend.getApproval(lodged.id)).data.status).toBe(PENDING_APPROVAL_STATUS);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a policy exception reason longer than the ceiling, and records no request', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, ADMINISTRATOR);
+
+    const policy = firstOf((await backend.listPolicies({})).data, 'policy');
+    const before = (await backend.getPolicy(policy.id)).data.pendingExceptions;
+
+    const refusal = await refusalOf(() =>
+      requestException(backend, policy.id, 'x'.repeat(FREE_TEXT_MAX_LENGTH + 1)),
+    );
+
+    expect(refusal.type).toBe('validation');
+    expect(refusal.message).toContain('policy exception reason');
+    expect(refusal.message).toContain(String(FREE_TEXT_MAX_LENGTH + 1));
+
+    // The refused request never entered the policy's pending list, so no second approver has a record
+    // to read that no one can account for.
+    expect((await backend.getPolicy(policy.id)).data.pendingExceptions).toEqual(before);
+  }, CASE_TIMEOUT_MS);
+
+  it('accepts a note of exactly the ceiling, so the bound is a bound and not an off-by-one', async () => {
+    const backend = await readyBackend();
+    const target = firstOf(await queueOf(backend), 'exception row');
+    const before = (await backend.getExceptionDetail(target.id)).data;
+
+    // The ceiling is inside the bound: the note the first case proves refused one character over it is
+    // accepted here at exactly the ceiling, and reaches the exception's activity as any other note does.
+    await expect(
+      backend.noteException(target.id, 'x'.repeat(FREE_TEXT_MAX_LENGTH)),
+    ).resolves.toBeDefined();
+
+    expect((await backend.getExceptionDetail(target.id)).data.activity).toHaveLength(
+      before.activity.length + 1,
+    );
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a corrected extraction value longer than the ceiling, and leaves the element as it stood', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, SUPPLIER_QUALITY_ENGINEER);
+
+    const partPackage = firstOf((await backend.listPackages({})).data, 'part approval package');
+    const element = firstOf(partPackage.elements, 'package element');
+
+    /*
+     * A corrected value is the evidence family's one free-text member: it becomes the element's own
+     * reading and travels in the audit event the review appends, so the ceiling the exceptions,
+     * approvals and governance writes apply to their prose applies to it too (CR4-F26).
+     */
+    const refusal = await refusalOf(() =>
+      backend.reviewElement({
+        packageId: partPackage.id,
+        elementNumber: element.number,
+        decision: 'correct',
+        correctedValue: 'x'.repeat(FREE_TEXT_MAX_LENGTH + 1),
+      }),
+    );
+
+    expect(refusal.type).toBe('validation');
+    expect(refusal.message).toContain(`corrected value for element ${element.number}`);
+
+    const after = (await backend.getPackage(partPackage.id)).data;
+    const reviewed = firstOf(
+      after.elements.filter((candidate) => candidate.number === element.number),
+      'the element after the refused review',
+    );
+
+    // The refused review changed nothing: the element keeps its extracted reading and its review mark.
+    expect(reviewed.actual).toBe(element.actual);
+    expect(reviewed.humanReviewed).toBe(element.humanReviewed);
   }, CASE_TIMEOUT_MS);
 });
 
@@ -3900,9 +4345,22 @@ describe("the decision's records", () => {
 
     await actAs(backend, PLANT_MANAGER);
 
-    const decided = (
-      await backend.decideApproval(lodged.id, { action: 'approve', comment: DECISION_COMMENT })
-    ).data;
+    // The partial trigger stops the approved change at one of its steps, which leaves the plan approved
+    // while the exception it answers stays open: AAP 0.2.2's write-back is all-or-nothing, so a change
+    // that did not land leaves the disruption unanswered. That is the state this rule answers; an
+    // exception a landed plan has already resolved meets the open-exception rule first, as the
+    // set-aside case at the end of this file states.
+    await backend.setSimulation('partial', true);
+
+    const stopped = await refusalOf(() =>
+      backend.decideApproval(lodged.id, { action: 'approve', comment: DECISION_COMMENT }),
+    );
+
+    await backend.setSimulation('partial', false);
+
+    expect(stopped.type).toBe('simulated-write-back');
+
+    const decided = (await backend.getApproval(lodged.id)).data;
 
     // The persona who lodged the request is the one who may lodge another, and it meets the record the
     // first one left behind: a decided plan is not put forward a second time (rule P-8).
@@ -3929,14 +4387,16 @@ describe("the decision's records", () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 26. The conflict trigger — every read refused, the decision refused rather than merged
+ * 26. The conflict trigger — every collection read refused, every record read served, the decision
+ *     refused rather than merged
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * The identifiers the conflict cases address records by, taken through the port before the trigger.
  *
- * The trigger refuses every read, so nothing can be looked up while it is in effect: the subjects are
- * read first and held, and no identifier is stated here that a record does not carry (rule P-6).
+ * The trigger refuses every collection read, so the sets these cases address — the exception queue, the
+ * approvals, the trail, the policies and the packages — are read first and held: no identifier is
+ * stated here that a record does not carry (rule P-6).
  */
 interface ConflictReadSubjects {
   /** An exception the reading persona may see, which the three exception reads address. */
@@ -4012,7 +4472,7 @@ async function conflictReadSubjects(backend: MockBackend): Promise<ConflictReadS
 
   await actAs(backend, AUDITOR);
 
-  const event = firstOf((await backend.listAuditEvents({})).data, 'audit event');
+  const event = firstOf((await backend.listAuditEvents(WHOLE_TRAIL)).data, 'audit event');
   const policy = firstOf((await backend.listPolicies({})).data, 'policy');
 
   return {
@@ -4027,66 +4487,93 @@ async function conflictReadSubjects(backend: MockBackend): Promise<ConflictReadS
 }
 
 /**
- * Every read the port declares, as the conflict cases address them.
+ * Every read the port declares whose payload is a collection, as the conflict cases address them.
  *
- * A read whose payload is one record and a read whose payload is a collection take different
- * dispatchers, so both are listed: this is the whole read surface, and a member added to the port
- * without a line here is a member no case proves the trigger reaches.
+ * These are the reads the trigger refuses, because a set presented as current is what the
+ * conflicting-update state prevents: the whole of that surface is listed here, and a collection read
+ * added to the port without a line here is one no case proves the trigger reaches.
  *
  * @param backend - The session the reads are made against.
  * @param subject - The identifiers read before the trigger was set.
- * @returns One labelled thunk per read member of the port.
+ * @returns One labelled thunk per collection read member of the port.
  */
-function everyPortRead(
+function everyCollectionRead(
   backend: MockBackend,
   subject: ConflictReadSubjects,
 ): readonly (readonly [string, () => Promise<unknown>])[] {
   return [
-    ['getOverview', () => backend.getOverview(NO_SCOPE)],
     ['listExceptions', () => backend.listExceptions({}, NO_SCOPE)],
-    ['getExceptionDetail', () => backend.getExceptionDetail(subject.exceptionId)],
     ['getAffectedLines', () => backend.getAffectedLines(subject.exceptionId)],
-    ['getScenarioSet', () => backend.getScenarioSet(subject.exceptionId)],
     ['listApprovals', () => backend.listApprovals({}, NO_SCOPE)],
-    ['getApproval', () => backend.getApproval(subject.approvalId)],
-    ['getApprovalOutcome', () => backend.getApprovalOutcome(subject.approvalId)],
     ['listAuditEvents', () => backend.listAuditEvents({})],
-    ['getAuditEvent', () => backend.getAuditEvent(subject.auditEventId)],
-    ['verifyAuditChain', () => backend.verifyAuditChain()],
-    ['getModelCatalogue', () => backend.getModelCatalogue()],
-    ['listSuggestedQuestions', () => backend.listSuggestedQuestions()],
-    ['getSovereigntyStatus', () => backend.getSovereigntyStatus()],
     ['getOutboundLedger', () => backend.getOutboundLedger({})],
     ['listPolicies', () => backend.listPolicies({})],
-    ['getPolicy', () => backend.getPolicy(subject.policyId)],
-    ['getEvidence', () => backend.getEvidence(subject.exceptionId)],
-    ['getDocument', () => backend.getDocument(subject.documentRef)],
     ['listPins', () => backend.listPins({})],
     ['listPackages', () => backend.listPackages({})],
-    ['getPackage', () => backend.getPackage(subject.packageId)],
     ['searchIdentifiers', () => backend.searchIdentifiers(subject.exceptionId, NO_SCOPE)],
-    ['getTopology', () => backend.getTopology(NO_SCOPE)],
-    ['getCanvasRibbon', () => backend.getCanvasRibbon(NO_SCOPE)],
-    ['getAtlas', () => backend.getAtlas()],
-    ['getSourceCatalogue', () => backend.getSourceCatalogue()],
-    ['getPlanGrid', () => backend.getPlanGrid(subject.plantId)],
-    ['getExitPackage', () => backend.getExitPackage()],
+  ];
+}
+
+/**
+ * Every read the port declares whose payload is one record, as the conflict cases address them.
+ *
+ * These are the reads the trigger serves, so a case proves each one is answered while it is in effect.
+ * The persona is carried beside the member because a served read runs its family's own permission
+ * check — the one the refused reads never reached — and no single role holds every permission of the
+ * matrix: the head of supply chain holds the exception, audit, evidence, document and competitive
+ * reads, and the auditor holds the sovereignty and policy reads. The list is ordered so those two
+ * groups stay together, and every persona the matrix admits to a member is named per member rather than
+ * assumed.
+ *
+ * The two members carried for conformance alone — the plan grid and the exit package, whose record
+ * families this set does not hold — are not listed here: their own families refuse them with a
+ * `'not-found'`, which the case asserts beside the list.
+ *
+ * @param backend - The session the reads are made against.
+ * @param subject - The identifiers read before the trigger was set.
+ * @returns One labelled thunk per record read member of the port, with the persona the matrix admits
+ *   to it.
+ */
+function everyRecordRead(
+  backend: MockBackend,
+  subject: ConflictReadSubjects,
+): readonly (readonly [string, UserId, () => Promise<unknown>])[] {
+  return [
+    ['getOverview', HEAD_OF_SUPPLY_CHAIN, () => backend.getOverview(NO_SCOPE)],
+    ['getExceptionDetail', HEAD_OF_SUPPLY_CHAIN, () => backend.getExceptionDetail(subject.exceptionId)],
+    ['getScenarioSet', HEAD_OF_SUPPLY_CHAIN, () => backend.getScenarioSet(subject.exceptionId)],
+    ['getApproval', HEAD_OF_SUPPLY_CHAIN, () => backend.getApproval(subject.approvalId)],
+    ['getApprovalOutcome', HEAD_OF_SUPPLY_CHAIN, () => backend.getApprovalOutcome(subject.approvalId)],
+    ['getAuditEvent', HEAD_OF_SUPPLY_CHAIN, () => backend.getAuditEvent(subject.auditEventId)],
+    ['verifyAuditChain', HEAD_OF_SUPPLY_CHAIN, () => backend.verifyAuditChain()],
+    ['getModelCatalogue', HEAD_OF_SUPPLY_CHAIN, () => backend.getModelCatalogue()],
+    ['listSuggestedQuestions', HEAD_OF_SUPPLY_CHAIN, () => backend.listSuggestedQuestions()],
+    ['getEvidence', HEAD_OF_SUPPLY_CHAIN, () => backend.getEvidence(subject.exceptionId)],
+    ['getDocument', HEAD_OF_SUPPLY_CHAIN, () => backend.getDocument(subject.documentRef)],
+    ['getPackage', HEAD_OF_SUPPLY_CHAIN, () => backend.getPackage(subject.packageId)],
+    ['getTopology', HEAD_OF_SUPPLY_CHAIN, () => backend.getTopology(NO_SCOPE)],
+    ['getCanvasRibbon', HEAD_OF_SUPPLY_CHAIN, () => backend.getCanvasRibbon(NO_SCOPE)],
+    ['getAtlas', HEAD_OF_SUPPLY_CHAIN, () => backend.getAtlas()],
+    ['getSourceCatalogue', HEAD_OF_SUPPLY_CHAIN, () => backend.getSourceCatalogue()],
+    ['getSovereigntyStatus', AUDITOR, () => backend.getSovereigntyStatus()],
+    ['getPolicy', AUDITOR, () => backend.getPolicy(subject.policyId)],
   ];
 }
 
 describe('the conflict trigger', () => {
-  it('refuses every read the port declares, each with the reason and the trace of its own call', async () => {
+  it('refuses every collection read and serves every read of one record, each with its own trace', async () => {
     const backend = await readyBackend();
     const subject = await conflictReadSubjects(backend);
 
     await backend.setSimulation('conflict', true);
 
     /*
-     * Every read the port declares answers with the one condition the trigger stands for, so no screen
-     * that derives a state is left reading records that changed under it (AAP 0.2.1 F10, AAP 0.12.1).
-     * The label names the member, so a read that is served reports which one escaped.
+     * Half of the contract: every read whose payload is a collection answers with the one condition the
+     * trigger stands for, so no screen presenting a set is left reading records that changed under it
+     * (AAP 0.2.1 F10, AAP 0.12.1). The label names the member, so a read that is served reports which
+     * one escaped.
      */
-    for (const [member, read] of everyPortRead(backend, subject)) {
+    for (const [member, read] of everyCollectionRead(backend, subject)) {
       const refusal = await refusalOf(read);
 
       /*
@@ -4101,11 +4588,36 @@ describe('the conflict trigger', () => {
     }
 
     /*
-     * The refusal is a condition of the records rather than a one-shot state the first call consumed, so a
-     * second read meets it too — and each refusal carries the trace of its own call (AAP 0.18.2).
+     * The other half: a read whose payload is one record is served while the trigger is in effect,
+     * because the record is where the act it carries starts and the state refuses that act rather than
+     * the read (`ScreenState` in `src/types/service.ts`, AAP 0.12.4 SCR-05). The persona changes only
+     * where the matrix's row changes.
      */
-    const first = await refusalOf(() => backend.getOverview(NO_SCOPE));
-    const second = await refusalOf(() => backend.getOverview(NO_SCOPE));
+    let reader: UserId | null = null;
+
+    for (const [member, persona, read] of everyRecordRead(backend, subject)) {
+      if (persona !== reader) {
+        await actAs(backend, persona);
+        reader = persona;
+      }
+
+      await expect(read(), member).resolves.toBeDefined();
+    }
+
+    /*
+     * The two members this record set carries for conformance alone are served by the same dispatcher
+     * and refused by their own families: a `'not-found'` names the absent record family, where the
+     * trigger's refusal is a `'validation'` one (AAP 0.12.3).
+     */
+    expect((await refusalOf(() => backend.getPlanGrid(subject.plantId))).type).toBe('not-found');
+    expect((await refusalOf(() => backend.getExitPackage())).type).toBe('not-found');
+
+    /*
+     * The refusal is a condition of the records rather than a one-shot state the first call consumed, so
+     * a second read meets it too — and each refusal carries the trace of its own call (AAP 0.18.2).
+     */
+    const first = await refusalOf(() => backend.listExceptions({}, NO_SCOPE));
+    const second = await refusalOf(() => backend.listExceptions({}, NO_SCOPE));
 
     expect(second.type).toBe('validation');
     expect(second.traceId).not.toBe(first.traceId);
@@ -4131,15 +4643,16 @@ describe('the conflict trigger', () => {
 
     await backend.setSimulation('conflict', true);
 
-    expect((await refusalOf(() => backend.getOverview(NO_SCOPE))).type).toBe('validation');
+    expect((await refusalOf(() => backend.listExceptions({}, NO_SCOPE))).type).toBe('validation');
 
     const lifted = await backend.setSimulation('conflict', false);
 
     expect(lifted.data).toBe(true);
 
     /*
-     * The five reads the approval screens compose a decision from are the ones the trigger used to serve,
-     * and each answers again: the lift is the popover's, and the records behind it never moved (rule P-8).
+     * The reads the approval screens compose a decision from answer again once the control lifts the
+     * trigger, and the set it refused answers with them: the lift is the popover's, and the records
+     * behind it never moved (rule P-8).
      */
     expect((await backend.getOverview(NO_SCOPE)).data).toEqual(before);
     expect((await backend.listExceptions({}, NO_SCOPE)).data.length).toBeGreaterThan(0);
@@ -4172,7 +4685,7 @@ describe('the conflict trigger', () => {
     /*
      * The write half of the demonstration: a decision attempted from records a caller already holds is
      * refused rather than merged with the record that changed under it, and it words that condition
-     * differently from the read refusal (AAP 0.12.4 SCR-05).
+     * differently from the refusal a collection read meets (AAP 0.12.4 SCR-05).
      */
     expect(refusal.type).toBe('validation');
     expect(refusal.message).toMatch(/refused rather than merged/);
@@ -4525,5 +5038,366 @@ describe("the queue's day filter", () => {
     const quiet = firstOf(quietDays, 'day without activity');
 
     expect((await backend.listExceptions({ date: quiet.date }, NO_SCOPE)).data).toEqual([]);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 27. A request against a set-aside exception — refused with the status the record stands in
+ * ------------------------------------------------------------------------------------------- */
+
+describe('a request against a set-aside exception', () => {
+  it('refuses the plan, naming the status the record stands in, and writes no record or event', async () => {
+    const backend = await readyBackend();
+    const subject = await firstDismissableOptionOf(backend);
+
+    // The opening session acts as the seed's first record — the material planner — which holds
+    // `exception.work` over the exception's plant and `approval.request` beside it (contracts §7.1), so
+    // both calls below are ones the persona may make.
+    const dismissed = (await backend.dismissException(subject.exceptionId, DISMISS_REASON)).data;
+
+    expect(dismissed.status).toBe(DISMISSED_STATUS);
+
+    const approvalsBefore = (await backend.listApprovals({}, NO_SCOPE)).data;
+    const trailBefore = (await backend.listAuditEvents({})).data;
+
+    // A plan put forward on a record the workspace has set aside is refused: only an open exception
+    // answers a request, so the call meets that rule rather than the order-book gate, the option's own
+    // check or the audience, and the sentence says so in plain words (rule P-8).
+    const problem = await refusalOf(() =>
+      backend.requestApproval({ exceptionId: subject.exceptionId, scenarioId: subject.scenarioId }),
+    );
+
+    expect(problem.type).toBe('validation');
+    // The sentence names the record and the status it stands in, which is what a reader needs in order
+    // to reopen or replace that record instead of lodging a plan against it.
+    expect(problem.message).toContain(subject.exceptionId);
+    expect(problem.message).toContain(DISMISSED_STATUS);
+
+    // The refused call created nothing: no approval rests on the dismissed exception, and the trail
+    // still ends at the dismissal the case made — so no write-back could ever report a change landing on
+    // a record the workspace considers set aside.
+    expect((await backend.listApprovals({}, NO_SCOPE)).data).toEqual(approvalsBefore);
+
+    const trailAfter = (await backend.listAuditEvents({})).data;
+
+    expect(trailAfter).toHaveLength(trailBefore.length);
+
+    // The read answers newest first, and the chain's own position is what "newest" means here: the last
+    // event appended is still the dismissal, so no `approval request` was written on top of it.
+    const newest = trailAfter.reduce(
+      (latest, event) => (event.sequence > latest.sequence ? event : latest),
+      firstOf(trailAfter, 'audit event'),
+    );
+
+    expect(newest.action).toBe(DISMISS_ACTION);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 28. The evidence behind a write-back step — AAP 0.2.1 F12, AAP 0.2.2, principle PR-6
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the evidence behind a write-back step', () => {
+  it("answers a step of an approval's write-back with that step's own record, system and state", async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+    const step = firstOf(lodged.writeBacks, 'write-back step');
+
+    /*
+     * The reference names the record the steps belong to and the step's own position, because
+     * `WriteBack` declares no identifier of its own: the contract §3 members are the position, the
+     * system, the reference it writes, its description and its state.
+     */
+    const evidence = (await backend.getEvidence(`write-back:${lodged.id}/${String(step.sequence)}`))
+      .data;
+
+    /* The payload states the step's own row, every part of it a field of a record (rule P-6). */
+    expect(evidence.provenance).toBe('first_party');
+    expect(evidence.label).toBe(SIM_LABELS[3]);
+    expect(evidence.value).toBe(
+      `write-back step ${String(step.sequence)} of ${lodged.id} to ${SOURCE_LABELS[step.system]} ` +
+        `record ${step.recordRef} stands ${step.state}`,
+    );
+    expect(evidence.inputs).toContain(`sequence = ${String(step.sequence)}`);
+    expect(evidence.inputs).toContain(`system = ${step.system}`);
+    expect(evidence.inputs).toContain(`recordRef = ${step.recordRef}`);
+    expect(evidence.inputs).toContain(`state = ${step.state}`);
+    expect(evidence.inputs).toContain(`description = ${step.description}`);
+    expect(evidence.inputs).toContain(`owner = ${lodged.id}`);
+
+    /* The plan a step belongs to is upstream of it, with the option it was requested for, and the
+       approval's own trail is downstream: the events the chain records against that approval. */
+    expect(evidence.upstream).toEqual([lodged.exceptionId, lodged.scenarioId]);
+
+    await actAs(backend, AUDITOR);
+
+    const trail = (await backend.listAuditEvents({ objectRef: lodged.id })).data;
+
+    expect(evidence.downstream).toEqual(trail.map((event) => event.id));
+  }, CASE_TIMEOUT_MS);
+
+  it("answers a step of an option the adapter measured from the exception's own case", async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+    const set = (await backend.getScenarioSet(lodged.exceptionId)).data;
+    const recommended = set.scenarios.find((option) => option.id === set.recommendedId);
+
+    if (recommended === undefined) {
+      throw new Error('The measured set recommends no option, so the case cannot run.');
+    }
+
+    /* The option is measured rather than shipped, which is the record no seeded set holds: the premise
+       of the case, and the reason the owner lookup reads the measured sets as well as the shipped ones. */
+    expect(recommended.origin).toBe('solver');
+
+    const step = firstOf(recommended.writeBacks, 'write-back step');
+    const evidence = (
+      await backend.getEvidence(`write-back:${recommended.id}/${String(step.sequence)}`)
+    ).data;
+
+    expect(evidence.value).toContain(`of ${recommended.id}`);
+    expect(evidence.value).toContain(step.recordRef);
+    expect(evidence.inputs).toContain(`owner = ${recommended.id}`);
+
+    /* An option's steps reach the exception it was measured from upstream, and the approvals naming
+       the option downstream — the records the comparison screen's own column leads a reader to. */
+    expect(evidence.upstream).toEqual([recommended.exceptionId]);
+
+    const naming = (await backend.listApprovals({}, NO_SCOPE)).data.filter(
+      (approval) => approval.scenarioId === recommended.id,
+    );
+
+    expect(evidence.downstream).toEqual(naming.map((approval) => approval.id));
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a malformed reference, an unknown owner and a position the plan does not hold', async () => {
+    const backend = await readyBackend();
+    const lodged = firstOf(
+      (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data,
+      'pending approval',
+    );
+    const step = firstOf(lodged.writeBacks, 'write-back step');
+
+    /*
+     * Every form the grammar does not state is a validation failure naming the grammar: no position at
+     * all, an empty owner, a position of zero, a position that is not a whole number, and a reference
+     * carrying more after the position than the grammar has room for. None is trimmed or repaired.
+     */
+    const malformed = [
+      `write-back:${lodged.id}`,
+      `write-back:/${String(step.sequence)}`,
+      `write-back:${lodged.id}/0`,
+      `write-back:${lodged.id}/next`,
+      `write-back:${lodged.id}/${String(step.sequence)}/extra`,
+    ];
+
+    for (const reference of malformed) {
+      const problem = await refusalOf(() => backend.getEvidence(reference));
+
+      expect(problem.type, reference).toBe('validation');
+      expect(problem.message, reference).toContain('write-back:<ownerId>/<sequence>');
+    }
+
+    /* A well-formed reference whose owner no record answers names the owner it could not resolve. */
+    const unknownOwner = `${lodged.id}-absent`;
+    const ownerProblem = await refusalOf(() =>
+      backend.getEvidence(`write-back:${unknownOwner}/${String(step.sequence)}`),
+    );
+
+    expect(ownerProblem.type).toBe('not-found');
+    expect(ownerProblem.message).toContain(unknownOwner);
+
+    /* A position the plan does not hold names the position and lists the ones the record does state,
+       which is what a reader needs to address a step correctly instead of guessing at one. */
+    const absentPosition = lodged.writeBacks.length + 1;
+    const positionProblem = await refusalOf(() =>
+      backend.getEvidence(`write-back:${lodged.id}/${String(absentPosition)}`),
+    );
+
+    expect(positionProblem.type).toBe('not-found');
+    expect(positionProblem.message).toContain(String(absentPosition));
+
+    for (const held of lodged.writeBacks) {
+      expect(positionProblem.message).toContain(String(held.sequence));
+    }
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 29. The queue's record filters and its page — the population is narrowed before it is measured
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One filter the queue's query states on a member the row itself carries.
+ *
+ * The query is built from the row rather than typed, so a case asks for a value the records hold and
+ * nothing in this file names a record (rule P-6).
+ */
+interface RecordFilterCase {
+  /** The query member the filter sets, named in the case's title. */
+  readonly member: string;
+
+  /** The query that narrows by one row of the queue. */
+  readonly query: (row: ExceptionRow) => ExceptionQuery;
+
+  /** The row member whose value that query names. */
+  readonly pick: (row: ExceptionRow) => string;
+}
+
+/**
+ * The four filters decided on a member `ExceptionRow` carries.
+ *
+ * The queue narrows its population before it measures it, so each of these is now applied to the
+ * exception record rather than to the projected row. The two carry the same value for all four — the
+ * projection copies them unchanged — and these cases are what holds that equivalence: a filter applied
+ * to the wrong member, or one dropped on the way down, answers with a different set.
+ */
+const RECORD_FILTER_CASES: readonly RecordFilterCase[] = [
+  { member: 'type', query: (row) => ({ type: row.type }), pick: (row) => row.type },
+  { member: 'severity', query: (row) => ({ severity: row.severity }), pick: (row) => row.severity },
+  { member: 'status', query: (row) => ({ status: row.status }), pick: (row) => row.status },
+  { member: 'ownerId', query: (row) => ({ ownerId: row.ownerId }), pick: (row) => row.ownerId },
+];
+
+describe("the queue's record filters", () => {
+  it.each(RECORD_FILTER_CASES)(
+    'keeps exactly the rows the $member filter names, in the order the whole queue states',
+    async ({ query, pick }) => {
+      const backend = await readyBackend();
+      const wholeQueue = await queueOf(backend);
+      const values = [...new Set(wholeQueue.map(pick))];
+
+      expect(values.length, 'the seeded queue carries one value for this filter').toBeGreaterThan(0);
+
+      for (const value of values) {
+        const row = firstOf(
+          wholeQueue.filter((candidate) => pick(candidate) === value),
+          `row carrying ${value}`,
+        );
+        const expected = wholeQueue.filter((candidate) => pick(candidate) === value);
+        const kept = (await backend.listExceptions(query(row), NO_SCOPE)).data;
+
+        expect(kept.map((candidate) => candidate.id), `the ${value} rows`).toEqual(
+          expected.map((candidate) => candidate.id),
+        );
+      }
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  /**
+   * The plant filter keeps a row that reaches the plant without landing on it.
+   *
+   * `ExceptionQuery.plantId` is fixed by `src/types/service.ts` to admit the plant the exception lands
+   * on **or** one it also affects, and the row carries only the landing plant. That reading is the one a
+   * filter applied to the record can lose most easily, so every row the filter keeps either lands on the
+   * plant or states it among the plants it also affects.
+   */
+  it('keeps the rows landing on a plant and the rows reaching it, and nothing else', async () => {
+    const backend = await readyBackend();
+    const wholeQueue = await queueOf(backend);
+    const wholeIdentifiers = wholeQueue.map((row) => row.id);
+    const plants = [...new Set(wholeQueue.map((row) => row.plantId))];
+    let narrowed = 0;
+    let answered = 0;
+
+    for (const plantId of plants) {
+      const kept = (await backend.listExceptions({ plantId }, NO_SCOPE)).data;
+      const keptIdentifiers = kept.map((row) => row.id);
+
+      /*
+       * A plant outside the acting role's plant scope answers with nothing, and that is the adapter's
+       * own rule rather than this filter's: the port hands the plant it was asked for to the one
+       * resolver, which intersects it with the role's scope, so a selection the role does not reach
+       * resolves to no plant at all. A row that lands on such a plant is in the whole queue only
+       * because it also reaches one of the role's own, so its being kept is asserted in the branch
+       * below and the empty answer is not read as a lost filter.
+       */
+      if (kept.length === 0) {
+        continue;
+      }
+
+      answered += 1;
+
+      for (const row of wholeQueue.filter((candidate) => candidate.plantId === plantId)) {
+        expect(keptIdentifiers, `${row.id} lands on ${plantId} and was dropped`).toContain(row.id);
+      }
+
+      for (const row of kept) {
+        expect(wholeIdentifiers, `${row.id} is outside the queue`).toContain(row.id);
+      }
+
+      for (const row of kept.filter((candidate) => candidate.plantId !== plantId)) {
+        const detail = await backend.getExceptionDetail(row.id);
+
+        expect(
+          detail.data.exception.alsoAffectsPlantIds,
+          `${row.id} neither lands on ${plantId} nor reaches it`,
+        ).toContain(plantId);
+      }
+
+      if (kept.length < wholeQueue.length) {
+        narrowed += 1;
+      }
+    }
+
+    expect(answered, 'no plant the queue lands on answered the filter').toBeGreaterThan(0);
+    expect(narrowed, 'no plant narrowed the queue, so the filter proved nothing').toBeGreaterThan(0);
+  }, CASE_TIMEOUT_MS);
+
+  /**
+   * The supplier filter keeps the rows whose exception buys from the supplier it names.
+   *
+   * No row member carries the supplier — the exception does — so this filter is the one that could only
+   * ever have been decided on the record, and the case reads the supplier from the record that states it
+   * rather than naming one here (rule P-6).
+   */
+  it('keeps exactly the rows whose exception buys from the supplier it names', async () => {
+    const backend = await readyBackend();
+    const wholeQueue = await queueOf(backend);
+    const subject = firstOf(wholeQueue, 'exception row');
+    const supplierId = (await backend.getExceptionDetail(subject.id)).data.exception.supplierId;
+    const kept = (await backend.listExceptions({ supplierId }, NO_SCOPE)).data;
+
+    expect(kept.map((row) => row.id), 'the row the supplier was read from').toContain(subject.id);
+
+    for (const row of kept) {
+      const detail = await backend.getExceptionDetail(row.id);
+
+      expect(detail.data.exception.supplierId, `${row.id} buys from another supplier`).toBe(
+        supplierId,
+      );
+    }
+  }, CASE_TIMEOUT_MS);
+
+  /**
+   * A page is taken from the ordered queue, not from the order the records happen to sit in.
+   *
+   * The queue's filters now run before its measurement, so the ordering and the page have to keep
+   * following the measures: `limit` returns the first rows of the whole queue's own order and `cursor`
+   * continues from the row it names.
+   */
+  it('pages and continues the order the whole queue states', async () => {
+    const backend = await readyBackend();
+    const wholeQueue = await queueOf(backend);
+
+    expect(wholeQueue.length, 'the seeded queue holds too few rows to page').toBeGreaterThan(2);
+
+    const firstTwo = (await backend.listExceptions({ limit: 2 }, NO_SCOPE)).data;
+
+    expect(firstTwo.map((row) => row.id)).toEqual(wholeQueue.slice(0, 2).map((row) => row.id));
+
+    const first = firstOf(wholeQueue, 'exception row');
+    const afterFirst = (await backend.listExceptions({ cursor: first.id }, NO_SCOPE)).data;
+
+    expect(afterFirst.map((row) => row.id)).toEqual(
+      wholeQueue.slice(1).map((row) => row.id),
+    );
   }, CASE_TIMEOUT_MS);
 });

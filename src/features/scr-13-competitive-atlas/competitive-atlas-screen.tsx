@@ -30,9 +30,12 @@
  * screen adds no aggregate of any kind: no total, no average, no combined series, no "overall
  * score", no summed column. The radar's table view carries one column per series and one row per
  * axis, which is the payload read as a table rather than a figure over it. Every competitor name it
- * paints is followed by `COMPETITOR_NAME_TAG` and every competitor series by the
- * market-intelligence member of `SIM_LABELS`, both imported from `../../types` and never spelled
- * here; the client's series carries `CLIENT_SELF_ASSESSMENT_LABEL` and no second label.
+ * paints is followed by `COMPETITOR_NAME_TAG`, and that treatment is decided by the record's own
+ * provenance: only a series stating {@link COMPETITOR_PROVENANCE} is a competitor's, while the
+ * client's `first_party` score and a `computed` first-party figure stay client series (AAP §0.8).
+ * Each series prints the label its own record states — the market-intelligence member of
+ * `SIM_LABELS` for a competitor's, `CLIENT_SELF_ASSESSMENT_LABEL` for the client's and no second
+ * label — so a label can never disagree with the payload that supplied the series (rule P-5).
  *
  * THE NETWORK'S TABLE VIEW STATES THE FAMILY OF EVERY FIGURE IT PRINTS. The drawing beside the table
  * labels each competitor's group, so the table cannot leave its reader to infer the same thing from
@@ -88,34 +91,39 @@
  * in that payload. No address is opened, no credential exists and no configuration is read anywhere
  * in the path; the only global it touches is the browser's own `URL` and `document`.
  *
- * REPORTED GAPS, each recorded where it bites rather than worked around:
+ * REPORTED GAPS, AND WHAT EACH MARKING RESTS ON, recorded where it bites rather than worked around:
  * 1. The port's `getAtlas()` takes no argument, so the product-class selector narrows what this
  *    screen draws rather than what it reads: one payload answers every class the selector offers, and
  *    the class in view decides which competitor networks are drawn, together with the sites, the
- *    crossings their lanes traverse and the radar series those networks carry (AAP §0.12.4). The
- *    narrowing runs on the pack's own classification — `CompetitorNetwork.productClasses`, joined to
- *    each series by `AtlasSeries.competitorId` — so it states no figure of its own and no first-party
- *    measure of a competitor, which is what keeps rule P-5 intact through a filter that follows one of
- *    the client's own product classes. The client's own series and sites stay drawn in every class,
- *    because they report on the client rather than on a competitor the class could select.
+ *    crossings their lanes traverse, the alerts the band leads with and the radar series those
+ *    networks carry (AAP §0.12.4). The narrowing runs on the pack's own classification —
+ *    `CompetitorNetwork.productClasses`, joined to each series by `AtlasSeries.competitorId` — so it
+ *    states no figure of its own and no first-party measure of a competitor, which is what keeps rule
+ *    P-5 intact through a filter that follows one of the client's own product classes. The client's
+ *    own series and sites stay drawn in every class, because they report on the client rather than on
+ *    a competitor the class could select.
  * 2. THE ENTITY IN VIEW IS MARKED IN BOTH DRAWINGS. `RadarChart` takes `selectedSeriesId` and draws
  *    that series' outline heavier while its label-band row states `aria-current` and prints its name
  *    in the emphasised weight; `CompetitorNetwork` takes `highlightedCompetitorId` and emphasises the
  *    family in view — the client's own network when the value is `null` — while the competitors that
  *    are not in view recede. The selector therefore performs the selection it presents rather than
  *    only highlighting its own control (rule P-8), the marking is a stroke weight, a text weight and
- *    an attribute rather than a hue (rule B-3), and the caption beside the group and the active
- *    control's variant state it in words as before. The legend beside the radar is the one surface
+ *    an attribute rather than a hue (rule B-3), and the caption beside the group and the chip's own
+ *    `aria-pressed` state it as before. The legend beside the radar is the one surface
  *    that only describes the series. Both drawings also answer with evidence instead of restating the
  *    selection: every radar vertex carries `<series id>#<axis id>` (see
  *    {@link radarVertexReference}) and every site mark and crossing halo carries the identifier it was
  *    drawn from (see {@link networkMarkReference}), so each vertex, site and halo opens the record
  *    behind it (AAP §0.2.1 F12, §0.12.4) and no mark is a focus stop with nothing behind it (rule
  *    P-8).
- * 3. `ActionButton` (`src/components/tooltip.tsx`) forwards neither `aria-pressed` nor
- *    `aria-current`, so the active class and the active entity are marked by the variant and by the
- *    caption rather than programmatically. Recorded here rather than patched, because the shared
- *    control layer is not this file's to change.
+ * 3. BOTH SELECTOR GROUPS STATE THEIR CHOSEN CHIP PROGRAMMATICALLY. Each chip of both groups renders
+ *    the plain `Button` primitive of `src/components/button.tsx` — the owner of a button whose state
+ *    lives in an aria attribute — and carries `aria-pressed`, true for the class or the entity in view
+ *    and false for every other chip, so a reader is told which one is chosen rather than left to
+ *    compare fills (rule B-3). The caption beside each group still restates the choice in words, and
+ *    the two drawings keep marking the entity in view with `aria-current`. `ActionButton`
+ *    (`src/components/tooltip.tsx`) admits neither attribute, so it now renders the export action
+ *    alone.
  * 4. The network drawing mixes the client's own sites with the competitors' networks, so no single
  *    frame-level simulation label would be true of all of it. Both frames are composed with
  *    `ChartFrame`'s market-intelligence variant, which paints no frame-level label, and each family
@@ -131,20 +139,22 @@
  *
  * Rules this module is built to satisfy: B-1 (no address, no request, no remote font, icon or
  * image), B-2 (no credential, no environment read), B-3 (every control keyboard operable with the
- * shared 24x24 px target and focus ring, the active selection stated in text and never by colour
- * alone, both frames offering "View as table", headings running `h1` then the cards' `h2`s, no
- * animation declared here), P-1 (the pack banner from its constant, the per-series labels from the
- * types layer, no model and no live feed implied), P-2 (`useService()` is the only data path; no
- * seed, adapter, app, domain or sibling feature module is imported), P-3 (nothing about
+ * shared 24x24 px target and focus ring, the active selection stated in text and in `aria-pressed` and
+ * never by colour alone, both frames offering "View as table", headings running `h1` then the cards'
+ * `h2`s, no animation declared here), P-1 (the pack banner from its constant, the per-series labels
+ * from the types layer, no model and no live feed implied), P-2 (`useService()` is the only data path;
+ * no seed, adapter, app, domain or sibling feature module is imported), P-3 (nothing about
  * authorisation), P-4 (nothing about sovereignty, copying or resistance), P-5 (the governing rule
  * above), P-6 (no figure, currency literal or identifier typed), P-7 (Site Intelligence's own
  * vocabulary, every company and place name from the payload, no filler text) and P-8 (every control
- * either acts or is disabled through `ActionButton` with the reason in its `disabledReason`).
+ * either acts — the two selector groups through `Button`, the export through `ActionButton` — or is
+ * disabled through `ActionButton` with the reason in its `disabledReason`).
  */
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
+import { Button } from '../../components/button';
 import { Card } from '../../components/card';
 import { ChartFrame } from '../../components/chart-frame';
 import type { ChartTableSpec } from '../../components/chart-frame';
@@ -152,6 +162,7 @@ import type { TableColumn } from '../../components/data-table';
 import { competitorSlotOf } from '../../components/horizontal-bar-chart';
 import { Legend } from '../../components/legend';
 import type { LegendEntry } from '../../components/legend';
+import { offerExportFile } from '../../components/offer-export-file';
 import { PageHeader } from '../../components/page-header';
 import { RadarChart } from '../../components/radar-chart';
 import {
@@ -162,14 +173,15 @@ import {
 } from '../../components/screen-state';
 import { StateBoundary } from '../../components/state-boundary';
 import { StatusIndicator } from '../../components/status-indicator';
-import { ActionButton } from '../../components/tooltip';
-import { useService } from '../../services/service-provider';
 import {
-  ATLAS_PACK_BANNER,
-  CLIENT_SELF_ASSESSMENT_LABEL,
-  COMPETITOR_NAME_TAG,
-  SIM_LABELS,
-} from '../../types';
+  ActionButton,
+  CONTROL_STRUCTURE_CLASSES,
+  PRIMARY_CONTROL_CLASSES,
+  PRIMARY_STATE_CLASSES,
+  SECONDARY_CONTROL_CLASSES,
+} from '../../components/tooltip';
+import { useService } from '../../services/service-provider';
+import { ATLAS_PACK_BANNER, COMPETITOR_NAME_TAG, SIM_LABELS } from '../../types';
 import type {
   Atlas,
   AtlasLane,
@@ -179,6 +191,7 @@ import type {
   CompetitorId,
   CompetitorNetwork as CompetitorNetworkPayload,
   ExportPayload,
+  Provenance,
   RadarAxis,
   Result,
   Scope,
@@ -236,6 +249,15 @@ export const COMPETITIVE_ATLAS_TEXT = {
 
   /** What the export states when it fails in a shape that did not arrive as the service's `Problem`. */
   exportFailedUntyped: 'The brief could not be prepared.',
+
+  /**
+   * What the export states when the brief arrived but this page cannot hand a file over.
+   *
+   * The brief was composed and recorded before anything was offered, so this names the limit the reader
+   * actually met rather than reporting an export the service did not fail (rule P-8).
+   */
+  downloadUnavailable:
+    'This page offers no way to save a file, so the brief could not be downloaded.',
 
   /** The accessible name of the banner region that names the simulated pack. */
   bannerRegionLabel: 'Market-intelligence pack',
@@ -313,19 +335,28 @@ export const COMPETITIVE_ATLAS_TEXT = {
 
   /**
    * The heading, the description and the empty sentence of the chokepoint alert strip that leads the
-   * atlas content.
+   * atlas content, and the sentence it adds while a product class is in view.
    *
    * The band renders the three through the wording its own module owns and exports, imported at the
    * top of this file, so the sentence stating where the figures live — the alerts state the pack's
    * contention account, the table below adds the overlap and each competitor's buffer days — has one
-   * owner and a change to it reaches this screen without a second edit. The band leads the content
-   * because the crossings the pack records come before the figures drawn over them, which is the
-   * order AAP 0.14.1's S3 row and AAP 0.7's S3 stage row fix for stage S3.
+   * owner and a change to it reaches this screen without a second edit.
+   * {@link chokepointAlertNarrowed} is this screen's own, because it states what this screen's class
+   * selector leaves the band listing. The band leads the content because the crossings the pack
+   * records come before the figures drawn over them, which is the order AAP 0.14.1's S3 row and
+   * AAP 0.7's S3 stage row fix for stage S3.
    */
   chokepointAlertCardTitle: CHOKEPOINT_ALERT_TITLE,
 
   /** What the alert strip says it carries, printed above the alerts. */
   chokepointAlertDescription: CHOKEPOINT_ALERT_DESCRIPTION,
+
+  /**
+   * The sentence the alert band adds while a product class is in view, stating what that class leaves
+   * it listing.
+   */
+  chokepointAlertNarrowed:
+    'The crossings a lane of a network in the class in view traverses are the ones listed here; the rest of the pack\u2019s crossings stay out of view until every class is back in view.',
 
   /** What the alert strip says when the pack records no crossing to alert on. */
   chokepointAlertEmpty: CHOKEPOINT_ALERT_EMPTY,
@@ -388,6 +419,20 @@ export const COMPETITIVE_ATLAS_TEXT = {
  * `competitor` branch requires.
  */
 const MARKET_INTELLIGENCE_LABEL: (typeof SIM_LABELS)[5] = SIM_LABELS[5];
+
+/**
+ * The one provenance a competitor series carries, and the only one that earns the competitor
+ * treatment: the market-intelligence label beside the series and `COMPETITOR_NAME_TAG` beside its
+ * name (rule P-5).
+ *
+ * `Provenance` has two other members, `first_party` and `computed`, and both are first-party family
+ * values rather than competitor estimates — the client's own score is one, and a figure the
+ * application derived from the client's own records is the other (AAP §0.8). A series is therefore
+ * treated as a competitor only when the record itself says `market_intelligence`; testing for the
+ * first-party member instead would read a computed series as a competitor's and print the
+ * market-intelligence label over a first-party figure, which is the one thing rule P-5 forbids.
+ */
+const COMPETITOR_PROVENANCE: Provenance = 'market_intelligence';
 
 /**
  * The `Simulated data` member of the same fixed list, taken by position for the same reason (rule
@@ -472,6 +517,29 @@ const SELECTOR_GROUP_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
  * colour alone: the two controls differ by label and the words here say which one is active (B-3).
  */
 const SELECTION_CAPTION_CLASSES = 'min-w-0 text-13 text-text-secondary';
+
+/**
+ * One selector chip at rest: the structure every bordered control shares plus the secondary
+ * appearance, both taken from their single owner in `src/components/tooltip.tsx`.
+ *
+ * Composing the two exported lists rather than writing them again is what keeps a chip and the
+ * secondary action beside it one control pattern, and it lets the plain `Button` primitive own the
+ * element — which is what a chip needs, because the chip states which of its peers is chosen through
+ * `aria-pressed` and `ActionButton`'s props admit no such attribute (rule B-3).
+ */
+const RESTING_CHIP_CLASSES = `${CONTROL_STRUCTURE_CLASSES} ${SECONDARY_CONTROL_CLASSES}`;
+
+/**
+ * The chip whose class or entity is in view: the same structure, the filled action pair and the
+ * primary action's pointer states.
+ *
+ * The chosen chip keeps the filled pair it wore when the chips were actions, so the selection a reader
+ * sees is unchanged and no colour is invented here; what the plain primitive adds is `aria-pressed` on
+ * the control itself, so the choice is stated programmatically as well as in the caption beside the
+ * group (rule B-3).
+ */
+const CHOSEN_CHIP_CLASSES =
+  `${CONTROL_STRUCTURE_CLASSES} ${PRIMARY_CONTROL_CLASSES} ${PRIMARY_STATE_CLASSES}`;
 
 /**
  * A companion tag — the competitor name tag, the market-intelligence label or the client series
@@ -762,11 +830,18 @@ interface NetworkTableRow {
  * The legend's entries: one per series the payload carries, in the payload's own order.
  *
  * The entry's kind is decided by the series' provenance, which is what keeps the two families apart
- * structurally: a first-party series becomes a `client-series` entry, which carries no `SimLabel`
- * because the seven fixed labels have no member for it and prints
- * `CLIENT_SELF_ASSESSMENT_LABEL` beside the name; any other series becomes a `competitor` entry,
- * whose `simLabel` the type makes mandatory and which prints `COMPETITOR_NAME_TAG` beside the name.
- * Both companion strings come from the constant that owns them (rule P-1).
+ * structurally: a series that states {@link COMPETITOR_PROVENANCE} becomes a `competitor` entry,
+ * whose `simLabel` the type makes mandatory and whose name the legend follows with
+ * `COMPETITOR_NAME_TAG`; every other provenance — the client's own `first_party` score and a
+ * `computed` first-party figure alike — becomes a `client-series` entry, which carries the label its
+ * own record states so the legend prints that rather than a constant chosen here (rules P-1, P-5,
+ * AAP §0.8).
+ *
+ * The competitor's `simLabel` is the record's own and is narrowed to the market-intelligence member
+ * the entry type requires by an equality check rather than an assertion: the atlas handler refuses to
+ * serve a market-intelligence series carrying any other label (see `assertPackProvenance` in
+ * `src/services/mock/handlers/atlas.ts`), so a served payload prints the label it states, and the
+ * constant stands in only for a payload that could not have arrived.
  *
  * A competitor's slot comes from `competitorSlotOf`, the one lookup `radar-chart.tsx` and
  * `./competitor-network.tsx` resolve their own colours through, so a legend swatch, the polygon
@@ -782,8 +857,13 @@ function legendEntriesOf(series: readonly AtlasSeries[]): readonly LegendEntry[]
   const entries: LegendEntry[] = [];
 
   for (const entry of series) {
-    if (entry.provenance === 'first_party') {
-      entries.push({ kind: 'client-series', id: entry.id, label: entry.label });
+    if (entry.provenance !== COMPETITOR_PROVENANCE) {
+      entries.push({
+        kind: 'client-series',
+        id: entry.id,
+        label: entry.label,
+        simLabel: entry.simLabel,
+      });
       continue;
     }
 
@@ -792,7 +872,8 @@ function legendEntriesOf(series: readonly AtlasSeries[]): readonly LegendEntry[]
       id: entry.id,
       label: entry.label,
       index: competitorSlotOf(entry.competitorId) ?? 1,
-      simLabel: MARKET_INTELLIGENCE_LABEL,
+      simLabel:
+        entry.simLabel === MARKET_INTELLIGENCE_LABEL ? entry.simLabel : MARKET_INTELLIGENCE_LABEL,
     });
   }
 
@@ -802,20 +883,22 @@ function legendEntriesOf(series: readonly AtlasSeries[]): readonly LegendEntry[]
 /**
  * The column header for one series in the radar's table view.
  *
- * The header carries the series' own name and the label its family requires, both imported: the
- * market-intelligence label for a competitor series and the client self-assessment label for the
- * client's own. A reader comparing two columns therefore learns, in the table alone, that one is
- * market intelligence and the other a self-assessment (rules P-1, P-5).
+ * The header carries the series' own name and the label that series states, so a reader comparing
+ * two columns learns, in the table alone, which family each belongs to: a competitor's column adds
+ * the name tag the market pack requires beside it, and every other column prints the record's own
+ * label — the client self-assessment label for the client's series, the computed label for a figure
+ * the application derived (rules P-1, P-5). The record states that label, so the column never
+ * relabels a series the payload described.
  *
  * @param series - The series the column reports.
  * @returns The header text.
  */
 function seriesColumnHeader(series: AtlasSeries): string {
-  if (series.provenance === 'first_party') {
-    return `${series.label} (${CLIENT_SELF_ASSESSMENT_LABEL})`;
+  if (series.provenance === COMPETITOR_PROVENANCE) {
+    return `${series.label} (${COMPETITOR_NAME_TAG}; ${series.simLabel})`;
   }
 
-  return `${series.label} (${COMPETITOR_NAME_TAG}; ${MARKET_INTELLIGENCE_LABEL})`;
+  return `${series.label} (${series.simLabel})`;
 }
 
 /**
@@ -1002,48 +1085,6 @@ function competitorNameResolverOf(
 }
 
 /* ---------------------------------------------------------------------------------------------
- * The download — a browser-built file, never a request
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * Offers one export payload as a downloaded file.
- *
- * The payload is the builder's own document, offered under the file name and media type it declares,
- * so this screen invents neither and reshapes neither: the JSON the mock adapter composed already
- * carries `"simulated": true` at its top level, and nothing here adds, strips or reorders a field
- * (rule P-1). The object URL is revoked once the browser has taken the file, so the blob is not held
- * for the life of the page.
- *
- * The anchor is created, activated and removed inside this function. It is not a control the screen
- * renders: it exists for the length of one activation, so it adds no focus stop and no interactive
- * element to the page (AAP §0.5.2 constrains the elements a feature file renders, not the transient
- * node a download needs).
- *
- * Nothing in this path opens an address (rule B-1) and nothing reads a credential or a configuration
- * value (rule B-2): the document is already in memory.
- *
- * @param payload - The file name, media type and document text the service resolved.
- */
-function offerDownload(payload: ExportPayload): void {
-  const file = new Blob([payload.content], { type: payload.mediaType });
-  const url = URL.createObjectURL(file);
-  const anchor = document.createElement('a');
-
-  anchor.href = url;
-  anchor.download = payload.filename;
-  anchor.rel = 'noopener';
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-
-  /* The click above has handed the blob to the browser's download machinery; the URL is released on
-     the next task so an engine that reads it asynchronously still finds it. */
-  globalThis.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 0);
-}
-
-/* ---------------------------------------------------------------------------------------------
  * The source the atlas is read from
  * ------------------------------------------------------------------------------------------- */
 
@@ -1105,10 +1146,11 @@ export interface CompetitiveAtlasScreenProps {
  *
  * Nothing here writes, so a re-render can move no record; the state the component owns is the
  * reader's own — the class in view, the entity in view and the mark the network holds as selected —
- * and never a copy of service data. The class in view narrows every surface the screen draws — the
- * radar series, the competitor networks, their sites and the crossings their lanes traverse — from
- * the payload's own classification, so the selector filters the atlas rather than restating it
- * (AAP §0.12.4).
+ * plus the one refusal the reader has to be told about, a brief this page could not hand over, and
+ * never a copy of service data. The class in view narrows every surface the screen draws — the
+ * alerts the band lists, the radar series, the competitor networks, their sites and the crossings
+ * their lanes traverse — from the payload's own classification, so the selector filters the atlas
+ * rather than restating it (AAP §0.12.4).
  *
  * @param props - The shell's selection. See {@link CompetitiveAtlasScreenProps}.
  * @returns The header with its export action, the pack banner, the chokepoint alert strip, the
@@ -1131,6 +1173,14 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
   const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
 
   /*
+   * What the export reports when the brief arrived but this page has no way to hand it over. The
+   * mutation's own error state answers a different question — whether the brief could be prepared at
+   * all — so a page that cannot offer a file says that instead of borrowing the service's failure
+   * (rule P-8).
+   */
+  const [exportOfferFailure, setExportOfferFailure] = useState<string | null>(null);
+
+  /*
    * Retries are off on purpose: a refusal the acting role's permissions produce fails the same way
    * however often it is repeated, and the boundary offers the reader an explicit retry for the case
    * where repeating the read can succeed.
@@ -1143,13 +1193,17 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
 
   /*
    * The export is an action, so it is a mutation: it is performed when a reader asks for it, its
-   * progress is what disables the control while a brief is being prepared, and its failure is
-   * reported from the mutation's own error state rather than from a second piece of screen state.
+   * progress is what disables the control while a brief is being prepared, and a failure of the
+   * export itself is reported from its own error state. The one outcome it cannot state — a payload
+   * that arrived on a page with no object-URL factory to offer it with — is held in
+   * `exportOfferFailure`, because the brief was prepared and recorded and only the hand-over failed.
    */
   const exportMutation = useMutation<Result<ExportPayload>, unknown, void>({
     mutationFn: () => service.exportChokepointBrief(),
     onSuccess: (result) => {
-      offerDownload(result.data);
+      if (!offerExportFile(result.data)) {
+        setExportOfferFailure(COMPETITIVE_ATLAS_TEXT.downloadUnavailable);
+      }
     },
   });
 
@@ -1270,6 +1324,9 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
 
   /** Asks the port for the chokepoint brief and offers it as a download. */
   function requestExport(): void {
+    /* A new attempt replaces what the previous one reported, so a refusal never stands beside a brief
+       that is being prepared again. */
+    setExportOfferFailure(null);
     exportMutation.mutate();
   }
 
@@ -1299,9 +1356,22 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
         ? exportError.message
         : COMPETITIVE_ATLAS_TEXT.exportFailedUntyped;
 
+  /* The export's own failure first — no brief was prepared — then this page's refusal to hand a
+     prepared one over, so one region answers the reader either way (rule P-8). */
+  const exportNotice = exportFailure ?? exportOfferFailure;
+
   const entityLabel = labelOfEntity(seriesInView, entityInView);
   const entityInViewLabel = entityLabel ?? COMPETITIVE_ATLAS_TEXT.nothingInView;
   const classCaption = classCaptionOf(productClasses, classInView);
+  /*
+   * What the alert band says it carries. While a class is in view the band lists only the crossings
+   * that class leaves, so the description adds the sentence saying so rather than claiming the whole
+   * pack is listed (AAP §0.12.4).
+   */
+  const chokepointAlertDescription =
+    classInView === null
+      ? COMPETITIVE_ATLAS_TEXT.chokepointAlertDescription
+      : `${COMPETITIVE_ATLAS_TEXT.chokepointAlertDescription} ${COMPETITIVE_ATLAS_TEXT.chokepointAlertNarrowed}`;
 
   return (
     <div className={SCREEN_CLASSES}>
@@ -1322,9 +1392,9 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
         {ATLAS_PACK_BANNER}
       </div>
 
-      {exportFailure === null ? null : (
+      {exportNotice === null ? null : (
         <p role="status" className={NOTICE_CLASSES}>
-          {exportFailure}
+          {exportNotice}
         </p>
       )}
 
@@ -1341,11 +1411,13 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
           <>
             {/* The alert strip leads the atlas content: AAP 0.14.1's S3 row and AAP 0.7's S3 stage row
                 place it in this stage, and a reader meets the crossings the pack records before the
-                figures drawn over them. It is presentational and holds no control (rule P-8). */}
+                figures drawn over them. It lists the crossings a lane of an in-view network traverses,
+                like every other drawn surface, so one class in view governs the whole screen. It is
+                presentational and holds no control (rule P-8). */}
             <ChokepointAlertStrip
-              chokepoints={chokepoints}
+              chokepoints={chokepointsInView}
               title={COMPETITIVE_ATLAS_TEXT.chokepointAlertCardTitle}
-              description={COMPETITIVE_ATLAS_TEXT.chokepointAlertDescription}
+              description={chokepointAlertDescription}
               emptyMessage={COMPETITIVE_ATLAS_TEXT.chokepointAlertEmpty}
             />
 
@@ -1360,28 +1432,32 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                       the whole pack drawn again (rule P-8). It is offered only when the payload
                       names a class to filter by. */}
                   {productClasses.length === 0 ? null : (
-                    <ActionButton
-                      variant={classInView === null ? 'primary' : 'secondary'}
+                    <Button
+                      aria-pressed={classInView === null}
+                      className={classInView === null ? CHOSEN_CHIP_CLASSES : RESTING_CHIP_CLASSES}
                       onClick={selectAllClasses}
                     >
                       {COMPETITIVE_ATLAS_TEXT.allClassesLabel}
-                    </ActionButton>
+                    </Button>
                   )}
                   {productClasses.map((productClassId) => (
-                    <ActionButton
+                    <Button
                       key={productClassId}
-                      variant={productClassId === classInView ? 'primary' : 'secondary'}
+                      aria-pressed={productClassId === classInView}
+                      className={
+                        productClassId === classInView ? CHOSEN_CHIP_CLASSES : RESTING_CHIP_CLASSES
+                      }
                       onClick={() => {
                         selectClass(productClassId);
                       }}
                     >
                       <span className={IDENTIFIER_CLASSES}>{productClassId}</span>
-                    </ActionButton>
+                    </Button>
                   ))}
-                  {/* The class in view, in words: the controls differ by label and the state is
-                      stated here rather than by colour alone (rule B-3). The caption changes without a
-                      page load, so this status region announces the class the reader chose
-                      (WCAG 2.2 SC 4.1.3). */}
+                  {/* The class in view, in words: each chip states its own chosen state through
+                      `aria-pressed`, and the caption states the choice again in words, so it never
+                      rests on colour alone (rule B-3). The caption changes without a page load, so
+                      this status region announces the class the reader chose (WCAG 2.2 SC 4.1.3). */}
                   <span role="status" className={SELECTION_CAPTION_CLASSES}>
                     {classCaption}
                   </span>
@@ -1393,23 +1469,31 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                   className={SELECTOR_GROUP_CLASSES}
                 >
                   {seriesInView.map((entry) => (
-                    <ActionButton
+                    <Button
                       key={entry.id}
-                      variant={entry.id === entityInView ? 'primary' : 'secondary'}
+                      aria-pressed={entry.id === entityInView}
+                      className={
+                        entry.id === entityInView ? CHOSEN_CHIP_CLASSES : RESTING_CHIP_CLASSES
+                      }
                       onClick={() => {
                         selectEntity(entry.id);
                       }}
                     >
                       <span>{entry.label}</span>{' '}
+                      {/* The tag states the family the record belongs to: the competitor name tag
+                          for a market-intelligence series, and the label the record states for every
+                          other one, so a computed first-party series is not tagged as a competitor's
+                          (rule P-5). */}
                       <span className={CONTROL_TAG_CLASSES}>
-                        {entry.provenance === 'first_party'
-                          ? CLIENT_SELF_ASSESSMENT_LABEL
-                          : COMPETITOR_NAME_TAG}
+                        {entry.provenance === COMPETITOR_PROVENANCE
+                          ? COMPETITOR_NAME_TAG
+                          : entry.simLabel}
                       </span>
-                    </ActionButton>
+                    </Button>
                   ))}
                   {/* The entity in view, in words rather than colour, and announced when the reader
-                      changes it without a page load (rule B-3, WCAG 2.2 SC 4.1.3). */}
+                      changes it without a page load (rule B-3, WCAG 2.2 SC 4.1.3). Each chip carries
+                      `aria-pressed` for the same reason the class chips do. */}
                   <span role="status" className={SELECTION_CAPTION_CLASSES}>
                     {`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${entityInViewLabel}`}
                   </span>

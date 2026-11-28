@@ -34,10 +34,11 @@
  * WHAT IS DELIBERATELY NOT ASSERTED, AND WHY.
  * - The shaded idle window, asserted in the screen's own suite rather than here. AAP 0.12.4's SCR-03
  *   row asks the chart to shade it, and `investigation-screen.tsx` does: the span is the days the
- *   payload's own closing-stock series reads as zero, from its first such date to its last, labelled
- *   in the screen's own words. That is a range of the record's dates rather than a measure of them, so
- *   it is read off the drawn figure in `investigation-screen.test.tsx`, and this spec keeps to the
- *   readings, the marks and the window, which are what T-03 exists to prove.
+ *   plotted series reads as zero — the designated option's own series where it carries one, the
+ *   baseline's otherwise — from its first such date to its last, labelled in the screen's own words.
+ *   That is a range of the record's dates rather than a measure of them, so it is read off the drawn
+ *   figure in `investigation-screen.test.tsx`, and this spec keeps to the readings, the marks and the
+ *   window, which are what T-03 exists to prove.
  * - A scenario switch on this screen. The investigation plots the option the service designates beside
  *   the baseline and offers no control to choose another; choosing one belongs to SCR-04. T-03's
  *   "changes the series without changing the window" is asserted in the form the screen delivers: two
@@ -872,8 +873,8 @@ test('T-02 the investigation states what changed and what the disruption touches
  * projection that lost a day or shifted its span fails without this file holding a date of its own.
  *
  * The shaded idle window is read off the drawn figure in `investigation-screen.test.tsx`: the span is
- * the days the payload's own closing series reads as zero, a range of the record's dates rather than a
- * measure of them (rule P-6).
+ * the days the plotted series reads as zero — the designated option's own series where it carries one,
+ * the baseline's otherwise — a range of the record's dates rather than a measure of them (rule P-6).
  */
 test('T-03 the projected closing stock never falls below zero', async ({ page }) => {
   await openCaseException(page);

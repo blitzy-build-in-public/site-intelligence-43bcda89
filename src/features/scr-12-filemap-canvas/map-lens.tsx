@@ -30,7 +30,10 @@
  * the table view is the client's own nodes and the overlay's provenance is stated by the drawing's own
  * legend. An absent payload is not an error: the lens then draws the first-party network alone, and a
  * role the atlas read refuses (AAP 0.12.4 SCR-13, USR-08) sees the same lens instead of a failure this
- * component would have had to invent.
+ * component would have had to invent. What the lens cannot know is WHY a payload is absent — the scope
+ * may hold no pack, or the read may have been refused — so the caller's `atlasNotice` carries that
+ * reason and the lens prints it in its own caption; supplying none leaves the caption exactly as it
+ * was, so a screen with nothing to explain explains nothing.
  *
  * NO FIGURE IS COMPUTED HERE (rule P-6). The table view prints the payload's own node labels, the
  * payload's own pin counts per state and the labels of the nodes its own lanes join; the only thing this
@@ -395,6 +398,19 @@ export interface MapLensProps {
   readonly atlas?: Atlas | undefined;
 
   /**
+   * Why the overlay is absent, when the atlas read is what left it out, or `undefined` when there is
+   * nothing to explain.
+   *
+   * The lens forwards the atlas payload unchanged and cannot know whether a missing one means the scope
+   * holds no pack or the read was refused, so the caller — the only module that made the read — supplies
+   * the sentence and this lens prints it in the caption it already renders. That is what makes the
+   * degradation legible: without it, a reader sees a map with no overlay and no statement of why.
+   * Absent, the caption is entirely the lens's own line of words, so a screen that has nothing to
+   * explain says nothing extra.
+   */
+  readonly atlasNotice?: string | undefined;
+
+  /**
    * Resolves the evidence reference a node's figures open, or `undefined` for a node no record stands
    * behind.
    *
@@ -429,6 +445,7 @@ export function MapLens({
   selectedNodeId,
   onSelectNode,
   atlas,
+  atlasNotice,
   evidenceRefForNode,
 }: MapLensProps): ReactElement {
   const [zoomLevel, setZoomLevel] = useState<MapZoomLevel>(DEFAULT_ZOOM_LEVEL);
@@ -436,10 +453,21 @@ export function MapLens({
 
   const rows = useMemo(() => buildRows(topology), [topology]);
 
+  /*
+   * The caption: the lens's own line of words, then the caller's reason for a degraded overlay when it
+   * supplied one. Both are sentences of the same caption, so a reader meets one statement of what this
+   * figure shows and, where it applies, why it shows less (rule P-8: a surface that cannot show a thing
+   * says so in words).
+   */
+  const description =
+    atlasNotice === undefined
+      ? MAP_LENS_TEXT.description
+      : `${MAP_LENS_TEXT.description} ${atlasNotice}`;
+
   return (
     <ChartFrame<MapLensRow>
       title={MAP_LENS_TEXT.title}
-      description={MAP_LENS_TEXT.description}
+      description={description}
       simLabel={CALCULATION_LABEL}
       tableRows={{
         caption: MAP_LENS_TEXT.tableCaption,

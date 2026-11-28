@@ -40,7 +40,6 @@
 
 import { DEMO_CLOCK, SIM_LABELS } from '../../types';
 import type {
-  AuditActorType,
   AuditEvent,
   AuditEventId,
   AuditResult,
@@ -66,9 +65,11 @@ import type {
  * or added to: the identifier, the chain position, the instant, the policy that decided, the record
  * decided about, the outcome and the correlation identifier a reader can quote.
  *
- * `policyId` is `null` rather than absent for an event that carries none, so every row of the section
- * has the same keys and a reader parsing the file never has to test for a missing member: the
- * document's shape stays a property of the format rather than of the data.
+ * Every row names the policy it was recorded against, because the section is selected by that
+ * (`namesPolicy`): a decision is on the screen precisely because the trail recorded it against a
+ * policy, so a row whose `policyId` were absent or `null` would be a row nothing on the screen shows.
+ * The member is therefore a plain identifier, and a reader parsing the file never has to test a value
+ * the selection has already ruled out.
  */
 export interface PolicyDecisionRow {
   /** The event's identifier, `AUD-nnnnnn`. */
@@ -80,8 +81,8 @@ export interface PolicyDecisionRow {
   /** When the decision was recorded. */
   readonly timestamp: Timestamp;
 
-  /** The policy that decided, or `null` for an event that names none. */
-  readonly policyId: PolicyId | null;
+  /** The policy the event was recorded against, which is the event's own. */
+  readonly policyId: PolicyId;
 
   /** The record the decision was about. */
   readonly objectRef: string;
@@ -114,12 +115,17 @@ export interface EvidencePackLedgerSection {
   readonly rows: readonly LedgerRow[];
 }
 
-/** The policy-decision section: every event the policy engine appended, in chain order. */
+/**
+ * The policy-decision section: every event the trail records against a policy, in chain order.
+ *
+ * The selection is the governance screen's own — whatever actor recorded the event — so a reader who
+ * downloads the pack is never handed a file that omits a decision the screen lists (AAP 0.12.4).
+ */
 export interface EvidencePackPolicySection {
   /** The label the section carries, because the decisions are a simulated control's. */
   readonly label: SimLabel;
 
-  /** Every policy-actor event the trail holds. */
+  /** Every event the trail records against a policy, ordered by its chain position. */
   readonly rows: readonly PolicyDecisionRow[];
 }
 
@@ -196,8 +202,9 @@ export interface EvidencePackInput {
   readonly ledgerRows: readonly LedgerRow[];
 
   /**
-   * The audit trail as the audit read returned it. The builder orders the policy-decision rows by their
-   * chain position, so the read's own sorting and paging never reach the document.
+   * The audit trail as the audit read returned it. The builder selects the policy-decision rows from
+   * it by the predicate the governance screen uses — every event that names a policy — and orders
+   * them by chain position, so neither the read's own sorting nor its paging reaches the document.
    */
   readonly events: readonly AuditEvent[];
 
@@ -257,34 +264,50 @@ const MEDIA_TYPE = 'application/json';
 const JSON_INDENT = 2;
 
 /**
- * The actor type a policy decision carries.
+ * An event the trail records against a policy, with the identifier its selection guarantees.
  *
- * The policy engine appends its own event when it denies an action or blocks an assistant answer
- * (AAP §0.8), so the section is the set of events whose actor is the engine rather than a persona or the
- * seeded system actor.
+ * The narrowing is what lets a row carry a plain `PolicyId`: once an event is in the section because
+ * it names a policy, a row whose identifier could still be absent would be a shape the selection has
+ * already ruled out, and every reader of the file would carry a case the pack cannot produce.
  */
-const POLICY_ACTOR_TYPE: AuditActorType = 'policy';
+type PolicyDecisionEvent = AuditEvent & { readonly policyId: PolicyId };
+
+/**
+ * Whether the trail records one event against a policy.
+ *
+ * WHY THE POLICY IDENTIFIER RATHER THAN THE ACTOR. The "Recent decisions" list on the governance
+ * screen is gathered from each policy's own record, and an event belongs to a policy when it carries
+ * that policy's identifier (AAP 0.12.4). The engine's own events are only part of that set: a question
+ * the assistant refused is recorded against POL-007 with the persona who asked it as its actor, and
+ * the screen lists it as a decision all the same. Selecting by actor would leave exactly those events
+ * out of the file while the screen shows them, so a reader's copy would disagree with what they read.
+ *
+ * @param event - One event of the trail.
+ * @returns True when the event names the policy it was recorded against.
+ */
+function namesPolicy(event: AuditEvent): event is PolicyDecisionEvent {
+  return event.policyId !== undefined;
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The section's rows
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Copies one policy-actor event into a row of the policy-decision section.
+ * Copies one event the trail records against a policy into a row of the policy-decision section.
  *
  * Every member is the event's own field under the event's own name, and nothing is derived: the row
- * records what the trail recorded (rule P-6). A `policyId` the event does not carry is written as
- * `null`, so the section's keys are the same on every row.
+ * records what the trail recorded (rule P-6).
  *
- * @param event - One event whose actor is the policy engine.
+ * @param event - One event that names a policy.
  * @returns The row for that event.
  */
-function toPolicyDecisionRow(event: AuditEvent): PolicyDecisionRow {
+function toPolicyDecisionRow(event: PolicyDecisionEvent): PolicyDecisionRow {
   return {
     id: event.id,
     sequence: event.sequence,
     timestamp: event.timestamp,
-    policyId: event.policyId ?? null,
+    policyId: event.policyId,
     objectRef: event.objectRef,
     result: event.result,
     traceId: event.traceId,
@@ -303,10 +326,11 @@ function toPolicyDecisionRow(event: AuditEvent): PolicyDecisionRow {
  *   spread so no field of the record is dropped or renamed, and every row keeps the status literal the
  *   type fixes;
  * - the ledger rows are carried as the caller's read returned them, so no count is restated here;
- * - every policy-actor event in the trail becomes a policy-decision row, ordered by its chain position
- *   and with no truncation: the order is the chain's own rather than the order the read paged the trail
- *   in, so two adapters whose reads default to different sortings still produce one document, and a
- *   limit would let the file omit a denial, so no display bound is invented;
+ * - every event the trail records against a policy becomes a policy-decision row — the same selection
+ *   the governance screen's decision list shows, whatever actor recorded it — ordered by its chain
+ *   position and with no truncation: the order is the chain's own rather than the order the read paged
+ *   the trail in, so two adapters whose reads default to different sortings still produce one document,
+ *   and a limit would let the file omit a denial, so no display bound is invented;
  * - the chain report supplies the events checked and every break found. Its elapsed time is left out on
  *   purpose, because it would make two exports of one state differ.
  *
@@ -320,7 +344,7 @@ function toPolicyDecisionRow(event: AuditEvent): PolicyDecisionRow {
  */
 export function buildEvidencePack(input: EvidencePackInput): ExportPayload {
   const policyDecisions = input.events
-    .filter((event) => event.actorType === POLICY_ACTOR_TYPE)
+    .filter(namesPolicy)
     .sort((left, right) => left.sequence - right.sequence)
     .map(toPolicyDecisionRow);
 

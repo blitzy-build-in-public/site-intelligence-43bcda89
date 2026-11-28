@@ -137,13 +137,31 @@ export const FRESHNESS_STRIP_TEXT = {
 const FRESHNESS_QUERY_KEY = ['getSourceCatalogue'] as const;
 
 /**
- * The group's layout: a wrapping row of inline pills separated by the 4 px grid's own step, so six
- * pills share a narrow top bar without a margin between siblings and without overflowing the row.
+ * The group's layout: it takes a line of its own in the top bar's wrapping row and reserves the block
+ * its six pills settle into, then lays the pills out as a wrapping inline row separated by the 4 px
+ * grid's own step, so six pills share a narrow top bar without a margin between siblings and without
+ * overflowing the row.
  *
- * No colour, surface or size is set here — each pill owns its own, and the token layer exposes no
- * elevation utility for either surface to select (specification §4.3).
+ * WHY THE GROUP OWNS A LINE AND A RESERVED HEIGHT. The top bar is one wrapping row (`ROW_CLASSES` in
+ * `src/app/top-bar.tsx`) whose height every control beside this one pays for, so a group that changes
+ * size when its read answers re-breaks its neighbours' lines and moves the navigation and the page's
+ * own content under the reader. Measured on the desktop audit (QA finding QA1-01): this group's read
+ * settling turned a single notice line into the pills' block and shifted `main#main-content` by 0.35 of
+ * the viewport. `basis-full` therefore gives the group a line nothing else shares, so the pills' width
+ * is the bar's width rather than a share of it and nothing beside it re-wraps when they arrive; the
+ * floor classes then hold the height the pills will occupy before they arrive — 64 px from `lg` up
+ * (the two-row block the six pills make on a desktop line), 100 px between `md` and `lg` (the three
+ * rows they make once the line is narrower) and 64 px below `md`, where the pills sit behind the
+ * disclosure and this box holds its trigger. It is a floor rather than a fixed height: a notice that
+ * needs more lines still takes them, because clipping the reason a read did not happen to save a line
+ * would state less than rule P-4 requires.
+ *
+ * No colour or surface is set here — each pill owns its own, and the token layer exposes no elevation
+ * utility for either surface to select (specification §4.3). The one size is the reserved block, stated
+ * in the spacing scale's own steps so it stays on the 4 px grid.
  */
-const STRIP_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
+const STRIP_CLASSES =
+  'flex min-w-0 basis-full flex-wrap items-center gap-2 min-h-16 md:min-h-25 lg:min-h-16';
 
 /**
  * The notice's appearance: one line of the smaller type step in the secondary text role, allowed to

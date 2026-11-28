@@ -110,7 +110,7 @@ import {
   emptiesLists,
   freshnessFor,
   holdsReads,
-  refusesReads,
+  refusesCollectionReads,
   setSimulationFlag,
   tamperAuditEvent,
 } from './simulation';
@@ -312,14 +312,15 @@ function notFoundProblem(ctx: HandlerContext, message: string): Problem {
 }
 
 /**
- * The refusal a read meets while the simulation's `conflict` trigger is in effect.
+ * The refusal a collection read meets while the simulation's `conflict` trigger is in effect.
  *
  * The trigger stands for records another persona changed between the moment a screen read them and the
- * moment this adapter served it, so the read is refused rather than answered from the set that replaced
- * the one the reader was reading: a reader shown a set that changed under them cannot tell which half is
- * current. `ProblemType` fixes five causes and none of them is a conflict, so it is reported as
- * `'validation'` — a request that cannot be honoured against the records as they stand, the reading the
- * stale-source refusal and the approvals family's write refusal also take (AAP 0.12.1, AAP 0.12.3).
+ * moment this adapter served the set, so a set is refused rather than answered from the one that
+ * replaced the set the reader was reading: a reader shown a set that changed under them cannot tell
+ * which half is current. `ProblemType` fixes five causes and none of them is a conflict, so it is
+ * reported as `'validation'` — a request that cannot be honoured against the records as they stand, the
+ * reading the stale-source refusal and the approvals family's write refusal also take (AAP 0.12.1,
+ * AAP 0.12.3).
  *
  * The message states in plain words what happened and what the reader can do about it, because the
  * screen that renders it is showing the conflicting-update state and nothing else (rule P-8). It words
@@ -786,11 +787,13 @@ function searchableCandidates(state: MockState, actor: ActiveUser): SearchCandid
  * the answer in the envelope. The private `serve` method is the whole of that mechanism, so the timing,
  * the trace and the persona are decided in one place rather than in every member, and the four methods
  * built on it decide which of the simulation's trigger-wide behaviours a member meets: `dispatchRead`
- * serves a read, which the `conflict` trigger refuses (AAP 0.12.1); `dispatch` serves a call that trigger
- * leaves alone because it is not a read — a write, a measurement, an answer or an export; `dispatchControl`
+ * serves a read whose payload is one record, which the `conflict` trigger leaves served so the act that
+ * record carries can be attempted (AAP 0.12.4 SCR-05); `dispatch` serves a call that trigger leaves
+ * alone because it is not a read — a write, a measurement, an answer or an export; `dispatchControl`
  * serves the demonstration controls that must answer whatever is in effect so the popover can lift it
  * (rule P-8); and `dispatchCollection` serves a read whose payload is a collection, which the `empty`
- * trigger empties beside the behaviours every read meets.
+ * trigger empties and the `conflict` trigger refuses beside the behaviours every read meets (AAP
+ * 0.12.1).
  *
  * The public surface is deliberately the port's own set plus the four names its callers need: the
  * readiness promise, the role switch, the read of the persona the session is acting as and the roster
@@ -858,16 +861,18 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * The simulation's `conflict` trigger is decided in the same place and for the same reason (AAP
    * 0.12.1): once the loading trigger has been answered, a refusable call is refused before its family
-   * runs, so every read family reports the conflicting update the one way a screen can render rather
-   * than each family deciding for itself what a changed set means (AAP 0.12.3). `refusable` is what keeps
-   * the calls that are not reads out of the refusal: a write is refused by the family that owns it, and
-   * the demonstration controls have to answer so the popover can lift the trigger it set (rule P-8).
+   * runs, so every collection read reports the conflicting update the one way a screen can render
+   * rather than each family deciding for itself what a changed set means (AAP 0.12.3). `refusable` is
+   * what keeps the rest out of the refusal: a read whose payload is one record is served so the act it
+   * carries can be attempted and refused by the family that owns it (AAP 0.12.4 SCR-05), a write is
+   * refused by the family that owns it, and the demonstration controls have to answer so the popover
+   * can lift the trigger it set (rule P-8).
    *
    * @param work - The family call to serve, given the session and the acting persona.
    * @param holdable - Whether the `loading` trigger holds this call; `false` only for the demonstration
    *   controls.
-   * @param refusable - Whether the `conflict` trigger refuses this call; `true` for every read the port
-   *   declares, `false` for a write or a demonstration control.
+   * @param refusable - Whether the `conflict` trigger refuses this call; `true` for every read whose
+   *   payload is a collection, `false` for a read of one record, a write or a demonstration control.
    * @returns The payload the family produced inside the envelope every port member returns, or a
    *   promise that never settles while the `loading` trigger holds a holdable call.
    * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a refusable call, or
@@ -897,9 +902,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
       return new Promise<Result<T>>(() => undefined);
     }
 
-    if (refusable && refusesReads(state)) {
-      // The `conflict` trigger's whole behaviour for a read: the records moved under the reader, so the
-      // read is refused rather than answered from the set that replaced them (AAP 0.12.1, AAP 0.12.3).
+    if (refusable && refusesCollectionReads(state)) {
+      // The `conflict` trigger's whole behaviour for a collection read: the records moved under the
+      // reader, so the set is refused rather than answered from what replaced it (AAP 0.12.1, 0.12.3).
       throw conflictProblem(traceId);
     }
 
@@ -922,8 +927,8 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * trigger's half of the condition is the family's own refusal: the approvals family names the record
    * that moved and refuses to merge the change, which is the write refusal this demonstration shows
    * (AAP 0.12.4 SCR-05). Every read the port declares goes through {@link dispatchRead} or
-   * {@link dispatchCollection} instead, so a screen that derives a state reports the conflicting update
-   * (AAP 0.2.1 F10).
+   * {@link dispatchCollection} instead: a set reaches its screen with the conflicting update reported,
+   * and a record is served so the act it carries can be attempted (AAP 0.2.1 F10).
    *
    * @param work - The family call to serve, given the session and the acting persona.
    * @returns The payload the family produced, inside the envelope every port member returns, or a
@@ -935,17 +940,22 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   }
 
   /**
-   * Serves one read the simulation may hold and the `conflict` trigger refuses: the reading every member
-   * of the port that answers a record takes, whatever the screen that asked renders.
+   * Serves one read whose payload is a single record: held by the `loading` trigger like any other read,
+   * and served while the `conflict` trigger is in effect.
+   *
+   * The record is where the act it carries starts, so this trigger serves the read and refuses the act
+   * instead — the approvals family names the record that moved and refuses to merge the decision made
+   * from it (AAP 0.12.4 SCR-05), which is what lets a screen keep its controls and report the refusal in
+   * the service's own sentence. A set presented as current is the other half of the condition, and
+   * {@link dispatchCollection} is where that half is refused.
    *
    * @param work - The family read to serve, given the session and the acting persona.
    * @returns The payload the family produced, inside the envelope every port member returns, or a
    *   promise that never settles while the `loading` trigger is in effect.
-   * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a read, or whatever the
-   *   family refused the call with, carrying this call's identifier.
+   * @throws Problem - Whatever the family refused the call with, carrying this call's identifier.
    */
   private async dispatchRead<T>(work: (ctx: HandlerContext) => T | Promise<T>): Promise<Result<T>> {
-    return this.serve(work, true, true);
+    return this.serve(work, true, false);
   }
 
   /**
@@ -966,18 +976,20 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   }
 
   /**
-   * Serves one read whose payload is a collection, which the simulation's `empty` trigger empties.
+   * Serves one read whose payload is a collection, which the simulation's `empty` trigger empties and
+   * its `conflict` trigger refuses.
    *
    * The read is served in full — its permission and policy checks run, and a refused call is still
    * refused — and only the records it answers with are withheld while the trigger is in effect, so an
    * emptied list is an answer the caller was entitled to receive rather than a way round the matrix
    * (AAP 0.12.1). The `loading` trigger holds the call exactly as it holds any other, and the `conflict`
-   * trigger refuses it exactly as it refuses a read that answers one record.
+   * trigger refuses it because a set presented as current is what that state prevents (AAP 0.12.3,
+   * AAP 0.12.4 SCR-05).
    *
    * @param work - The family read to serve, given the session and the acting persona.
    * @returns The records the family read, or no records while the `empty` trigger is in effect.
-   * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a read, or whatever the
-   *   family refused the call with, carrying this call's identifier.
+   * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a collection read, or
+   *   whatever the family refused the call with, carrying this call's identifier.
    */
   private async dispatchCollection<T>(
     work: (ctx: HandlerContext) => T[] | Promise<T[]>,
@@ -1064,22 +1076,22 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Reads the customer order lines one exception places at risk.
    *
-   * The lines are the exception record's own, copied so a caller cannot reach the adapter's state
-   * through them. The family's baseline-measured view of the same orders travels as
-   * `ExceptionDetail.affectedOrders`; deriving the lines a second time here would be a second answer
-   * to one measurement.
+   * The lines are the exception record's own, and the family answers them from that record: the
+   * baseline-measured view of the same orders travels as `ExceptionDetail.affectedOrders`, so deriving
+   * them here a second time would be a second answer to one measurement. The member is a dispatch and
+   * nothing more — the narrow read the family exposes, whose `requireRead` and `visibleException` refuse
+   * exactly as the detail read refuses, while the aggregate bundle, the baseline solve, the impact chain
+   * and the filter of the activity trail the detail read builds are not built for a payload the record
+   * already stores.
    *
    * @param exceptionId - The exception whose lines are read.
    * @returns The affected lines, each with a usable unit count; none while the simulation's `empty`
    *   trigger empties the session's collections.
-   * @throws Problem - The `Problem` the detail read refuses the call with.
+   * @throws Problem - A `'permission'` failure when the role may not read the family or the forbidden
+   *   trigger is on, or a `'not-found'` failure for an identifier this read does not reach.
    */
   async getAffectedLines(exceptionId: ExceptionId): Promise<Result<AffectedLine[]>> {
-    return this.dispatchCollection(async (ctx) => {
-      const detail = await exceptions.getException(ctx, exceptionId);
-
-      return detail.exception.affectedLines.map((line) => ({ ...line }));
-    });
+    return this.dispatchCollection((ctx) => exceptions.getAffectedLines(ctx, exceptionId));
   }
 
   /**
@@ -1761,8 +1773,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   /**
    * Reads the six data sources with their labels, states and as-of times.
    *
-   * Carried for the stage that shows the sources workspace; no screen in this run invokes it, and the
-   * same freshness reaches every other screen through each result's metadata.
+   * Carried for the stage that shows the sources workspace, and live in this run as well: it is also
+   * the read the shell's freshness strip makes through the port on every mount of the top bar, so the
+   * six pills render from this catalogue, while the freshness behind every other figure reaches its
+   * screen through each result's metadata.
    *
    * @returns The source catalogue, in the order the freshness strip renders it.
    * @throws Problem - A `'permission'` failure while the demonstration's forbidden trigger is on.

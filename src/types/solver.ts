@@ -93,7 +93,9 @@ export type ConstraintCheck = 'pass' | 'fail';
  * that day.
  *
  * The interface renders the pair as a single reading — the day, and a half-day wording such as
- * "midday" — and that wording is presentation, so it lives in `src/components` rather than here.
+ * "midday" — and that wording is presentation, so it lives in `src/types/figure-text.ts` rather than
+ * here: the comparison matrix and the comparison CSV state the same reading, that module is the one
+ * place both of them reach it, and the component layer re-exports it for the surfaces that ask there.
  */
 export interface RunOut {
   /** The day of the run-out, numbered within the projection window. */

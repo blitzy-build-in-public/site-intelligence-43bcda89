@@ -11,8 +11,8 @@
  * from the rows themselves, the computed revenue column's exact §5.3 label, the evidence drawer behind
  * a row's figure, the plant filter and a saved view, the acting role's plant scoping, and the
  * overview's four tiles, changed-since list, risk-by-plant table and two charts with their table views,
- * together with the queue those charts narrow — to a day one of the series' table-view rows states, and
- * to the plant a revenue bar draws.
+ * together with the queue those charts narrow — to the day one of the series' marks draws (and, from
+ * the table view, to the day one of its rows states), and to the plant a revenue bar draws.
  *
  * HOW IT DRIVES THE APPLICATION. Every step is a reader's step: an option on the demonstration role
  * switcher (through `e2e/helpers/role.ts`, the suite's one persona lever), a link in the shell's
@@ -872,9 +872,12 @@ async function ariaLabels(locator: Locator): Promise<string[]> {
 }
 
 /**
- * The numbers a chart's marks report, read from the last member of each mark's accessible name.
+ * The numbers a chart's marks report, read from the count each mark's accessible name states.
  *
- * A line mark is named `<series>, <date>: <count>`, so the count is the text after the final colon.
+ * A line mark is named `<series>, <date>: <count>. <the action activating it performs>`, so the count is
+ * the run of digits between the colon after the date and the sentence that follows it. Only that run is
+ * read: the action names the day it narrows to, and a case that took the last number in the name would
+ * compare the table's counts with a date.
  *
  * @param labels - The marks' accessible names.
  * @param context - What was being read, for the failure message.
@@ -882,31 +885,36 @@ async function ariaLabels(locator: Locator): Promise<string[]> {
  */
 function markCounts(labels: readonly string[], context: string): number[] {
   return labels.map((label, index) => {
-    const colon = label.lastIndexOf(':');
+    const match = /^[^,]+, \d{4}-\d{2}-\d{2}: (\d+)/u.exec(label);
+    const count = match?.[1];
 
-    if (colon === -1) {
+    if (count === undefined) {
       throw new Error(
-        `${context}: mark ${index + 1} is named ${JSON.stringify(label)}, which carries no value after a colon.`,
+        `${context}: mark ${index + 1} is named ${JSON.stringify(label)}, which states no count after its date.`,
       );
     }
 
-    return countIn(label.slice(colon + 1), `${context} mark ${index + 1}`);
+    return countIn(count, `${context} mark ${index + 1}`);
   });
 }
 
 /**
  * The date a series mark draws, read from the mark's own accessible name.
  *
- * A line mark is named `<series>, <date>: <count>`, so the date is the member between the comma and the
- * final colon. It is read rather than written out, so a day compared with the series' table view is the
- * day the mark itself states — the record's date, not a fixture's (rule P-6).
+ * A line mark is named `<series>, <date>: <count>. <the action activating it performs>`, and the action
+ * on SCR-01's series is the sentence that narrows the queue to that same day, so the name ends
+ * `Narrow the queue to <date>`. The date is the member between the comma and the first colon, read
+ * rather than written out here, so a day compared with the series' table view is the day the mark
+ * itself states — the record's date, not a fixture's (rule P-6).
  *
  * @param label - The mark's accessible name.
  * @param context - What was being read, for the failure message.
  * @returns The date the mark draws, in the `YYYY-MM-DD` form the name carries.
  */
 function dayOfMarkLabel(label: string, context: string): string {
-  const match = /^[^,]+, (\d{4}-\d{2}-\d{2}): \d+$/u.exec(label);
+  const match = /^[^,]+, (\d{4}-\d{2}-\d{2}): \d+\. Narrow the queue to \d{4}-\d{2}-\d{2}$/u.exec(
+    label,
+  );
   const day = match?.[1];
 
   if (day === undefined) {
@@ -954,12 +962,12 @@ function dayOfQueueDateControl(text: string, context: string): string {
  * open-exceptions tile's figure is compared with the number of rows the queue shows for the same scope
  * and status rather than with a typed count (rule P-6); both charts are switched to their table view
  * and the table is compared with the figures the chart draws, which is success criterion 9's "a working
- * view as table carrying the same values"; the date control of a series table row is shown to narrow
- * the queue to the day that row states, with clearing that day restoring the whole queue; and a revenue
- * bar is shown to narrow the queue to a strict subset of the rows it held, still holding every row
- * recorded at the plant that bar draws.
+ * view as table carrying the same values"; the series' own date mark and the date cell of its table view
+ * are each shown to narrow the queue to the day they state, with clearing that day restoring the whole
+ * queue; and a revenue bar is shown to narrow the queue to a strict subset of the rows it held, still
+ * holding every row recorded at the plant that bar draws.
  */
-test('the overview shows its tiles, changed-since list, risk-by-plant table and both charts, and its day and plant controls narrow the queue', async ({
+test('the overview shows its tiles, changed-since list, risk-by-plant table and both charts, and its date marks, series table rows and revenue bars narrow the queue', async ({
   page,
 }) => {
   await page.goto('/');
@@ -1133,7 +1141,7 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
 
   await page.getByRole('button', { name: 'View as chart: Revenue at risk by plant' }).click();
 
-  /* The opened/resolved series: its marks, the evidence one of them opens, and its table view. */
+  /* The opened/resolved series: its marks, the days and counts they state, and its table view. */
   const openedMarks = page.getByRole('button', { name: /^Opened, / });
   const openedLabels = await ariaLabels(openedMarks);
 
@@ -1142,19 +1150,18 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
   const firstOpenedMark = at(openedLabels, 0, 'the opened series’ first mark');
   expect(
     firstOpenedMark,
-    'each date mark names the series, the day and the count it draws',
-  ).toMatch(/^Opened, \d{4}-\d{2}-\d{2}: \d+$/);
+    'each date mark names the series, the day and the count it draws, then the action it performs',
+  ).toMatch(/^Opened, \d{4}-\d{2}-\d{2}: \d+\. Narrow the queue to \d{4}-\d{2}-\d{2}$/u);
 
-  const firstOpenedFigure = openedMarks.first();
-  await firstOpenedFigure.focus();
-  await firstOpenedFigure.press('Enter');
-
-  const markDrawer = page.getByRole('dialog', { name: 'Evidence', exact: true });
-  await expect(markDrawer, 'a date mark opens the evidence behind that day’s count').toBeVisible();
-
-  /* The drawer closes on its own control here, before the flow below narrows the queue and leaves. */
-  await page.keyboard.press('Escape');
-  await expect(markDrawer).toBeHidden();
+  /*
+   * The mark narrows the queue rather than opening a drawer, so it declares no dialog: the gesture
+   * leaves this screen and the queue it narrowed is where the reader goes (AAP §0.12.4). The narrowing
+   * itself is asserted below, from a mark of a day that counts an exception.
+   */
+  await expect(
+    openedMarks.first(),
+    'a date mark opens no dialog, because activating it narrows the queue and leaves the screen',
+  ).not.toHaveAttribute('aria-haspopup', 'dialog');
 
   const seriesToggle = page.getByRole('button', {
     name: 'View as table: Exceptions opened and resolved per day',
@@ -1197,9 +1204,10 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
 
   /*
    * A day of the series narrows the queue to that day (AAP §0.12.4's "14 days whose dates filter the
-   * queue"), and the control that performs it is the date cell of the series' table view: the mark keeps
-   * the one effect asserted above, because a second effect that navigated would unmount the evidence
-   * drawer it had just opened.
+   * queue"), and two controls perform it: the date cell of the series' table view, taken here, and the
+   * chart's own mark of that day, taken further down. Neither opens a drawer — the gesture leaves this
+   * screen, and a drawer opened beside it could never be read — and the figure keeps its evidence in the
+   * table view's counts beside this cell.
    *
    * The day is the row's own: the control names the action and the day, and both the day the queue's day
    * row prints and the day this case narrows to are read from that control rather than written here, so
@@ -1262,6 +1270,8 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
     .toBe(true);
 
   const clearDay = filterGroup.getByRole('button', { name: 'Clear day' });
+  const dayRowCount = (await queueRowPairs(page, 'Exception', 'Plant')).length;
+
   await clearDay.focus();
   await clearDay.press('Enter');
 
@@ -1274,20 +1284,75 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
 
   await expect(dayRow, 'the cleared day no longer narrows the queue').toHaveCount(0);
 
+  /*
+   * The chart's own mark narrows the same queue: AAP §0.12.4 gives the fourteen days' dates the
+   * queue-filtering job, so activating a mark of the series takes the reader to the queue it narrowed
+   * and opens no dialog of its own. The mark is the one for the day the table row above states, so the
+   * day is read from the page and this case still types neither a date nor a count (rule P-6); the
+   * narrowing is asserted as the same strict subset of the unscoped queue, down to the same run of rows
+   * the table's date cell produced.
+   */
+  await primaryNavigation(page).getByRole('link', { name: 'Overview' }).click();
+  await expect(page).toHaveURL(/\/overview$/);
+
+  const markedDay = at(tableDays, activeIndex, 'the day the counted series row states');
+  const markOfDay = page.getByRole('button', {
+    name: new RegExp(`^Opened, ${escapeRegExp(markedDay)}: `, 'u'),
+  });
+
+  await expect(markOfDay, 'the day the series table states is drawn as a mark of the chart').toBeVisible();
+  await markOfDay.focus();
+  await expect(markOfDay, 'the day’s mark took the keyboard focus').toBeFocused();
+  await markOfDay.press('Enter');
+
+  await expect(page, 'activating a date mark opens the queue it narrows').toHaveURL(/\/exceptions$/);
+  await expect(
+    page.getByRole('dialog', { name: 'Evidence', exact: true }),
+    'the mark opens no evidence dialog, because its gesture leaves the screen',
+  ).toHaveCount(0);
+  await waitForQueueRows(page);
+
+  await expect(
+    regionNamed(page, 'Filters').getByText(
+      new RegExp(`^Opened or resolved on ${escapeRegExp(markedDay)}$`, 'u'),
+    ),
+    'the queue names the day the mark narrowed to',
+  ).toBeVisible();
+
+  await expect
+    .poll(
+      async () => {
+        const identifiers = (await queueRowPairs(page, 'Exception', 'Plant')).map((pair) => pair[0]);
+
+        return (
+          identifiers.length > 0 &&
+          identifiers.length < unscopedIdentifiers.length &&
+          identifiers.every((identifier) => unscopedIdentifiers.includes(identifier))
+        );
+      },
+      { timeout: POLL_TIMEOUT_MS },
+    )
+    .toBe(true);
+
+  await expect
+    .poll(
+      async () => (await queueRowPairs(page, 'Exception', 'Plant')).length,
+      { timeout: POLL_TIMEOUT_MS },
+    )
+    .toBe(dayRowCount);
+
   /* Back to the overview, where the revenue bar of the next block is drawn. */
   await primaryNavigation(page).getByRole('link', { name: 'Overview' }).click();
   await expect(page).toHaveURL(/\/overview$/);
 
   /*
-   * A revenue bar opens the evidence it declares — from the keyboard and from a pointer alike — and
-   * narrows the shell's plant selection to the plant it draws.
+   * A revenue bar narrows the queue to the plant it draws and takes the reader there.
    *
-   * The mark carries `aria-haspopup="dialog"`, so activating it opens the evidence drawer and leaves the
-   * reader on the overview: the figure's four sections are what the mark promises, and a gesture that
-   * carried the reader to another screen would discard the drawer it had just opened. The narrowing the
-   * bar performs is the shell's own plant filter, so it is asserted where a reader sees it and where it
-   * takes effect — the top bar's Plant control — and the narrowed queue is then opened the way the
-   * screen offers it, with the primary action "Review critical exceptions".
+   * AAP §0.12.4 gives the revenue-at-risk bars the queue-filtering job, so activating one sets the
+   * shell's Plant selection and opens the queue that selection produces. The bar declares no dialog and
+   * opens none: a drawer opened in the same gesture would be unmounted before it was read, and the
+   * figure's evidence stays reachable from the chart's "View as table" grid. The narrowing is asserted
+   * where a reader sees it — the top bar's Plant control on the queue the gesture opened.
    *
    * The narrowed queue is asserted as the reader gets it: the queue opens on the chosen plant's
    * population — a strict subset of the rows the same persona saw before the bar was touched, holding
@@ -1308,51 +1373,20 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
     .getByRole('group', { name: 'Scope filters', exact: true })
     .getByRole('combobox', { name: 'Plant' });
 
-  /* The keyboard path: the mark is reachable, opens the drawer it declares, and keeps its focus return. */
+  /* The keyboard path: the mark is reachable, and activating it opens the queue it narrowed. */
   await bar.focus();
   await bar.press('Enter');
 
-  await expect(barDialog, 'activating a revenue bar opens the evidence it declares').toBeVisible();
-  await expect(
-    page,
-    'a mark that declares a dialog leaves the reader on the screen they activated it from',
-  ).toHaveURL(/\/overview$/);
-  await expect(bar, 'the bar the reader activated is marked as the current one').toHaveAttribute(
-    'aria-current',
-    'true',
-  );
-  await expect(
-    plantControl,
-    'the bar narrows the shell’s plant selection to the plant it draws',
-  ).toHaveValue(plantToNarrow);
-
-  await page.keyboard.press('Escape');
-  await expect(barDialog).toBeHidden();
-  await expect(
-    bar,
-    'closing the drawer returns focus to the mark that opened it',
-  ).toBeFocused();
-
-  /*
-   * The pointer path: the same mark, taken the way a reader without a keyboard takes it. The mark's
-   * whole row is its pointer target — the row it draws its focus ring across, and the row its
-   * `cursor-pointer` affordance describes — so the click is aimed at the mark itself. Playwright
-   * aims at the centre of an element's box, which on this row is a point the bar does not paint: a
-   * click there reached the graphic behind the mark, and nothing happened, until the row itself
-   * became the target.
-   */
-  await bar.click();
+  await expect(page, 'activating a revenue bar opens the queue it narrows').toHaveURL(/\/exceptions$/);
   await expect(
     barDialog,
-    'a pointer click opens the same evidence the keyboard does',
-  ).toBeVisible();
+    'a revenue bar opens no evidence dialog, because its gesture leaves the screen',
+  ).toHaveCount(0);
+  await expect(
+    plantControl,
+    'the queue opens with the shell’s Plant control showing the plant the bar draws',
+  ).toHaveValue(plantToNarrow);
 
-  await page.keyboard.press('Escape');
-  await expect(barDialog).toBeHidden();
-
-  /* The narrowed queue, reached through the screen's own primary action. */
-  await page.getByRole('button', { name: 'Review critical exceptions' }).click();
-  await expect(page, 'activating a revenue bar narrows the queue it opens').toHaveURL(/\/exceptions$/);
   await waitForQueueRows(page);
 
   await expect
@@ -1388,6 +1422,28 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
       `the row recorded at ${plantToNarrow} survives the bar that narrows to it`,
     ).toContain(pair[0]);
   }
+
+  /*
+   * The pointer path: back to the overview, where the narrowed scope still draws that plant's bar, and
+   * the same mark taken the way a reader without a keyboard takes it. The mark's whole row is its
+   * pointer target — the row it draws its focus ring across, and the row its `cursor-pointer` affordance
+   * describes — so the click is aimed at the mark itself: Playwright aims at the centre of an element's
+   * box, which on this row is a point the bar does not paint.
+   */
+  await primaryNavigation(page).getByRole('link', { name: 'Overview' }).click();
+  await expect(page).toHaveURL(/\/overview$/);
+
+  await bar.click();
+
+  await expect(
+    page,
+    'a pointer click takes the reader to the queue the bar narrows',
+  ).toHaveURL(/\/exceptions$/);
+  await expect(barDialog, 'the pointer path opens no evidence dialog either').toHaveCount(0);
+  await expect(
+    plantControl,
+    'the pointer path narrows the shell’s Plant selection to the same plant',
+  ).toHaveValue(plantToNarrow);
 });
 
 /* ---------------------------------------------------------------------------------------------

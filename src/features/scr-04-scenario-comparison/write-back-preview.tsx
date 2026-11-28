@@ -2,13 +2,14 @@
  * The write-back preview: the ordered list of the steps a plan would write to the systems of
  * record, shown before an approval commits to them and again wherever the same records are read.
  *
- * Its input is the contracts §3 `WriteBack` entity, and it derives nothing from it. Each step is one
- * record rendered in the order the array supplies: what the step does, the system class it writes to
- * with that system's own reference, and where the step stands. `sequence` is not printed, because the
- * ordered list already announces each step's position — printing both would read as two competing
- * counts — and it is never used to re-sort, so the order a reader sees is the order the record holds
- * (rule P-6: no ordering, no counting and no progress arithmetic belongs to this component; the
- * post-approval tracker is where a step count and the retry rule live).
+ * Its input is the contracts §3 `WriteBack` entity and the caller's evidence reference for each step,
+ * and it derives nothing from either. Each step is one record rendered in the order the array supplies:
+ * what the step does, the system class it writes to with that system's own reference, and where the
+ * step stands. `sequence` is not printed, because the ordered list already announces each step's
+ * position — printing both would read as two competing counts — and it is never used to re-sort, so the
+ * order a reader sees is the order the record holds (rule P-6: no ordering, no counting and no progress
+ * arithmetic belongs to this component; the post-approval tracker is where a step count and the retry
+ * rule live).
  *
  * Every step carries the fixed specification §5.3 label `Simulated write-back` (AAP 0.10), rendered
  * through `StatusIndicator` with `meaning="simulated"` so the icon, the word and the colour arrive
@@ -22,8 +23,12 @@
  * seed record, holds no state and publishes no action (rule P-2). That is what lets the approval
  * detail of stage S1 render the same records in its own mirrored component without either feature
  * importing the other. A step that cannot proceed therefore shows its state and its label as text
- * rather than an inert control (rule P-8); `WriteBack` carries no message member, so the state's own
- * word is the whole explanation the record supports, and nothing inside a step is focusable.
+ * rather than an inert control (rule P-8), and `WriteBack` carries no message member, so the state's
+ * own word is the whole explanation the record supports. A step's one control is its record reference,
+ * wrapped in the shared `EvidenceRef` trigger: activating it opens the drawer on the reference the
+ * caller composes, which is the step's own record, system and state rather than the plan's (principle
+ * PR-6), and the primitive supplies the keyboard operability and the visible focus ring rule B-3
+ * requires.
  *
  * The steps are an `<ol>` of `<li>` elements so the sequence is announced as a sequence, and each
  * state pairs an icon with a visible label in its status colour, so no meaning rests on colour alone
@@ -38,6 +43,7 @@
  */
 import type { ReactElement } from 'react';
 
+import { EvidenceRef } from '../../components/evidence-drawer';
 import { MonoValue } from '../../components/mono-value';
 import { Panel } from '../../components/panel';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
@@ -60,6 +66,19 @@ export interface WriteBackPreviewProps {
    * so before handing them over rather than relying on this component to interpret them.
    */
   readonly writeBacks: readonly WriteBack[];
+
+  /**
+   * The evidence reference one step carries, composed by the caller.
+   *
+   * Each step's record reference is wrapped in `EvidenceRef`, so activating it opens the drawer on the
+   * step's own record, system and state rather than on the plan's. The reference is the caller's to
+   * compose because only the screen that read the steps knows which record holds them — the decided
+   * plan's, a request lodged against the same option, or the option's own always-pending steps — and
+   * the grammar belongs to `writeBackStepRef` beside the drawer primitive, so no screen spells it.
+   * Required rather than optional: a preview whose steps could not open their own evidence would leave
+   * the figures behind a plan's write-back unreachable (principle PR-6).
+   */
+  readonly evidenceRefFor: (writeBack: WriteBack) => string;
 }
 
 /**
@@ -132,11 +151,14 @@ const STEP_CLASSES = 'ps-2 py-2 first:pt-0 last:pb-0';
 /**
  * Renders one plan's write-back as an ordered list, or nothing when there is nothing to write.
  *
- * @param props The write-back steps, in the order the service supplied them. See
- *   {@link WriteBackPreviewProps}.
+ * @param props The write-back steps, in the order the service supplied them, and the caller's evidence
+ *   reference for each one. See {@link WriteBackPreviewProps}.
  * @returns The panel holding the ordered steps, or `null` for an empty array.
  */
-export function WriteBackPreview({ writeBacks }: WriteBackPreviewProps): ReactElement | null {
+export function WriteBackPreview({
+  writeBacks,
+  evidenceRefFor,
+}: WriteBackPreviewProps): ReactElement | null {
   /* Nothing to preview. The screen owns the wording of an empty plan's state, so this component adds
      no sentence of its own and no empty list to the accessibility tree. */
   if (writeBacks.length === 0) {
@@ -163,16 +185,19 @@ export function WriteBackPreview({ writeBacks }: WriteBackPreviewProps): ReactEl
                   <p className="break-words text-text-primary">{writeBack.description}</p>
                   {/* The source name is the display name the source vocabulary fixes for this key,
                       and the reference is the identifier the record states, rendered by the one
-                      formatter in the application (rule P-6). The comma is real text, so a screen
-                      reader pauses between the two rather than running them together. */}
+                      formatter in the application (rule P-6) inside the trigger that opens the
+                      evidence behind the step. The comma is real text, so a screen reader pauses
+                      between the two rather than running them together. */}
                   <p className="break-words text-12 text-text-secondary">
                     {SOURCE_LABELS[writeBack.system]}
                     {', '}
-                    <MonoValue kind="id" value={writeBack.recordRef} />
+                    <EvidenceRef ref={evidenceRefFor(writeBack)}>
+                      <MonoValue kind="id" value={writeBack.recordRef} />
+                    </EvidenceRef>
                   </p>
                 </div>
-                {/* The state, then the fixed label every step carries: icon, word and colour together,
-                    and no focus stop anywhere inside the step. */}
+                {/* The state, then the fixed label every step carries: icon, word and colour
+                    together, so a step's meaning never rests on colour alone (rule B-3). */}
                 <div className="flex shrink-0 flex-col items-start gap-1">
                   <StatusIndicator
                     meaning={presentation.meaning}
