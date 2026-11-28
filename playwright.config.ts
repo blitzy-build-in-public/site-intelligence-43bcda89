@@ -9,10 +9,11 @@ import { defineConfig, devices } from '@playwright/test';
  * (rules B-1 and B-2). That origin is an IPv4 literal in a loopback secure context, which is what
  * lets the audit chain's `crypto.subtle` calls run in the browser.
  *
- * The port is derived per checkout because many checkouts share this host: `CLONE_INDEX` selects
- * 20000 + index * 10, `PREVIEW_PORT` overrides outright, and with neither set the documented 4173
- * is used. `--strictPort` together with `reuseExistingServer: false` turns a port already in use
- * into a failure, so a stale server can never answer for the code under test.
+ * The preview port is a parameter, so several preview servers can run side by side without agreeing
+ * on one address: `CLONE_INDEX` selects 20000 + index * 10, `PREVIEW_PORT` overrides outright, and
+ * with neither set the documented 4173 is used. `--strictPort` together with
+ * `reuseExistingServer: false` turns a port already in use into a failure, so a stale server can
+ * never answer for the code under test.
  */
 
 /**
@@ -62,8 +63,10 @@ export default defineConfig({
   testDir: './e2e',
   outputDir: './test-results',
   fullyParallel: true,
-  // Two workers rather than one per core: the build host is shared by many checkouts and carries
-  // about 1.4 GB of RAM in total.
+  // Two workers, not one per core: one Chromium page carries the canvas, both lenses and the whole
+  // axe corpus at once, so this leg's peak memory follows the worker count rather than the runner's
+  // core count, and two keeps the browser leg inside the ten-minute budget one `npm run check`
+  // carries. `vite.config.ts`'s `maxWorkers: 2` points here, so the two caps cannot drift apart.
   workers: 2,
   // A retry would hide the flake that an accessibility, keyboard or labelling failure usually
   // reports, so there is none.
@@ -73,10 +76,10 @@ export default defineConfig({
   // to fail the run rather than stay a local shortcut that never leaves the branch.
   forbidOnly: true,
   timeout: 30_000,
-  // The whole suite measured between 145 s (2.4 min) and 196 s (3.3 min) across runs on this shared
-  // host, so 360 s is about twice the busiest run and still lets a worst-case gate — the browser leg,
-  // the unit suite and the build — finish inside the ten-minute budget. The run is aborted at the cap,
-  // so an overrun is reported rather than absorbed.
+  // The whole suite measured between 145 s (2.4 min) and 196 s (3.3 min) across runs, so 360 s is
+  // about twice the busiest run and still lets a worst-case gate — the browser leg, the unit
+  // suite and the build — finish inside the ten-minute budget. The run is aborted at the cap, so
+  // an overrun is reported rather than absorbed.
   globalTimeout: 360_000,
   expect: { timeout: 5_000 },
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
@@ -85,12 +88,11 @@ export default defineConfig({
     // The application registers no service worker, and a request made by one surfaces only on the
     // browser context: blocking them is what keeps the request-origin assertion meaningful.
     serviceWorkers: 'block',
-    // A trace is recorded for every run and kept only when a test fails — the suite's one expensive
-    // debug setting, kept deliberately and measured. Recording it off was tried and rejected: several
-    // acceptance tests read a screen while that screen's own reads are still settling, and with the
-    // recording off one provenance test failed six of eight runs that way, where with it on the same
-    // test passed every run. The whole browser leg costs roughly three minutes for 63 tests on two
-    // workers with it on, inside the ten-minute gate, and the README's Test section states that.
+    // A trace is recorded for every run and kept only when a test fails: several acceptance tests
+    // read a screen while that screen's own reads are still settling, so a failure can come from a
+    // moment no assertion captured, and the retained trace is then the only evidence of what the
+    // screen held. The whole browser leg costs roughly three minutes for 63 tests on two workers
+    // with it on, inside the ten-minute gate, and the README's Test section states that.
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     viewport,

@@ -546,9 +546,10 @@ test('T-19 a node selected in one lens is the selection the other lens carries',
   expect(materials.length).toBe(3);
   expect(supplier).toBeDefined();
 
-  /* The Materials lane is a lane of nodes now: each material the trace marks is drawn in it, so the
-     column no longer states that it holds none. The one stage this payload carries no node for is
-     Lines, whose records belong to S4, so that column is the only place the note is left. */
+  /* The drawing places a node in the Materials lane for each of the three materials the trace marks and
+     none in Lines, the one lane this payload carries no node family for: the topology publishes
+     materials and no lines. The lane label in view, exactly one empty-lane note in the frame and every
+     material node present are the three readings below that hold the drawing to that. */
   await expect(graphFrame.getByText('Materials', { exact: true })).toBeVisible();
   await expect(graphFrame.getByText(EMPTY_LANE)).toHaveCount(1);
 

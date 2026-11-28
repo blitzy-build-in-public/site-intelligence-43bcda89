@@ -21,9 +21,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   // No `preview` block, so the port belongs to whoever starts the server: the browser suite passes
-  // the per-checkout port it derives (see playwright.config.ts), and a bare `npm run preview` takes
-  // Vite's own 4173 default. Writing the port here would state it twice and make a second
-  // checkout's preview fail on a port another checkout already holds.
+  // the port it derives (see playwright.config.ts), and a bare `npm run preview` takes Vite's own 4173
+  // default. Writing the port here would state it twice and make a second preview server fail on a
+  // port the first one already holds.
   build: {
     target: 'es2022',
     /**
@@ -75,8 +75,8 @@ export default defineConfig({
     // Each case starts with no spy inherited from the one before it, so a suite that stubs a global
     // for a single assertion cannot see a stale call list in the case after it.
     restoreMocks: true,
-    // Two workers rather than one per core: the build host is shared by many checkouts and carries
-    // about 1.4 GB of RAM in total.
+    // Two workers: the budget the browser suite carries, stated once in `playwright.config.ts` (its
+    // `workers` setting), so the unit run and the browser run cannot drift into different caps.
     maxWorkers: 2,
   },
 });

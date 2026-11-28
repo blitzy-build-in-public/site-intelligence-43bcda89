@@ -988,9 +988,9 @@ test('T-17 the conflicting-update state replaces the record on every screen the 
 }) => {
   await enterDemonstration(page);
 
-  /* The inbox is the screen this trigger used to leave untouched: its read is a collection, which the
-     trigger refuses now, so a reader meets the moved record rather than a list the service will not
-     stand behind. */
+  /* The conflicting-update trigger refuses every read whose payload is a collection, so the inbox's list
+     read is refused like any other and a reader meets the moved record rather than a list the service
+     will not stand behind (`refusesCollectionReads` in `src/services/mock/simulation.ts`). */
   await switchRole(page, 'USR-02');
   await triggerSimulationState(page, 'conflict');
   await closeSimulationPanel(page);

@@ -930,10 +930,14 @@ test(
  * and would pass vacuously), and with it on no element may run an animation or a transition longer
  * than the 0.01 ms `src/styles/index.css` declares.
  *
- * THE CANVAS. In this build the FileMap canvas answers with its permission state for every seeded
- * persona, because the dock's audit read and the lens's topology read need permissions no single role
- * holds. The reduced-motion clause still applies to what the route renders, so it is measured there
- * too; the chart on the overview is what proves the block reaches the animated surfaces.
+ * THE CANVAS. The FileMap canvas is the entry route of the four planning personas — USR-01, USR-03,
+ * USR-05 and USR-07 — and it renders for them: its state is derived from the topology, ribbon and
+ * urgent reads alone, so a refused audit read states itself inside the dock's events half rather than
+ * blanking the surface they land on (rule P-8). The reduced-motion clause is therefore measured on the
+ * canvas as well as on the overview, and the canvas earns that measurement because it carries motion
+ * of its own: the map's pointer-ring fade and the graph node's colour change, both declared under
+ * `motion-safe:` so a reduced-motion session never reaches them. The overview's chart is what proves the
+ * block reaches an animated surface.
  */
 test(
   'T-16 axe: prefers-reduced-motion stills every animation and disables every transition',

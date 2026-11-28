@@ -22,8 +22,10 @@
  * 5. The chokepoint brief as a browser-built download.
  *
  * It does not re-assert the canvas's selection behaviour or the seven states (T-19 and T-15 own
- * those), and it does not open the export's payload: the brief's contents are the builder's own
- * suite, and this process has no file access to them.
+ * those), and it does not open the export's payload: the browser reports only the download's name, so
+ * the document's own bytes are held by the suites that can read them — the atlas component suite, which
+ * compares the payload the screen offers byte for byte, and the adapter suite, which holds the export to
+ * the builder over the atlas read.
  *
  * THE CANVAS DRAWS THE OVERLAY WHEN THE PACK'S READ IS ADMITTED. The canvas derives its state from
  * the topology, ribbon and urgent reads alone: the atlas is its one optional read and the audit trail
@@ -54,8 +56,8 @@
  * switcher through `e2e/helpers/role.ts`, and every route is reached by activating the navigation
  * entry that publishes it. No query parameter, global, storage seed or direct address to a route is
  * used, because the build ships no test hook and this file invents none. Nothing here types a route
- * as a URL either — `baseURL` belongs to `playwright.config.ts`, and the port it derives is the
- * checkout's own.
+ * as a URL either — `baseURL` belongs to `playwright.config.ts`, and the port it derives is the one the
+ * preview server was started on.
  *
  * A PAGE LOAD RE-SEEDS THE ADAPTER, so the document is loaded once per test and never again: every
  * later step is a client-side navigation or a control activation, and the mock backend's in-memory
@@ -732,8 +734,13 @@ test('the chokepoint brief downloads as a JSON file named for the brief', async 
 
   const [download] = await Promise.all([page.waitForEvent('download'), exportControl.click()]);
 
-  /* The file's name identifies the brief; its bytes belong to the export builder's own suite, which
-     this process has no access to. */
+  /* Coverage is split by what each level can read. This spec asserts the download the browser reports:
+     the suggested filename is the export payload's own `filename`, carried to the anchor's `download`
+     unchanged, so it names the brief and ends in `.json`. The document's own bytes are asserted where
+     it is composed — the atlas component suite (`competitive-atlas-screen.test.tsx`) holds the payload
+     the screen hands the browser's download path to the composed brief byte for byte, media type and
+     filename included, and the adapter suite (`mock-backend.test.ts`) holds `exportChokepointBrief` to
+     `buildChokepointBrief` over the atlas read. */
   expect(download.suggestedFilename(), 'the download must be named for the brief').toMatch(
     /chokepoint/i,
   );

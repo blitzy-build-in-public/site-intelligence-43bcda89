@@ -1212,10 +1212,9 @@ function attributeUrlsIn(html: string): readonly string[] {
  * ------------------------------------------------------------------------------------------- */
 
 /*
- * Serial, so one worker builds the corpus once and every test asserts over it: a corpus collected per
- * test would sweep the application once per assertion, and the suite runs beside every other spec on a
- * shared host. A failure stops the rest of the file, which is the honest order — the first violation is
- * the finding, and later assertions describe a bundle this one has already rejected.
+ * Serial, so the corpus is built once and every test asserts over it: a corpus collected per test would
+ * sweep the application once per assertion. A failure stops the rest of the file, so the first violation
+ * is the one reported — a later assertion would only describe a bundle this one has already rejected.
  */
 test.describe.configure({ mode: 'serial', timeout: 240_000 });
 
