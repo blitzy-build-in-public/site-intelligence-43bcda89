@@ -345,10 +345,10 @@ async function renderSwitcher(): Promise<HTMLElement> {
  * Returns the shell store to a first-time visitor's state, so a case reads nothing of the one before it.
  *
  * The store's own `resetShell` does this and no application control calls it: `Reset demo data`
- * restores the adapter's records and leaves the reader's persona, scope and selection standing, so a
- * reset of the store is nobody's behaviour but a suite's. Each case here asserts the persona a press of
- * the control stores, and a persona left behind by the case before it would be read back as this one's
- * own.
+ * restores the adapter's records, clears the canvas selection and wall mode, counts the reset and
+ * leaves the reader's persona and scope filters standing, while this member moves every field. Each
+ * case here asserts the persona a press of the control stores, and a persona left behind by the case
+ * before it would be read back as this one's own.
  */
 function clearShellState(): void {
   useShellStore.getState().resetShell();

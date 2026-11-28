@@ -31,9 +31,12 @@
  *    as if it had been read (AAP §0.6.2, rule P-8).
  * 6. The chokepoint table carries all seven of its columns and prints the crossings in the order the
  *    pack supplied, each figure exactly as the record stated it (AAP §0.8, rule P-6).
- * 7. The export asks the port for the brief once and offers the document it composed, unchanged,
- *    through the browser's download path: the payload still carries `"simulated": true`, nothing
- *    was re-serialised and no origin was asked for anything (rule P-1, rule B-1).
+ * 7. The export asks the port for the brief once and offers it through the browser's download path:
+ *    the file is the brief the service composed, narrowed to the crossings the class in view leaves
+ *    and stamped with that class, while its competitor roster stays the pack's own list in the pack's
+ *    own order, so every competitor a listed crossing names is described rather than left as an
+ *    identifier the file cannot resolve. The payload still carries `"simulated": true`, nothing was
+ *    recomputed on the way and no origin was asked for anything (rule P-1, rule P-5, rule B-1).
  * 8. All seven states of specification §8 render for the outcome the screen derives them from —
  *    driven only by what the stubbed read and its `Result.meta` report, never by a flag name — and
  *    the retry the offline and conflict states offer reads the atlas again.
@@ -166,6 +169,10 @@ import { CHART_TONE_CLASSES } from '../../components/horizontal-bar-chart';
 import { RADAR_CHART_TEXT } from '../../components/radar-chart';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { VIEW_AS_TABLE_LABELS } from '../../components/view-as-table-toggle';
+import {
+  buildChokepointBrief,
+  scopeChokepointBrief,
+} from '../../services/exports/chokepoint-brief';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
 import {
   ATLAS_PACK_BANNER,
@@ -203,6 +210,7 @@ import {
   CompetitiveAtlasScreen,
   resetAtlasViewState,
 } from './competitive-atlas-screen';
+import type { CompetitiveAtlasScreenProps } from './competitive-atlas-screen';
 import { COMPETITOR_NETWORK_TEXT, nearestNetworkMark } from './competitor-network';
 
 /* ---------------------------------------------------------------------------------------------
@@ -711,25 +719,21 @@ function envelope(payload: Atlas, state: FreshnessState = 'fresh'): Result<Atlas
 }
 
 /**
- * The brief the export answers with, composed as its builder composes it: JSON text carrying the
- * simulation marker at its top level and the pack release the read published.
+ * The brief the export answers with: the document the shared builder composes over this suite's own
+ * fixture, which is the document a real adapter would hand the screen for the same read.
  *
- * The document is deliberately one this suite can compare byte for byte, because the screen must
- * offer it unchanged (rule P-1): nothing adds, strips or re-serialises a field on the way through.
+ * Composed by the builder rather than written out here for two reasons. The screen now narrows the
+ * document it receives and re-serialises it, so a hand-written stub would have to reproduce every member
+ * the builder writes — `productClass` included — and would fail the moment one of them moved. And the
+ * builder is the one owner of the document's shape, so this stub cannot drift from the file a reader
+ * really downloads; the cases below compare the offered file against what the scoping function composes
+ * from this payload, which is the screen's own work rather than a copy of the builder's wording.
  */
-const EXPORT_PAYLOAD: ExportPayload = {
-  filename: 'chokepoint-brief.json',
-  mediaType: 'application/json',
-  content: JSON.stringify(
-    {
-      simulated: true,
-      packVersion: ATLAS.packVersion,
-      chokepoints: CHOKEPOINTS.map((crossing) => crossing.id),
-    },
-    null,
-    2,
-  ),
-};
+const EXPORT_PAYLOAD: ExportPayload = buildChokepointBrief({
+  competitors: ATLAS.competitors,
+  chokepoints: ATLAS.chokepoints,
+  packVersion: ATLAS.packVersion,
+});
 
 /**
  * One `Result<Evidence>` envelope, shaped as the port answers it: the record, an empty freshness report
@@ -835,6 +839,78 @@ function withholdObjectUrlMembers(): void {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * Reading an exported document back
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The members of an exported document, parsed back out of the text the screen offered.
+ *
+ * Read as `unknown` and narrowed rather than cast, so a document whose members moved fails the case that
+ * reads them instead of being trusted because a type says a member is there.
+ *
+ * @param text - The offered file's text.
+ * @returns The document's members, keyed as the file spells them.
+ */
+function exportedDocumentOf(text: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(text);
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('The export is not a JSON object, so none of its members can be read.');
+  }
+
+  return { ...parsed };
+}
+
+/**
+ * The records one list of an exported document holds, each as its own member set, in the file's order.
+ *
+ * The order is the document's own on purpose: a brief that sorted or grouped its crossings on the way
+ * out would reorder the pack, which is not the narrowing a class in view performs.
+ *
+ * @param document - The parsed document.
+ * @param member - The member the records sit under, as the file spells it.
+ * @returns Each record's members, in the order the file writes them.
+ */
+function exportedRecordsOf(
+  document: Record<string, unknown>,
+  member: string,
+): readonly Record<string, unknown>[] {
+  const records = document[member];
+
+  if (!Array.isArray(records)) {
+    throw new Error(`The export carries no ${member} list, so its records cannot be read.`);
+  }
+
+  return records.map((record: unknown): Record<string, unknown> => {
+    if (typeof record !== 'object' || record === null || Array.isArray(record)) {
+      throw new Error(`The export's ${member} list holds a record that is not an object.`);
+    }
+
+    return { ...record };
+  });
+}
+
+/**
+ * The competitors one exported crossing names in its own buffer days.
+ *
+ * The map's keys are the competitors that use the crossing — the identifiers the atlas's chokepoint
+ * table prints its competitor cells from — so reading the keys states which competitors the file
+ * references, which is what the roster has to describe (rules P-5, P-7).
+ *
+ * @param crossing - One crossing of the parsed export.
+ * @returns Each competitor the crossing names, in the record's own order.
+ */
+function bufferDayCompetitorsOf(crossing: Record<string, unknown>): readonly string[] {
+  const buffers = crossing['competitorBufferDays'];
+
+  if (typeof buffers !== 'object' || buffers === null || Array.isArray(buffers)) {
+    throw new Error('The exported crossing names no competitor buffer days, so its roster is unreadable.');
+  }
+
+  return Object.keys(buffers);
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The harness and the readings it takes
  * ------------------------------------------------------------------------------------------- */
 
@@ -844,16 +920,17 @@ function withholdObjectUrlMembers(): void {
  * The cache is fresh per render and its entries are collected immediately, so a refusal fails the
  * same way however often it is repeated and one case cannot read another's cached payload.
  *
+ * @param props - The members of the screen's contract this case varies. All are optional upstream.
  * @returns The container the render produced, so a case can unmount before rendering again.
  */
-function renderScreen() {
+function renderScreen(props: Partial<CompetitiveAtlasScreenProps> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
 
   return render(
     <QueryClientProvider client={client}>
-      <CompetitiveAtlasScreen scope={NO_SCOPE} />
+      <CompetitiveAtlasScreen scope={NO_SCOPE} {...props} />
     </QueryClientProvider>,
   );
 }
@@ -2035,6 +2112,77 @@ describe('CompetitiveAtlasScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('reads a first visit’s class and entity once the demonstration has been reset since they were chosen', async () => {
+    const user = userEvent.setup();
+    const third = at(COMPETITOR_NETWORKS, 2, 'competitor network');
+
+    const first = renderScreen();
+
+    const classGroup = await screen.findByRole('group', {
+      name: COMPETITIVE_ATLAS_TEXT.classGroupLabel,
+    });
+
+    /* The class that leaves the competitor this case chooses in view, so both choices can stand
+       together. */
+    await user.click(within(classGroup).getByRole('button', { name: SECOND_CLASS }));
+
+    await user.click(
+      within(screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.entityGroupLabel })).getByRole(
+        'button',
+        { name: new RegExp(`^${escapeRegExp(third.label)}`, 'u') },
+      ),
+    );
+
+    expect(
+      screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${third.label}`),
+    ).toBeInTheDocument();
+
+    first.unmount();
+
+    /* The shell keys the screen by its count of demonstration resets, so a reset remounts it. The class
+       and the entity chosen before the reset belong to the session the reset ended, so the screen reads
+       the class the shell's selection implies and the class's own default entity again. */
+    const second = renderScreen({ demonstrationEpoch: 1 });
+
+    await screen.findByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel });
+
+    expect(
+      screen.getByText(
+        `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${COMPETITIVE_ATLAS_TEXT.allClassesLabel}. ${COMPETITIVE_ATLAS_TEXT.allClassesCaptionDetail}`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${CLIENT_SERIES.label}`),
+    ).toBeInTheDocument();
+
+    await user.click(
+      within(screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel })).getByRole(
+        'button',
+        { name: SECOND_CLASS },
+      ),
+    );
+
+    /* The class belongs to the session the reset started, so the entity the reader had chosen before the
+       reset does not come back with it: a session's first choice begins that session's view. */
+    expect(
+      screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${CLIENT_SERIES.label}`),
+    ).toBeInTheDocument();
+
+    second.unmount();
+
+    /* A choice made after the reset belongs to the session now in force, so it is the class the screen
+       comes back on rather than one the next mount discards. */
+    renderScreen({ demonstrationEpoch: 1 });
+
+    await screen.findByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel });
+
+    expect(
+      screen.getByText(
+        `${COMPETITIVE_ATLAS_TEXT.classCaptionPrefix} ${SECOND_CLASS}. ${COMPETITIVE_ATLAS_TEXT.classCaptionDetail}`,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('states the class group’s selection in words beside the control that carries it', async () => {
     const user = userEvent.setup();
 
@@ -2877,7 +3025,7 @@ describe('CompetitiveAtlasScreen', () => {
     expect(collapsedTextOf(band)).not.toContain(COMPETITIVE_ATLAS_TEXT.chokepointAlertNarrowed);
   });
 
-  it('offers the chokepoint brief the service composed as the file it named, unchanged', async () => {
+  it('offers the chokepoint brief scoped to the class in view, which is the whole pack while every class is', async () => {
     const user = userEvent.setup();
     const offered: { readonly href: string; readonly download: string }[] = [];
     const fetched = vi.spyOn(globalThis, 'fetch');
@@ -2911,13 +3059,22 @@ describe('CompetitiveAtlasScreen', () => {
     expect(composed).toBeInstanceOf(Blob);
     expect(composed.type).toBe(EXPORT_PAYLOAD.mediaType);
 
-    /* The document is the one the service composed: nothing added, dropped or re-serialised, so the
-       simulation marker its builder set at the top level survives the screen's handling (rule P-1). */
-    expect(await composed.text()).toBe(EXPORT_PAYLOAD.content);
+    /* The document is the brief the service composed, narrowed to this atlas state: every class is in
+       view, so the scope is the whole pack and the file is that document stamped `productClass: null`.
+       Nothing else is added, dropped or recomputed on the way through (rules P-1, P-6). */
+    expect(await composed.text()).toBe(
+      scopeChokepointBrief(EXPORT_PAYLOAD, {
+        productClass: null,
+        chokepointIds: ATLAS.chokepoints.map((crossing) => crossing.id),
+      }).content,
+    );
 
-    const handed: unknown = JSON.parse(await composed.text());
+    const handed = exportedDocumentOf(await composed.text());
 
-    expect(handed).toMatchObject({ simulated: true });
+    /* The simulation marker its builder set at the top level survives the screen's handling, and the
+       class the file was scoped to is stated in it (rule P-1). */
+    expect(handed['simulated']).toBe(true);
+    expect(handed['productClass']).toBeNull();
 
     const file = at(offered, 0, 'offered file');
 
@@ -2932,6 +3089,203 @@ describe('CompetitiveAtlasScreen', () => {
 
     expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
     expect(fetched).not.toHaveBeenCalled();
+  });
+
+  it('exports the crossings the class in view leaves against the whole roster, and states that class in the file', async () => {
+    const user = userEvent.setup();
+    const offered: { readonly href: string; readonly download: string }[] = [];
+
+    installObjectUrlStubs();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function capture(
+      this: HTMLAnchorElement,
+    ): void {
+      offered.push({ href: this.href, download: this.download });
+    });
+
+    renderScreen();
+    await radarCard();
+
+    const classGroup = screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel });
+
+    await user.click(within(classGroup).getByRole('button', { name: FIRST_CLASS }));
+
+    /* The table the brief has to agree with, read before the export: one row per crossing the class
+       leaves, which is the count the file must list (AAP §0.12.4). */
+    const table = screen.getByRole('table', {
+      name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption,
+    });
+
+    expect(within(table).getAllByRole('row')).toHaveLength(FIRST_CLASS_CHOKEPOINTS.length + 1);
+
+    await user.click(screen.getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.exportAction }));
+
+    await waitFor(() => {
+      expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    });
+
+    expect(port.exportChokepointBrief).toHaveBeenCalledTimes(1);
+
+    const composed = createObjectUrl.mock.calls[0]?.[0];
+
+    if (composed === undefined) {
+      throw new Error('the brief was never handed to the browser’s download path');
+    }
+
+    const text = await composed.text();
+    const brief = exportedDocumentOf(text);
+    const crossings = exportedRecordsOf(brief, 'chokepoints');
+    const competitors = exportedRecordsOf(brief, 'competitors');
+
+    /* The class the atlas held is stated in the file, so a reader of it knows which slice of the pack
+       it reports (rule P-1). */
+    expect(brief['productClass']).toBe(FIRST_CLASS);
+
+    /* The crossings are the table's own rows, under the names the table prints them by, in the pack's
+       order: the file and the table cannot disagree (AAP §0.12.4, rule P-6). */
+    expect(crossings.map((crossing) => crossing['id'])).toStrictEqual(
+      FIRST_CLASS_CHOKEPOINTS.map((crossing) => crossing.id),
+    );
+    expect(FIRST_CLASS_CHOKEPOINTS.length).toBeLessThan(CHOKEPOINTS.length);
+
+    /* No crossing the class left out reaches the file in any form — its identifier, its name or the
+       contention note the pack records against it. */
+    for (const crossing of CHOKEPOINTS) {
+      if (FIRST_CLASS_CHOKEPOINTS.includes(crossing)) {
+        continue;
+      }
+
+      expect(text).not.toContain(crossing.id);
+      expect(text).not.toContain(crossing.label);
+      expect(text).not.toContain(crossing.contentionNote);
+    }
+
+    /* The competitors are the pack's own roster, whole and in the pack's own order: the list the
+       atlas's chokepoint table names its competitor cells from, so every competitor a kept crossing
+       names is described in the file and no identifier it holds is left without a name, a label and a
+       provenance (rules P-5, P-7). */
+    expect(competitors.map((competitor) => competitor['competitorId'])).toStrictEqual(
+      ATLAS.competitors.map((network) => network.competitorId),
+    );
+
+    /* The invariant the file keeps, stated on the file itself: every competitor the kept crossings name
+       in their own buffer days appears in that roster. */
+    const roster = new Set(competitors.map((competitor) => competitor['competitorId']));
+    const namedByKeptCrossings = crossings.flatMap(bufferDayCompetitorsOf);
+
+    expect(namedByKeptCrossings.length).toBeGreaterThan(0);
+
+    for (const competitorId of namedByKeptCrossings) {
+      expect(roster.has(competitorId)).toBe(true);
+    }
+
+    /* Every record that does reach the file keeps the label its family carries and the tag its name
+       carries, exactly as the atlas prints them (rules P-1, P-5). */
+    for (const crossing of crossings) {
+      expect(crossing['simLabel']).toBe(SIM_LABELS[5]);
+      expect(crossing['provenance']).toBe('market_intelligence');
+    }
+
+    for (const competitor of competitors) {
+      expect(competitor['simLabel']).toBe(SIM_LABELS[5]);
+      expect(competitor['nameTag']).toBe(COMPETITOR_NAME_TAG);
+      expect(competitor['provenance']).toBe('market_intelligence');
+    }
+
+    /* The file is still the demonstration's own payload under the same name and type: a class in view
+       narrows what it lists, never what it is (rule P-1). */
+    expect(brief['simulated']).toBe(true);
+    expect(composed.type).toBe(EXPORT_PAYLOAD.mediaType);
+
+    const file = at(offered, 0, 'offered file');
+
+    expect(offered).toHaveLength(1);
+    expect(file.download).toBe(EXPORT_PAYLOAD.filename);
+  });
+
+  it('describes the competitor a kept crossing names after the class leaves that competitor out of the drawing', async () => {
+    const user = userEvent.setup();
+    const offered: { readonly href: string; readonly download: string }[] = [];
+
+    installObjectUrlStubs();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function capture(
+      this: HTMLAnchorElement,
+    ): void {
+      offered.push({ href: this.href, download: this.download });
+    });
+
+    renderScreen();
+    await radarCard();
+
+    const classGroup = screen.getByRole('group', { name: COMPETITIVE_ATLAS_TEXT.classGroupLabel });
+
+    await user.click(within(classGroup).getByRole('button', { name: SECOND_CLASS }));
+    await user.click(screen.getByRole('button', { name: COMPETITIVE_ATLAS_TEXT.exportAction }));
+
+    await waitFor(() => {
+      expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    });
+
+    const composed = createObjectUrl.mock.calls[0]?.[0];
+
+    if (composed === undefined) {
+      throw new Error('the brief was never handed to the browser’s download path');
+    }
+
+    const brief = exportedDocumentOf(await composed.text());
+    const crossings = exportedRecordsOf(brief, 'chokepoints');
+    const competitors = exportedRecordsOf(brief, 'competitors');
+
+    /* The class in view leaves one of the two networks that share the first crossing out of the
+       drawing, and the crossing stays listed: the network that is still drawn runs a lane through it,
+       and the crossing names both competitors that use it. */
+    const drawnNetworks = COMPETITOR_NETWORKS.filter((network) =>
+      network.productClasses.includes(SECOND_CLASS),
+    );
+    const crossingsInView = CHOKEPOINTS.filter((crossing) =>
+      drawnNetworks.some((network) =>
+        network.lanes.some((lane) => lane.chokepointId === crossing.id),
+      ),
+    );
+
+    expect(drawnNetworks.map((network) => network.competitorId)).not.toContain(COMPETITOR_TWO);
+    expect(crossings.map((crossing) => crossing['id'])).toStrictEqual(
+      crossingsInView.map((crossing) => crossing.id),
+    );
+
+    /* The crossing names the competitor the drawing no longer shows, and the file describes it anyway:
+       a roster narrowed with the drawing would ship an identifier nothing in the file resolves to a
+       name, a label or a provenance (rules P-5, P-7). */
+    const namedByKeptCrossings = crossings.flatMap(bufferDayCompetitorsOf);
+    const roster = new Set(competitors.map((competitor) => competitor['competitorId']));
+
+    expect(namedByKeptCrossings).toContain(COMPETITOR_TWO);
+
+    for (const competitorId of namedByKeptCrossings) {
+      expect(roster.has(competitorId)).toBe(true);
+    }
+
+    const undrawn = at(
+      COMPETITOR_NETWORKS.filter((network) => network.competitorId === COMPETITOR_TWO),
+      0,
+      'fixture network the class in view leaves out',
+    );
+    const described = at(
+      competitors.filter((competitor) => competitor['competitorId'] === COMPETITOR_TWO),
+      0,
+      'roster entry of the competitor the drawing leaves out',
+    );
+
+    expect(described).toMatchObject({
+      label: undrawn.label,
+      provenance: 'market_intelligence',
+      nameTag: COMPETITOR_NAME_TAG,
+      simLabel: SIM_LABELS[5],
+    });
+
+    const file = at(offered, 0, 'offered file');
+
+    expect(offered).toHaveLength(1);
+    expect(file.download).toBe(EXPORT_PAYLOAD.filename);
   });
 
   it('reports that this page cannot offer the brief where it has no object-URL factory', async () => {

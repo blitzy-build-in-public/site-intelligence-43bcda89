@@ -29,12 +29,15 @@ import {
   SVG_LABEL_CHARACTER_WIDTH,
   SVG_LABEL_FONT_SIZE,
   SVG_LABEL_TEXT_METRICS,
+  estimateDrawnTextWidth,
   estimateTextWidth,
   labelBoxesCollide,
   labelFitsInside,
+  labelStepRatioOf,
   markObstacleOf,
   placeBoxes,
   placeLabels,
+  renderedLabelMetrics,
   truncateToWidth,
 } from './svg-label';
 import type {
@@ -409,5 +412,94 @@ describe('placeBoxes', () => {
     expect([...placeBoxes(requests, [], FIT).entries()]).toEqual([
       ...placeBoxes(requests, [], FIT).entries(),
     ]);
+  });
+});
+
+/**
+ * The rendered step: the size a label prints at, whatever width the drawing is scaled to.
+ *
+ * WHAT IT PROVES. That a drawing which states its labels' metrics from the scale it is rendered at
+ * prints them at a step of specification §4.3's type scale at every width the atlas is shown at — the
+ * defect the atlas's charts carried, where a label set at a fixed 12 user units rendered at 7.5 px in
+ * a phone-width card and at 43 px in a 1920 px one. Every case below is stated as the RENDERED size,
+ * which is what a reader sees, so a re-tuned base step reaches this suite rather than leaving it
+ * asserting a number nobody derives any more.
+ */
+describe('renderedLabelMetrics', () => {
+  /** One width the atlas renders its drawings at, with the width the drawing's own box states. */
+  const RENDERED: readonly { readonly viewBoxWidth: number; readonly renderedWidth: number }[] = [
+    { viewBoxWidth: 520, renderedWidth: 324 },
+    { viewBoxWidth: 520, renderedWidth: 590 },
+    { viewBoxWidth: 520, renderedWidth: 1440 },
+    { viewBoxWidth: 520, renderedWidth: 1854 },
+    { viewBoxWidth: 760, renderedWidth: 324 },
+    { viewBoxWidth: 760, renderedWidth: 1854 },
+  ];
+
+  it.each(RENDERED)(
+    'prints a label at a type-scale step in a $renderedWidth px drawing of a $viewBoxWidth unit box',
+    ({ viewBoxWidth, renderedWidth }) => {
+      const scale = renderedWidth / viewBoxWidth;
+      const metrics = renderedLabelMetrics(scale);
+      const printed = metrics.fontSize * scale;
+
+      expect(printed).toBeGreaterThanOrEqual(SVG_LABEL_FONT_SIZE);
+      expect(printed).toBeLessThanOrEqual(16);
+      expect(printed).toBeCloseTo(Math.round(printed), 6);
+    },
+  );
+
+  it('keeps the layer’s 12-unit step where nothing has been measured', () => {
+    expect(renderedLabelMetrics(null)).toEqual(SVG_LABEL_TEXT_METRICS);
+    expect(renderedLabelMetrics(undefined)).toEqual(SVG_LABEL_TEXT_METRICS);
+    expect(renderedLabelMetrics(0)).toEqual(SVG_LABEL_TEXT_METRICS);
+    expect(renderedLabelMetrics(Number.NaN)).toEqual(SVG_LABEL_TEXT_METRICS);
+  });
+
+  it('grows a label set in user units as the drawing it belongs to shrinks', () => {
+    const phone = renderedLabelMetrics(324 / 520);
+    const wide = renderedLabelMetrics(1854 / 520);
+
+    expect(phone.fontSize).toBeGreaterThan(SVG_LABEL_FONT_SIZE);
+    expect(wide.fontSize).toBeLessThan(SVG_LABEL_FONT_SIZE);
+    expect(phone.characterWidth).toBeCloseTo(
+      SVG_LABEL_CHARACTER_WIDTH * (phone.fontSize / SVG_LABEL_FONT_SIZE),
+      6,
+    );
+  });
+
+  it('states the factor a drawing multiplies its label geometry by, which is one at the base step', () => {
+    expect(labelStepRatioOf(SVG_LABEL_TEXT_METRICS)).toBe(1);
+    expect(labelStepRatioOf(renderedLabelMetrics(1))).toBe(1);
+
+    const doubled = renderedLabelMetrics(2);
+    expect(labelStepRatioOf(doubled)).toBeCloseTo(doubled.fontSize / SVG_LABEL_FONT_SIZE, 6);
+  });
+});
+
+/**
+ * The drawn width: the advance a run actually renders at, for the geometry of a leader that points at it.
+ *
+ * WHAT IT PROVES. That the width a leader is drawn to is narrower than the width a name is seated in — the
+ * reserved box is deliberately generous so that a name believed to fit still fits — and that it stays in
+ * proportion to the type a drawing prints at. A leader drawn to the reserved box stops in the space the
+ * reservation kept empty, which is the gap the atlas's crossing names carried.
+ */
+describe('estimateDrawnTextWidth', () => {
+  it('measures a run narrower than the box the placement seats it in', () => {
+    const run = 'Strait of Gibraltar';
+    const reserved = estimateTextWidth(run, SVG_LABEL_TEXT_METRICS);
+    const drawn = estimateDrawnTextWidth(run, SVG_LABEL_TEXT_METRICS);
+
+    expect(drawn).toBeLessThan(reserved);
+    expect(drawn / Array.from(run).length).toBeCloseTo(4.9, 6);
+  });
+
+  it('keeps the same proportion at the type a drawing prints at another width', () => {
+    const wide = renderedLabelMetrics(1854 / 520);
+    const narrow = renderedLabelMetrics(324 / 520);
+
+    expect(estimateDrawnTextWidth('Suez Canal', wide) / estimateDrawnTextWidth('Suez Canal', narrow))
+      .toBeCloseTo(wide.fontSize / narrow.fontSize, 6);
   });
 });

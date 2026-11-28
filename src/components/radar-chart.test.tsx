@@ -23,7 +23,10 @@
  * competitor's own identifier rather than this list's order; a polygon's fill and
  * stroke read from the one chart tone table the other surfaces resolve too; the read-out a vertex
  * answers with on focus and on a pointer moving near it — its axis, its series (a competitor's keeping
- * its own tag) and the score it announces — with the ring revealed on that vertex alone; and both
+ * its own tag) and the score it announces — with the ring revealed on that vertex alone; the type every
+ * run prints at, resolved from the width the element is drawn at rather than stated in user units, so a
+ * label prints at one of specification §4.3's steps in a wide frame and in a narrow one alike, with a run
+ * too wide for the room its anchor leaves shortened and its record's wording kept in a `<title>`; and both
  * themes.
  *
  * The service is mocked at `service-provider.tsx`, the one boundary `./evidence-drawer.tsx` reads
@@ -49,6 +52,7 @@ import { EVIDENCE_DRAWER_TEXT } from './evidence-drawer';
 import { CHART_TONE_CLASSES } from './horizontal-bar-chart';
 import { competitorToneOf, nearestRadarMark, RadarChart, RADAR_CHART_TEXT } from './radar-chart';
 import type { RadarChartProps } from './radar-chart';
+import { LABEL_ELLIPSIS, estimateTextWidth, renderedLabelMetrics } from './svg-label';
 
 /**
  * The port member the drawer reads through, replaced before the chart's module graph is imported so
@@ -299,6 +303,52 @@ function layOutDrawing(): SVGSVGElement {
   });
 
   return svg;
+}
+
+/**
+ * States the box a browser would have measured for the drawing, before the render whose effect reads it.
+ *
+ * `./chart-readout.tsx`'s `useChartScale` measures the element once on mount and again whenever its box
+ * changes, so a case states the rendered width here and the drawing resolves both its target sizes and the
+ * type step it prints at from that width. jsdom computes no layout, so without this the element reports a
+ * zero-width box and the drawing correctly keeps its own base geometry. The height is stated as the same
+ * number because nothing in the drawing reads it.
+ *
+ * @param renderedWidth The width the element would have been rendered at, in CSS pixels.
+ */
+function stateRenderedWidth(renderedWidth: number): void {
+  vi.spyOn(SVGSVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: renderedWidth,
+    bottom: renderedWidth,
+    width: renderedWidth,
+    height: renderedWidth,
+    toJSON: () => ({}),
+  });
+}
+
+/**
+ * The width of the drawing's own view box, in user units, read back from the rendered element.
+ *
+ * A case that reasons about a rendered size needs the two widths, and neither is exported: the view box is
+ * the drawing's own coordinate space and the rendered width is the box the case stated, so reading one and
+ * stating the other is what keeps a case from restating the component's geometry.
+ */
+function viewBoxWidthOf(): number {
+  const box = (svgElement().getAttribute('viewBox') ?? '')
+    .trim()
+    .split(/\s+/u)
+    .map(Number);
+  const width = box[2];
+
+  if (width === undefined || !(width > 0)) {
+    throw new Error('the radar rendered no view-box width');
+  }
+
+  return width;
 }
 
 /**
@@ -1597,6 +1647,109 @@ describe('the read-out a vertex answers with', () => {
     /* The dot itself is untouched: only the invisible target around it grew (WCAG 2.2 SC 2.5.8). */
     expect(mark.querySelectorAll('circle')[1]?.getAttribute('r')).toBe('3.5');
     expect(radius * 2 * scale).toBeGreaterThanOrEqual(24);
+  });
+});
+
+/**
+ * The step every run prints at, and the room each run is shortened to.
+ *
+ * These cases state the width a browser would have measured for the drawing, because jsdom computes no
+ * layout and the chart correctly keeps its base geometry without one. Specification §4.3's chart steps are
+ * 12, 13, 14 and 16 px, so the product of a run's `font-size` attribute and the scale the element is drawn
+ * at must be one of those — that is what makes a label the same size in a phone-width card and in a
+ * full-width one, instead of a user-unit size multiplied by whatever the frame happens to be.
+ */
+describe('the type the radar prints at', () => {
+  it('prints every label at a type-scale step whatever width the drawing is rendered at', () => {
+    /* A wide frame — the atlas read at 1920 px — where one user unit of the drawing's own view box is worth
+       three CSS pixels: a label set at twelve of them would print at 36 px, larger than the page's own
+       heading, and one set at forty would print at 120 px. jsdom computes no layout, so the box a browser
+       would have measured is stated here, before the render whose effect reads it. */
+    const renderedWidth = 1560;
+
+    stateRenderedWidth(renderedWidth);
+    renderChart();
+
+    const scale = renderedWidth / viewBoxWidthOf();
+    const texts = [...svgElement().querySelectorAll('text')];
+
+    /* Every run the drawing prints: each series' own label at its polygon, each axis name, the two values
+       the scale states and the band's two lines per series. */
+    expect(texts).toHaveLength(SERIES.length * 3 + AXES.length + SCALE_TICK_COUNT);
+
+    for (const text of texts) {
+      const fontPx = Number(text.getAttribute('font-size'));
+
+      /* The step is the element's own `font-size` attribute — a `text-12` utility would state a user-unit
+         size again and override it — and it prints at one of specification §4.3's four chart steps at the
+         width the element is drawn at, however wide that is. */
+      expect(Number.isFinite(fontPx)).toBe(true);
+      expect(Math.round(fontPx * scale * 1000) / 1000).toBeGreaterThanOrEqual(12);
+      expect(Math.round(fontPx * scale * 1000) / 1000).toBeLessThanOrEqual(16);
+      expect(classTokensOf(text)).not.toContain('text-12');
+    }
+  });
+
+  it('keeps every axis name and polygon label inside the drawing at a phone width', () => {
+    /* The narrowest card the atlas gives the radar: 324 px for the drawing's own 520 units, so one user unit
+       is worth about two thirds of a CSS pixel and a label printing at the type scale's 12 px step is set at
+       about 19 of them — nearly twice the room it took at the drawing's natural width. A name that fitted
+       there can therefore be wider than the space between its anchor and the drawing's edge, which is the
+       clipping this case states. */
+    const renderedWidth = 324;
+    const longAxisName = 'Axis alpha, named at the length the market-intelligence pack states it';
+    const axes: readonly RadarAxis[] = [
+      { id: 'axis-alpha', label: longAxisName },
+      ...AXES.slice(1),
+    ];
+
+    stateRenderedWidth(renderedWidth);
+    renderChart({ axes });
+
+    const viewWidth = viewBoxWidthOf();
+    const metrics = renderedLabelMetrics(renderedWidth / viewWidth);
+    const axisLabels = [...svgElement().querySelectorAll('text')].filter((text) =>
+      classTokensOf(text).includes('fill-text-secondary'),
+    );
+    const polygonLabels = [...svgElement().querySelectorAll('g[pointer-events="none"] text')];
+    const runOf = (text: Element): string => (text.lastChild?.textContent ?? '').trim();
+
+    expect(axisLabels).toHaveLength(AXES.length);
+    expect(polygonLabels).toHaveLength(SERIES.length);
+
+    for (const text of [...axisLabels, ...polygonLabels]) {
+      const run = runOf(text);
+      const width = estimateTextWidth(run, metrics);
+      const anchor = text.getAttribute('text-anchor') ?? 'start';
+      const x = Number(text.getAttribute('x'));
+      const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2;
+
+      /* Measured at the step the drawing resolved, every run fits inside the drawing's own width and inside
+         the room from its own anchor to that width's edge — the room it was shortened to. */
+      expect(width).toBeLessThanOrEqual(viewWidth);
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(left + width).toBeLessThanOrEqual(viewWidth);
+    }
+
+    /* Each name either prints the record's own wording or is a shortened run of it whose `<title>` child
+       carries the full wording, so the accessible name never loses the axis the record states. */
+    for (const [index, text] of axisLabels.entries()) {
+      const record = at(axes, index, 'axis');
+      const run = runOf(text);
+      const titled = text.querySelector('title')?.textContent;
+
+      if (run === record.label) {
+        expect(titled).toBeUndefined();
+        continue;
+      }
+
+      expect(run.endsWith(LABEL_ELLIPSIS)).toBe(true);
+      expect(record.label.startsWith(run.slice(0, -1).trimEnd())).toBe(true);
+      expect(titled).toBe(record.label);
+    }
+
+    /* At this width the long name cannot be held whole, so the shortening is exercised rather than assumed. */
+    expect(axisLabels.some((text) => runOf(text).endsWith(LABEL_ELLIPSIS))).toBe(true);
   });
 });
 

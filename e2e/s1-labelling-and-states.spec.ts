@@ -188,11 +188,12 @@ const STAGE_NOTICE_ARRIVAL = /arrives in stage S\d/i;
  * The headline the state boundary gives the conflicting-update state.
  *
  * The state is reached from the popover's "Conflicting update" trigger, whose service behaviour is to
- * refuse a read whose payload is a collection — a set presented as current is what the state prevents —
- * so the screens that present one report it. The write half of the same condition, a decision refused
- * rather than merged, is proved at the service layer in `src/services/mock/mock-backend.test.ts`: a read
- * of one record is served so the decision can be attempted, and the refusal the decision meets is what
- * the approval detail reports in place.
+ * refuse a read whose payload presents a set — a collection, or the aggregate computed over one, since
+ * a set presented as current is what the state prevents — so the screens that present one report it.
+ * The write half of the same condition, a decision refused rather than merged, is proved at the
+ * service layer in `src/services/mock/mock-backend.test.ts`: a read of one record is served so the
+ * decision can be attempted, and the refusal the decision meets is what the approval detail reports in
+ * place.
  */
 const CONFLICT_HEADLINE = 'This record changed while you were reading it';
 
@@ -992,9 +993,10 @@ test('T-17 the conflicting-update state replaces the record on every screen the 
 }) => {
   await enterDemonstration(page);
 
-  /* The conflicting-update trigger refuses every read whose payload is a collection, so the inbox's list
-     read is refused like any other and a reader meets the moved record rather than a list the service
-     will not stand behind (`refusesCollectionReads` in `src/services/mock/simulation.ts`). */
+  /* The conflicting-update trigger refuses every read whose payload presents a set — a collection, or
+     the aggregate computed over one — so the inbox's list read is refused like any other and a reader
+     meets the moved record rather than a list the service will not stand behind
+     (`refusesCollectionReads` in `src/services/mock/simulation.ts`). */
   await switchRole(page, 'USR-02');
   await triggerSimulationState(page, 'conflict');
   await closeSimulationPanel(page);
@@ -1026,6 +1028,37 @@ test('T-17 the conflicting-update state replaces the record on every screen the 
     screen(page).getByRole('status').filter({ hasText: CONFLICT_HEADLINE }),
     'A second screen kept rendering its records while the same trigger was in effect, so the state reaches one screen instead of every screen.',
   ).toHaveCount(1);
+
+  /* The overview's payload is the aggregate computed over those same sets — four tiles, a risk-by-plant
+     table and two charts — so a reader who opens it under the trigger meets the condition rather than
+     figures computed from records that moved under them (AAP 0.2.1 F10, `dispatchAggregate` in
+     `src/services/mock/mock-backend.ts`). */
+  await clickNavEntry(page, 'Overview', '/overview');
+
+  const overview = screen(page);
+  const overviewNotice = overview.getByRole('status').filter({ hasText: CONFLICT_HEADLINE });
+
+  await expect(
+    overviewNotice,
+    'The overview computed its figures while the records behind them had moved, so the aggregate was presented as current.',
+  ).toHaveCount(1);
+  await expect(overviewNotice).toBeVisible();
+  await expect(
+    overview.getByRole('region', { name: 'Open exceptions', exact: true }),
+    'The overview kept its open-exceptions tile while the conflicting-update state was in effect, so the state did not replace the figures it qualifies.',
+  ).toHaveCount(0);
+  await expect(
+    overview.getByRole('table'),
+    `The overview kept the "${BY_PLANT_TABLE}" table while the conflicting-update state was in effect, so the figures it summarises were presented as current.`,
+  ).toHaveCount(0);
+  await expect(
+    overview.getByRole('figure'),
+    'The overview kept its charts while the conflicting-update state was in effect, so a reading the service refused was drawn anyway.',
+  ).toHaveCount(0);
+  await expect(
+    overview.getByRole('button', { name: RELOAD_LABEL, exact: true }),
+    'The overview\'s conflicting-update state offered no way to read the figures as they now stand (rule P-8).',
+  ).toBeVisible();
 
   /* Once the change is lifted the same inbox lists its plans again, so the refusal was the trigger's
      doing rather than an inbox holding nothing. */

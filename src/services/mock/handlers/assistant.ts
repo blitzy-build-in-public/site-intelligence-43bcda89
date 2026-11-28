@@ -9,9 +9,10 @@
  * `../assistant-script.ts`; AAP 0.12.3's `POST /assistant/queries` row; AAP 0.6.3 (the catalogue's
  * entries are placeholders and no model is connected); AAP 0.8 (the six questions, their sentences and
  * every figure belong to `src/seed/assistant-questions.ts` and the builders, so this module writes
- * none of its own); AAP 0.2.1 (message-level redaction, whose verdict is the evidence family's
- * `mayReadDocumentBody`); and `platform-contracts.md` §10 (the answer's members), §7.2 (the policies),
- * §7.1 (who may read the assistant) and §6 (the audited actions).
+ * none of its own); AAP 0.2.1 (message-level redaction: the evidence family's `mayReadDocumentBody` for
+ * a cited document's body, and each cited record family's own read for the rest); and
+ * `platform-contracts.md` §10 (the answer's members), §7.2 (the policies), §7.1 (who may read the
+ * assistant and the record families it cites) and §6 (the audited actions).
  *
  * DETERMINISTIC BY CONSTRUCTION. The answer is a function of the session's records and the question
  * asked: no clock, no random source, no module-level mutable value and no platform global is read, and
@@ -61,7 +62,12 @@ import type {
   SuggestedQuestion,
 } from '../../../types';
 import { answerQuestion, unscriptedAnswer } from '../assistant-script';
-import type { AssistantQuestion, SeedRecordSet } from '../seed-loader';
+import type {
+  AssistantQuestion,
+  AssistantQuestionRecord,
+  AssistantQuestionRecordKind,
+  SeedRecordSet,
+} from '../seed-loader';
 import type { HandlerContext } from '../mock-state';
 import { demonstrationForbiddenReason, isSimulationOn } from '../simulation';
 import { appendAuditEvent, assertFreeTextLength } from './audit';
@@ -80,6 +86,38 @@ import { DOCUMENT_CONFIDENTIAL_READ, mayReadDocumentBody } from './evidence';
  * who may read and this module is not (AAP 0.6.2, rule P-3).
  */
 const EVIDENCE_READ: Permission = 'evidence.read';
+
+/**
+ * The permission every read of the exception family requires: `exception.read` of contracts §7.1.
+ *
+ * An answer is built from that family's records — an exception's own account, the customer orders its
+ * impact chain names and the solver case it is measured against — and `./exceptions.ts` refuses every
+ * one of those reads to a role the matrix leaves without this permission. Named here so a question's
+ * citations answer to the same read the exception screens do, rather than to the evidence read alone
+ * (AAP 0.2.1's redaction, AAP 0.6.2).
+ */
+const EXCEPTION_READ: Permission = 'exception.read';
+
+/**
+ * The permission each record family a question cites requires of its reader — contracts §7.1.
+ *
+ * An answer quotes the records it cites, so it discloses what those records' own reads disclose. The
+ * exception family's records are served by `./exceptions.ts` behind `exception.read`: an exception, the
+ * customer orders its impact chain and its affected-order table name, and the solver case its baseline
+ * is measured from. A package and a document are served by `./evidence.ts` behind `evidence.read`, and
+ * a customer-confidential document body is still answered by the evidence family's own
+ * `mayReadDocumentBody`, which the body check beside `requireCitedRecordFamilies` applies first.
+ *
+ * Typed as a total record over `AssistantQuestionRecordKind`, so a record family the seed adds later
+ * fails to compile here rather than passing through the gate unjudged (AAP 0.18.2).
+ */
+const PERMISSION_BY_RECORD_KIND: Readonly<Record<AssistantQuestionRecordKind, Permission>> = {
+  exception: EXCEPTION_READ,
+  'customer-order': EXCEPTION_READ,
+  'solver-case': EXCEPTION_READ,
+  package: EVIDENCE_READ,
+  document: EVIDENCE_READ,
+};
 
 /**
  * The action a question records, spelled as contracts §6 and the seeded trail spell it: an
@@ -266,6 +304,95 @@ function requireCitedDocumentBodies(
 
     if (document !== undefined && !mayReadDocumentBody(ctx, document)) {
       throw withheldDocumentProblem(ctx, document);
+    }
+  }
+}
+
+/**
+ * The words a record family is named by in a refusal: the kind the seed states, with the hyphen its
+ * spelling carries read as the space the sentence needs (`'customer-order'` reads "customer order").
+ *
+ * Derived from the kind rather than held in a second table beside `PERMISSION_BY_RECORD_KIND`, so a
+ * family the seed adds is named by the same spelling the rest of the record set uses (rule P-6).
+ *
+ * @param kind - The family the cited record belongs to.
+ * @returns The family as a sentence names it.
+ */
+function recordFamilyName(kind: AssistantQuestionRecordKind): string {
+  return kind.replaceAll('-', ' ');
+}
+
+/**
+ * The refusal a question citing a record the acting persona may not read is answered with.
+ *
+ * Composed as `withheldDocumentProblem` above it is, so a forbidden card renders either cause the same
+ * way, and it carries the members that card and a disabled control need: the permission the record's
+ * family requires and the roles that hold it, read from `rolesWith` rather than from a list written
+ * here (rule P-8). The message names the record family in words, the record by the identifier the
+ * record states and the acting role, and it says plainly that no answer was composed for the question.
+ * It quotes no field of the record, so the refusal cannot become the disclosure it reports (rule P-6).
+ *
+ * @param ctx - The call's context, whose trace the refusal carries.
+ * @param cited - The cited record whose family the acting role may not read.
+ * @param permission - The permission that family's own read requires.
+ * @returns The `Problem` to throw.
+ */
+function withheldRecordFamilyProblem(
+  ctx: HandlerContext,
+  cited: AssistantQuestionRecord,
+  permission: Permission,
+): Problem {
+  return {
+    type: 'permission',
+    message:
+      `The question cites ${recordFamilyName(cited.kind)} ${cited.id}, and the acting role ` +
+      `(${ctx.actor.role}) does not hold the ${permission} permission that reads it: no answer was ` +
+      'composed for the question.',
+    traceId: ctx.traceId,
+    requiredPermission: permission,
+    rolesWithPermission: rolesWith(permission),
+  };
+}
+
+/**
+ * Refuses a question whose cited records the acting persona may not read — the other half of the
+ * redaction AAP 0.2.1 and AAP 0.6.2 require of the answer path.
+ *
+ * A question's answer is composed from the records it cites, and each record family's own read requires
+ * a permission of its own (contracts §7.1). The exception screens refuse `exception.read` to a role the
+ * evidence read admits, so a question citing an exception — and the customer orders and the solver case
+ * its answer measures — has to answer to that permission, or the answer would disclose figures the
+ * screen behind it withholds. `PERMISSION_BY_RECORD_KIND` is the whole of that mapping, and the check
+ * is `hasPermission`'s, the same one `./exceptions.ts` makes, so the two paths cannot disagree about who
+ * may read a family.
+ *
+ * Only a matched seeded question is judged: a question of the reader's own cites no record, so there is
+ * nothing here to read. The walk follows the cited order and stops at the first record whose family the
+ * actor may not read, so the refusal names one record rather than inventorying the question's
+ * citations.
+ *
+ * It runs after `requireCitedDocumentBodies`, so the body a document read withholds keeps its own
+ * refusal: a question citing a customer-confidential document is refused for that body, which is the
+ * refusal the evidence family already gives it.
+ *
+ * @param ctx - The call's context: the persona the answer would be composed for.
+ * @param question - The suggested question the request matched, when it matched one.
+ * @throws Problem - A `'permission'` failure naming the record, its family's permission and the roles
+ *   that hold it.
+ */
+function requireCitedRecordFamilies(
+  ctx: HandlerContext,
+  question: AssistantQuestion | undefined,
+): void {
+  if (question === undefined) {
+    return;
+  }
+
+  for (const cited of question.records) {
+    const permission = PERMISSION_BY_RECORD_KIND[cited.kind];
+
+    if (!hasPermission(ctx.actor.role, permission, null, ctx.actor)) {
+      throw withheldRecordFamilyProblem(ctx, cited, permission);
     }
   }
 }
@@ -794,19 +921,23 @@ export async function listModels(ctx: HandlerContext): Promise<ModelCatalogue> {
  *    customer-confidential body is refused here, before an answer is composed, on the evidence
  *    family's own verdict (AAP 0.2.1, AAP 0.12.3). It runs after the decision above, so a blocked
  *    question still returns the block card and the alternative it permits.
- * 6. The answer, from the scripted builder that matches the question or from the fixed notice for
+ * 6. The record families the matched question cites, each held to the permission its own read requires:
+ *    a question citing the exception family's records is refused to a role the exception screens refuse,
+ *    because the answer would otherwise state what that family's read withholds (AAP 0.2.1, AAP 0.6.2).
+ *    It runs after the body check above, so a withheld customer-confidential body keeps its own refusal.
+ * 7. The answer, from the scripted builder that matches the question or from the fixed notice for
  *    anything else, followed by the one event the question records.
  *
- * A denial never reaches step 5 or 6: the question's own event and the policy-actor event that refused
+ * A denial never reaches steps 5 to 7: the question's own event and the policy-actor event that refused
  * it are appended, and the refusal is thrown with no answer, no citation and no figure composed for it.
  *
  * @param ctx - The session's state and the persona the call acts as.
  * @param input - The question, the model it is put to and the records it runs over.
  * @returns The builder's answer, with the model the question was put to named on it.
- * @throws Problem - A `'permission'` refusal — the evidence read, or a cited body the acting role may
- *   not open — a `'validation'` failure when no question was carried or when the question is longer
- *   than the free-text ceiling, a `'not-found'` failure naming an unknown model, or the `'policy'`
- *   block the engine decided.
+ * @throws Problem - A `'permission'` refusal — the evidence read, a cited body the acting role may not
+ *   open, or a cited record whose family's own read the role does not hold — a `'validation'` failure
+ *   when no question was carried or when the question is longer than the free-text ceiling, a
+ *   `'not-found'` failure naming an unknown model, or the `'policy'` block the engine decided.
  */
 export async function askAssistant(
   ctx: HandlerContext,
@@ -856,6 +987,11 @@ export async function askAssistant(
   // in-boundary alternative it offers; only a question the policy allowed meets the body redaction the
   // document read applies, before any answer is composed from the records it cites.
   requireCitedDocumentBodies(ctx, question);
+
+  // Then the read each record family the question cites requires, so a role the exception screens
+  // refuse reads no exception, order or solver case through an answer either (AAP 0.2.1, AAP 0.6.2).
+  // The body check above stays first, so a customer-confidential body keeps its own refusal.
+  requireCitedRecordFamilies(ctx, question);
 
   /*
    * Nothing below this line decides anything: the sentences and the figures are the seeded templates

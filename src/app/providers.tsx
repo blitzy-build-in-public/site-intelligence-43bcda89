@@ -87,11 +87,12 @@ import { observeWriteReads } from '../services/write-reads';
 /**
  * What the shell shares with the screens below it, and the setters that change it.
  *
- * Six values, each owned by exactly one surface and read by several: the active role (the role
+ * Seven values, each owned by exactly one surface and read by several: the active role (the role
  * switcher, read by this file for the theme's default density), the scope filters (the top bar, read
  * by every list call and aggregate), the selected node (both FileMap canvas lenses), the wall-mode
- * flag (the canvas), the simulation popover's open state (the badge and the popover itself) and the
- * one sentence the shell announces after an action that closes its own panel.
+ * flag (the canvas), the simulation popover's open state (the badge and the popover itself), the one
+ * sentence the shell announces after an action that closes its own panel, and the count of
+ * demonstration resets that a screen holding a view choice of its own reads its choice against.
  *
  * The setters take the value to store rather than a reducer action, because no transition here has a
  * rule beyond assignment; where a change has a consequence — a role switch appends an audit event
@@ -109,7 +110,11 @@ export interface ShellState {
    * answers this selection when there is one and the persona the adapter reported at start-up otherwise
    * — so the shell displays the role the adapter enforces before anyone has switched, and keeps
    * displaying the one it switched to, because `Reset demo data` restores the adapter's records and
-   * leaves the persona both of them act as alone (AAP 0.6.3 "Identity").
+   * leaves the persona both of them act as alone (AAP 0.6.3 "Identity"). The persona and the top bar's
+   * scope filters are the two values a reset leaves standing, because both are the reader's own rather
+   * than a view of the records: what a reset does put back is the demonstration's opening view — the
+   * canvas selection, wall mode and every screen's recorded choice of what to show
+   * ({@link ShellState.demonstrationEpoch}).
    *
    * No screen derives authority from it: the adapter evaluates the permission matrix against its own
    * acting persona rather than trusting a caller's field (rule P-3 — the checks behind the switcher are
@@ -153,6 +158,28 @@ export interface ShellState {
    */
   simulationOpen: boolean;
 
+  /**
+   * How many times this session's records have been put back to the seeded demonstration.
+   *
+   * WHY THE SHELL COUNTS THEM. A screen's view state that outlives its mount — the canvas's lens, the
+   * atlas's class in view and the entity it reports on — belongs to the session it was chosen in, and
+   * `Reset demo data` ends that session: the records are the seeded ones again, so the choice of what to
+   * show over them is due back at its opening value. A store that keeps such a choice records this count
+   * beside it and reads a first visit's values once the count has moved, which tells a choice made
+   * before the reset from the same choice made after it without either store reading the other's state.
+   *
+   * WHY HERE RATHER THAN IN THE SCREENS. The reset is the shell's own action, and no screen may read the
+   * shell's stores (AAP §0.18.1), so the count travels the way the scope and the selection do:
+   * `src/app/router.tsx` reads it and hands it to the screen as a prop, and the screen compares it with
+   * the one its own store recorded. That is also why it is a count rather than a flag — a reader may
+   * reset twice in one session and the second reset has to be tellable from the first.
+   *
+   * In memory only, like every other field here: a reload starts a fresh demonstration and discards the
+   * count with it, because theme and density are the only preferences written to browser storage
+   * (contracts §1).
+   */
+  demonstrationEpoch: number;
+
   /** Acts as another persona, or clears the persona the shell holds. */
   setActiveRole(role: Role | null): void;
 
@@ -167,6 +194,18 @@ export interface ShellState {
 
   /** Opens or closes the simulation popover. */
   setSimulationOpen(open: boolean): void;
+
+  /**
+   * Notes that the seeded demonstration has been put back, so every screen holding a view choice made
+   * before the reset reads a first visit's values again.
+   *
+   * The one writer is `Reset demo data`, and it calls this after the port has resolved: a reset the
+   * service refused moves nothing on screen, so it must move nothing here either — which is why the
+   * count is a member of this store rather than an increment written at the control. It counts rather
+   * than flags, for the reason {@link ShellState.demonstrationEpoch} gives: a second reset has to be
+   * tellable from the first.
+   */
+  noteDemonstrationReset(): void;
 
   /**
    * The outcome of an action that took the control it was pressed from off the screen, or `''`.
@@ -184,21 +223,30 @@ export interface ShellState {
   /**
    * Returns the shell's own view of the session to a first visit's state.
    *
-   * NOT the demonstration's reset. `Reset demo data` restores the adapter's records and leaves the
-   * reader's persona, scope filters, selection, wall mode and the popover's own flag standing, so no
-   * screen or control calls this member; what needs it is a suite that drives the shell more than once,
-   * which has to return the store to its opening state between cases for the same reason a fresh page
-   * starts there. It restores all five fields.
+   * NOT the demonstration's reset, although the two share the view they land on. `Reset demo data`
+   * restores the adapter's records, clears the canvas selection and wall mode and notes the reset for
+   * the screens ({@link ShellState.noteDemonstrationReset}), while the persona in force and the top
+   * bar's scope filters stand as the reader left them; this member asks the adapter for nothing and
+   * moves every field, the persona and the filters included. No screen or control calls it: what needs
+   * it is a suite that drives the shell more than once, which has to return the store to its opening
+   * state between cases for the same reason a fresh page starts there. It restores every data field,
+   * the count of demonstration resets included.
    */
   resetShell(): void;
 }
 
 /**
- * The five data fields, without the setters: the shape the store's initial state is built from.
+ * The data fields, without the setters: the shape the store's initial state is built from.
  */
 type ShellData = Pick<
   ShellState,
-  'activeRole' | 'scope' | 'selectedNodeId' | 'wallMode' | 'simulationOpen' | 'announcement'
+  | 'activeRole'
+  | 'scope'
+  | 'selectedNodeId'
+  | 'wallMode'
+  | 'simulationOpen'
+  | 'demonstrationEpoch'
+  | 'announcement'
 >;
 
 /**
@@ -211,7 +259,9 @@ type ShellData = Pick<
  *
  * The scope begins empty on both members, which is the "All plants" and "All products" selection the
  * type defines rather than a filter naming nothing (rule P-6: no plant or product code is written
- * here).
+ * here). The reset count begins at zero, because a session that has just started has never had its
+ * records put back — and it is the value {@link ShellState.resetShell} returns it to, so a suite that
+ * drives the shell more than once starts where a fresh page does.
  *
  * @returns The initial shell state, with the setters supplied by the store itself.
  */
@@ -222,6 +272,7 @@ function initialShellData(): ShellData {
     selectedNodeId: null,
     wallMode: false,
     simulationOpen: false,
+    demonstrationEpoch: 0,
     announcement: '',
   };
 }
@@ -234,9 +285,13 @@ function initialShellData(): ShellData {
  * written to browser storage, and the theme provider owns them), and without any other middleware, so
  * a value read here is the value a setter stored and nothing observes, transforms or replays it. Each
  * field moves through its own setter: a demonstration reset restores the adapter's records and leaves
- * the persona in force — and every other value a reader chose here — as they left it, while the closing
- * popover takes its own open flag back. {@link ShellState.resetShell} is the store's own way back to
- * the opening state and no application control calls it.
+ * the persona in force and the top bar's scope filters as the reader chose them — the two values that
+ * describe who is reading rather than what the demonstration shows — while the canvas selection and
+ * wall mode go back to their opening values through their own setters, and the reset is counted so
+ * every screen holding a recorded view choice reads a first visit's value again
+ * ({@link ShellState.noteDemonstrationReset}); the closing popover takes its own open flag back.
+ * {@link ShellState.resetShell} is the store's own way back to the opening state and no application
+ * control calls it.
  */
 export const useShellStore: UseBoundStore<StoreApi<ShellState>> = create<ShellState>()((set) => ({
   ...initialShellData(),
@@ -259,6 +314,10 @@ export const useShellStore: UseBoundStore<StoreApi<ShellState>> = create<ShellSt
 
   setSimulationOpen: (open) => {
     set({ simulationOpen: open });
+  },
+
+  noteDemonstrationReset: () => {
+    set((state) => ({ demonstrationEpoch: state.demonstrationEpoch + 1 }));
   },
 
   setAnnouncement: (announcement) => {

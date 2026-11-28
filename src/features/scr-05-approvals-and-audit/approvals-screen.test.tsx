@@ -8,6 +8,15 @@
  * already ordered left the order in effect unannounced, which is the gap this case holds shut; the
  * announcement is the caller's `defaultOrder`, so it reorders no row and reaches no `onSort`.
  *
+ * The plan cell is the one cell in this inbox holding two values, so a second case holds it to one
+ * line: the cell carries the table's single-line marker, the two references stand in a row rather than
+ * in a stacking column, and each of them is still the text of its own element inside that one cell. A
+ * row's `height` is only a minimum, so a stacked cell would grow the row past the 32 px compact and
+ * 44 px comfortable the density tokens fix (AAP 0.5.3, 0.12.4). That floor is the whole table's
+ * rather than one cell's — a cell that wraps in a container too narrow for the columns grows the row
+ * just as a stacked one does — so a third case holds every column of a row to the same marker, and
+ * the freshness cell, whose two parts sit in a flex row, to a row that does not wrap.
+ *
  * The empty state is proved on both of its branches, because the two ways a read comes back with
  * nothing must not read alike: a read the shell's selection narrowed keeps the scope wording, and a
  * read nothing narrowed states the trigger-neutral sentence, since an empty answer is the same answer
@@ -109,6 +118,21 @@ const APPROVALS: readonly Approval[] = [
  * than reached for through a rendered cell: the assertion is about the header a reader hears.
  */
 const APPROVAL_COLUMN = 'Approval';
+
+/**
+ * The inbox's visible column header for the plan cell, stated here for the same reason: it is the
+ * screen's own wording, and the assertion is about the cell under the header a reader hears.
+ */
+const PLAN_COLUMN = 'Plan';
+
+/**
+ * The opening word of the freshness column's header.
+ *
+ * The header appends the display name of the source the cells report, which the screen reads from the
+ * one map that pairs a source with its name, so the suite matches the part that identifies the column
+ * rather than re-typing the whole header.
+ */
+const FRESHNESS_COLUMN = 'Freshness';
 
 /**
  * The two sentences the inbox states when its read answered with no approval.
@@ -218,6 +242,88 @@ describe('ApprovalsScreen', () => {
         .slice(1)
         .map((row) => within(row).getAllByRole('cell')[0]?.textContent),
     ).toEqual([...APPROVALS].reverse().map((approval) => approval.id));
+  });
+
+  it('sets the plan cell on one line, its two references side by side in the one cell', async () => {
+    renderScreen();
+
+    const table = await screen.findByRole('table');
+    const planColumnIndex = within(table)
+      .getAllByRole('columnheader')
+      .indexOf(within(table).getByRole('columnheader', { name: PLAN_COLUMN }));
+
+    expect(planColumnIndex).toBeGreaterThanOrEqual(0);
+
+    for (const approval of APPROVALS) {
+      const row = within(table).getByText(approval.id).closest('tr');
+      const cells = row === null ? [] : within(row).getAllByRole('cell');
+      const planCell = cells[planColumnIndex];
+
+      /*
+       * The cell takes the table's single-line marker. That is what keeps the row on the density
+       * token: a row's `height` is only a minimum, so a cell that wraps or stacks measures taller than
+       * the 32 px compact and 44 px comfortable the tokens fix (AAP 0.5.3, 0.12.4).
+       */
+      expect(planCell).toHaveClass('whitespace-nowrap');
+
+      /* The two references stand in a row rather than in a column that would stack them. */
+      const planContent = planCell?.firstElementChild;
+      expect(planContent).toHaveClass('flex', 'items-center');
+      expect(planContent).not.toHaveClass('flex-col');
+
+      /*
+       * They stay two values of their own: each identifier is the whole text of its own element
+       * inside the one cell, so neither is joined into a string no record holds (rule P-6).
+       */
+      expect(Array.from(planContent?.children ?? []).map((child) => child.textContent)).toEqual([
+        approval.scenarioId,
+        approval.exceptionId,
+      ]);
+    }
+  });
+
+  it('holds every cell of a row on one line, the freshness cell from wrapping too', async () => {
+    renderScreen();
+
+    const table = await screen.findByRole('table');
+    const headers = within(table).getAllByRole('columnheader');
+    const freshnessColumnIndex = headers.findIndex((header) =>
+      (header.textContent ?? '').startsWith(FRESHNESS_COLUMN),
+    );
+
+    expect(freshnessColumnIndex).toBeGreaterThanOrEqual(0);
+
+    for (const approval of APPROVALS) {
+      const row = within(table).getByText(approval.id).closest('tr');
+      const cells = row === null ? [] : within(row).getAllByRole('cell');
+
+      expect(cells).toHaveLength(headers.length);
+
+      /*
+       * Every column carries the table's single-line marker, not the plan column alone. A cell that
+       * wraps in a container too narrow for the columns measures taller than the 32 px compact and
+       * 44 px comfortable the density tokens fix, because a row's `height` is only a minimum: the
+       * table scrolls inside its own container so that no row leaves the density in effect
+       * (AAP 0.5.3, 0.12.4).
+       */
+      for (const cell of cells) {
+        expect(cell).toHaveClass('whitespace-nowrap');
+      }
+
+      /*
+       * The freshness cell holds the state's indicator and the instant it last answered side by side:
+       * it is laid out as a flex row that neither wraps nor stacks, and the two parts are the read's
+       * own values — the state the sources reported, then that source's `asOf`.
+       */
+      const freshnessContent = cells[freshnessColumnIndex]?.firstElementChild;
+      expect(freshnessContent).toHaveClass('inline-flex', 'items-center');
+      expect(freshnessContent).not.toHaveClass('flex-wrap');
+      expect(freshnessContent).not.toHaveClass('flex-col');
+
+      const freshnessParts = Array.from(freshnessContent?.children ?? []);
+      expect(freshnessParts).toHaveLength(2);
+      expect(freshnessParts[0]?.textContent).toBe(FRESH_SOURCES[0]?.state);
+    }
   });
 
   it('states the trigger-neutral sentence when the read answers with nothing and no scope narrows it', async () => {

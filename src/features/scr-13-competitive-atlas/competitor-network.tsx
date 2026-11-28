@@ -30,6 +30,14 @@
  * is left unprinted rather than printed over its neighbour. Every mark stays its own control in the tab
  * order and its own entry in the accessible tree, so nothing is lost to the overlap.
  *
+ * HOW LARGE A NAME PRINTS, AND WHY IT IS MEASURED. The element fills its frame, so a name set at a fixed
+ * number of user units prints at whatever size that frame's width multiplies it to — about 6 CSS px in the
+ * atlas's narrowest column and about 35 px in a full-width one. The drawing measures its own width, resolves
+ * the type step that prints at one of specification §4.3's sizes, prints every name at that step and tells
+ * the placement about it, so a crowded name steps out by the clearance and distances that type implies; a
+ * crossing whose name the placement had to move keeps a leader back to its halo, and one already beside its
+ * halo needs none (see {@link NetworkLabelPrint}).
+ *
  * WHY PROVENANCE IS STRUCTURAL (rule P-5). The two families are separate props and separate groups:
  * `clientSites` and `lanes` are the client's own first-party network, `networks` holds the
  * competitors' market-intelligence networks, and `chokepoints` holds the crossings the pack records.
@@ -112,6 +120,7 @@ import type {
   ReactNode,
 } from 'react';
 
+import { useChartScale } from '../../components/chart-readout';
 import { EvidenceDrawer } from '../../components/evidence-drawer';
 import { CHART_TONE_CLASSES, competitorSlotOf } from '../../components/horizontal-bar-chart';
 import type { CompetitorSlot } from '../../components/horizontal-bar-chart';
@@ -120,12 +129,19 @@ import type { SeriesBandGeometry, SeriesBandRow } from '../../components/series-
 import {
   LABEL_CLEARANCE,
   LABEL_DISTANCES,
-  SVG_LABEL_FONT_SIZE,
-  SVG_LABEL_TEXT_METRICS,
+  estimateDrawnTextWidth,
+  labelStepRatioOf,
   markObstacleOf,
   placeLabels,
+  renderedLabelMetrics,
 } from '../../components/svg-label';
-import type { LabelFit, LabelObstacle, LabelPlacement, LabelRequest } from '../../components/svg-label';
+import type {
+  LabelFit,
+  LabelObstacle,
+  LabelPlacement,
+  LabelRequest,
+  SvgTextMetrics,
+} from '../../components/svg-label';
 import {
   CLIENT_SELF_ASSESSMENT_LABEL,
   COMPETITOR_NAME_TAG,
@@ -199,12 +215,12 @@ const MARKET_INTELLIGENCE_LABEL: (typeof SIM_LABELS)[5] = SIM_LABELS[5];
  * The drawing's coordinate space, in user units rather than pixels.
  *
  * The element is sized by CSS and the `viewBox` maps these units onto it, so the network scales with
- * its container and keeps its proportions at every width instead of needing a breakpoint. The box is
- * deliberately small relative to the width the drawing is given: a 12-unit label then renders at
- * roughly 15 CSS pixels in a full-width panel rather than shrinking to single figures, which is what
- * keeps the site names readable when the atlas is composed at a narrower width. The plot occupies the
- * top of the box and the label band grows downwards from {@link PLOT_HEIGHT}, one row per series, so a
- * payload with more networks pushes the drawing taller instead of clipping a label.
+ * its container and keeps its proportions at every width instead of needing a breakpoint. The box
+ * therefore decides the layout and not the type: the size a name prints at is resolved from the width the
+ * element is actually rendered at (see {@link NetworkLabelPrint}), so a name stays one of specification
+ * §4.3's sizes in the atlas's narrowest column and in a full-width panel alike. The plot occupies the top
+ * of the box and the label band grows downwards from {@link PLOT_HEIGHT}, one row per series, so a payload
+ * with more networks pushes the drawing taller instead of clipping a label.
  */
 const VIEW_WIDTH = 760;
 const PLOT_HEIGHT = 440;
@@ -228,6 +244,51 @@ const FRAME_MAX_LATITUDE = 72;
 
 /** Coordinates are rounded so the emitted markup stays readable and stable across renders. */
 const COORDINATE_PRECISION = 100;
+
+/* ---------------------------------------------------------------------------------------------
+ * The label step — the type the drawing prints at, and every length tuned to that type
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The type this drawing prints its names at, and the factor every length beside them is stated at.
+ *
+ * WHY THE DRAWING RESOLVES THIS AND NOT ITS CLASSES. The `<svg>` fills its frame, so a name set at a fixed
+ * number of user units prints at whatever that frame's width multiplies it to: this layer's 12-unit step
+ * prints at about 6 px in the atlas's narrowest column, where it cannot be read, and at about 35 px in a
+ * full-width one, where it is larger than the page's own heading. `../../components/svg-label.ts`'s
+ * `renderedLabelMetrics` answers the step, in this drawing's user units, that prints at one of
+ * specification §4.3's sizes however wide the frame is, and `labelStepRatioOf` answers how far that step is
+ * from the 12-unit step every length beside a name was tuned to.
+ *
+ * WHY THE PLACEMENT IS TOLD THE SAME STEP. The placement in `../../components/svg-label.ts` reasons about
+ * the boxes a name covers, so it has to reason in the type the name is printed at: told 12 units while the
+ * name prints at 19, it would seat names that overprint one another, and told 12 while the name prints at
+ * 7 it would fling a crowded name several rings away from the mark it belongs to.
+ *
+ * WHY A `font-size` ATTRIBUTE AND NOT A UTILITY CLASS. A `text-12` utility states a user-unit size again and
+ * overrides the attribute, which is the defect this drawing is fixed for; the class lists below therefore
+ * keep only the role tokens — the fill the words are read in and the halo painted behind them.
+ */
+interface NetworkLabelPrint {
+  /** The type step and character width this drawing's names are set in, in its user units. */
+  readonly metrics: SvgTextMetrics;
+
+  /** The factor every length stated beside a name is multiplied by, relative to the 12-unit step. */
+  readonly ratio: number;
+}
+
+/**
+ * Resolves the print from the type this drawing's names are set in.
+ *
+ * `renderedLabelMetrics(null)` — no layout yet, which is every render under jsdom — answers the layer's own
+ * 12-unit step, so the ratio is then 1 and every length beside a name keeps the value it has always had.
+ *
+ * @param metrics The type step this drawing's names are set in.
+ * @returns The type, and the factor its label geometry is stated at.
+ */
+function labelPrintOf(metrics: SvgTextMetrics): NetworkLabelPrint {
+  return { metrics, ratio: labelStepRatioOf(metrics) };
+}
 
 /* ---------------------------------------------------------------------------------------------
  * Marks — sizes, rings and the label band
@@ -270,6 +331,26 @@ const HALO_STROKE = 2;
 const HALO_DASH = '4 3';
 
 /**
+ * The halo behind a mark's printed name, at the layer's 12-unit step.
+ *
+ * A name is haloed in the surface role the card behind the drawing paints — the device the radar's polygon
+ * labels and the map canvas's node labels use — so a lane, a halo or another mark's outline passing under
+ * the words is broken around them rather than running through the glyphs (rule B-3). Half the width falls
+ * inside the stroke the fill then paints over, which leaves a ring of roughly a unit and a half around
+ * twelve-unit type: enough to break a passing stroke, and narrow enough never to reach a neighbour's glyph.
+ * It is multiplied by the drawing's label step, so the halo stays proportionate to the type it surrounds.
+ */
+const MARK_LABEL_HALO_WIDTH = 3;
+
+/**
+ * The weight a displaced crossing's leader is drawn at: the hairline this drawing's structure already uses.
+ *
+ * A leader is decoration for a name the placement had to move away from its halo — not a mark and not a
+ * reading — so it takes the hairline role a ring or a lane takes and the weight that role is drawn at.
+ */
+const LEADER_STROKE = 1;
+
+/**
  * The label band under the plot: one row per series, each row a swatch, a name line and a label line.
  *
  * The swatch is drawn from the same shape vocabulary as the marks, so the band states which shape
@@ -283,6 +364,26 @@ const LABEL_BAND_LINE_HEIGHT = 15;
 const LABEL_BAND_PADDING = 18;
 
 /**
+ * The widths a cramped site's or crossing's name is shortened to and tried again at, widest first.
+ *
+ * The ladder steps down through a half, a third, a quarter and a sixth of the drawing's own width, which
+ * are the widths a name has to survive on the crowded part of the frame: a competitor's site a few units
+ * from the client's own, or a crossing under a junction of lanes. A sixth is the shortest a name can be cut
+ * to and still say which place it names, which is what a phone-width frame leaves beside a mark once every
+ * longer form has been tried and taken. They are stated in the drawing's units rather than
+ * at its label step, because what they describe is the room the frame has and not the size of the type:
+ * at a phone width the step is larger in those same units, which is exactly when the room runs out. A name
+ * the placement can seat whole is never shortened — the ladder is only reached once every candidate place
+ * for the full run has been tried and taken.
+ */
+const LABEL_SHORTENING_WIDTHS: readonly number[] = [
+  VIEW_WIDTH / 2,
+  VIEW_WIDTH / 3,
+  VIEW_WIDTH / 4,
+  VIEW_WIDTH / 6,
+];
+
+/**
  * Where this drawing's band starts, how its rows are spaced and where its swatch column sits.
  *
  * `src/components/series-band.tsx` owns the row itself — the two text roles, the truncation and the row in
@@ -291,15 +392,28 @@ const LABEL_BAND_PADDING = 18;
  * LABEL_BAND_LINE_HEIGHT} below its name, its swatch column at {@link LABEL_BAND_X}, and no line allowed
  * past the drawing's own width. The geometry travels with this drawing rather than with the component, so
  * the radar's band and this one keep their own proportions.
+ *
+ * THE ROW AND LINE HEIGHTS AND THE WIDTH A LINE MAY TAKE ARE MULTIPLIED BY THE LABEL STEP, and the step's own
+ * type is handed over with them: a row's two lines keep their spacing at every rendered size, and the
+ * truncation that keeps a name inside the drawing measures the type the drawing prints. The swatch column
+ * does not move, because it is a shape of its own rather than a length beside type.
+ *
+ * @param print The type this drawing's names are set in.
+ * @returns The geometry `src/components/series-band.tsx` prints this drawing's rows at.
  */
-const BAND_GEOMETRY: SeriesBandGeometry = {
-  top: PLOT_HEIGHT + LABEL_BAND_LINE_HEIGHT,
-  rowHeight: LABEL_BAND_ROW_HEIGHT,
-  lineHeight: LABEL_BAND_LINE_HEIGHT,
-  textX: LABEL_BAND_TEXT_X,
-  maxTextWidth: VIEW_WIDTH - LABEL_BAND_TEXT_X - LABEL_CLEARANCE,
-  swatch: { x: LABEL_BAND_X, size: LABEL_BAND_SWATCH_SIZE },
-};
+function bandGeometryOf(print: NetworkLabelPrint): SeriesBandGeometry {
+  const lineHeight = LABEL_BAND_LINE_HEIGHT * print.ratio;
+
+  return {
+    top: PLOT_HEIGHT + lineHeight,
+    rowHeight: LABEL_BAND_ROW_HEIGHT * print.ratio,
+    lineHeight,
+    textX: LABEL_BAND_TEXT_X,
+    maxTextWidth: VIEW_WIDTH - LABEL_BAND_TEXT_X - LABEL_CLEARANCE * print.ratio,
+    metrics: print.metrics,
+    swatch: { x: LABEL_BAND_X, size: LABEL_BAND_SWATCH_SIZE },
+  };
+}
 
 /* ---------------------------------------------------------------------------------------------
  * The competitor slots — shape and hue resolved from the competitor's own identifier
@@ -365,8 +479,14 @@ const COMPETITOR_MARK_CLASSES = 'fill-none';
 /** The client's own lanes: the control-boundary role, so an arc reads as structure, not as data. */
 const CLIENT_LANE_CLASSES = 'fill-none stroke-control-boundary';
 
-/** A site's or a crossing's printed name: the primary text role, haloed by the surface beneath it. */
-const MARK_LABEL_CLASSES = 'fill-text-primary stroke-surface-1 text-12';
+/**
+ * A site's or a crossing's printed name: the primary text role, haloed by the surface beneath it.
+ *
+ * No type utility, because the size a name prints at is resolved from the width the drawing's frame gives it
+ * and set as the element's own `font-size` (see {@link NetworkLabelPrint}): a `text-12` class would state a
+ * user-unit size and override that attribute, which is the defect this drawing is fixed for.
+ */
+const MARK_LABEL_CLASSES = 'fill-text-primary stroke-surface-1';
 
 /**
  * The extra weight a mark's own name takes where its state has to read without colour.
@@ -385,7 +505,7 @@ const SELECTED_LABEL_CLASSES = 'font-semibold';
  * so a receded name never drops below the 4.5:1 rule B-3 requires of text, and the recession is
  * carried by a role token rather than by a hue.
  */
-const RECEDED_LABEL_CLASSES = 'fill-text-secondary stroke-surface-1 text-12';
+const RECEDED_LABEL_CLASSES = 'fill-text-secondary stroke-surface-1';
 
 /** The stroke widths the lanes are drawn at: the client's first, a competitor's a little heavier. */
 const CLIENT_LANE_STROKE = 1;
@@ -634,6 +754,24 @@ interface PlacedClientNetwork {
   readonly lanes: readonly PlacedLane[];
 }
 
+/**
+ * The line that ties a displaced crossing's printed name back to the halo it belongs to.
+ *
+ * It is stated as two points on the drawing's own grid — where the line leaves the halo and where it meets
+ * the nearest edge of the name's box — so the mark renders one straight path and nothing here states a
+ * curve or a second anchor the placement would have to agree with.
+ */
+interface CrossingLeader {
+  /** The x the line leaves the halo at. */
+  readonly fromX: number;
+  /** The y the line leaves the halo at. */
+  readonly fromY: number;
+  /** The x the line meets the name's box at, which is that box's nearest point to the halo. */
+  readonly toX: number;
+  /** The y the line meets the name's box at. */
+  readonly toY: number;
+}
+
 /** One shared crossing, resolved to the point its halo is drawn at and the position of its printed name. */
 interface PlacedChokepoint {
   /** The crossing's identifier, used as the halo's key and reported on activation. */
@@ -646,6 +784,13 @@ interface PlacedChokepoint {
   readonly y: number;
   /** Where the crossing's name is printed, or `undefined` when the drawing had no room for it. */
   readonly printedLabel: LabelPlacement | undefined;
+  /**
+   * The line tying that name back to this halo, or `undefined` when the name is already beside it.
+   *
+   * The placement steps a crowded name outward, which is right for the name and leaves it reading as a name
+   * of whatever it now sits beside; the leader is what says which halo it names.
+   */
+  readonly leader: CrossingLeader | undefined;
 }
 
 /**
@@ -676,6 +821,13 @@ interface NetworkDrawing {
   readonly chokepoints: readonly PlacedChokepoint[];
   /** The label band's rows: the client's series first, then one per competitor. */
   readonly series: readonly SeriesRow[];
+  /**
+   * Where the band starts, how its rows are spaced at the type they print at, and that type.
+   *
+   * It travels with the drawing rather than being stated again by the component, so the band a reader sees
+   * and the height the drawing reserves for it cannot disagree about the step.
+   */
+  readonly band: SeriesBandGeometry;
   /** The drawing's height in user units, grown to fit the label band. */
   readonly viewHeight: number;
   /** The crossing each site's own lanes traverse, by site identifier, for its accessible name. */
@@ -1024,17 +1176,38 @@ function crossingLabelsOf(
  * below the plot; the mark radius is the ring a site's own mark draws, so a name centred above or below a
  * mark clears that ring; and the widest a shortened name may be is the plot's own width, so a run is cut
  * rather than printed past the edge.
+ *
+ * THE MARK RADIUS AND THE BOUNDS ARE PLOT GEOMETRY AND DO NOT MOVE. Everything else here is a length beside
+ * type — the clear space, the height of a name's box, the distances a name is tried at and the width it may
+ * occupy — and each is multiplied by the drawing's label step, so the placement reasons in the units the
+ * names are printed in. That is what makes a crowded name step out by the right amount instead of being
+ * flung several rings across the frame by boxes several times its own size.
+ *
+ * A CROWDED NAME IS SHORTENED BEFORE IT IS DROPPED, which is what the shortening ladder states: the atlas
+ * prints thirteen site names and four crossing names on one frame, and at a phone width the frame is a
+ * third of its natural size while every name keeps the 12 px step, so the room beside some marks is less
+ * than a whole name is wide. Without a ladder such a name could only be printed over its neighbour or not
+ * printed at all; with one it is cut to the room that exists, keeps the record's full wording in a `<title>`
+ * child and in the mark's own accessible name, and the table view beside the drawing prints it in full.
+ *
+ * @param print The type this drawing's names are set in.
+ * @returns The fit this drawing's names are placed through.
  */
-const NETWORK_LABEL_FIT: LabelFit = {
-  metrics: SVG_LABEL_TEXT_METRICS,
-  bounds: { width: VIEW_WIDTH, height: PLOT_HEIGHT },
-  boxHeight: SVG_LABEL_FONT_SIZE + 3,
-  lineHeight: SVG_LABEL_FONT_SIZE,
-  clearance: LABEL_CLEARANCE,
-  markRadius: RING_RADIUS,
-  distances: LABEL_DISTANCES,
-  maxTextWidth: VIEW_WIDTH - 2 * LABEL_CLEARANCE,
-};
+function networkLabelFitOf(print: NetworkLabelPrint): LabelFit {
+  const clearance = LABEL_CLEARANCE * print.ratio;
+
+  return {
+    metrics: print.metrics,
+    bounds: { width: VIEW_WIDTH, height: PLOT_HEIGHT },
+    boxHeight: print.metrics.fontSize + 3 * print.ratio,
+    lineHeight: print.metrics.fontSize,
+    clearance,
+    markRadius: RING_RADIUS,
+    distances: LABEL_DISTANCES.map((distance) => distance * print.ratio),
+    maxTextWidth: VIEW_WIDTH - 2 * clearance,
+    shorteningWidths: LABEL_SHORTENING_WIDTHS,
+  };
+}
 
 /**
  * The key a site's label is stored under.
@@ -1054,6 +1227,66 @@ function siteLabelKey(siteId: string): string {
  */
 function chokepointLabelKey(chokepointId: string): string {
   return `chokepoint:${chokepointId}`;
+}
+
+/**
+ * The leader a crossing's printed name needs when the placement could not seat it beside its halo.
+ *
+ * WHY A DISPLACED NAME NEEDS ONE. The placement is deterministic and steps a crowded name outward past the
+ * marks and the names that have taken the space beside it, which is right for the name and wrong for the
+ * reader: a crossing's name several rings away reads as a name belonging to whatever it now sits beside, and
+ * a frame with four crossings can leave four names floating nowhere near their halos. The leader says which
+ * halo a name names.
+ *
+ * WHY ONLY A DISPLACED ONE. The ring the placement's nearest distance defines is where a name belongs; a name
+ * still inside it is already read as the halo's own, and a second line through the drawing would be
+ * decoration adding nothing. The test is the distance from the halo's centre to the NEAREST POINT of the
+ * printed name's box, against that first ring, so a name seated above, below or beside its halo — whichever
+ * candidate the placement chose — is measured fairly rather than by its anchor alone.
+ *
+ * @param crossing The crossing whose halo the name belongs beside.
+ * @param placement Where the placement printed that name, if it had room for it at all.
+ * @param fit The room and geometry the names were placed through.
+ * @returns The leader's two points, or `undefined` when the name is already beside its halo.
+ */
+function leaderForCrossing(
+  crossing: ChokepointPlacement,
+  placement: LabelPlacement | undefined,
+  fit: LabelFit,
+): CrossingLeader | undefined {
+  const run = placement?.lines[0];
+
+  if (placement === undefined || run === undefined) {
+    return undefined;
+  }
+
+  /* The box the printed name covers once it is drawn: the first baseline is one type step down from the
+     box's top, the box is as tall as the fit says one line is, and its width is the advance the type
+     actually renders at rather than the wider box the placement reserved — a leader drawn to the reserved
+     box would stop in the space the reservation kept empty (see `estimateDrawnTextWidth`). */
+  const left = placement.labelX;
+  const top = placement.labelY - fit.metrics.fontSize;
+  const nearestX = clamp(crossing.x, left, left + estimateDrawnTextWidth(run, fit.metrics));
+  const nearestY = clamp(crossing.y, top, top + fit.boxHeight);
+  const offsetX = nearestX - crossing.x;
+  const offsetY = nearestY - crossing.y;
+  const gap = Math.hypot(offsetX, offsetY);
+  const firstRing = HALO_RADIUS + fit.clearance + (fit.distances[0] ?? 0);
+
+  if (!(gap > firstRing)) {
+    return undefined;
+  }
+
+  /* The line starts on the halo's own circumference, stepped out towards the name, so it touches the ring a
+     reader sees rather than the crossing's centre underneath it. */
+  const reach = HALO_RADIUS / gap;
+
+  return {
+    fromX: roundCoordinate(crossing.x + offsetX * reach),
+    fromY: roundCoordinate(crossing.y + offsetY * reach),
+    toX: roundCoordinate(nearestX),
+    toY: roundCoordinate(nearestY),
+  };
 }
 
 /**
@@ -1132,10 +1365,16 @@ interface SlottedNetwork {
  * competitors' networks are placed separately, joined only by the crossing names a site's own lanes
  * carry (rule P-5).
  *
+ * THE TYPE ARRIVES IN. The placement's boxes, the distance a crowded name steps out by, the room a name may
+ * occupy and the band's row heights are all lengths beside type, so the whole drawing is laid out in the
+ * step its names print at rather than in a fixed one (see {@link NetworkLabelPrint}), and a crossing whose
+ * name the placement had to move keeps a leader back to its halo.
+ *
  * @param clientSites The client's own sites, as the atlas payload states them.
  * @param networks The competitors' networks, in the payload's order.
  * @param clientLanes The lanes of the client's own network.
  * @param chokepoints The shared crossings the payload records.
+ * @param print The type this drawing prints its names at, which its placement and its band both reason in.
  * @returns Everything the drawing renders.
  */
 function drawingOf(
@@ -1143,6 +1382,7 @@ function drawingOf(
   networks: readonly CompetitorNetworkPayload[],
   clientLanes: readonly AtlasLane[],
   chokepoints: readonly Chokepoint[],
+  print: NetworkLabelPrint,
 ): NetworkDrawing {
   const clientPlacements: SitePlacement[] = [];
 
@@ -1199,13 +1439,32 @@ function drawingOf(
   );
   const everyLane = [...competitorLanes.flat(), ...clientPlacedLanes];
   const chokepointPlacements = placedChokepointsOf(chokepoints, everyLane);
+  const fit = networkLabelFitOf(print);
+  const band = bandGeometryOf(print);
 
+  /**
+   * The names to place, in the order that is their precedence when the frame runs out of room.
+   *
+   * THE ORDER IS THE PRECEDENCE, because `../../components/svg-label.ts` seats each request before the next
+   * and a name it cannot clear is the one left out. The client's own sites are placed first, since they are
+   * the drawing's only first-party records; the shared crossings come next, because the frame exists to show
+   * them and a halo with no name says nothing about which crossing it is; the competitors' sites follow,
+   * whose shapes, hues and rows in the table view identify them where the narrowest frame has no room left
+   * for their names. At the widths where every name fits, all three are printed and the order decides
+   * nothing a reader can see.
+   */
   const labelRequests: LabelRequest[] = [
     ...clientPlacements.map((placement) => ({
       key: siteLabelKey(placement.site.id),
       lines: [placement.site.label],
       x: placement.x,
       y: placement.y,
+    })),
+    ...chokepointPlacements.map((crossing) => ({
+      key: chokepointLabelKey(crossing.id),
+      lines: [crossing.label],
+      x: crossing.x,
+      y: crossing.y,
     })),
     ...slotsTaken.flatMap((entry) =>
       entry.sites.map((placement) => ({
@@ -1215,12 +1474,6 @@ function drawingOf(
         y: placement.y,
       })),
     ),
-    ...chokepointPlacements.map((crossing) => ({
-      key: chokepointLabelKey(crossing.id),
-      lines: [crossing.label],
-      x: crossing.x,
-      y: crossing.y,
-    })),
   ];
 
   const obstacles: LabelObstacle[] = [
@@ -1237,7 +1490,7 @@ function drawingOf(
     ),
   ];
 
-  const labelPositions = placeLabels(labelRequests, obstacles, NETWORK_LABEL_FIT);
+  const labelPositions = placeLabels(labelRequests, obstacles, fit);
 
   const placeSite = (placement: SitePlacement): PlacedSite => ({
     ...placement,
@@ -1256,10 +1509,15 @@ function drawingOf(
     lanes: competitorLanes[index] ?? [],
   }));
 
-  const placedCrossings: PlacedChokepoint[] = chokepointPlacements.map((crossing) => ({
-    ...crossing,
-    printedLabel: labelPositions.get(chokepointLabelKey(crossing.id)),
-  }));
+  const placedCrossings: PlacedChokepoint[] = chokepointPlacements.map((crossing) => {
+    const printedLabel = labelPositions.get(chokepointLabelKey(crossing.id));
+
+    return {
+      ...crossing,
+      printedLabel,
+      leader: leaderForCrossing(crossing, printedLabel, fit),
+    };
+  });
 
   const series = seriesRowsOf(client, competitors, placedCrossings);
   const labelById = new Map(chokepoints.map((crossing) => [crossing.id, crossing.label]));
@@ -1269,10 +1527,11 @@ function drawingOf(
     competitors,
     chokepoints: placedCrossings,
     series,
+    band,
     viewHeight:
       series.length === 0
-        ? PLOT_HEIGHT + LABEL_BAND_PADDING
-        : PLOT_HEIGHT + series.length * LABEL_BAND_ROW_HEIGHT + LABEL_BAND_PADDING,
+        ? PLOT_HEIGHT + LABEL_BAND_PADDING * print.ratio
+        : PLOT_HEIGHT + series.length * band.rowHeight + LABEL_BAND_PADDING * print.ratio,
     crossingLabelBySiteId: crossingLabelsOf(everyLane, labelById),
   };
 }
@@ -1664,6 +1923,8 @@ interface SiteMarkProps {
   readonly opensEvidence: boolean;
   /** How this site's family is painted while the screen reports an entity in view. */
   readonly emphasis: FamilyEmphasis;
+  /** The type this drawing's names are set in, so this one prints at the step the drawing resolved. */
+  readonly print: NetworkLabelPrint;
   /** Reports the activation to the drawing. */
   readonly onActivate: () => void;
 }
@@ -1678,7 +1939,12 @@ interface SiteMarkProps {
  * is revealed by a hover or a press — each in a role token, and the selected ring's colour change is
  * accompanied by `aria-current`, so no state is conveyed by colour alone (rule B-3).
  *
- * @param props The site, its crossing, its state and its handler.
+ * THE NAME PRINTS AT THE STEP THE DRAWING RESOLVED, haloed in proportion to it: the size arrives as the
+ * element's own `font-size` rather than from a class, so a site's name is the same specification §4.3 size
+ * in a narrow column and in a wide one, and the halo behind it breaks a passing lane without swallowing a
+ * neighbour (see {@link NetworkLabelPrint}).
+ *
+ * @param props The site, its crossing, its state, the type to print at and its handler.
  * @returns The site's mark.
  */
 function SiteMark({
@@ -1687,6 +1953,7 @@ function SiteMark({
   isSelected,
   opensEvidence,
   emphasis,
+  print,
   onActivate,
 }: SiteMarkProps): JSX.Element {
   const { site, x, y, slot, printedLabel } = placed;
@@ -1729,7 +1996,8 @@ function SiteMark({
         <text
           x={printedLabel.labelX}
           y={printedLabel.labelY}
-          strokeWidth={3}
+          fontSize={print.metrics.fontSize}
+          strokeWidth={MARK_LABEL_HALO_WIDTH * print.ratio}
           paintOrder="stroke"
           className={nameClassesFor(emphasis, isSelected)}
         >
@@ -1755,6 +2023,8 @@ interface ChokepointMarkProps {
   readonly isSelected: boolean;
   /** Whether activating the mark opens the evidence drawer. */
   readonly opensEvidence: boolean;
+  /** The type this drawing's names are set in, so this one prints at the step the drawing resolved. */
+  readonly print: NetworkLabelPrint;
   /** Reports the activation to the drawing. */
   readonly onActivate: () => void;
 }
@@ -1768,16 +2038,24 @@ interface ChokepointMarkProps {
  * reader cannot mistake the contention for a first-party finding (rule P-5, rule P-1). The dashed ring
  * is the simulated status role, which is the role specification §4.2 gives a simulated element.
  *
- * @param props The crossing, its state and its handler.
+ * WHERE THE PLACEMENT COULD NOT SEAT THE NAME BESIDE THE HALO, A LEADER JOINS THE TWO. The placement steps a
+ * crowded name outward past the marks and names that took the space beside it, so a name can end up a long
+ * way from the halo it names; the leader runs from the halo's own circumference to the nearest point of the
+ * name's box, drawn in the hairline role and transparent to the pointer, so it says which halo belongs to
+ * which name without becoming a mark a reader can press or a screen reader announces. A name already beside
+ * its halo carries none, because that name is read as the halo's own already.
+ *
+ * @param props The crossing, its state, the type to print at and its handler.
  * @returns The crossing's mark.
  */
 function ChokepointMark({
   crossing,
   isSelected,
   opensEvidence,
+  print,
   onActivate,
 }: ChokepointMarkProps): JSX.Element {
-  const { x, y, label, printedLabel } = crossing;
+  const { x, y, label, printedLabel, leader } = crossing;
   const printedName = printedLabel?.lines[0];
 
   return (
@@ -1820,11 +2098,25 @@ function ChokepointMark({
         strokeDasharray={HALO_DASH}
         className="fill-none stroke-status-simulated"
       />
+      {/* The line back to a name the placement had to move: decoration for the name, drawn in the
+          hairline role the drawing's structure takes, transparent to the pointer so it never takes a press
+          from the mark it belongs to, and hidden from assistive technology because the mark's own name
+          already says which crossing it is. */}
+      {leader === undefined ? null : (
+        <path
+          d={`M ${leader.fromX} ${leader.fromY} L ${leader.toX} ${leader.toY}`}
+          strokeWidth={LEADER_STROKE}
+          className="fill-none stroke-hairline"
+          pointerEvents="none"
+          aria-hidden="true"
+        />
+      )}
       {printedName === undefined || printedLabel === undefined ? null : (
         <text
           x={printedLabel.labelX}
           y={printedLabel.labelY}
-          strokeWidth={3}
+          fontSize={print.metrics.fontSize}
+          strokeWidth={MARK_LABEL_HALO_WIDTH * print.ratio}
           paintOrder="stroke"
           className={joinClassNames(
             MARK_LABEL_CLASSES,
@@ -1910,10 +2202,11 @@ function LaneArcs({ lanes, slot, emphasis }: LaneArcsProps): ReactNode {
 
 /**
  * Every site mark of one group, and what each of them reaches: the selection, the crossing a lane
- * through each site traverses, the caller's mapper and the emphasis the group's family is painted
- * at. The marks are produced in the order the group's sites were placed, so the payload's order
- * reaches the drawing unchanged, and all of them share one activation route, which is what keeps a
- * site mark and a crossing mark behaving alike for a reader who meets either.
+ * through each site traverses, the caller's mapper, the emphasis the group's family is painted at and
+ * the type the drawing prints its names at. The marks are produced in the order the group's sites were
+ * placed, so the payload's order reaches the drawing unchanged, and all of them share one activation
+ * route, which is what keeps a site mark and a crossing mark behaving alike for a reader who meets
+ * either.
  */
 interface SiteMarksProps {
   /** The sites to draw, in the payload's order. */
@@ -1926,6 +2219,8 @@ interface SiteMarksProps {
   readonly evidenceRefFor: ((entityId: string) => string | undefined) | undefined;
   /** How this group's family is painted while the screen reports an entity in view. */
   readonly emphasis: FamilyEmphasis;
+  /** The type this drawing's names are set in, passed to every mark so each prints at that step. */
+  readonly print: NetworkLabelPrint;
   /** Reports an activated site to the drawing, which selects it and opens its evidence. */
   readonly activateEntity: (entityId: string) => void;
 }
@@ -1933,7 +2228,7 @@ interface SiteMarksProps {
 /**
  * One mark per site of a network.
  *
- * @param props The sites of the group and what each mark reaches.
+ * @param props The sites of the group, what each mark reaches and the type the drawing prints at.
  * @returns The site marks, in the payload's order.
  */
 function SiteMarks({
@@ -1942,6 +2237,7 @@ function SiteMarks({
   crossingLabelBySiteId,
   evidenceRefFor,
   emphasis,
+  print,
   activateEntity,
 }: SiteMarksProps): ReactNode {
   return sites.map((placed) => (
@@ -1952,6 +2248,7 @@ function SiteMarks({
       isSelected={placed.site.id === selectedEntityId}
       opensEvidence={evidenceRefFor?.(placed.site.id) !== undefined}
       emphasis={emphasis}
+      print={print}
       onActivate={() => {
         activateEntity(placed.site.id);
       }}
@@ -1977,6 +2274,8 @@ interface ClientNetworkGroupProps {
   readonly evidenceRefFor: ((entityId: string) => string | undefined) | undefined;
   /** How the client's family is painted while the screen reports an entity in view. */
   readonly emphasis: FamilyEmphasis;
+  /** The type this drawing's names are set in. */
+  readonly print: NetworkLabelPrint;
   /** Reports an activated site to the drawing. */
   readonly activateEntity: (entityId: string) => void;
 }
@@ -1991,7 +2290,7 @@ interface ClientNetworkGroupProps {
  * group states `aria-current` and its marks and names carry the emphasised weight, which is how the
  * selector's choice reaches the drawing (rule P-8).
  *
- * @param props The client's network and what its marks reach.
+ * @param props The client's network, what its marks reach and the type the drawing prints at.
  * @returns The group.
  */
 function ClientNetworkGroup({
@@ -2000,6 +2299,7 @@ function ClientNetworkGroup({
   crossingLabelBySiteId,
   evidenceRefFor,
   emphasis,
+  print,
   activateEntity,
 }: ClientNetworkGroupProps): JSX.Element {
   return (
@@ -2015,6 +2315,7 @@ function ClientNetworkGroup({
         crossingLabelBySiteId={crossingLabelBySiteId}
         evidenceRefFor={evidenceRefFor}
         emphasis={emphasis}
+        print={print}
         activateEntity={activateEntity}
       />
     </g>
@@ -2040,6 +2341,8 @@ interface CompetitorNetworkGroupProps {
   readonly evidenceRefFor: ((entityId: string) => string | undefined) | undefined;
   /** How this competitor's family is painted while the screen reports an entity in view. */
   readonly emphasis: FamilyEmphasis;
+  /** The type this drawing's names are set in. */
+  readonly print: NetworkLabelPrint;
   /** Reports an activated site to the drawing. */
   readonly activateEntity: (entityId: string) => void;
 }
@@ -2053,7 +2356,7 @@ interface CompetitorNetworkGroupProps {
  * entity in view is another competitor this one recedes with the graph lens's ground fill, hairline
  * stroke and secondary text role (rule P-8, rule B-3).
  *
- * @param props One competitor's network and what its marks reach.
+ * @param props One competitor's network, what its marks reach and the type the drawing prints at.
  * @returns The group, or `null` when the frame can place none of the network's sites.
  */
 function CompetitorNetworkGroup({
@@ -2062,6 +2365,7 @@ function CompetitorNetworkGroup({
   crossingLabelBySiteId,
   evidenceRefFor,
   emphasis,
+  print,
   activateEntity,
 }: CompetitorNetworkGroupProps): JSX.Element | null {
   if (placed.sites.length === 0) {
@@ -2081,6 +2385,7 @@ function CompetitorNetworkGroup({
         crossingLabelBySiteId={crossingLabelBySiteId}
         evidenceRefFor={evidenceRefFor}
         emphasis={emphasis}
+        print={print}
         activateEntity={activateEntity}
       />
     </g>
@@ -2101,6 +2406,8 @@ interface ChokepointGroupProps {
   readonly selectedEntityId: string | null;
   /** Resolves the evidence reference a crossing opens, where the caller supplied the mapper. */
   readonly evidenceRefFor: ((entityId: string) => string | undefined) | undefined;
+  /** The type this drawing's names are set in. */
+  readonly print: NetworkLabelPrint;
   /** Reports an activated crossing to the drawing. */
   readonly activateEntity: (entityId: string) => void;
 }
@@ -2108,13 +2415,14 @@ interface ChokepointGroupProps {
 /**
  * The shared crossings, in one group named with the imported market-intelligence label.
  *
- * @param props The crossings and what their marks reach.
+ * @param props The crossings, what their marks reach and the type the drawing prints at.
  * @returns The group, or `null` when the frame can place no crossing.
  */
 function ChokepointGroup({
   crossings,
   selectedEntityId,
   evidenceRefFor,
+  print,
   activateEntity,
 }: ChokepointGroupProps): ReactNode {
   if (crossings.length === 0) {
@@ -2132,6 +2440,7 @@ function ChokepointGroup({
           crossing={crossing}
           isSelected={crossing.id === selectedEntityId}
           opensEvidence={evidenceRefFor?.(crossing.id) !== undefined}
+          print={print}
           onActivate={() => {
             activateEntity(crossing.id);
           }}
@@ -2285,6 +2594,14 @@ function clientEmphasisOf(
  * cluster opens the mark under the pointer even where a neighbour's larger target is painted above
  * it, while the keyboard route keeps activating the focused mark exactly.
  *
+ * THE TYPE IS RESOLVED FROM THE WIDTH THE DRAWING IS GIVEN. The element is measured through
+ * `src/components/chart-readout.tsx`'s `useChartScale`, and the step that prints at one of specification
+ * §4.3's sizes at that width — in this drawing's own user units — reaches both the placement and every
+ * printed name (see {@link NetworkLabelPrint}). A fixed user-unit size would print at 6 CSS px in the
+ * atlas's narrowest column and at 35 px in a full-width one, which is the defect this component carries
+ * the measurement for; `null` — no layout yet, which is every render under jsdom — falls back to the
+ * layer's own 12-unit step, so the drawing is laid out exactly as it always has been.
+ *
  * @param props The two families' records, the shared crossings, the controlled selection, the handler
  *   that reports a selection and the mapper that resolves a mark's evidence. See
  *   {@link CompetitorNetworkProps}.
@@ -2302,10 +2619,16 @@ export function CompetitorNetwork({
   highlightedCompetitorId,
 }: CompetitorNetworkProps): JSX.Element {
   const [openEvidenceRef, setOpenEvidenceRef] = useState<string | null>(null);
+  const { surfaceRef, scale: measuredScale } = useChartScale(VIEW_WIDTH);
+
+  /* The type this drawing prints at, resolved from the width its frame gives it. Memoised on the measured
+     scale rather than on the metrics themselves, because `renderedLabelMetrics` answers a fresh object for
+     the same width and would rebuild the whole placement on every render. */
+  const print = useMemo(() => labelPrintOf(renderedLabelMetrics(measuredScale)), [measuredScale]);
 
   const drawing = useMemo(
-    () => drawingOf(clientSites, networks, lanes, chokepoints),
-    [clientSites, networks, lanes, chokepoints],
+    () => drawingOf(clientSites, networks, lanes, chokepoints, print),
+    [clientSites, networks, lanes, chokepoints, print],
   );
   const marks = drawingMarksOf(drawing);
 
@@ -2363,6 +2686,7 @@ export function CompetitorNetwork({
   return (
     <div className={ROOT_CLASSES}>
       <svg
+        ref={surfaceRef}
         className={DRAWING_CLASSES}
         viewBox={`0 0 ${VIEW_WIDTH} ${drawing.viewHeight}`}
         preserveAspectRatio="xMidYMid meet"
@@ -2374,6 +2698,7 @@ export function CompetitorNetwork({
           crossings={drawing.chokepoints}
           selectedEntityId={selectedEntityId}
           evidenceRefFor={evidenceRefFor}
+          print={print}
           activateEntity={activateEntity}
         />
 
@@ -2385,6 +2710,7 @@ export function CompetitorNetwork({
             crossingLabelBySiteId={drawing.crossingLabelBySiteId}
             evidenceRefFor={evidenceRefFor}
             emphasis={competitorEmphasisOf(highlightedCompetitorId, placed.network.competitorId)}
+            print={print}
             activateEntity={activateEntity}
           />
         ))}
@@ -2395,12 +2721,13 @@ export function CompetitorNetwork({
           crossingLabelBySiteId={drawing.crossingLabelBySiteId}
           evidenceRefFor={evidenceRefFor}
           emphasis={clientEmphasisOf(highlightedCompetitorId)}
+          print={print}
           activateEntity={activateEntity}
         />
 
         <SeriesBand
           rows={drawing.series.map(bandRowOf)}
-          geometry={BAND_GEOMETRY}
+          geometry={drawing.band}
           label={COMPETITOR_NETWORK_TEXT.seriesBandGroupName}
         />
       </svg>

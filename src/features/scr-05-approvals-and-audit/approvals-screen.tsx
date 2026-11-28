@@ -250,13 +250,24 @@ const APPROVAL_ROUTE_BASE = '/approvals';
 const SCREEN_CLASSES = 'flex min-w-0 flex-col gap-6';
 
 /**
- * The plan cell's column, so the option and the exception it answers stack rather than run together:
- * two record values, each rendered by the component that owns an identifier, never one joined string.
+ * The plan cell's row, so the option and the exception it answers sit side by side on one line: two
+ * record values, each rendered by the component that owns an identifier, never one joined string.
+ *
+ * Side by side rather than stacked because a row's `height` is only a minimum: a cell holding two
+ * lines measures taller than the density token whatever height the row states, so one line per cell is
+ * what keeps every row here at 32 px compact and 44 px comfortable (specification §4.3, AAP §0.12.4).
  */
-const PLAN_CELL_CLASSES = 'flex min-w-0 flex-col gap-1';
+const PLAN_CELL_CLASSES = 'flex min-w-0 items-center gap-2';
 
-/** The freshness cell's row: the state's status indicator beside the instant it last answered. */
-const FRESHNESS_CELL_CLASSES = 'inline-flex min-w-0 flex-wrap items-center gap-2';
+/**
+ * The freshness cell's row: the state's status indicator beside the instant it last answered.
+ *
+ * Side by side on one line rather than allowed to wrap, for the reason the plan cell states: a row's
+ * `height` is only a minimum, so a cell whose two parts fell onto separate lines would measure taller
+ * than the density token whatever height the row states. One line per cell is what keeps every row
+ * here at 32 px compact and 44 px comfortable (specification §4.3, AAP §0.12.4).
+ */
+const FRESHNESS_CELL_CLASSES = 'inline-flex min-w-0 items-center gap-2';
 
 /** The secondary text role for the freshness cell's instant, one step down the type scale. */
 const SECONDARY_TEXT_CLASSES = 'text-12 text-text-secondary';
@@ -486,6 +497,13 @@ const INBOX_DEFAULT_ORDER: TableSort = { columnId: 'approval', direction: 'asc' 
  * answers — as the two identifier values they are, each rendered by `MonoValue`. They are never joined
  * into one string: an identifier is a record value, and a string assembled from two of them would be a
  * value no record holds.
+ *
+ * EVERY COLUMN DECLARES `singleLine`, so no cell here holds a second line. A row's `height` is only a
+ * minimum, so a cell that wrapped would measure taller than the density token whatever height the row
+ * states, and the row would leave the 32 px compact and 44 px comfortable the tokens fix (specification
+ * §4.3, AAP §0.12.4). A container too narrow for the six columns therefore scrolls the table inside
+ * `DataTable`'s own scroll container, rather than wrapping a cell and growing the row past the density
+ * in effect.
  */
 function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approval>[] {
   return [
@@ -493,12 +511,14 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
       id: 'approval',
       header: SCREEN_TEXT.approvalColumn,
       sortable: true,
+      singleLine: true,
       render: (approval) => <MonoValue value={approval.id} kind="id" />,
     },
     {
       id: 'plan',
       header: SCREEN_TEXT.planColumn,
       sortable: true,
+      singleLine: true,
       render: (approval) => (
         <span className={PLAN_CELL_CLASSES}>
           <MonoValue value={approval.scenarioId} kind="id" />
@@ -510,6 +530,7 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
       id: 'cost',
       header: COST_HEADER,
       sortable: true,
+      singleLine: true,
       align: 'end',
       render: (approval) => (
         <EvidenceRef ref={`${approval.id}#addedCostEur`}>
@@ -521,6 +542,7 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
       id: 'protectedRevenue',
       header: PROTECTED_REVENUE_HEADER,
       sortable: true,
+      singleLine: true,
       align: 'end',
       render: (approval) => (
         <EvidenceRef ref={`${approval.id}#protectedRevenueEur`}>
@@ -532,6 +554,7 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
       id: 'status',
       header: SCREEN_TEXT.statusColumn,
       sortable: true,
+      singleLine: true,
       render: (approval) => (
         <StatusIndicator meaning={STATUS_MEANINGS[approval.status]} label={approval.status} />
       ),
@@ -539,6 +562,7 @@ function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approva
     {
       id: 'freshness',
       header: FRESHNESS_HEADER,
+      singleLine: true,
       render: () => freshnessCell(gate),
     },
   ];

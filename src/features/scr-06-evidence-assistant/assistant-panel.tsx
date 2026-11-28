@@ -862,14 +862,19 @@ export function AssistantPanel({
    * The reads' own facts, plus this screen's reading of its payload. The panel carries no gate of its
    * own, so the stale notice names the first aged source the report lists rather than one chosen here;
    * the partial state comes from the reads, because an answer's own gap belongs beside the sentence it
-   * qualifies rather than in a screen-wide warning; and the panel has nothing to show only when it
-   * holds neither a published question nor an answer.
+   * qualifies rather than in a screen-wide warning. The panel has something to show exactly when the
+   * question read returned a question, and nothing else counts: every answer this panel holds is
+   * composed from those questions' records, so a read that reports none means the screen is empty —
+   * which is what the simulation's `empty` trigger produces, "every read whose payload is a collection
+   * answers with nothing to show" (AAP 0.2.1 F10, AAP 0.12.1). The last composed answer is a record of
+   * a question the emptied read no longer supports, so it cannot keep the composer, the answer and the
+   * selector on screen beside an empty screen.
    */
   const state = deriveScreenState({
     isPending: questionsQuery.isPending || catalogueQuery.isPending,
     error: readError,
     freshness: questionsQuery.data?.meta.freshness,
-    hasContent: questions.length > 0 || answer !== undefined,
+    hasContent: questions.length > 0,
   });
 
   const stale =

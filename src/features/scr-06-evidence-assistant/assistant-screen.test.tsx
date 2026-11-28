@@ -58,16 +58,17 @@
  * itself. Its exported `STATE_BOUNDARY_TEXT` is read where a case asserts that wording is absent, so
  * no sentence of that module is retyped here.
  *
- * TWO RECORDED DIVERGENCES. (1) The plan names one test module for five source files, so this file
- * carries all five contracts; a later stage that splits them makes that split its own decision.
- * (2) `'conflict'` has no reachable assistant path: the family's `'validation'` refusals are malformed
- * requests rather than a record that moved under the reader — a request that carried no question, and a
- * question longer than the audited writes' free-text ceiling, which the composer's own bound keeps a
- * reader from typing (`src/services/mock/handlers/assistant.ts`, as `assistant-panel.tsx` describes
- * it). The state mapping is one owner for every screen (`src/components/screen-state.ts`), so a
- * `'validation'` refusal does reach the panel as `'conflict'` exactly as it does its siblings; the
- * state is proven through `AssistantPanelBody`, which renders it when handed it, and this suite
- * fabricates no service signal to reach it through the connected panel.
+ * A RECORDED DIVERGENCE, AND HOW THE CONFLICT STATE IS REACHED. (1) The plan names one test module for
+ * five source files, so this file carries all five contracts; a later stage that splits them makes that
+ * split its own decision.
+ * (2) `'conflict'` reaches the panel through the adapter's collection-read refusal rather than through
+ * a family's own malformed-request check: the suggested-question read's payload is a collection, so the
+ * simulation's conflict trigger refuses it with a `'validation'` `Problem` before the family runs
+ * (`src/services/mock/mock-backend.ts`, `dispatchCollection`). The state mapping is one owner for every
+ * screen (`src/components/screen-state.ts`), so that refusal does reach the panel as `'conflict'`
+ * exactly as it does its siblings; this suite replaces the port at the provider (rule P-2) and holds no
+ * simulation trigger, so the state is proven through `AssistantPanelBody`, which renders it when handed
+ * it, and this suite fabricates no service signal to reach it through the connected panel.
  *
  * THE PARTIAL NOTICE'S SENTENCE COMES FROM THE RECORD. `AssistantPanelBody` derives the detail its
  * partial notice prints from the missing inputs the answer carries and hands it to `StateBoundary`,
@@ -630,6 +631,72 @@ describe('AssistantPanel — a suggested question and its cited answer', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
+ * The question read coming back empty — AAP §0.2.1 F10, AAP §0.12.1
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The cache key of the question read: the port member's own name first, which is the key convention
+ * every read in the cache follows (`src/app/providers.tsx`) and what the shell matches when a resolved
+ * change re-issues the reads it moved.
+ */
+const QUESTION_READ_KEY = ['listSuggestedQuestions'] as const;
+
+describe('AssistantPanel — the question read comes back empty', () => {
+  /**
+   * THE BEHAVIOUR THIS PROVES. With the simulation popover's `empty` trigger in effect, every read whose
+   * payload is a collection answers with nothing to show (`src/services/mock/simulation.ts`), the
+   * suggested-question read among them, and the panel must render the generic empty state — the
+   * composer, the model selector and the answer it composed from questions the read no longer publishes
+   * all leave with it (AAP §0.2.1 F10, AAP §0.12.1).
+   *
+   * HOW THE READ IS MADE TO CHANGE. The cache is cancelled and then reset for the question read, which
+   * is the pair the shell issues once a resolved trigger change settles (`reissueReads` in
+   * `src/app/simulation-controls.tsx`): the payload taken before the change is dropped and the read is
+   * started again through the port. The stub is the suite's own and the client is this case's, so the
+   * case leans on no lever production code lacks.
+   */
+  it('empties the panel when the question read returns no question, taking the composer, the selector and the last answer with it', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AssistantPanel />
+      </QueryClientProvider>,
+    );
+
+    /* A question answered while the read still publishes one: the answer with its citation chips, the
+       composer and the selector are on screen together. */
+    await ask(user, QUESTION.prompt);
+
+    expect(await screen.findByText(ANSWER_TEXT)).toBeVisible();
+    expect(citationChips()).toHaveLength(2);
+    expect(screen.getByLabelText(ASSISTANT_PANEL_TEXT.composerLabel)).toBeVisible();
+    expect(screen.getByRole('combobox')).toHaveValue(IN_BOUNDARY_ID);
+
+    /* The trigger's own answer, then the re-issue the shell performs after it resolves. */
+    service.listSuggestedQuestions.mockResolvedValue(envelope([]));
+
+    await act(async () => {
+      await queryClient.cancelQueries({ queryKey: QUESTION_READ_KEY });
+      await queryClient.resetQueries({ queryKey: QUESTION_READ_KEY });
+    });
+
+    /* The generic empty state stands alone. The last answer was composed from the questions the read no
+       longer publishes, so it cannot keep the screen occupied beside an empty read. */
+    expect(await screen.findByText(ASSISTANT_PANEL_TEXT.emptyFallback)).toBeVisible();
+    expect(screen.queryByText(ANSWER_TEXT)).toBeNull();
+    expect(screen.queryAllByRole('button', { name: new RegExp(CITATION_REF) })).toHaveLength(0);
+    expect(screen.queryByText(ASSISTANT_PANEL_TEXT.questionsCaption)).toBeNull();
+    expect(screen.queryByLabelText(ASSISTANT_PANEL_TEXT.composerLabel)).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
  * The refusals — a policy block, a denial, and every other cause
  * ------------------------------------------------------------------------------------------- */
 
@@ -1006,9 +1073,10 @@ const SCREEN_STATES: readonly ScreenState[] = [
  *
  * `Record<ScreenState, …>` is the exhaustiveness proof: a member added to the union leaves this map
  * incomplete and the file fails to type-check, which is the failure the suite wants rather than a
- * state that silently renders nothing. `'conflict'` is proven only here — no assistant read raises the
- * `'validation'` refusal that produces it (see the module note) — so it is proven by handing the body
- * the state.
+ * state that silently renders nothing. `'conflict'` is proven by handing the body the state: the
+ * adapter reaches it for the suggested-question read under the simulation's conflict trigger (see the
+ * module note), and this suite holds neither that trigger nor the adapter, so it asserts the state at
+ * the body rather than driving the refusal through the connected panel.
  */
 const STATE_CASES: Readonly<Record<ScreenState, () => Promise<void> | void>> = {
   loading: () => {

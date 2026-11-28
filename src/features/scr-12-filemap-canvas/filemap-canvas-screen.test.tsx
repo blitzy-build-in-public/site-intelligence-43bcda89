@@ -1568,6 +1568,40 @@ describe('FilemapCanvasScreen', () => {
     expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
   });
 
+  it('reads a first visit’s lens once the demonstration has been reset since the lens was chosen', async () => {
+    const user = userEvent.setup();
+
+    const first = renderScreen();
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
+
+    first.unmount();
+
+    /* The shell keys the screen by its count of demonstration resets, so a reset remounts it. The lens
+       chosen before the reset belongs to the session the reset ended, so the screen reads the lens a
+       first visit starts on rather than the one that session left behind. */
+    const second = renderScreen({ demonstrationEpoch: 1 });
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.mapLens))).toBeInTheDocument();
+
+    await activate(user, FILEMAP_CANVAS_TEXT.graphLens);
+
+    second.unmount();
+
+    /* A lens chosen after the reset belongs to the session now in force, so it is the lens the screen
+       comes back on rather than a choice the next mount discards. */
+    renderScreen({ demonstrationEpoch: 1 });
+
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
+  });
+
   it('reports each wall-mode request to the shell that owns the navigation', async () => {
     const user = userEvent.setup();
     const requests: boolean[] = [];

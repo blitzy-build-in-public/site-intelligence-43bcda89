@@ -79,6 +79,10 @@ export interface TableColumn<Row> {
    * The pin holds from the `md` breakpoint up, where the container has room for the column and for
    * the columns beside it. Below that a pinned column would cover most of a phone-width container,
    * so it keeps its place in the table there and the reader scrolls to it.
+   *
+   * A pin is painted above the cells that scroll under it, so it covers whatever columns reach the
+   * container's inline end at rest together with the sort controls in their headers; pin a table only
+   * where its remaining columns fit beside the pin.
    */
   readonly pinned?: boolean;
   /**

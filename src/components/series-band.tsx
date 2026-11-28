@@ -34,6 +34,7 @@
 import type { ReactNode } from 'react';
 
 import { SVG_LABEL_TEXT_METRICS, truncateToWidth } from './svg-label';
+import type { SvgTextMetrics } from './svg-label';
 
 /* ---------------------------------------------------------------------------------------------
  * The rows a band prints
@@ -87,6 +88,15 @@ export interface SeriesBandGeometry {
   /** The widest a name or companion line may be drawn, in user units. */
   readonly maxTextWidth: number;
   /**
+   * The type step the band's lines are set in, and the character width they are shortened against.
+   *
+   * Optional, because a caller that states none prints the layer's own 12-unit step. A drawing that
+   * prints its labels at another rendered size states the metrics it resolved for the width it is
+   * drawn at — `./svg-label.ts`'s `renderedLabelMetrics` — so the step it prints at and the width its
+   * lines are shortened to are one statement rather than two that could disagree.
+   */
+  readonly metrics?: SvgTextMetrics | undefined;
+  /**
    * The swatch column, where the band prints one.
    *
    * Optional, because a band whose rows are names and labels alone — the radar's — has no swatch column
@@ -101,15 +111,18 @@ export interface SeriesBandGeometry {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * A series' name: the primary text role at the 12-unit step.
+ * A series' name: the primary text role, at the type step the caller states in its geometry.
  *
- * The order of the two utilities is stated once, here, so every drawing that composes this band takes
- * one class order for a series' name, and the drawings cannot disagree about it.
+ * The order of the utilities is stated once, here, so every drawing that composes this band takes one
+ * class order for a series' name, and the drawings cannot disagree about it. The step itself is not a
+ * class: a drawing is scaled into its frame, so the size a row prints at is resolved from the width
+ * that frame gives it and arrives in {@link SeriesBandGeometry.metrics} — a `text-12` utility here
+ * would set a user-unit size and print at whatever the scale happened to be.
  */
-const NAME_CLASSES = 'text-12 fill-text-primary';
+const NAME_CLASSES = 'fill-text-primary';
 
 /** A series' companion line: the caption role, which specification §4 measures for the surface behind it. */
-const COMPANION_CLASSES = 'text-12 fill-text-caption';
+const COMPANION_CLASSES = 'fill-text-caption';
 
 /**
  * The weight the row of the series in view takes: the type scale's own bundled weight, so the emphasis is
@@ -193,12 +206,13 @@ interface BandRowProps {
  * @returns The row.
  */
 function BandRow({ row, index, geometry }: BandRowProps) {
+  const metrics = geometry.metrics ?? SVG_LABEL_TEXT_METRICS;
   const nameY = geometry.top + index * geometry.rowHeight;
-  const name = truncateToWidth(row.name, geometry.maxTextWidth, SVG_LABEL_TEXT_METRICS);
+  const name = truncateToWidth(row.name, geometry.maxTextWidth, metrics);
   const companion =
     row.companion === undefined
       ? undefined
-      : truncateToWidth(row.companion, geometry.maxTextWidth, SVG_LABEL_TEXT_METRICS);
+      : truncateToWidth(row.companion, geometry.maxTextWidth, metrics);
   const column = geometry.swatch;
   const swatch =
     row.swatch ??
@@ -219,13 +233,19 @@ function BandRow({ row, index, geometry }: BandRowProps) {
       <text
         x={geometry.textX}
         y={nameY}
+        fontSize={metrics.fontSize}
         className={row.current === true ? `${NAME_CLASSES} ${CURRENT_NAME_CLASSES}` : NAME_CLASSES}
       >
         {name === row.name ? null : <title>{row.name}</title>}
         {name}
       </text>
       {companion === undefined || row.companion === undefined ? null : (
-        <text x={geometry.textX} y={nameY + geometry.lineHeight} className={COMPANION_CLASSES}>
+        <text
+          x={geometry.textX}
+          y={nameY + geometry.lineHeight}
+          fontSize={metrics.fontSize}
+          className={COMPANION_CLASSES}
+        >
           {companion === row.companion ? null : <title>{row.companion}</title>}
           {companion}
         </text>

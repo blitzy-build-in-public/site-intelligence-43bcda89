@@ -16,8 +16,9 @@
  * for one nothing narrowed — while the forbidden state renders the refusal's evidence in place of the
  * table; `J`, `K` and `Enter` drive the row cursor; a saved view restores the filter set it holds;
  * each figure a row shows — revenue at risk, days to impact and age — is a trigger whose activation
- * opens that exception's evidence (AAP §0.12.4, functional requirement F12, principle PR-6); and the
- * queue renders in Command and in Paper.
+ * opens that exception's evidence (AAP §0.12.4, functional requirement F12, principle PR-6); no column
+ * of the table is pinned above another, so no value and no header control is drawn over; and the queue
+ * renders in Command and in Paper.
  *
  * HOW THE SERVICE IS REACHED. The provider module is replaced, not the port: `vi.mock` swaps
  * `../../services/service-provider` for the four hooks the screen reads, backed by one hoisted stub
@@ -597,12 +598,13 @@ interface FilterCase {
  * The five enumerated filters, one case each.
  *
  * The supplier filter is a text field rather than a select — `ExceptionRow` carries no supplier — so
- * it is driven by its own case below. Each value is one the supplied rows actually carry, so the
- * option exists in the control the read populated.
+ * it is driven by its own case below. Each value is one the supplied rows actually carry, so the option
+ * exists in the control the read populated, and the plant is also one the acting persona's scope covers,
+ * because a plant outside it is never offered (see the plant-filter case below).
  */
 const FILTER_CASES: readonly FilterCase[] = [
   { label: EXCEPTION_QUEUE_TEXT.typeFilter, member: 'type', value: 'supply-delay' },
-  { label: EXCEPTION_QUEUE_TEXT.plantFilter, member: 'plantId', value: PLANT_BRN },
+  { label: EXCEPTION_QUEUE_TEXT.plantFilter, member: 'plantId', value: PLANT_RGB },
   { label: EXCEPTION_QUEUE_TEXT.severityFilter, member: 'severity', value: 'critical' },
   { label: EXCEPTION_QUEUE_TEXT.statusFilter, member: 'status', value: 'resolved' },
   { label: EXCEPTION_QUEUE_TEXT.ownerFilter, member: 'ownerId', value: OWNER_B },
@@ -618,14 +620,16 @@ interface OptionSourceCase {
 }
 
 /**
- * The five enumerated filters, each beside the row member its options come from.
+ * The four enumerated filters whose options are the distinct values of the rows the answer carries.
  *
- * The expected values are read from the rows the stub returns rather than written here (rule P-6), so a
+ * The plant filter is the exception and has its own case below: a read can name a plant the acting
+ * persona's scope does not cover when the exception also reaches one inside it, so its options are the
+ * persona's own plants beside the plant the control states rather than every plant the rows name. The
+ * expected values are read from the rows the stub returns rather than written here (rule P-6), so a
  * case can assert that each control offers what that one answer carries.
  */
 const OPTION_SOURCE_CASES: readonly OptionSourceCase[] = [
   { label: EXCEPTION_QUEUE_TEXT.typeFilter, pick: (row) => row.type },
-  { label: EXCEPTION_QUEUE_TEXT.plantFilter, pick: (row) => row.plantId },
   { label: EXCEPTION_QUEUE_TEXT.severityFilter, pick: (row) => row.severity },
   { label: EXCEPTION_QUEUE_TEXT.statusFilter, pick: (row) => row.status },
   { label: EXCEPTION_QUEUE_TEXT.ownerFilter, pick: (row) => row.ownerId },
@@ -734,6 +738,90 @@ describe('ExceptionQueueScreen', () => {
     expect(within(columnGroup).getByText(CALCULATED_LABEL)).toBeVisible();
     expect(within(columnGroup).getByRole('table')).toBeVisible();
     expect(screen.getAllByText(CALCULATED_LABEL)).toHaveLength(1);
+  });
+
+  /**
+   * The capped title cell still gives the reader the whole sentence it holds.
+   *
+   * A title is the longest value in its row, so its cell is the one the queue caps and ellipsises, and
+   * that cap is what keeps every row at the density token (AAP 0.12.4). A cap on its own leaves the rest
+   * of the sentence reachable only by opening the row, so the element the cap applies to also carries the
+   * record's own title as its `title`: a reader using a pointer reads the remainder the ellipsis hides,
+   * and assistive technology reads it as that element's description (rule B-3). The case holds the three
+   * parts together — the record's text is still what the cell shows, the disclosure carries that same
+   * text, and the cap and the ellipsis are still applied — so a later change that removes the disclosure,
+   * or one that defeats the row-height fix to make room for the title, fails here. Every expectation is
+   * the row fixture's own (rule P-6).
+   */
+  it('caps the title in its cell and discloses the whole title from it', async () => {
+    renderQueue();
+    await awaitQueue();
+
+    /* The rows are drawn in the service's order, so each fixture is read off the row it arrived as. */
+    ROWS.forEach((row, index) => {
+      const cell = cellIn(rowAt(index), EXCEPTION_QUEUE_TEXT.columnTitle);
+      const title = within(cell).getByText(row.title);
+
+      /* The record's own text is still what the cell shows, whether it fits or is ellipsised. */
+      expect(cell).toHaveTextContent(row.title);
+
+      /* The disclosure carries the record's title itself, so nothing is re-worded on the way out. */
+      expect(title).toHaveAttribute('title', row.title);
+
+      /* The cap and the ellipsis are still on the element the disclosure was added to. */
+      expect(title).toHaveClass('max-w-64', 'truncate');
+    });
+  });
+
+  /**
+   * No column of the queue is pinned, so no cell of the table is drawn above another.
+   *
+   * AAP 0.12.4 fixes thirteen columns, and they are wider than any desktop container, so the table
+   * scrolls inside `DataTable`'s own container and nothing is held over a column. A pin is what this
+   * case keeps out: `DataTable` states the property on `TableColumn.pinned`, and a pinned cell is
+   * painted above the cells that scroll under it — held at the container's inline end it covers the
+   * status, owner, age and freshness values along with the sort controls in their headers, which leaves a control
+   * unable to perform its function (rule P-8). The rest of the case proves the pin was removed rather
+   * than the column: the actions column is still drawn, still captioned, and still holds the row's
+   * three controls in the order the screen gives them.
+   */
+  it('scrolls every column as one surface, with no column drawn above another', async () => {
+    renderQueue();
+    await awaitQueue();
+
+    /*
+     * The two utilities a pinned cell carries: its hold at the container's inline end and the paint
+     * above the cells that pass under it. Every header cell and every cell of the first row is read,
+     * because those are both the pins that would be drawn and the cells a pin would be drawn over.
+     */
+    const pinnedUtilities = ['md:sticky', 'md:end-0'];
+
+    for (const cell of [...headerCells(), ...within(rowAt(0)).getAllByRole('cell')]) {
+      for (const utility of pinnedUtilities) {
+        expect(cell).not.toHaveClass(utility);
+      }
+    }
+
+    /* The actions column keeps its caption, so a reader still meets it by the name it carries. */
+    expect(
+      within(queueTable()).getByRole('columnheader', { name: EXCEPTION_QUEUE_TEXT.columnActions }),
+    ).toBeVisible();
+
+    /*
+     * And its cell still holds the row's three controls, in the order AAP 0.12.4 gives them. Locating
+     * each one by the word its name begins with also proves it is a control a reader can name (rule
+     * B-3), and comparing the list against every button the cell draws proves none was added or lost.
+     */
+    const actionsCell = cellIn(rowAt(0), EXCEPTION_QUEUE_TEXT.columnActions);
+    const namedControls = [
+      EXCEPTION_QUEUE_TEXT.open,
+      EXCEPTION_QUEUE_TEXT.assignToMe,
+      EXCEPTION_QUEUE_TEXT.dismiss,
+    ].map((label) =>
+      within(actionsCell).getByRole('button', { name: new RegExp(`^${label}\\b`) }),
+    );
+
+    expect(within(actionsCell).getAllByRole('button')).toEqual(namedControls);
   });
 
   /**
@@ -944,6 +1032,122 @@ describe('ExceptionQueueScreen', () => {
 
     expect(within(recordedOnlyCell).getByText(PLANT_RAK)).toBeVisible();
     expect(recordedOnlyCell).not.toHaveTextContent(EXCEPTION_QUEUE_TEXT.reachesPlants);
+  });
+
+  /**
+   * The plant filter offers the plants the acting persona's scope covers, beside the plant it states.
+   *
+   * A row admitted for reaching a plant inside the scope can be recorded at one outside it, and the one
+   * scope resolver reduces a selection of that plant to no plant at all — so offering it would offer an
+   * option that can only ever produce an empty queue, which is the defect this case holds. The list is
+   * the persona's own scope, which arrives through the provider rather than from a second read (rule
+   * P-2), beside the plant the control states, which a select must offer if it is to state the narrowing
+   * it reports (rule P-8).
+   */
+  it('offers the plants the acting persona’s scope covers and the plant it states, never one outside it', async () => {
+    stub.activeUser = PLANT_SCOPED_USER;
+
+    /*
+     * Two rows are recorded outside that persona's scope and reach a plant inside it, so the read the
+     * port serves returns them; the third is recorded inside the scope, and the shell's selection names a
+     * plant no row is recorded at — the value the control states, which must still be offered.
+     */
+    const recordedOutside = [
+      buildRow({ id: ROW_B_ID, plantId: PLANT_RAK, alsoAffectsPlantIds: [PLANT_BRN] }),
+      buildRow({ id: ROW_C_ID, plantId: PLANT_QRO, alsoAffectsPlantIds: [PLANT_BRN] }),
+    ];
+
+    stub.service.listExceptions.mockResolvedValue(
+      ok([buildRow({ id: ROW_A_ID, plantId: PLANT_BRN }), ...recordedOutside]),
+    );
+
+    renderQueue({ scope: { plants: [PLANT_RGB], products: [] } });
+    await awaitQueue();
+
+    const plant = filterControl(EXCEPTION_QUEUE_TEXT.plantFilter);
+    const offered = within(plant)
+      .getAllByRole<HTMLOptionElement>('option')
+      .map((option) => option.value);
+
+    /* The plant the shell's selection narrows the read to is the value the control states, and it stays
+       offered even though no row is recorded at it (rule P-8). */
+    expect(plant).toHaveValue(PLANT_RGB);
+    expect(offered).toContain(PLANT_RGB);
+
+    /* Every plant the persona's scope covers is offered — the row recorded inside it supplies that one. */
+    for (const plantId of PLANT_SCOPED_USER.plantIds) {
+      expect(offered).toContain(plantId);
+    }
+
+    /* A plant a visible row is recorded at, outside that scope, is not offered at all. */
+    for (const row of recordedOutside) {
+      expect(PLANT_SCOPED_USER.plantIds).not.toContain(row.plantId);
+      expect(offered).not.toContain(row.plantId);
+    }
+
+    /* The options are ordered by their own text, so two reads stating the same plants cannot reorder them. */
+    expect(offered).toEqual([...offered].sort((left, right) => left.localeCompare(right)));
+  });
+
+  /**
+   * A stored plant selection the acting persona's scope does not cover is derived away, never honoured.
+   *
+   * The filter set outlives the screen on purpose and the persona does not, so a plant a reader chose
+   * under one role is still in the store when the switcher names a role whose scope misses it — the
+   * arrival here seeds exactly that, the way the shell pins a plant in the query it opens. The one scope
+   * resolver reduces such a selection to no plant at all, so a screen that stated it would hide every row
+   * and then blame the reader's filters for the emptiness. The control therefore states "All plants", the
+   * read carries no plant constraint, no out-of-scope plant is offered, and the rows the answer supplied
+   * are listed as they arrived. Every expected value is a fixture's own (rule P-6).
+   */
+  it('states "All plants" for a stored plant the persona’s scope misses, and reads the queue unnarrowed by it', async () => {
+    /*
+     * Two rows are recorded at plants outside the acting persona's scope and reach one inside it, so the
+     * read the port serves returns them — which is also what puts those plants among the values the answer
+     * names, and therefore what the option list has to keep out of the control.
+     */
+    const recordedOutside = [
+      buildRow({ id: ROW_B_ID, plantId: PLANT_RAK, alsoAffectsPlantIds: [PLANT_RGB] }),
+      buildRow({ id: ROW_C_ID, plantId: PLANT_QRO, alsoAffectsPlantIds: [PLANT_RGB] }),
+    ];
+    const rows: readonly ExceptionRow[] = [
+      buildRow({ id: ROW_A_ID, plantId: PLANT_RGB }),
+      ...recordedOutside,
+    ];
+
+    expect(ACTIVE_USER.plantIds).not.toContain(PLANT_RAK);
+
+    stub.service.listExceptions.mockResolvedValue(ok([...rows]));
+
+    renderQueue({ initialQuery: { plantId: PLANT_RAK } });
+    await awaitQueue();
+
+    const plant = filterControl(EXCEPTION_QUEUE_TEXT.plantFilter);
+
+    /* The control states "All plants" — the option a select offers for no plant constraint at all. */
+    expect(plant).toHaveValue('');
+    expect(
+      within(plant).getByRole('option', { name: EXCEPTION_QUEUE_TEXT.anyPlant }),
+    ).toBeInTheDocument();
+
+    /* The read the queue issued carries no plant constraint, so nothing narrowed the queue to the stored
+       plant on the reader's behalf. */
+    for (const issued of issuedQueries()) {
+      expect(issued).not.toHaveProperty('plantId');
+    }
+
+    /* No plant outside the persona's scope is offered, though the rows the answer carried name two. */
+    const offered = within(plant)
+      .getAllByRole<HTMLOptionElement>('option')
+      .map((option) => option.value);
+
+    for (const row of recordedOutside) {
+      expect(ACTIVE_USER.plantIds).not.toContain(row.plantId);
+      expect(offered).not.toContain(row.plantId);
+    }
+
+    /* The queue still lists every row the answer supplied, in the order it supplied them. */
+    expect(drawnIdentifiers()).toEqual(rows.map((row) => row.id));
   });
 
   it('reads the queue once more, narrowed by the supplier typed into its field', async () => {
@@ -1232,8 +1436,23 @@ describe('ExceptionQueueScreen', () => {
 
     await user.click(outOfScope.getByRole('button', { name: /^Assign to me/ }));
 
-    /* The sentence names the plant the row lands on, which is the fact that is wrong rather than the role. */
-    expect(screen.getByRole('tooltip')).toHaveTextContent(ROW_A.plantId);
+    /*
+     * The permission is held, so the sentence names the plant the row lands on — the fact that is wrong
+     * rather than the role — and the plants the persona does cover, and it names no holder at all: this
+     * persona is one of the roles that hold `exception.work`, so a holder list beside it would
+     * contradict itself (rule P-8).
+     */
+    const reason = screen.getByRole('tooltip');
+
+    expect(reason).toHaveTextContent(
+      `${EXCEPTION_QUEUE_TEXT.noWorkActor} (${PLANT_SCOPED_USER.role}) ${EXCEPTION_QUEUE_TEXT.noWorkHolds} ` +
+        `${WORK_PERMISSION} ${EXCEPTION_QUEUE_TEXT.noWorkNotOver} ${ROW_A.plantId}, ` +
+        `${EXCEPTION_QUEUE_TEXT.noWorkOutcome} ${EXCEPTION_QUEUE_TEXT.noWorkPlants} ` +
+        `${PLANT_SCOPED_USER.plantIds.join(', ')}.`,
+    );
+    expect(reason).toHaveTextContent(ROW_A.plantId);
+    expect(reason).not.toHaveTextContent(EXCEPTION_QUEUE_TEXT.noWorkLacks);
+    expect(reason).not.toHaveTextContent(EXCEPTION_QUEUE_TEXT.noWorkRoles);
     expect(stub.service.assignException).not.toHaveBeenCalled();
   });
 
@@ -1363,6 +1582,63 @@ describe('ExceptionQueueScreen', () => {
     /* The sentence the unfiltered answer gets is not the one a narrowed answer gets: the reader
        narrowed the queue themselves, and the wording says so. */
     expect(screen.queryByText(EXCEPTION_QUEUE_TEXT.emptyUnnarrowed)).not.toBeInTheDocument();
+  });
+
+  /**
+   * A stored plant the acting persona's scope misses leaves the read unnarrowed, so the empty answer
+   * states the trigger-neutral sentence.
+   *
+   * The arrival seeds the plant the way the shell pins one in the query it opens, and this persona
+   * cannot reach it: the derivation that keeps an out-of-scope plant out of the option list blanks it
+   * from the set the read is built from, and the control states "All plants" (see `storedPlantId`).
+   * Nothing on the page then narrows the read, so the sentence the empty table states may not blame a
+   * filter — the stored plant is still in the store, and a sentence read from it would name a
+   * constraint neither the control nor the read carries.
+   */
+  it('states the trigger-neutral sentence when the stored plant is outside the persona’s scope', async () => {
+    expect(ACTIVE_USER.plantIds).not.toContain(PLANT_RAK);
+
+    stub.service.listExceptions.mockResolvedValue(ok([]));
+
+    renderQueue({ initialQuery: { plantId: PLANT_RAK } });
+    await awaitQueue();
+
+    const table = queueTable();
+
+    expect(within(table).getByText(EXCEPTION_QUEUE_TEXT.emptyUnnarrowed)).toBeVisible();
+    expect(within(table).queryByText(EXCEPTION_QUEUE_TEXT.empty)).not.toBeInTheDocument();
+
+    /* The read issued carries no plant constraint either, which is the fact the sentence states. */
+    for (const issued of issuedQueries()) {
+      expect(issued).not.toHaveProperty('plantId');
+    }
+  });
+
+  /**
+   * A plant the shell selected narrows the read, so an empty answer states the filter wording even
+   * though the queue's own plant filter was never touched.
+   *
+   * The shell's selection is stated as it arrives — the control shows that plant and the query carries
+   * it (see `shownPlantId`) — while the stored filter set still holds no plant at all. A sentence read
+   * from the stored set would therefore claim nothing narrowed an answer the filter on the page plainly
+   * narrowed; answered from the set the read was built from, it names the constraint the reader can see.
+   */
+  it('states the filter wording when the shell’s plant narrowed the read that answered with no row', async () => {
+    const shellScope: Scope = { plants: [PLANT_RGB], products: [] };
+
+    stub.service.listExceptions.mockResolvedValue(ok([]));
+
+    renderQueue({ scope: shellScope });
+    await awaitQueue();
+
+    const table = queueTable();
+
+    expect(within(table).getByText(EXCEPTION_QUEUE_TEXT.empty)).toBeVisible();
+    expect(within(table).queryByText(EXCEPTION_QUEUE_TEXT.emptyUnnarrowed)).not.toBeInTheDocument();
+
+    /* The read was narrowed by the plant the shell selected, and the control states it (rule P-8). */
+    expect(issuedQueries()).toContainEqual({ plantId: PLANT_RGB });
+    expect(filterControl(EXCEPTION_QUEUE_TEXT.plantFilter)).toHaveValue(PLANT_RGB);
   });
 
   it('renders the forbidden state with the permission, the roles and the trace id', async () => {

@@ -22,7 +22,10 @@
  * - The query cache is provided: a child's read is readable from another child's client, which can
  *   only hold if both were handed the same cache. A second mount builds a fresh cache, so a failing
  *   or answered query in one render cannot be seen by the next.
- * - `resetShell` restores every data field, which is the contract the demonstration reset relies on.
+ * - `resetShell` restores every data field, and the count of demonstration resets starts at zero,
+ *   increments through `noteDemonstrationReset()` — the writer `Reset demo data` calls once the port has
+ *   resolved — and returns to zero with `resetShell`. That count is what lets a screen holding a view
+ *   choice of its own honour a reset without reading this store (AAP §0.18.1).
  *
  * THE SERVICE BOUNDARY IS MOCKED AT THE PROVIDER (rule P-2). The real provider awaits the mock
  * adapter's bootstrap, which hashes two hundred seeded audit events, so a suite that mounted it would
@@ -149,6 +152,7 @@ function ShellProbe(): ReactElement {
   const selectedNodeId = useShellStore((state) => state.selectedNodeId);
   const wallMode = useShellStore((state) => state.wallMode);
   const simulationOpen = useShellStore((state) => state.simulationOpen);
+  const demonstrationEpoch = useShellStore((state) => state.demonstrationEpoch);
   const setScope = useShellStore((state) => state.setScope);
 
   return (
@@ -160,6 +164,7 @@ function ShellProbe(): ReactElement {
       data-selected-node={selectedNodeId ?? 'none'}
       data-wall-mode={String(wallMode)}
       data-simulation-open={String(simulationOpen)}
+      data-demonstration-epoch={String(demonstrationEpoch)}
     >
       <button
         type="button"
@@ -310,6 +315,30 @@ describe('AppProviders — the shell store', () => {
     expect(probe.getAttribute('data-selected-node')).toBe('none');
     expect(probe.getAttribute('data-wall-mode')).toBe('false');
     expect(probe.getAttribute('data-simulation-open')).toBe('false');
+  });
+
+  it('counts a demonstration reset, and returns the count with the rest on resetShell', () => {
+    renderThroughProviders(<ShellProbe />);
+
+    /* A session that has just started has never had its records put back. */
+    expect(shellProbe().getAttribute('data-demonstration-epoch')).toBe('0');
+
+    act(() => {
+      useShellStore.getState().noteDemonstrationReset();
+      useShellStore.getState().noteDemonstrationReset();
+    });
+
+    /* Counting rather than flagging: a second reset in one session has to be tellable from the first,
+       which is what a screen holding a lens or a class in view reads its own choice against. */
+    expect(shellProbe().getAttribute('data-demonstration-epoch')).toBe('2');
+
+    act(() => {
+      useShellStore.getState().resetShell();
+    });
+
+    /* The store's own way back to the opening state starts the count again, so a suite that drives the
+       shell more than once begins where a fresh page does. */
+    expect(useShellStore.getState().demonstrationEpoch).toBe(0);
   });
 
   it('seeds the persona the adapter reported, and resolves the theme from it', async () => {

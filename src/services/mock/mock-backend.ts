@@ -1177,15 +1177,17 @@ function buildSearchCandidates(ctx: HandlerContext): SearchCandidate[] {
  * Every port member is a dispatcher and nothing more: it awaits the bootstrap, waits the call's
  * latency, takes the persona from the session, delegates to the family that owns the record and wraps
  * the answer in the envelope. The private `serve` method is the whole of that mechanism, so the timing,
- * the trace and the persona are decided in one place rather than in every member, and the four methods
+ * the trace and the persona are decided in one place rather than in every member, and the five methods
  * built on it decide which of the simulation's trigger-wide behaviours a member meets: `dispatchRead`
  * serves a read whose payload is one record, which the `conflict` trigger leaves served so the act that
  * record carries can be attempted (AAP 0.12.4 SCR-05); `dispatch` serves a call that trigger leaves
  * alone because it is not a read — a write, a measurement, an answer or an export; `dispatchControl`
  * serves the demonstration controls that must answer whatever is in effect so the popover can lift it
- * (rule P-8); and `dispatchCollection` serves a read whose payload is a collection, which the `empty`
- * trigger empties and the `conflict` trigger refuses beside the behaviours every read meets (AAP
- * 0.12.1).
+ * (rule P-8); `dispatchCollection` serves a read whose payload is a collection, which the `empty`
+ * trigger empties and the `conflict` trigger refuses beside the behaviours every read meets; and
+ * `dispatchAggregate` serves a read whose payload is the aggregate computed over a collection, which
+ * the `conflict` trigger refuses for the same reason and which the `empty` trigger leaves to the
+ * family that counted the population (AAP 0.12.1).
  *
  * The public surface is deliberately the port's own set plus the four names its callers need: the
  * readiness promise, the role switch, the read of the persona the session is acting as and the roster
@@ -1255,19 +1257,21 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * The simulation's `conflict` trigger is decided in the same place and for the same reason (AAP
    * 0.12.1): once the loading trigger has been answered, a refusable call is refused before its family
-   * runs, so every collection read reports the conflicting update the one way a screen can render
-   * rather than each family deciding for itself what a changed set means (AAP 0.12.3). `refusable` is
-   * what keeps the rest out of the refusal: a read whose payload is one record is served so the act it
-   * carries can be attempted and refused by the family that owns the record (AAP 0.12.4 SCR-05), an
-   * update of an existing record is refused by that family through the one `requireNoConflict` those
-   * writes share (`./handlers/audit.ts`), and the demonstration controls have to answer so the popover
-   * can lift the trigger it set (rule P-8).
+   * runs, so every read whose payload presents a set — the collection, or the aggregate computed over
+   * one — reports the conflicting update the one way a screen can render rather than each family
+   * deciding for itself what a changed set means (AAP 0.12.3). `refusable` is what keeps the rest out of
+   * the refusal: a read whose payload is one record is served so the act it carries can be attempted and
+   * refused by the family that owns the record (AAP 0.12.4 SCR-05), an update of an existing record is
+   * refused by that family through the one `requireNoConflict` those writes share
+   * (`./handlers/audit.ts`), and the demonstration controls have to answer so the popover can lift the
+   * trigger it set (rule P-8).
    *
    * @param work - The family call to serve, given the session and the acting persona.
    * @param holdable - Whether the `loading` trigger holds this call; `false` only for the demonstration
    *   controls.
    * @param refusable - Whether the `conflict` trigger refuses this call; `true` for every read whose
-   *   payload is a collection, `false` for a read of one record, a write or a demonstration control.
+   *   payload presents a set of records, whether the records themselves or the aggregate computed over
+   *   them, `false` for a read of one record, a write or a demonstration control.
    * @returns The payload the family produced inside the envelope every port member returns, or a
    *   promise that never settles while the `loading` trigger holds a holdable call.
    * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a refusable call, or
@@ -1298,8 +1302,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
     }
 
     if (refusable && refusesCollectionReads(state)) {
-      // The `conflict` trigger's whole behaviour for a collection read: the records moved under the
-      // reader, so the set is refused rather than answered from what replaced it (AAP 0.12.1, 0.12.3).
+      // The `conflict` trigger's whole behaviour for a read whose payload presents a set: the records
+      // moved under the reader, so the set is refused rather than answered from what replaced it (AAP
+      // 0.12.1, 0.12.3).
       throw conflictProblem(traceId);
     }
 
@@ -1324,9 +1329,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * (`./handlers/audit.ts`) — the approvals family for a decision, a write-back retry or an outcome
    * review, the exceptions family for an assign, a note or a dismiss — which is the write refusal this
    * demonstration shows (AAP 0.12.4 SCR-05). Every read the port declares goes through
-   * {@link dispatchRead} or {@link dispatchCollection} instead: a set reaches its screen with the
-   * conflicting update reported, and a record is served so the act it carries can be attempted
-   * (AAP 0.2.1 F10).
+   * {@link dispatchRead}, {@link dispatchCollection} or {@link dispatchAggregate} instead: a set
+   * reaches its screen with the conflicting update reported, and a record is served so the act it
+   * carries can be attempted (AAP 0.2.1 F10).
    *
    * @param work - The family call to serve, given the session and the acting persona.
    * @returns The payload the family produced, inside the envelope every port member returns, or a
@@ -1346,7 +1351,7 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * through the one `requireNoConflict` those writes share (`./handlers/audit.ts`, AAP 0.12.4
    * SCR-05), which is what lets a screen keep its controls and report the refusal in the service's own
    * sentence. A set presented as current is the other half of the condition, and
-   * {@link dispatchCollection} is where that half is refused.
+   * {@link dispatchCollection} and {@link dispatchAggregate} are where that half is refused.
    *
    * @param work - The family read to serve, given the session and the acting persona.
    * @returns The payload the family produced, inside the envelope every port member returns, or a
@@ -1383,7 +1388,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * emptied list is an answer the caller was entitled to receive rather than a way round the matrix
    * (AAP 0.12.1). The `loading` trigger holds the call exactly as it holds any other, and the `conflict`
    * trigger refuses it because a set presented as current is what that state prevents (AAP 0.12.3,
-   * AAP 0.12.4 SCR-05).
+   * AAP 0.12.4 SCR-05). A payload that is the aggregate computed over such a set is refused by the same
+   * trigger through {@link dispatchAggregate}, which adds no `empty` clamp because the family that
+   * counted the population decides for itself what an emptied one reports.
    *
    * @param work - The family read to serve, given the session and the acting persona.
    * @returns The records the family read, or no records while the `empty` trigger is in effect.
@@ -1404,6 +1411,37 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
     );
   }
 
+  /**
+   * Serves one read whose payload is the aggregate computed over a collection, which the simulation's
+   * `conflict` trigger refuses exactly as it refuses the collection itself.
+   *
+   * The payload is a set's own arithmetic rather than one of its records — the tiles, the grouping, the
+   * series and the changed-since list a screen presents as the state of the world — so a set presented
+   * as current is what the trigger prevents here too (AAP 0.12.3, AAP 0.12.4 SCR-05), and a reader shown
+   * figures computed from records that moved under them has no way to tell which half of the reading is
+   * current. It belongs on the refused side of the condition rather than beside a read of one record
+   * because an aggregate is not where a record's act starts: it names no record whose change could be
+   * attempted and then refused, so serving it would present the replaced records as the reading (AAP
+   * 0.2.1 F10).
+   *
+   * It is not {@link dispatchCollection} because there is no list here for the `empty` trigger to take:
+   * the payload is a figure computed from the population, and whether an emptied population reads as an
+   * empty answer is the family's decision, taken where that population is counted. The `loading` trigger
+   * holds the call as it holds any other read, and the demonstration controls stay outside the refusal
+   * so the popover can lift the trigger it set (rule P-8).
+   *
+   * @param work - The family read to serve, given the session and the acting persona.
+   * @returns The aggregate the family computed, inside the envelope every port member returns, or a
+   *   promise that never settles while the `loading` trigger is in effect.
+   * @throws Problem - The `'validation'` refusal the `conflict` trigger makes of a set presented as
+   *   current, or whatever the family refused the call with, carrying this call's identifier.
+   */
+  private async dispatchAggregate<T>(
+    work: (ctx: HandlerContext) => T | Promise<T>,
+  ): Promise<Result<T>> {
+    return this.serve(work, true, true);
+  }
+
   /* -------------------------------------------------------------------------------------------
    * Overview — specification SCR-01
    * ----------------------------------------------------------------------------------------- */
@@ -1416,10 +1454,11 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *
    * @param scope - The shell's plant and product selection.
    * @returns The overview, with the six sources' freshness in its metadata.
-   * @throws Problem - A `'permission'` failure when the role may not read the exception family.
+   * @throws Problem - A `'permission'` failure when the role may not read the exception family, or the
+   *   `'validation'` refusal the simulation's `conflict` trigger makes of a set presented as current.
    */
   async getOverview(scope: Scope): Promise<Result<Overview>> {
-    return this.dispatchRead((ctx) => exceptions.getOverview(ctx, selectionOf(scope)));
+    return this.dispatchAggregate((ctx) => exceptions.getOverview(ctx, selectionOf(scope)));
   }
 
   /* -------------------------------------------------------------------------------------------
@@ -1784,11 +1823,13 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * Only each question's identifier and prompt cross the boundary; the answer it is scripted to
    * receive stays with the builders until the question is asked (rule P-6).
    *
-   * @returns The suggested questions, in record order.
-   * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`.
+   * @returns The suggested questions, in record order; none while the simulation's `empty` trigger
+   *   empties the session's collections.
+   * @throws Problem - A `'permission'` failure when the role does not hold `evidence.read`, and the
+   *   `'validation'` refusal the `conflict` trigger makes of a collection read.
    */
   async listSuggestedQuestions(): Promise<Result<SuggestedQuestion[]>> {
-    return this.dispatchRead((ctx) => assistant.listSuggestedQuestions(ctx));
+    return this.dispatchCollection((ctx) => assistant.listSuggestedQuestions(ctx));
   }
 
   /**

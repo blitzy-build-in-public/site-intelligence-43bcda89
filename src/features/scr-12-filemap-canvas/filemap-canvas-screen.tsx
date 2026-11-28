@@ -904,6 +904,19 @@ export interface FilemapCanvasScreenProps {
    * width of its own row, so the control performs its visible function either way (rule P-8).
    */
   readonly onWallModeChange?: (wallMode: boolean) => void;
+
+  /**
+   * How many times the shell has put the demonstration's records back, or `undefined` where the shell
+   * passes no count.
+   *
+   * The lens in view is kept in this module's store across mounts, so a lens chosen before `Reset demo
+   * data` would otherwise still be the lens the screen came back on after it. The count is what lets the
+   * screen tell such a choice from one made after the reset: {@link useLensInView} stores the count the
+   * lens was chosen under, and a screen rendered with a later count reads a first visit's lens. Absent,
+   * the session is treated as never reset — the count 0 — which is a shell that renders this screen
+   * without the count, the same screen this was before the count existed.
+   */
+  readonly demonstrationEpoch?: number;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -917,12 +930,16 @@ type LensId = 'map' | 'graph';
 const DEFAULT_LENS: LensId = 'map';
 
 /**
- * The lens in view, held in this module rather than in the component's own state.
+ * The lens in view, and the demonstration session it was chosen in, held in this module rather than in
+ * the component's own state.
  *
  * The shell unmounts the canvas when the reader leaves `/canvas`, so a lens chosen in `useState` was
  * discarded by every client-side route change and the screen came back on the map however the reader had
  * left it. A zustand store created here outlives the component, so the reader returns to the lens they
- * were reading.
+ * were reading — and, because it outlives a demonstration reset too, it also records how many resets had
+ * happened when the lens was chosen: a lens chosen before `Reset demo data` belongs to a session whose
+ * records are gone, so the screen reads a first visit's lens once the count has moved
+ * ({@link useLensInView}).
  *
  * Only the lens lives here. Wall mode is a presentation request the shell owns the navigation for, the
  * screen's own selection is the fallback for a shell that holds none, and the armed preview names a
@@ -938,17 +955,27 @@ interface CanvasViewState {
   /** The lens the canvas is drawing. */
   lens: LensId;
 
-  /** Switches the lens the canvas draws. */
-  setLens(lens: LensId): void;
+  /**
+   * The count of demonstration resets the lens was chosen under.
+   *
+   * Zero is the session a first visit starts in, which is also the count a shell that passes none
+   * reports, so a screen rendered without the count reads the lens the reader last chose — the behaviour
+   * this screen had before the count existed.
+   */
+  epoch: number;
+
+  /** Switches the lens the canvas draws, recording the demonstration session the choice was made in. */
+  setLens(lens: LensId, epoch: number): void;
 }
 
 /** The canvas's view state, read through a zustand hook so the screen re-renders on the lens alone. */
 const useCanvasViewStore: UseBoundStore<StoreApi<CanvasViewState>> = create<CanvasViewState>()(
   (set) => ({
     lens: DEFAULT_LENS,
+    epoch: 0,
 
-    setLens: (lens) => {
-      set({ lens });
+    setLens: (lens, epoch) => {
+      set({ lens, epoch });
     },
   }),
 );
@@ -957,11 +984,46 @@ const useCanvasViewStore: UseBoundStore<StoreApi<CanvasViewState>> = create<Canv
  * Returns the canvas's view state to the one a first visit starts in.
  *
  * The state outlives every mount on purpose, so a suite that drives this screen calls this between cases:
- * without it the lens one case switched to would still be in force in the next.
- * `src/app/role-switcher.test.tsx` resets the shell store the same way.
+ * without it the lens one case switched to would still be in force in the next, and so would the
+ * demonstration session it was chosen in. `src/app/role-switcher.test.tsx` resets the shell store the
+ * same way.
  */
 export function resetCanvasViewState(): void {
-  useCanvasViewStore.setState({ lens: DEFAULT_LENS });
+  useCanvasViewStore.setState({ lens: DEFAULT_LENS, epoch: 0 });
+}
+
+/**
+ * The lens in view for a screen rendered in the demonstration session `epoch` names, with a setter that
+ * records the lens under that same session.
+ *
+ * WHY THE COUNT IS COMPARED AT READ TIME RATHER THAN RESET FROM A SUBSCRIPTION. The store outlives every
+ * mount, so a reset has to be honoured whether the reader was on this screen when it happened or away
+ * from it: a screen that remounts after the reset compares the count its store recorded with the one the
+ * shell hands it and reads a first visit's lens, so nothing has to know when the reset happened, no
+ * feature module has to reach into the shell's store to find out (AAP §0.18.1), and a screen rendered
+ * without the count — every suite that mounts it alone, and a shell that keeps none — keeps the lens it
+ * stored, exactly as it did before the count existed.
+ *
+ * The setter is bound to the count it was read with, so a lens the reader chooses now is recorded as a
+ * choice of this session rather than of the one a reset ended.
+ *
+ * @param epoch - The count of demonstration resets the shell has recorded, or 0 where it passes none.
+ * @returns The lens to draw and the setter to switch it with.
+ */
+function useLensInView(epoch: number): readonly [LensId, (lens: LensId) => void] {
+  const storedLens = useCanvasViewStore((state) => state.lens);
+  const storedEpoch = useCanvasViewStore((state) => state.epoch);
+  const storeLens = useCanvasViewStore((state) => state.setLens);
+
+  const lens = storedEpoch === epoch ? storedLens : DEFAULT_LENS;
+  const setLens = useCallback(
+    (next: LensId): void => {
+      storeLens(next, epoch);
+    },
+    [storeLens, epoch],
+  );
+
+  return [lens, setLens];
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -994,8 +1056,9 @@ export function resetCanvasViewState(): void {
  *
  * Nothing here writes, so a re-render can move no record; the state the component owns is the reader's
  * own — wall mode, a selection the shell has not taken over, and the response option the reader armed in
- * the preview switch — beside the lens in view, which lives in the module store above so a route change
- * keeps it.
+ * the preview switch — beside the lens in view and the demonstration session it was chosen in, which live
+ * in the module store above so a route change keeps them and `Reset demo data` returns the lens
+ * ({@link useLensInView}).
  *
  * @param props - The shell's scope, the selection it holds and the two callbacks it offers. See
  *   {@link FilemapCanvasScreenProps}: every member is optional.
@@ -1007,9 +1070,9 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
   const navigate = useNavigate();
 
   const scope = props.scope ?? NO_SCOPE;
+  const demonstrationEpoch = props.demonstrationEpoch ?? 0;
 
-  const lens = useCanvasViewStore((state) => state.lens);
-  const setLens = useCanvasViewStore((state) => state.setLens);
+  const [lens, setLens] = useLensInView(demonstrationEpoch);
   const [wallMode, setWallMode] = useState(false);
   const [ownSelection, setOwnSelection] = useState<string | null>(null);
   const [armedPreviewId, setArmedPreviewId] = useState<string | null>(null);

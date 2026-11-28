@@ -19,7 +19,10 @@
  * {@link ChokepointAlertStrip} alerts on the crossings the pack records, {@link CompetitorNetwork}
  * draws the sites, lanes and crossings, and {@link ChokepointTable} lists them. This file owns the one
  * read, the two selectors, the pack banner, the alert strip's wording, the two chart frames, the
- * legend, the export and the resolver the chokepoint table names a competitor with.
+ * legend, the export — which it narrows to the crossings the class in view leaves before offering the
+ * file, so the brief a reader downloads lists the crossings the atlas draws, against the whole
+ * competitor roster the table names its competitor cells from — and the resolver the chokepoint table
+ * names a competitor with.
  *
  * RULE P-5 IS THE GOVERNING RULE HERE, AND IT IS STRUCTURAL RATHER THAN REVIEWED. Market intelligence
  * is never blended with a first-party record in one number: the payload keeps the two families in
@@ -92,6 +95,8 @@ import {
   SECONDARY_CONTROL_CLASSES,
   SELECTED_CONTROL_CLASSES,
 } from '../../components/tooltip';
+import { scopeChokepointBrief } from '../../services/exports/chokepoint-brief';
+import type { ChokepointBriefScope } from '../../services/exports/chokepoint-brief';
 import { useService } from '../../services/service-provider';
 import { WRITE_READS } from '../../services/write-reads';
 import {
@@ -1224,15 +1229,18 @@ const ATLAS_SOURCE: SourceId = 'market-pack';
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The three choices the atlas holds: the class in view, the entity in view and the mark the network
- * holds as selected.
+ * The three choices the atlas holds — the class in view, the entity in view and the mark the network
+ * holds as selected — with the demonstration session each was made in.
  *
  * The shell unmounts the atlas when the reader leaves `/competitive`, so the three sat in `useState` and
  * were discarded by every client-side route change — a competitor chosen in the selector fell back to the
  * class's own default before the reader had come back. A zustand store created in this module outlives
- * the component, so the reader returns to the surface they left. It is this module's own store and holds
- * no shell vocabulary: AAP 0.6.1 gives the shell store the active role, the scope, the selected node,
- * wall mode and the simulation popover, and none of those is a choice made on this screen.
+ * the component, so the reader returns to the surface they left — and, because it outlives a
+ * demonstration reset too, it also records how many resets had happened when the three were chosen: a
+ * choice made before `Reset demo data` belongs to a session whose records are gone, so the screen reads
+ * the first visit's values once the count has moved ({@link useAtlasView}). It is this module's own store
+ * and holds no shell vocabulary: AAP 0.6.1 gives the shell store the active role, the scope, the selected
+ * node, wall mode and the simulation popover, and none of those is a choice made on this screen.
  *
  * Created with no persistence middleware: theme and density are the only preferences this application
  * writes to browser storage (platform-contracts.md §1), so a reload opens on the class the shell's
@@ -1255,16 +1263,31 @@ interface AtlasViewState {
   /** The mark the network reported as selected, or `null` when none is. */
   selectedMarkId: string | null;
 
-  /** Takes the class the reader chose, or `null` for every class the pack holds. */
-  setOwnClass(ownClass: string | null | undefined): void;
+  /**
+   * The count of demonstration resets the three choices were made under.
+   *
+   * Zero is the session a first visit starts in, which is also the count a shell that passes none
+   * reports, so a screen rendered without the count reads the choices the reader last made — the
+   * behaviour this screen had before the count existed.
+   */
+  epoch: number;
 
-  /** Takes the series the reader chose in the entity selector. */
-  setOwnEntity(ownEntity: string | null): void;
+  /**
+   * Takes the class the reader chose, or `null` for every class the pack holds, with the demonstration
+   * session the choice was made in.
+   */
+  setOwnClass(ownClass: string | null | undefined, epoch: number): void;
 
-  /** Takes the mark the network reported as selected. */
-  setSelectedMarkId(selectedMarkId: string | null): void;
+  /** Takes the series the reader chose in the entity selector, with the session it was chosen in. */
+  setOwnEntity(ownEntity: string | null, epoch: number): void;
 
-  /** Returns the three members to a first visit's values, leaving the setters in place. */
+  /** Takes the mark the network reported as selected, with the session it was reported in. */
+  setSelectedMarkId(selectedMarkId: string | null, epoch: number): void;
+
+  /**
+   * Returns the three choices and the session count to a first visit's values, leaving the setters in
+   * place.
+   */
   resetView(): void;
 }
 
@@ -1273,24 +1296,52 @@ function initialAtlasView(): Pick<AtlasViewState, 'ownClass' | 'ownEntity' | 'se
   return { ownClass: undefined, ownEntity: null, selectedMarkId: null };
 }
 
+/**
+ * The three choices a session starts from, given the session a store holds and the one a new choice is
+ * being made in.
+ *
+ * A reader may reset the demonstration and then change one of the three immediately, and that choice
+ * belongs to the session the reset started: the two they have not chosen again take a first visit's
+ * values rather than the ones the session the reset ended left behind. Without this, choosing a class
+ * after a reset would bring back the entity and the mark chosen before it — the very carry-over the
+ * reset exists to clear.
+ *
+ * @param stored - The store's current session and the choices it holds.
+ * @param epoch - The session the choice being written belongs to.
+ * @returns The choices to write beside the new one.
+ */
+function choicesForSession(
+  stored: Pick<AtlasViewState, 'ownClass' | 'ownEntity' | 'selectedMarkId' | 'epoch'>,
+  epoch: number,
+): Pick<AtlasViewState, 'ownClass' | 'ownEntity' | 'selectedMarkId'> {
+  return stored.epoch === epoch
+    ? {
+        ownClass: stored.ownClass,
+        ownEntity: stored.ownEntity,
+        selectedMarkId: stored.selectedMarkId,
+      }
+    : initialAtlasView();
+}
+
 /** The atlas's view state, read through a zustand hook so the screen re-renders on the members it selects. */
 const useAtlasViewStore: UseBoundStore<StoreApi<AtlasViewState>> = create<AtlasViewState>()((set) => ({
   ...initialAtlasView(),
+  epoch: 0,
 
-  setOwnClass: (ownClass) => {
-    set({ ownClass });
+  setOwnClass: (ownClass, epoch) => {
+    set((state) => ({ ...choicesForSession(state, epoch), ownClass, epoch }));
   },
 
-  setOwnEntity: (ownEntity) => {
-    set({ ownEntity });
+  setOwnEntity: (ownEntity, epoch) => {
+    set((state) => ({ ...choicesForSession(state, epoch), ownEntity, epoch }));
   },
 
-  setSelectedMarkId: (selectedMarkId) => {
-    set({ selectedMarkId });
+  setSelectedMarkId: (selectedMarkId, epoch) => {
+    set((state) => ({ ...choicesForSession(state, epoch), selectedMarkId, epoch }));
   },
 
   resetView: () => {
-    set(initialAtlasView());
+    set({ ...initialAtlasView(), epoch: 0 });
   },
 }));
 
@@ -1298,11 +1349,81 @@ const useAtlasViewStore: UseBoundStore<StoreApi<AtlasViewState>> = create<AtlasV
  * Returns the atlas's view state to the one a first visit starts in.
  *
  * The state outlives every mount on purpose, so a suite that drives this screen calls this between cases:
- * without it the competitor one case selected would still be in view in the next.
- * `src/app/role-switcher.test.tsx` resets the shell store the same way.
+ * without it the competitor one case selected would still be in view in the next, and so would the
+ * demonstration session it was chosen in. `src/app/role-switcher.test.tsx` resets the shell store the
+ * same way.
  */
 export function resetAtlasViewState(): void {
   useAtlasViewStore.getState().resetView();
+}
+
+/**
+ * The three choices a render shows, with the setters that record a new one: what {@link useAtlasView}
+ * answers, every setter bound to the demonstration session the render belongs to.
+ */
+interface AtlasView {
+  /** The class in view, or `undefined` where the reader has chosen none. */
+  readonly ownClass: string | null | undefined;
+
+  /** The series in view, or `null` while the class's own default stands. */
+  readonly ownEntity: string | null;
+
+  /** The mark the network holds as selected, or `null` when none is. */
+  readonly selectedMarkId: string | null;
+
+  /** Takes the class the reader chose, or `null` for every class the pack holds. */
+  setOwnClass(ownClass: string | null | undefined): void;
+
+  /** Takes the series the reader chose in the entity selector. */
+  setOwnEntity(ownEntity: string | null): void;
+
+  /** Takes the mark the network reported as selected. */
+  setSelectedMarkId(selectedMarkId: string | null): void;
+}
+
+/**
+ * The three choices in view for a screen rendered in the demonstration session `epoch` names, with the
+ * setters that record a new choice under that same session.
+ *
+ * WHY THE COUNT IS COMPARED AT READ TIME RATHER THAN RESET FROM A SUBSCRIPTION. The store outlives every
+ * mount, so a reset has to be honoured whether the reader was on this screen when it happened or away
+ * from it: a screen that remounts after the reset compares the count its store recorded with the one the
+ * shell hands it and reads the first visit's values, so nothing has to know when the reset happened, no
+ * feature module has to reach into the shell's store to find out (AAP §0.18.1), and a screen rendered
+ * without the count — every suite that mounts it alone, and a shell that keeps none — keeps the choices
+ * it stored, exactly as it did before the count existed.
+ *
+ * The setters are bound to the count they were read with, so a choice the reader makes now is recorded as
+ * a choice of this session rather than of the one a reset ended.
+ *
+ * @param epoch - The count of demonstration resets the shell has recorded, or 0 where it passes none.
+ * @returns The three choices to show and the setters to record a new one with.
+ */
+function useAtlasView(epoch: number): AtlasView {
+  const storedEpoch = useAtlasViewStore((state) => state.epoch);
+  const storedClass = useAtlasViewStore((state) => state.ownClass);
+  const storedEntity = useAtlasViewStore((state) => state.ownEntity);
+  const storedMarkId = useAtlasViewStore((state) => state.selectedMarkId);
+  const storeClass = useAtlasViewStore((state) => state.setOwnClass);
+  const storeEntity = useAtlasViewStore((state) => state.setOwnEntity);
+  const storeMarkId = useAtlasViewStore((state) => state.setSelectedMarkId);
+
+  const chosen = storedEpoch === epoch ? undefined : initialAtlasView();
+
+  return {
+    ownClass: chosen === undefined ? storedClass : chosen.ownClass,
+    ownEntity: chosen === undefined ? storedEntity : chosen.ownEntity,
+    selectedMarkId: chosen === undefined ? storedMarkId : chosen.selectedMarkId,
+    setOwnClass: (ownClass) => {
+      storeClass(ownClass, epoch);
+    },
+    setOwnEntity: (ownEntity) => {
+      storeEntity(ownEntity, epoch);
+    },
+    setSelectedMarkId: (selectedMarkId) => {
+      storeMarkId(selectedMarkId, epoch);
+    },
+  };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1335,6 +1456,20 @@ export interface CompetitiveAtlasScreenProps {
    * product the reader filtered to.
    */
   readonly scope?: Scope;
+
+  /**
+   * How many times the shell has put the demonstration's records back, or `undefined` where the shell
+   * passes no count.
+   *
+   * The class in view, the entity in view and the selected mark are kept in this module's store across
+   * mounts, so a class chosen before `Reset demo data` would otherwise still be the class the atlas came
+   * back on after it. The count is what lets the screen tell such a choice from one made after the reset:
+   * {@link useAtlasView} stores the count the three were chosen under, and a screen rendered with a later
+   * count reads the first visit's values again. Absent, the session is treated as never reset — the count
+   * 0 — which is a shell that renders this screen without the count, the same screen this was before the
+   * count existed.
+   */
+  readonly demonstrationEpoch?: number;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1406,8 +1541,9 @@ function SeriesSwatch({ series }: SeriesSwatchProps): ReactElement | null {
  *
  * Nothing here writes, so a re-render can move no record; the state the component owns is the
  * reader's own — the class in view, the entity in view and the mark the network holds as selected —
- * held in this module's store so a route change keeps them, plus the one refusal the reader has to be
- * told about, a brief this page could not hand over, and never a copy of service data. The class in view
+ * held in this module's store so a route change keeps them and `Reset demo data` returns them
+ * ({@link useAtlasView}), plus the one refusal the reader has to be told about, a brief this page
+ * could not hand over, and never a copy of service data. The class in view
  * narrows every surface the screen draws — the alerts the band lists, the radar series, the competitor
  * networks, their sites and the crossings their lanes traverse — from the payload's own classification,
  * so the selector filters the atlas rather than restating it (AAP §0.12.4).
@@ -1422,19 +1558,20 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
   const queryClient = useQueryClient();
 
   const scope = props.scope ?? NO_SCOPE;
+  const demonstrationEpoch = props.demonstrationEpoch ?? 0;
 
   /*
    * The reader's own class choice. `undefined` means the reader has chosen nothing yet, so the atlas
    * follows the shell's product selection (see {@link resolveDefaultClass}); `null` means the reader
    * asked for every class the pack holds. The two stay distinct so "All product classes" stays
    * reachable under a shell that has filtered to one product (rule P-8).
+   *
+   * The three are read through {@link useAtlasView}, which answers a first visit's values once the
+   * shell's count of demonstration resets has moved past the one they were chosen under, and binds every
+   * setter to the count this render belongs to.
    */
-  const ownClass = useAtlasViewStore((state) => state.ownClass);
-  const ownEntity = useAtlasViewStore((state) => state.ownEntity);
-  const selectedMarkId = useAtlasViewStore((state) => state.selectedMarkId);
-  const setOwnClass = useAtlasViewStore((state) => state.setOwnClass);
-  const setOwnEntity = useAtlasViewStore((state) => state.setOwnEntity);
-  const setSelectedMarkId = useAtlasViewStore((state) => state.setSelectedMarkId);
+  const { ownClass, ownEntity, selectedMarkId, setOwnClass, setOwnEntity, setSelectedMarkId } =
+    useAtlasView(demonstrationEpoch);
 
   /*
    * What the export reports when the brief arrived but this page has no way to hand it over. The
@@ -1462,13 +1599,27 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
    * that arrived on a page with no object-URL factory to offer it with — is held in
    * `exportOfferFailure`, because the brief was prepared and recorded and only the hand-over failed.
    *
+   * The brief is scoped to the class in view. The port's `exportChokepointBrief()` takes no argument,
+   * because the service interface is fixed verbatim by the contracts and both adapters answer it from
+   * the whole pack, while the class in view is this screen's own state. So the variables the mutation
+   * carries are the atlas state it is exported from — the class, and the crossings it leaves listed —
+   * and the payload the port composed is narrowed to them before the file is offered, which is what
+   * keeps the file and the table below it from disagreeing. The competitors are not among the
+   * variables: each crossing names its own competitors in `competitorBufferDays`, and this screen's
+   * chokepoint table names them from that record against the whole roster, so the file keeps the
+   * roster whole and describes every competitor identifier it holds.
+   *
    * It records itself on the trail before the file is offered, so a settled brief invalidates the reads
    * `WRITE_READS.exportChokepointBrief` names — one row of the write-reads map in
    * `src/services/write-reads.ts`, which the cache's own write channel reads too (AAP §0.6.2,
    * contracts §6).
    */
-  const exportMutation = useMutation<Result<ExportPayload>, unknown, void>({
-    mutationFn: () => service.exportChokepointBrief(),
+  const exportMutation = useMutation<Result<ExportPayload>, unknown, ChokepointBriefScope>({
+    mutationFn: async (scopeInView: ChokepointBriefScope) => {
+      const result = await service.exportChokepointBrief();
+
+      return { data: scopeChokepointBrief(result.data, scopeInView), meta: result.meta };
+    },
     onSuccess: (result) => {
       for (const read of WRITE_READS.exportChokepointBrief) {
         void queryClient.invalidateQueries({ queryKey: [read] });
@@ -1607,12 +1758,17 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
     setSelectedMarkId(entityId);
   }
 
-  /** Asks the port for the chokepoint brief and offers it as a download. */
+  /**
+   * Asks the port for the chokepoint brief, scopes it to the class in view and offers it as a download.
+   */
   function requestExport(): void {
     /* A new attempt replaces what the previous one reported, so a refusal never stands beside a brief
        that is being prepared again. */
     setExportOfferFailure(null);
-    exportMutation.mutate();
+    exportMutation.mutate({
+      productClass: classInView,
+      chokepointIds: chokepointsInView.map((crossing) => crossing.id),
+    });
   }
 
   const exportReason = exportReasonFor({

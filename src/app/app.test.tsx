@@ -37,10 +37,11 @@
  *   `src/components/forbidden-card.test.tsx` use — a source check scans `src/` for them.
  * - The bar's stable boxes: the two groups in the bar that read their own records reserve the box
  *   their read settles into — the freshness group takes a line of the bar's row and holds a height
- *   floor, and the scope group holds a column whose sentence is capped below its fields' width. The
- *   bar is one wrapping row whose height every control beside those groups pays for, so a group
- *   that grew when its read answered re-broke its neighbours' lines and moved the navigation and
- *   the route's content.
+ *   floor, and the scope group holds a column whose sentence is capped below its fields' width and
+ *   wraps inside that cap. The bar is one wrapping row whose height every control beside those
+ *   groups pays for, so the notice's width is bounded rather than left to its sentence; the lines a
+ *   refusal needs are height the bar takes in that state alone, because a reader has to be given the
+ *   explanation rule P-8 attaches to the two controls it leaves disabled.
  *
  * THE SERVICE BOUNDARY IS MOCKED AT THE PROVIDER (rule P-2). The real provider awaits the mock
  * adapter's bootstrap, which hashes two hundred seeded audit events, so a suite that rendered
@@ -306,9 +307,10 @@ function precedes(first: Element, second: Element): boolean {
  * Returns the shell store to a first-time visitor's state, so a case reads nothing of the one before it.
  *
  * The store's own `resetShell` does this and no application control calls it: `Reset demo data`
- * restores the adapter's records and leaves the reader's persona, scope, selection and wall mode
- * standing, so a reset of the store is nobody's behaviour but a suite's. Isolation still has to happen:
- * a persona, a scope or an open popover left behind by the case before it would be read back as this
+ * restores the adapter's records, clears the canvas selection and wall mode, counts the reset and
+ * leaves the reader's persona and scope filters standing, while this member moves every field. A reset
+ * of the whole store is therefore nobody's behaviour but a suite's. Isolation still has to happen: a
+ * persona, a scope or an open popover left behind by the case before it would be read back as this
  * one's own.
  */
 function clearShellState(): void {
@@ -538,7 +540,7 @@ describe('AppShell — the top bar (AAP §0.12.1, rule P-3)', () => {
  * ------------------------------------------------------------------------------------------- */
 
 describe('AppShell — the top bar reserves the box each reading group settles into', () => {
-  it('gives the freshness group its own line and a height floor, and caps the scope notice', () => {
+  it('gives the freshness group its own line and a height floor, and wraps the scope notice inside its cap', () => {
     renderShell('/exceptions');
 
     const freshness = within(banner()).getByRole('group', { name: FRESHNESS_STRIP_TEXT.group });
@@ -555,13 +557,14 @@ describe('AppShell — the top bar reserves the box each reading group settles i
        before the read says whether there is a sentence to paint. */
     expect(scope).toHaveClass('min-h-20');
 
-    /* The sentence is capped at a step of the spacing scale and clamped to one line, so a read that
-       answers, refuses or is still pending leaves the bar's height as the reserved line holds it and
-       never widens the bar past what its first line carries; it sits on that reserved line rather than
-       sharing the fields' line. */
+    /* The sentence is capped at a step of the spacing scale and wraps within that cap, so the whole
+       explanation rule P-8 requires is painted rather than cut off at the bar's right edge; it sits on
+       the group's reserved line rather than sharing the fields' line, and that reserved line is a floor
+       the bar grows past only in the state whose sentence needs the lines. */
     const notice = within(scope).getByText(SCOPE_FILTERS_TEXT.reading);
 
-    expect(notice).toHaveClass('max-w-80', 'truncate', 'xl:max-w-xl');
+    expect(notice).toHaveClass('max-w-80', 'break-words', 'xl:max-w-xl');
+    expect(notice).not.toHaveClass('truncate');
     expect(notice).not.toHaveClass('basis-full');
   });
 });

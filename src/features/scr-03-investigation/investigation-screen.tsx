@@ -24,11 +24,13 @@
  * what the cache held before the write.
  *
  * WHO MAY WRITE IS STATED BEFORE THE ATTEMPT. Both writes are the adapter's own calls, and it refuses
- * either one for a persona that does not hold `exception.work` over the exception's plant. Both controls
- * are therefore gated here from the facts the adapter itself derived — the persona's permissions and
- * plant scope through `useActiveUser()`, and the roles that hold the permission through the persona
- * roster — so a read-only persona finds them disabled with a sentence naming the roles that may act
- * rather than learning of the refusal by activating them (AAP 0.2.1, rules P-3 and P-8).
+ * either one for a persona the matrix does not let work the exception at its plant. Both controls are
+ * therefore gated here from the facts the adapter itself derived — the persona's permissions and plant
+ * scope through `useActiveUser()`, and the roles that hold the permission through the persona roster —
+ * so a read-only persona finds them disabled with a sentence saying why: the roles that may act, or the
+ * plants its own scope does cover when it holds the permission but not over that plant. The reader
+ * therefore learns the reason before activating a control rather than from the refusal afterwards
+ * (AAP 0.2.1, rules P-3 and P-8).
  *
  * NOTHING IS COMPUTED HERE (rule P-6). No amount, count, duration, date, percentage or delta is
  * derived, rounded, parsed or formatted in this module: every figure arrives from the service, and
@@ -281,20 +283,32 @@ export const INVESTIGATION_TEXT = {
   alreadyOwner: ALREADY_OWNER_REASON,
 
   /**
-   * Why a write to the exception cannot act: the acting role does not hold `exception.work` over the
-   * plant the exception lands on. {@link noWorkReason} composes the role the adapter enforces, that
-   * plant and the permission's own name — held as the constant the gate itself checks, so the sentence
-   * and the check cannot name two permissions — into one sentence, and closes it with
-   * {@link noWorkRoles} once the roster has answered. "Assign to me" and "Add note" both write to the
-   * record, so both state this one reason, and the reader learns who may act before activating either
-   * of them (AAP 0.2.1, rules P-3 and P-8).
+   * Why a write to the exception cannot act. {@link mayWork} refuses for two different reasons, and
+   * {@link noWorkReason} states the one that is true rather than one sentence for both: a persona that
+   * holds `exception.work` whose plants miss the exception's says so with {@link noWorkHolds},
+   * {@link noWorkNotOver} and {@link noWorkPlants}, because that persona is one of the permission's
+   * holders and a sentence claiming it lacks the permission would contradict itself; a persona that
+   * does not hold the permission at all says so and closes with {@link noWorkRoles} once the roster has
+   * answered. The role the adapter enforces, the plant the exception lands on and the permission's own
+   * name — held as the constant the gate itself checks, so the sentence and the check cannot name two
+   * permissions — are composed in from the persona's own facts. "Assign to me" and "Add note" both
+   * write to the record, so both state this one reason, and the reader learns why the control cannot
+   * act, and who may act, before activating either of them (AAP 0.2.1, rules P-3 and P-8).
    */
   noWorkActor: 'The acting role',
   noWorkLacks: 'does not hold the',
   noWorkOver: 'permission over',
+  noWorkHolds: 'holds the',
+  noWorkNotOver: 'permission, but not over',
   noWorkOutcome: 'so this exception cannot be changed here.',
 
-  /** The clause naming the roles that hold `exception.work`, composed in by {@link noWorkReason}. */
+  /** The clause naming the plants the acting persona does reach, with those plants after it. */
+  noWorkPlants: 'The plants it covers are',
+
+  /**
+   * The clause naming the roles that hold `exception.work`, composed in by {@link noWorkReason} for the
+   * persona that does not hold the permission at all.
+   */
   noWorkRoles: 'The roles that hold it are',
 
   /** The note form. */
@@ -1094,11 +1108,20 @@ function mayWork(actingUser: ActiveUser, plantId: PlantId): boolean {
  * The sentence the screen's two write controls are disabled with when the acting persona may not work the
  * exception.
  *
- * It states the three facts the adapter's own refusal states — the role it enforces, the permission that
- * role lacks and the plant the exception lands on — and then, once the roster has answered, the roles
- * that hold the permission in the roster's own order, which is what rule P-8 owes a reader who has not
- * activated the control yet. A roster nobody has reported, or one that reports no holder at all, leaves
- * that closing clause out rather than claiming no role may act.
+ * {@link mayWork} refuses for two different reasons, and the sentence states the one that failed rather
+ * than one shape for both:
+ *
+ * - The persona holds `exception.work` while its own plants do not include the exception's. It is then
+ *   one of the permission's holders, so nothing here names the roles that hold it: the sentence states
+ *   the permission it holds, the plant it does not reach and the plants it does, the last of them the
+ *   persona's own `plantIds` in the order the adapter reports them (rule P-6).
+ * - The persona does not hold the permission at all. The sentence states the permission and the plant,
+ *   and then, once the roster has answered, the roles that hold the permission in the roster's own
+ *   order, with the acting role left out because this branch has established that it is not one of
+ *   them. A roster nobody has reported, or one that reports no holder at all, leaves that closing
+ *   clause out rather than claiming no role may act.
+ *
+ * Either way rule P-8 owes a reader who has not activated the control a true reason for its state.
  *
  * @param actingUser - The persona the adapter is enforcing.
  * @param plantId - The plant the exception lands on.
@@ -1110,16 +1133,30 @@ function noWorkReason(
   plantId: PlantId,
   rolesWithWork: readonly Role[] | null,
 ): string {
+  if (actingUser.permissions.includes(WORK_PERMISSION)) {
+    const reached =
+      `${INVESTIGATION_TEXT.noWorkActor} (${actingUser.role}) ${INVESTIGATION_TEXT.noWorkHolds} ` +
+      `${WORK_PERMISSION} ${INVESTIGATION_TEXT.noWorkNotOver} ${plantId}, ` +
+      INVESTIGATION_TEXT.noWorkOutcome;
+
+    /* A persona whose own scope names no plant has no plant to state, so the clause is left out. */
+    return actingUser.plantIds.length === 0
+      ? reached
+      : `${reached} ${INVESTIGATION_TEXT.noWorkPlants} ${actingUser.plantIds.join(', ')}.`;
+  }
+
   const opening =
     `${INVESTIGATION_TEXT.noWorkActor} (${actingUser.role}) ${INVESTIGATION_TEXT.noWorkLacks} ` +
     `${WORK_PERMISSION} ${INVESTIGATION_TEXT.noWorkOver} ${plantId}, ` +
     INVESTIGATION_TEXT.noWorkOutcome;
+  const othersWithWork =
+    rolesWithWork === null ? [] : rolesWithWork.filter((role) => role !== actingUser.role);
 
-  if (rolesWithWork === null || rolesWithWork.length === 0) {
+  if (othersWithWork.length === 0) {
     return opening;
   }
 
-  return `${opening} ${INVESTIGATION_TEXT.noWorkRoles} ${rolesWithWork.join(', ')}.`;
+  return `${opening} ${INVESTIGATION_TEXT.noWorkRoles} ${othersWithWork.join(', ')}.`;
 }
 
 /**

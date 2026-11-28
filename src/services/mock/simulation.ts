@@ -32,14 +32,15 @@
  *   nothing to show, so a screen renders the generic empty state (AAP 0.12.1). It is distinct from
  *   `empty-queue`, which empties the exception queue alone and is a handler's own trigger: a filter
  *   that happens to match nothing must not be confusable with a control that emptied every list.
- * - `conflict` — `refusesCollectionReads` reports it, and a served collection read is then refused with
- *   a `'validation'` `Problem` rather than answered from a set that changed under the reader (AAP
- *   0.12.1, AAP 0.12.3). Every read whose payload is a collection is refused, so a screen that presents
- *   a set reports the conflicting update (AAP 0.2.1 F10). A read whose payload is one record is served
- *   instead, because the state is the update refused rather than the read that carries it: the act such
- *   a record enables is attempted and then refused by the family that owns the record (AAP 0.12.4
- *   SCR-05). Besides those reads, only the demonstration controls are served, so the popover can lift
- *   the trigger it set (rule P-8).
+ * - `conflict` — `refusesCollectionReads` reports it, and a served read whose payload presents a set is
+ *   then refused with a `'validation'` `Problem` rather than answered from a set that changed under the
+ *   reader (AAP 0.12.1, AAP 0.12.3). Every read whose payload is a collection, and every read whose
+ *   payload is the aggregate computed over one, is refused, so a screen that presents a set reports the
+ *   conflicting update (AAP 0.2.1 F10). A read whose payload is one record is served instead, because
+ *   the state is the update refused rather than the read that carries it: the act such a record enables
+ *   is attempted and then refused by the family that owns the record (AAP 0.12.4 SCR-05). Besides those
+ *   reads, only the demonstration controls are served, so the popover can lift the trigger it set (rule
+ *   P-8).
  *
  * WHY THE FORBIDDEN TRIGGER'S SENTENCE LIVES HERE. The trigger refuses a call the acting role may
  * perfectly well make, so the refusal is the demonstration's rather than a fact about the role.
@@ -182,8 +183,8 @@ export function emptiesLists(state: MockState): boolean {
 }
 
 /**
- * Whether every read whose payload is a collection is being refused as one made against records that
- * changed, which is the `conflict` trigger.
+ * Whether every read whose payload presents a set — a collection, or the aggregate computed over one —
+ * is being refused as one made against records that changed, which is the `conflict` trigger.
  *
  * The trigger stands for a set another persona changed between the moment a screen read it and the
  * moment the read was served, and the answer it gives is a refusal rather than a set that has replaced
@@ -192,11 +193,12 @@ export function emptiesLists(state: MockState): boolean {
  * (AAP 0.12.1). The refusal is a `'validation'` `Problem` carrying the call's trace — the cause
  * `ProblemType` gives a request that cannot be honoured against the records as they stand.
  *
- * WHY ONLY A READ WHOSE PAYLOAD IS A COLLECTION IS REFUSED. The state is the record that changed under
+ * WHY ONLY A READ WHOSE PAYLOAD PRESENTS A SET IS REFUSED. The state is the record that changed under
  * the reader, and what it refuses is the write rather than the read the write is made from
  * (`ScreenState` in `src/types/service.ts`, AAP 0.12.4 SCR-05): a set presented as current is what a
- * reader would otherwise take as the state of the world, while a read of one record is where the act
- * that record carries starts. That read is therefore served, and the act meets the refusal —
+ * reader would otherwise take as the state of the world, whether that set arrives as the records
+ * themselves or as the aggregate computed over them, and a read of one record is where the act that
+ * record carries starts. That read is therefore served, and the act meets the refusal —
  * `requireNoConflict` in `src/services/mock/handlers/audit.ts` names the record that moved and refuses
  * to merge the change, and every write this build's screens make on an existing record calls it: the
  * approvals family for a decision, a write-back retry or an outcome review, the exceptions family for
@@ -218,7 +220,7 @@ export function emptiesLists(state: MockState): boolean {
  * out the writes too: that half of the condition is the refusal the family owning the record makes.
  *
  * @param state - The session whose triggers are read. The state is not modified.
- * @returns `true` while every collection read is refused, `false` otherwise.
+ * @returns `true` while every read whose payload presents a set is refused, `false` otherwise.
  */
 export function refusesCollectionReads(state: MockState): boolean {
   return isSimulationOn(state, 'conflict');

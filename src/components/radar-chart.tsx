@@ -43,11 +43,20 @@ import { SeriesBand } from './series-band';
 import type { SeriesBandGeometry, SeriesBandRow } from './series-band';
 import {
   LABEL_CLEARANCE,
-  SVG_LABEL_TEXT_METRICS,
   estimateTextWidth,
+  labelStepRatioOf,
   placeLabels,
+  renderedLabelMetrics,
+  truncateToWidth,
 } from './svg-label';
-import type { LabelBox, LabelFit, LabelObstacle, LabelPlacement, LabelRequest } from './svg-label';
+import type {
+  LabelBox,
+  LabelFit,
+  LabelObstacle,
+  LabelPlacement,
+  LabelRequest,
+  SvgTextMetrics,
+} from './svg-label';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording, in the one place it is written
@@ -230,6 +239,16 @@ const POLYGON_LABEL_OFFSET = 14;
 
 /** The swatch beside a polygon label, the gap between it and the words, and one line of their type step. */
 const POLYGON_LABEL_SWATCH_RADIUS = 2.5;
+
+/**
+ * The gap between a label's swatch and its words, and one line of that type, at the layer's 12-unit
+ * step.
+ *
+ * BOTH ARE TUNED TO THE TYPE THEY SIT BESIDE, so {@link polygonLabelOf} multiplies each by the step the
+ * drawing's labels are actually printed at ({@link RadarLabelStep}). A label printed smaller that kept a
+ * 12-unit line height would set its two lines inside one another, and one printed larger would step back
+ * from its swatch by a gap narrower than its own glyphs are tall.
+ */
 const POLYGON_LABEL_GAP = 5;
 const POLYGON_LABEL_LINE_HEIGHT = 12;
 
@@ -285,6 +304,53 @@ const SERIES_LABEL_ROW_HEIGHT = 34;
 const SERIES_LABEL_LINE_HEIGHT = 16;
 const LABEL_BAND_PADDING = 12;
 
+/* ---------------------------------------------------------------------------------------------
+ * The label step — the type the drawing prints at, and every length tuned to that type
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The type one drawing's labels are set in, and the factor every length beside them is stated at.
+ *
+ * WHY THE DRAWING RESOLVES THIS AND NOT ITS CLASSES. The `<svg>` fills its frame, so a label set at a
+ * fixed number of user units prints at whatever that frame's width multiplies it to: this layer's
+ * 12-unit step prints at about 7.5 px in a 324 px card, where it cannot be read, and at about 43 px in
+ * an 1854 px one, where it is larger than the page's own heading. `./svg-label.ts`'s
+ * `renderedLabelMetrics` answers the step, in this drawing's user units, that prints at one of
+ * specification §4.3's sizes however wide the frame is, and `labelStepRatioOf` answers how far that
+ * step is from the 12-unit step every length beside a label was tuned to.
+ *
+ * WHY A `font-size` ATTRIBUTE AND NOT A UTILITY CLASS. A `text-12` utility states a user-unit size
+ * again and overrides the attribute, which is the defect itself; the class lists below therefore keep
+ * only the role tokens — the fill the words are read in and the halo painted behind them — and the size
+ * arrives here, from the width the element is drawn at.
+ */
+interface RadarLabelStep {
+  /** The type step and character width this drawing's labels are set in, in its user units. */
+  readonly metrics: SvgTextMetrics;
+
+  /** The factor every length stated beside a label is multiplied by, relative to the 12-unit step. */
+  readonly ratio: number;
+
+  /** The clear space kept between a printed name, its neighbours and the drawing's edge. */
+  readonly clearance: number;
+}
+
+/**
+ * Resolves the label step from the type the drawing's labels are set in.
+ *
+ * `renderedLabelMetrics(null)` — no layout yet, which is every render under jsdom — answers the layer's
+ * own 12-unit step, so the ratio is then 1 and every length beside a label keeps exactly the value it
+ * has always had.
+ *
+ * @param metrics The type step this drawing's labels are set in.
+ * @returns The step, its ratio to the 12-unit step, and the clear space that travels with it.
+ */
+function labelStepOf(metrics: SvgTextMetrics): RadarLabelStep {
+  const ratio = labelStepRatioOf(metrics);
+
+  return { metrics, ratio, clearance: LABEL_CLEARANCE * ratio };
+}
+
 /**
  * Where this drawing's band starts, how its rows are spaced and how wide a line may be.
  *
@@ -294,14 +360,25 @@ const LABEL_BAND_PADDING = 12;
  * {@link SERIES_LABEL_LINE_HEIGHT} below its name, and no line may run past the drawing's own width. No
  * swatch column is stated because this band prints none: each series' polygon at its own outline carries
  * its colour, and the screen's `./legend.tsx` carries the swatch.
+ *
+ * THE ROW AND LINE HEIGHTS AND THE WIDTH A LINE MAY TAKE ARE MULTIPLIED BY THE LABEL STEP, and the step's
+ * own type is handed over with them: a row's two lines keep their spacing at every rendered size, and the
+ * truncation that keeps a name inside the drawing measures the type the drawing prints. The band's top
+ * does not move, because it is plot geometry chosen to clear the lowest label the axes carry.
+ *
+ * @param step The type this drawing's labels are set in.
+ * @returns The geometry `./series-band.tsx` prints this drawing's rows at.
  */
-const BAND_GEOMETRY: SeriesBandGeometry = {
-  top: LABEL_BAND_TOP,
-  rowHeight: SERIES_LABEL_ROW_HEIGHT,
-  lineHeight: SERIES_LABEL_LINE_HEIGHT,
-  textX: SERIES_LABEL_X,
-  maxTextWidth: VIEW_WIDTH - SERIES_LABEL_X - LABEL_CLEARANCE,
-};
+function bandGeometryOf(step: RadarLabelStep): SeriesBandGeometry {
+  return {
+    top: LABEL_BAND_TOP,
+    rowHeight: SERIES_LABEL_ROW_HEIGHT * step.ratio,
+    lineHeight: SERIES_LABEL_LINE_HEIGHT * step.ratio,
+    textX: SERIES_LABEL_X,
+    maxTextWidth: VIEW_WIDTH - SERIES_LABEL_X - step.clearance,
+    metrics: step.metrics,
+  };
+}
 
 /**
  * The pack scale the seed's market-intelligence records use, and the only two numbers the geometry
@@ -423,8 +500,21 @@ const SURFACE_WRAPPER_CLASSES = 'relative';
  * glyph. With `paint-order: stroke` on the element (see {@link POLYGON_LABEL_HALO_WIDTH}) the stroke
  * is painted first and the fill over it, which is what turns the stroke into a halo around the words
  * rather than an outline across them.
+ *
+ * NO TYPE UTILITY HERE. The size the words print at is resolved from the width the drawing is given and
+ * arrives as the element's own `font-size` (see {@link RadarLabelStep}): a `text-12` class would state a
+ * user-unit size and override that attribute, which is the defect this drawing is fixed for.
  */
-const POLYGON_LABEL_TEXT_CLASSES = 'text-12 fill-text-primary stroke-surface-1';
+const POLYGON_LABEL_TEXT_CLASSES = 'fill-text-primary stroke-surface-1';
+
+/**
+ * An axis name: the secondary text role, which specification §4 measures for the surface behind it.
+ *
+ * No type utility, for the reason {@link POLYGON_LABEL_TEXT_CLASSES} states: the size an axis name prints
+ * at is resolved from the width the drawing is given and set as the element's own `font-size`, and the
+ * run it prints is shortened to the room that size leaves between its anchor and the drawing's edge.
+ */
+const AXIS_LABEL_CLASSES = 'fill-text-secondary';
 
 /**
  * A vertex that can act: the whole mark, with the visible dot and the invisible target around it.
@@ -629,15 +719,22 @@ interface PolygonLabel {
  * A series that states no reading on its axis is labelled at the outer ring rather than at the centre:
  * the label then names the polygon without claiming a score the record never stated (rule P-6).
  *
+ * THE GAP AND THE LINE HEIGHT TRAVEL WITH THE TYPE. Both are stated at the layer's 12-unit step and are
+ * multiplied here by the step this drawing actually prints at, so a label set smaller or larger still
+ * stands one line clear of its swatch and one gap away from it, rather than closing onto the swatch it
+ * belongs to or drifting away from it (see {@link RadarLabelStep}).
+ *
  * @param series The series the label names.
  * @param axes The axes every series aligns to.
  * @param seriesIndex The series' position in the drawing order, which selects its axis.
+ * @param step The type this drawing's labels are set in.
  * @returns The label's geometry, or `null` when the payload states no axis to place it on.
  */
 function polygonLabelOf(
   series: AtlasSeries,
   axes: readonly RadarAxis[],
   seriesIndex: number,
+  step: RadarLabelStep,
 ): PolygonLabel | null {
   if (axes.length === 0) {
     return null;
@@ -654,8 +751,8 @@ function polygonLabelOf(
     x: vertex.x + outwardX * POLYGON_LABEL_OFFSET,
     y: vertex.y + outwardY * POLYGON_LABEL_OFFSET,
   };
-  const sideways = POLYGON_LABEL_SWATCH_RADIUS + POLYGON_LABEL_GAP;
-  const nearby = sideways + POLYGON_LABEL_LINE_HEIGHT;
+  const sideways = POLYGON_LABEL_SWATCH_RADIUS + POLYGON_LABEL_GAP * step.ratio;
+  const nearby = sideways + POLYGON_LABEL_LINE_HEIGHT * step.ratio;
   const textY = swatch.y + (outwardY <= 0 ? nearby : -nearby);
 
   if (outwardX > POLYGON_LABEL_VERTICAL_TOLERANCE) {
@@ -691,7 +788,17 @@ const RING_TICK_FRACTIONS: readonly number[] = [0.5, 1];
  * the fill, is the same device the polygon labels use: a ring or a spoke passing under the words is broken
  * around them rather than running through the glyphs (rule B-3).
  */
-const RING_TICK_CLASSES = 'text-12 fill-text-caption stroke-surface-1';
+const RING_TICK_CLASSES = 'fill-text-caption stroke-surface-1';
+
+/**
+ * The distances a scale value is tried at from its ring, at the layer's 12-unit step.
+ *
+ * The distances start close to the ring, because a value belongs beside the circle it measures, and step
+ * outward only when an axis name or a polygon label already sits there. They are stated at the 12-unit
+ * step and multiplied by the drawing's label step, so a value printed smaller still starts beside its
+ * ring instead of a dozen of its own glyphs away from it.
+ */
+const RING_TICK_DISTANCES: readonly number[] = [6, 14, 24, 36, 52];
 
 /**
  * The room the scale's values are placed in, and how far from their ring they are tried.
@@ -699,17 +806,27 @@ const RING_TICK_CLASSES = 'text-12 fill-text-caption stroke-surface-1';
  * The bounds stop above the series band, so a value never prints among the rows; the distances start close
  * to the ring because a value belongs beside the circle it measures, and step outward only when an axis
  * name or a polygon label already sits there.
+ *
+ * EVERY LENGTH THE PLACEMENT REASONS WITH IS STATED AT THE TYPE THE VALUES PRINT AT, because the boxes it
+ * keeps apart are what a reader sees: the clear space, the height of a value's box, the distances it is
+ * tried at and the width it may occupy all travel with the step, and a value set smaller that kept a
+ * 12-unit box would be pushed away from its own ring by a box it does not fill.
+ *
+ * @param step The type this drawing's labels are set in.
+ * @returns The fit the scale's values are placed through.
  */
-const RING_TICK_FIT: LabelFit = {
-  metrics: SVG_LABEL_TEXT_METRICS,
-  bounds: { width: VIEW_WIDTH, height: LABEL_BAND_TOP - LABEL_CLEARANCE },
-  boxHeight: SVG_LABEL_TEXT_METRICS.fontSize + 3,
-  lineHeight: SVG_LABEL_TEXT_METRICS.fontSize,
-  clearance: LABEL_CLEARANCE,
-  markRadius: POLYGON_LABEL_SWATCH_RADIUS,
-  distances: [6, 14, 24, 36, 52],
-  maxTextWidth: VIEW_WIDTH - 2 * LABEL_CLEARANCE,
-};
+function ringTickFitOf(step: RadarLabelStep): LabelFit {
+  return {
+    metrics: step.metrics,
+    bounds: { width: VIEW_WIDTH, height: LABEL_BAND_TOP - step.clearance },
+    boxHeight: step.metrics.fontSize + 3 * step.ratio,
+    lineHeight: step.metrics.fontSize,
+    clearance: step.clearance,
+    markRadius: POLYGON_LABEL_SWATCH_RADIUS,
+    distances: RING_TICK_DISTANCES.map((distance) => distance * step.ratio),
+    maxTextWidth: VIEW_WIDTH - 2 * step.clearance,
+  };
+}
 
 /** One value the scale states: which ring it names, what it says and the point on that ring. */
 interface RingTick {
@@ -756,21 +873,31 @@ function ringTicksOf(axisCount: number): readonly RingTick[] {
  * box's left edge is the anchor for a start-anchored run and moves left by the run's width for the other
  * two. The height is one type step above the baseline, which is where the placement keeps its clear space.
  *
+ * THE RUN IS MEASURED AT THE TYPE IT PRINTS AT, because the box is what the placement keeps clear of: a
+ * value set smaller than the 12-unit step that kept a 12-unit box would be pushed away from its own ring by
+ * space it does not occupy.
+ *
  * @param text The run the label prints.
  * @param point Where the label's anchor sits.
  * @param anchor Which end of the run the anchor is.
+ * @param metrics The type step the run is printed at.
  * @returns The label's box.
  */
-function textBoxOf(text: string, point: ChartPoint, anchor: AxisLabelAnchor): LabelBox {
-  const width = estimateTextWidth(text, SVG_LABEL_TEXT_METRICS);
+function textBoxOf(
+  text: string,
+  point: ChartPoint,
+  anchor: AxisLabelAnchor,
+  metrics: SvgTextMetrics,
+): LabelBox {
+  const width = estimateTextWidth(text, metrics);
   const left =
     anchor === 'start' ? point.x : anchor === 'end' ? point.x - width : point.x - width / 2;
 
   return {
     x: left,
-    y: point.y - SVG_LABEL_TEXT_METRICS.fontSize,
+    y: point.y - metrics.fontSize,
     width,
-    height: SVG_LABEL_TEXT_METRICS.fontSize + 3,
+    height: metrics.fontSize + 3,
   };
 }
 
@@ -787,42 +914,159 @@ function axisLabelPointFor(axisIndex: number, axisCount: number): ChartPoint {
 }
 
 /**
- * Every printed name a scale value must keep clear of: each axis name and each series' polygon label.
+ * The room a run anchored at one point has before it reaches the drawing's edge.
  *
- * The series band is excluded by the fit's own bounds rather than by an obstacle, because no value may be
- * placed among the rows at all.
+ * WHY A RUN NEEDS ONE. The step a label prints at is larger in user units the narrower the frame is, so at
+ * a phone width a name that fitted the drawing at its natural width can be wider than the space between
+ * its anchor and the edge — and the element clips what leaves its `viewBox`, so the rest of the name would
+ * simply fall outside the picture. The room is measured from the anchor the name prints from: a
+ * start-anchored run grows rightwards and has what lies to its right, an end-anchored run grows leftwards,
+ * and a centred run grows both ways and therefore has twice its nearer side.
  *
- * @param axes The axes the drawing carries.
- * @param series The series the drawing carries, in drawing order.
- * @returns One obstacle per axis name and per polygon label.
+ * @param anchor Which end of the run the anchor is.
+ * @param x The x the run's anchor sits at.
+ * @param clearance The clear space kept between a printed run and the drawing's edge.
+ * @returns The widest run that anchor can print inside the drawing, in user units.
  */
-function ringTickObstaclesOf(
-  axes: readonly RadarAxis[],
-  series: readonly AtlasSeries[],
-): readonly LabelObstacle[] {
-  const obstacles: LabelObstacle[] = [];
-
-  for (const [index, axis] of axes.entries()) {
-    obstacles.push({
-      key: `axis-name:${axis.id}`,
-      box: textBoxOf(
-        axis.label,
-        axisLabelPointFor(index, axes.length),
-        axisLabelAnchorFor(index, axes.length),
-      ),
-    });
+function labelRoomOf(anchor: AxisLabelAnchor, x: number, clearance: number): number {
+  if (anchor === 'start') {
+    return VIEW_WIDTH - clearance - x;
   }
 
+  if (anchor === 'end') {
+    return x - clearance;
+  }
+
+  return 2 * Math.min(x, VIEW_WIDTH - x) - 2 * clearance;
+}
+
+/** One axis name as the drawing prints it: the record's name, where it is anchored, and the run that fits. */
+interface PrintedAxisLabel {
+  /** The axis the name belongs to, which is its key and the record's own wording. */
+  readonly axis: RadarAxis;
+
+  /** The point the name's anchor sits at. */
+  readonly point: ChartPoint;
+
+  /** Which end of the run the anchor is. */
+  readonly anchor: AxisLabelAnchor;
+
+  /** The run the drawing prints: the axis' own name, or as much of it as the room holds. */
+  readonly run: string;
+}
+
+/**
+ * Every axis name as this drawing prints it, shortened to the room between its anchor and the drawing's edge.
+ *
+ * The record's wording is never lost to the shortening: the axis name is the record's own string, the
+ * vertex marks already announce it in their accessible names, the frame's table view prints it in full, and
+ * the drawing prints it in a `<title>` child whenever the run differs from it. What the shortening buys is
+ * the opposite — a name that would otherwise be cut off by the drawing's edge, or print across the ring it
+ * measures, is instead carried to the width the drawing can hold.
+ *
+ * @param axes The axes the drawing carries.
+ * @param step The type this drawing's labels are set in.
+ * @returns One printed name per axis, in the axes' own order.
+ */
+function printedAxisLabelsOf(
+  axes: readonly RadarAxis[],
+  step: RadarLabelStep,
+): readonly PrintedAxisLabel[] {
+  return axes.map((axis, index) => {
+    const point = axisLabelPointFor(index, axes.length);
+    const anchor = axisLabelAnchorFor(index, axes.length);
+
+    return {
+      axis,
+      point,
+      anchor,
+      run: truncateToWidth(axis.label, labelRoomOf(anchor, point.x, step.clearance), step.metrics),
+    };
+  });
+}
+
+/** One polygon label as the drawing prints it: the series it names, its geometry and the run that fits. */
+interface PrintedPolygonLabel extends PolygonLabel {
+  /** The series the label names, which is what its colour, its key and its full wording are read from. */
+  readonly series: AtlasSeries;
+
+  /** The run the drawing prints: the series' own label, or as much of it as the room holds. */
+  readonly run: string;
+}
+
+/**
+ * Every series' polygon label as this drawing prints it, shortened to the room its anchor leaves.
+ *
+ * A label is anchored at its vertex's own side of the drawing, so the room each one has is stated from that
+ * anchor rather than from the label's centre: the run grows away from the drawing's vertical centre line,
+ * which is the direction that keeps two names apart.
+ *
+ * @param series The series the drawing carries, in drawing order.
+ * @param axes The axes every series aligns to.
+ * @param step The type this drawing's labels are set in.
+ * @returns One printed label per series the drawing can place, in drawing order.
+ */
+function printedPolygonLabelsOf(
+  series: readonly AtlasSeries[],
+  axes: readonly RadarAxis[],
+  step: RadarLabelStep,
+): readonly PrintedPolygonLabel[] {
+  const printed: PrintedPolygonLabel[] = [];
+
   for (const [index, one] of series.entries()) {
-    const label = polygonLabelOf(one, axes, index);
+    const label = polygonLabelOf(one, axes, index, step);
 
     if (label === null) {
       continue;
     }
 
+    printed.push({
+      ...label,
+      series: one,
+      run: truncateToWidth(
+        one.label,
+        labelRoomOf(label.anchor, label.text.x, step.clearance),
+        step.metrics,
+      ),
+    });
+  }
+
+  return printed;
+}
+
+/**
+ * Every printed name a scale value must keep clear of: each axis name and each series' polygon label.
+ *
+ * The series band is excluded by the fit's own bounds rather than by an obstacle, because no value may be
+ * placed among the rows at all.
+ *
+ * THE BOXES ARE BUILT FROM THE RUNS THE DRAWING PRINTS, not from the records' own wording: a name shortened
+ * to fit its room occupies less of the drawing than the record's string would, and a value placed clear of
+ * the longer string would be pushed away from the ring for space no glyph occupies.
+ *
+ * @param axisLabels The axis names as the drawing prints them.
+ * @param polygonLabels The polygon labels as the drawing prints them.
+ * @param metrics The type step those runs are printed at.
+ * @returns One obstacle per axis name and per polygon label.
+ */
+function ringTickObstaclesOf(
+  axisLabels: readonly PrintedAxisLabel[],
+  polygonLabels: readonly PrintedPolygonLabel[],
+  metrics: SvgTextMetrics,
+): readonly LabelObstacle[] {
+  const obstacles: LabelObstacle[] = [];
+
+  for (const label of axisLabels) {
     obstacles.push({
-      key: `polygon-label:${one.id}`,
-      box: textBoxOf(one.label, label.text, label.anchor),
+      key: `axis-name:${label.axis.id}`,
+      box: textBoxOf(label.run, label.point, label.anchor, metrics),
+    });
+  }
+
+  for (const label of polygonLabels) {
+    obstacles.push({
+      key: `polygon-label:${label.series.id}`,
+      box: textBoxOf(label.run, label.text, label.anchor, metrics),
     });
   }
 
@@ -837,14 +1081,16 @@ function ringTickObstaclesOf(
  * overprinting one.
  *
  * @param ticks The values the scale states.
- * @param axes The axes the drawing carries.
- * @param series The series the drawing carries, in drawing order.
+ * @param axisLabels The axis names as the drawing prints them.
+ * @param polygonLabels The polygon labels as the drawing prints them.
+ * @param step The type this drawing's labels are set in.
  * @returns One placement per value that has room.
  */
 function ringTickPlacementsOf(
   ticks: readonly RingTick[],
-  axes: readonly RadarAxis[],
-  series: readonly AtlasSeries[],
+  axisLabels: readonly PrintedAxisLabel[],
+  polygonLabels: readonly PrintedPolygonLabel[],
+  step: RadarLabelStep,
 ): ReadonlyMap<string, LabelPlacement> {
   const requests: LabelRequest[] = ticks.map((tick) => ({
     key: tick.key,
@@ -853,7 +1099,11 @@ function ringTickPlacementsOf(
     y: tick.point.y,
   }));
 
-  return placeLabels(requests, ringTickObstaclesOf(axes, series), RING_TICK_FIT);
+  return placeLabels(
+    requests,
+    ringTickObstaclesOf(axisLabels, polygonLabels, step.metrics),
+    ringTickFitOf(step),
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1301,8 +1551,10 @@ function SeriesMarks({
  * not an SVG element and the drawer portals itself out of the flow anyway; keeping it outside the
  * drawing also keeps it out of the drawing's accessible name and out of its group. The one effect
  * measures the drawing's width, through `./chart-readout.tsx`'s `useChartScale`, so a vertex's target
- * is sized in CSS pixels rather than in the drawing's proportions; nothing here reads a clock or
- * subscribes to anything else.
+ * is sized in CSS pixels rather than in the drawing's proportions, and so the labels print at one of
+ * specification §4.3's type sizes at whatever width the frame gives the drawing rather than at the size
+ * that width happens to multiply a user unit to; nothing here reads a clock or subscribes to anything
+ * else.
  *
  * The height grows with the number of series, so the name band below the axes always fits whatever
  * the payload carries and no label is clipped.
@@ -1333,7 +1585,30 @@ export function RadarChart({
      press reaches that vertex's own control. */
   const vertexElements = useRef(new Map<string, SVGGElement>());
 
-  const viewHeight = LABEL_BAND_TOP + series.length * SERIES_LABEL_ROW_HEIGHT + LABEL_BAND_PADDING;
+  /**
+   * The type this drawing prints at, resolved from the width its frame actually gives it, and the lengths
+   * stated beside that type.
+   *
+   * WHY IT IS RESOLVED HERE AND NOT STATED IN A CLASS. The `<svg>` fills its frame, so a label set at a
+   * fixed number of user units prints at whatever the frame's width multiplies it to — unreadable in a
+   * narrow card and larger than the page's heading in a wide one. `./svg-label.ts`'s
+   * `renderedLabelMetrics` answers the step in user units that prints at one of specification §4.3's sizes,
+   * and every length beside a label is stated at the same step so the drawing keeps its proportions at
+   * every width. `measuredScale` is `null` until the element has a box — under jsdom always, and in a
+   * browser until the measuring effect has run — and then the layer's own 12-unit step is used, so the
+   * drawing is laid out exactly as it always has been.
+   */
+  const labelStep = labelStepOf(renderedLabelMetrics(measuredScale));
+  const labelMetrics = labelStep.metrics;
+  const bandGeometry = bandGeometryOf(labelStep);
+
+  /* Every name the drawing prints inside the plot, as it will actually print it: shortened to the room its
+     anchor leaves, so no axis name or polygon label runs out of the drawing at a narrow width. */
+  const axisLabels = printedAxisLabelsOf(axes, labelStep);
+  const polygonLabels = printedPolygonLabelsOf(series, axes, labelStep);
+
+  const viewHeight =
+    LABEL_BAND_TOP + series.length * bandGeometry.rowHeight + LABEL_BAND_PADDING * labelStep.ratio;
   const marks = activateableMarksOf(series, axes, evidenceRefFor, onActivate);
 
   /**
@@ -1358,10 +1633,11 @@ export function RadarChart({
   /**
    * The scale's two values and where each is printed: the midpoint and the outer ring, computed from the
    * scale the records are scored on rather than typed in, and placed clear of every name the drawing
-   * already prints.
+   * already prints — at the type they print at, so a value steps outward from its ring by the clearance and
+   * the distances that type implies rather than by a dozen units of a size it no longer has.
    */
   const ringTicks = ringTicksOf(axes.length);
-  const ringTickPlacements = ringTickPlacementsOf(ringTicks, axes, series);
+  const ringTickPlacements = ringTickPlacementsOf(ringTicks, axisLabels, polygonLabels, labelStep);
 
   /**
    * The vertex the drawing reports: the one the pointer resolved, or the focused one where the pointer
@@ -1645,18 +1921,16 @@ export function RadarChart({
               axis name nor another series' name, and the group takes no pointer events, so no label
               stands between a reader and a vertex. Each label carries a ground-role halo painted before
               its own fill, so a spoke or another series' outline passing through the words never runs
-              through the glyphs a reader is reading (rule B-3). */}
-          {series.map((one, index) => {
-            const label = polygonLabelOf(one, axes, index);
-
-            if (label === null) {
-              return null;
-            }
-
-            const tone = toneOf(series, one);
+              through the glyphs a reader is reading (rule B-3). Both the size the words print at and the
+              halo behind them are resolved from the width the drawing is given, so the name stays legible
+              and its halo stays proportionate in a narrow card and in a wide one; a name too wide for the
+              room its anchor leaves is shortened, and the record's own wording is then kept in a `<title>`
+              child so a reader can still recover it in full. */}
+          {polygonLabels.map((label) => {
+            const tone = toneOf(series, label.series);
 
             return (
-              <g key={`polygon-label-${one.id}`} pointerEvents="none">
+              <g key={`polygon-label-${label.series.id}`} pointerEvents="none">
                 <path
                   d={`M ${roundCoordinate(label.vertex.x)} ${roundCoordinate(
                     label.vertex.y,
@@ -1675,33 +1949,37 @@ export function RadarChart({
                   y={roundCoordinate(label.text.y)}
                   textAnchor={label.anchor}
                   dominantBaseline="middle"
-                  strokeWidth={POLYGON_LABEL_HALO_WIDTH}
+                  fontSize={labelMetrics.fontSize}
+                  strokeWidth={POLYGON_LABEL_HALO_WIDTH * labelStep.ratio}
                   strokeLinejoin="round"
                   paintOrder="stroke"
                   className={POLYGON_LABEL_TEXT_CLASSES}
                 >
-                  {one.label}
+                  {label.run === label.series.label ? null : <title>{label.series.label}</title>}
+                  {label.run}
                 </text>
               </g>
             );
           })}
 
-          {axes.map((axis, index) => {
-            const outer = axisLabelPointFor(index, axes.length);
-
-            return (
-              <text
-                key={axis.id}
-                x={roundCoordinate(outer.x)}
-                y={roundCoordinate(outer.y)}
-                textAnchor={axisLabelAnchorFor(index, axes.length)}
-                dominantBaseline="middle"
-                className="text-12 fill-text-secondary"
-              >
-                {axis.label}
-              </text>
-            );
-          })}
+          {/* The axis names, each on the extension of its own spoke and each shortened to the room that
+              spoke's side of the drawing leaves. The step they print at is the one the drawing resolved from
+              its own width, so a name keeps specification §4.3's size at every width instead of growing with
+              the frame; a name the room could not hold whole keeps the record's wording in a `<title>`. */}
+          {axisLabels.map((label) => (
+            <text
+              key={label.axis.id}
+              x={roundCoordinate(label.point.x)}
+              y={roundCoordinate(label.point.y)}
+              textAnchor={label.anchor}
+              dominantBaseline="middle"
+              fontSize={labelMetrics.fontSize}
+              className={AXIS_LABEL_CLASSES}
+            >
+              {label.run === label.axis.label ? null : <title>{label.axis.label}</title>}
+              {label.run}
+            </text>
+          ))}
 
           {/* The scale's own two values: the midpoint and the outer ring, so the axis scale is readable
               from the plot instead of only out of a vertex's accessible name. Each is placed off its own
@@ -1725,7 +2003,8 @@ export function RadarChart({
                   key={tick.key}
                   x={placement.labelX}
                   y={placement.labelY}
-                  strokeWidth={POLYGON_LABEL_HALO_WIDTH}
+                  fontSize={labelMetrics.fontSize}
+                  strokeWidth={POLYGON_LABEL_HALO_WIDTH * labelStep.ratio}
                   strokeLinejoin="round"
                   paintOrder="stroke"
                   className={RING_TICK_CLASSES}
@@ -1739,8 +2018,9 @@ export function RadarChart({
           {/* The band beneath the axes: one row per series, its name and the companion label its figures
               carry. `./series-band.tsx` owns the row — the two text roles, the emphasis the series in
               view takes and the truncation that keeps a long name inside the drawing — so this drawing
-              states only where its band starts and how its rows are spaced. */}
-          <SeriesBand rows={bandRows} geometry={BAND_GEOMETRY} />
+              states only where its band starts, how its rows are spaced at the type they print at, and the
+              type itself. */}
+          <SeriesBand rows={bandRows} geometry={bandGeometry} />
         </svg>
 
         {/* The read-out the active vertex answers with: the axis, the series (a competitor's name

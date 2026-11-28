@@ -20,11 +20,13 @@
  * adapter has accepted the change, so a refused trigger is left showing what the adapter holds rather
  * than what the reader clicked.
  *
- * THE RESET AND THE KEYBOARD, RULE B-3 AND RULE P-8. `Reset demo data` calls `resetDemo`, restores the
- * shell's own view of the session and closes the panel, and the element that opened the panel has
- * focus again once it is gone — the same focus return `Escape` produces, which the panel binds on the
- * document for as long as it is mounted because it claims modality. A reset the service refuses is
- * reported in the service's own words, keeps the panel open and offers the change again, so nothing
+ * THE RESET AND THE KEYBOARD, RULE B-3 AND RULE P-8. `Reset demo data` calls `resetDemo`, puts the
+ * shell's own view of the session back — the canvas selection cleared, wall mode off, the count of
+ * demonstration resets raised and the persona and scope left as the reader chose them — and closes the
+ * panel, and the element that opened the panel has focus again once it is gone — the same focus return
+ * `Escape` produces, which the panel binds on the document for as long as it is mounted because it
+ * claims modality. A reset the service refuses is reported in the service's own words, keeps the panel
+ * open and offers the change again, so nothing
  * here pretends an effect it did not have. While a change is in flight the panel disables every
  * control it owns and explains each one from the keyboard: the nine toggles carry `aria-disabled` and
  * are described by the one visible busy sentence, and the reset — an `ActionButton`, the primitive
@@ -57,6 +59,7 @@ import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Role } from '../types/entities';
 import type { SiteIntelligenceService } from '../services/site-intelligence-service';
 import { SIM_LABELS } from '../types/primitives';
 import type { Problem, Result, SimulationFlag } from '../types/service';
@@ -164,6 +167,18 @@ const REFUSAL: Problem = {
 function result<Payload>(data: Payload): Result<Payload> {
   return { data, meta: { freshness: [], simulated: true, traceId: TRACE_ID } };
 }
+
+/**
+ * The role this suite puts in force before a reset, to prove the persona the reader chose outlives one:
+ * a member of the contracts' own `Role` union rather than a person or a record (rule P-6).
+ */
+const STORED_ROLE: Role = 'head-of-supply-chain';
+
+/**
+ * An opaque value this suite stores as a canvas selection and as both members of a scope. It is shaped
+ * like nothing this application records, so no case here states an identifier (rule P-6).
+ */
+const STORED_VALUE = 'a value this suite stored';
 
 /* ---------------------------------------------------------------------------------------------
  * The harness
@@ -441,6 +456,47 @@ describe('SimulationControls — Reset demo data', () => {
 
     expect(useShellStore.getState().simulationOpen).toBe(false);
     expect(screen.getByRole('button', { name: OPENER_LABEL })).toHaveFocus();
+  });
+
+  it('puts the shell’s own view of the session back with the records it restores', async () => {
+    const user = userEvent.setup();
+
+    renderPanel();
+
+    act(() => {
+      const store = useShellStore.getState();
+
+      store.setActiveRole(STORED_ROLE);
+      store.setScope({ plants: [STORED_VALUE], products: [STORED_VALUE] });
+      store.setSelectedNodeId(STORED_VALUE);
+      store.setWallMode(true);
+    });
+
+    const epochBefore = useShellStore.getState().demonstrationEpoch;
+    const dialog = await openPanel();
+
+    await user.click(
+      within(dialog).getByRole('button', { name: SIMULATION_CONTROLS_TEXT.resetLabel }),
+    );
+
+    await waitFor(() => {
+      expect(useShellStore.getState().simulationOpen).toBe(false);
+    });
+
+    const store = useShellStore.getState();
+
+    /* The canvas reopens where a first visit finds it: no selection, and no wall mode left standing,
+       which would hide the navigation of a screen that no longer believes it is in wall mode. */
+    expect(store.selectedNodeId).toBeNull();
+    expect(store.wallMode).toBe(false);
+
+    /* The count is how the screens' own stores — the canvas's lens, the atlas's class and entity —
+       learn that the session their choice belonged to has ended. */
+    expect(store.demonstrationEpoch).toBe(epochBefore + 1);
+
+    /* The two values that describe who is reading rather than what the demonstration shows stand. */
+    expect(store.activeRole).toBe(STORED_ROLE);
+    expect(store.scope).toEqual({ plants: [STORED_VALUE], products: [STORED_VALUE] });
   });
 
   it('reports a failed reset in the service own words and keeps the panel open', async () => {

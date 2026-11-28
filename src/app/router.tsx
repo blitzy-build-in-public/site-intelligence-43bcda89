@@ -384,10 +384,19 @@ function PolicyDetailRoute({
 }
 
 /**
- * SCR-12's route element: the scope, the selection both lenses share, and the two reports the shell acts on.
+ * SCR-12's route element: the scope, the selection both lenses share, the two reports the shell acts on
+ * and the count of demonstration resets the screen reads its own lens against.
  *
  * The screen keeps both reported values itself while reporting every change, so one selection serves both
  * lenses, and the shell hides its navigation when wall mode comes on without importing `src/app`.
+ *
+ * A demonstration reset ends the session whose view the surface was showing, so the element is keyed by
+ * the reset count: a new count remounts the screen, and a remount returns every switch the screen or its
+ * children hold in component state — its own selection fallback, wall mode, the armed preview, the map
+ * lens's zoom and preset and the graph lens's toggles — to its opening position. The count travels as a
+ * prop as well, because the lens in view outlives the mount in this screen's own module store: that store
+ * records the count the lens was chosen under, so the screen can tell a lens chosen before the reset from
+ * one chosen after it and read a first visit's lens once the demonstration has been put back.
  */
 function CanvasRoute({
   Screen,
@@ -398,13 +407,16 @@ function CanvasRoute({
   const selectedNodeId = useShellStore((state) => state.selectedNodeId);
   const setSelectedNodeId = useShellStore((state) => state.setSelectedNodeId);
   const setWallMode = useShellStore((state) => state.setWallMode);
+  const demonstrationEpoch = useShellStore((state) => state.demonstrationEpoch);
 
   return (
     <Screen
+      key={demonstrationEpoch}
       scope={scope}
       selectedNodeId={selectedNodeId}
       onSelectedNodeChange={setSelectedNodeId}
       onWallModeChange={setWallMode}
+      demonstrationEpoch={demonstrationEpoch}
     />
   );
 }
@@ -413,7 +425,17 @@ function CanvasRoute({
  * SCR-13's route element.
  *
  * The atlas read takes no scope — market intelligence is not a first-party record and is never narrowed by
- * a plant selection — so the selection travels only for the product class the atlas opens on.
+ * a plant selection — so the selection travels only for the product class the atlas opens on, and the
+ * count of demonstration resets only for the three choices the screen holds.
+ *
+ * A demonstration reset ends the session whose view the surface was showing, so the element is keyed by
+ * the reset count: a new count remounts the screen, and a remount returns every switch the screen or its
+ * children hold in component state — the export it last offered, the evidence a mark had open, the
+ * network's own pointer and focus state and each chart frame's table view — to its opening position. The
+ * count travels as a prop as well, because the class in view, the entity in view and the selected mark
+ * outlive the mount in this screen's own module store: that store records the count they were chosen
+ * under, so the screen can tell a choice made before the reset from one made after it and read a first
+ * visit's values once the demonstration has been put back.
  */
 function CompetitiveAtlasRoute({
   Screen,
@@ -421,8 +443,11 @@ function CompetitiveAtlasRoute({
   readonly Screen: ComponentType<CompetitiveAtlasScreenProps>;
 }): ReactElement {
   const scope = useShellStore((state) => state.scope);
+  const demonstrationEpoch = useShellStore((state) => state.demonstrationEpoch);
 
-  return <Screen scope={scope} />;
+  return (
+    <Screen key={demonstrationEpoch} scope={scope} demonstrationEpoch={demonstrationEpoch} />
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------

@@ -23,10 +23,14 @@
  * The store is this module's own and holds no shell vocabulary, and theme and density stay the only
  * persisted preferences (platform-contracts.md §1). See {@link QueueViewState}.
  *
- * THE ROLE'S SCOPE IS NEVER APPLIED HERE. The shell's plant and product selection travels in the read's
- * `scope` argument, and the port intersects it with the acting role's plant scope before it answers, so
- * a row outside the persona's reach is never returned and no screen reproduces that rule. See
- * {@link ExceptionQueueScreenProps.scope}.
+ * THE ROLE'S SCOPE IS NEVER APPLIED TO THE ROWS HERE. The shell's plant and product selection travels in
+ * the read's `scope` argument, and the port intersects it with the acting role's plant scope before it
+ * answers, so a row outside the persona's reach is never returned and no screen reproduces that rule.
+ * The two places this screen reads that scope are the plant filter's own: the option list it offers,
+ * which holds the persona's plants alone so no option is offered that the one resolver could only reduce
+ * to nothing while still stating the plant the queue is narrowed by (see {@link filterOptionsWith}), and
+ * the plant the stored filter set states, which is derived as "All plants" while the persona's scope
+ * misses it (see {@link ExceptionQueueScreen}). See {@link ExceptionQueueScreenProps.scope}.
  *
  * THE SEVEN STATES ARE READ, NEVER FLAGGED. The queue renders inside `StateBoundary`, and which state
  * its records are in is decided in one place, `src/components/screen-state.ts`, from what the read
@@ -38,7 +42,7 @@
  * THE RATIONALE BEHIND THE REST OF THIS FILE SITS ON THE SYMBOL THAT OWNS IT: the ordering on
  * {@link QUEUE_DEFAULT_ORDER}, the filters on {@link filterOptionsOf} and {@link SupplierFilterField},
  * the plant filter's "or reaches" on {@link EXCEPTION_QUEUE_TEXT}, the day on {@link ActiveDayRow}, the
- * columns and their one-line and pinned rules on {@link columnsFor}, the computed column's label on
+ * columns and their one-line rule on {@link columnsFor}, the computed column's label on
  * {@link CALCULATED_LABEL}, the empty queue on {@link narrowsRead}, and who may work a row on
  * {@link mayWork}, {@link noWorkReason} and {@link ExceptionQueueScreen}'s two blockers.
  *
@@ -294,19 +298,32 @@ export const EXCEPTION_QUEUE_TEXT = {
   alreadyDismissedReason: 'This exception has already been dismissed.',
 
   /**
-   * Why a row's two writes cannot act: the acting role does not hold `exception.work` over the plant the
-   * row lands on. {@link noWorkReason} composes the role the adapter enforces, that plant and the
-   * permission's own name — held as the constant the gate itself checks, so the sentence and the check
-   * cannot name two permissions — into one sentence, and closes it with {@link noWorkRoles} once the
-   * roster has answered. The reader is therefore told who may act before activating the control rather
-   * than by the refusal afterwards (AAP 0.2.1, rules P-3 and P-8).
+   * Why a row's two writes cannot act. {@link mayWork} refuses for two different reasons, and
+   * {@link noWorkReason} states the one that is true rather than one sentence for both: a persona that
+   * holds `exception.work` whose plants miss the row's says so with {@link noWorkHolds},
+   * {@link noWorkNotOver} and {@link noWorkPlants}, because that persona is one of the permission's
+   * holders and a sentence claiming it lacks the permission would contradict itself; a persona that
+   * does not hold the permission at all says so and closes with {@link noWorkRoles} once the roster has
+   * answered. The role the adapter enforces, the plant the row lands on and the permission's own name —
+   * held as the constant the gate itself checks, so the sentence and the check cannot name two
+   * permissions — are composed in from the persona's own facts. The reader is therefore told why the
+   * control cannot act, and who may, before activating it rather than by the refusal afterwards
+   * (AAP 0.2.1, rules P-3 and P-8).
    */
   noWorkActor: 'The acting role',
   noWorkLacks: 'does not hold the',
   noWorkOver: 'permission over',
+  noWorkHolds: 'holds the',
+  noWorkNotOver: 'permission, but not over',
   noWorkOutcome: 'so this exception cannot be changed here.',
 
-  /** The clause naming the roles that hold `exception.work`, composed in by {@link noWorkReason}. */
+  /** The clause naming the plants the acting persona does reach, with those plants after it. */
+  noWorkPlants: 'The plants it covers are',
+
+  /**
+   * The clause naming the roles that hold `exception.work`, composed in by {@link noWorkReason} for the
+   * persona that does not hold the permission at all.
+   */
   noWorkRoles: 'The roles that hold it are',
 
   /* The writes ------------------------------------------------------------------------------- */
@@ -716,7 +733,13 @@ interface FilterOptions {
   /** The exception types the rows carry. */
   readonly types: readonly string[];
 
-  /** The plants the rows land on. */
+  /**
+   * The plants the rows land on.
+   *
+   * A read can name a plant outside the acting persona's scope when the exception also reaches one
+   * inside it, so the plant filter offers {@link filterOptionsWith}'s answer — these plants narrowed to
+   * the persona's own, with the plant it states kept — rather than these values alone.
+   */
   readonly plants: readonly string[];
 
   /** The severities the rows carry. */
@@ -770,27 +793,43 @@ function filterOptionsOf(rows: readonly ExceptionRow[]): FilterOptions {
 }
 
 /**
- * The filter options, with the plant the shell names offered beside the values the rows carry.
+ * The filter options, with the plant list holding the plants the acting persona reaches and the plant
+ * the control states.
  *
- * A read narrowed to one plant can return rows recorded at other plants — the port admits an exception
- * that reaches the selection through the plants it also affects — so the values the rows carry are not
- * necessarily a superset of the selection, and a plant filter whose own value had no option could not
- * state what the read is narrowed by. The list keeps `distinctValues`' order with the shell's plant
- * among the values it sorts, so the control's options do not reorder themselves between two reads.
+ * The port admits a row recorded at a plant outside the persona's scope when the exception also reaches
+ * a plant inside it, so the values the rows carry can name a plant the one scope resolver
+ * (`src/domain/aggregation/scope.ts`) reduces a selection of to `plants: []`. Such an option could only
+ * ever match nothing while every row that produced it is already listed under the plant it reaches, so
+ * the list offers the plants the persona's own scope covers and no other — the same set the matrix
+ * enforces, arriving through the provider so no second read is added (rule P-2).
  *
- * @param options The options the unfiltered read supplied.
- * @param shellPlantId The plant the shell names, or `null` when it names none.
- * @returns Those options, or a copy whose plant list also holds the shell's plant.
+ * Two values survive outside that set. The plant the control currently states is always offered, even
+ * where the persona's scope does not cover it, because a select must be able to state the narrowing it
+ * reports and the shell's top-bar filter can name a plant this persona's scope misses (rules P-8, B-3).
+ * A session whose persona the provider has not reported yet keeps the rows' own values rather than
+ * guessing a scope. The values are sorted by their own text, as `distinctValues` orders the rows', so
+ * the control's options do not reorder themselves between two reads.
+ *
+ * @param options The options the read supplied.
+ * @param reachablePlantIds The plants the acting persona's scope covers, or `null` while that is unknown.
+ * @param shownPlantId The plant the control states, or `null` when it states none.
+ * @returns Those options, or a copy whose plant list holds the persona's plants and the stated one.
  */
-function filterOptionsWith(options: FilterOptions, shellPlantId: string | null): FilterOptions {
-  if (shellPlantId === null || options.plants.includes(shellPlantId)) {
-    return options;
+function filterOptionsWith(
+  options: FilterOptions,
+  reachablePlantIds: readonly string[] | null,
+  shownPlantId: string | null,
+): FilterOptions {
+  const plants =
+    reachablePlantIds === null
+      ? [...options.plants]
+      : options.plants.filter((plantId) => reachablePlantIds.includes(plantId));
+
+  if (shownPlantId !== null && !plants.includes(shownPlantId)) {
+    plants.push(shownPlantId);
   }
 
-  return {
-    ...options,
-    plants: [...options.plants, shellPlantId].sort((left, right) => left.localeCompare(right)),
-  };
+  return { ...options, plants: plants.sort((left, right) => left.localeCompare(right)) };
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1249,7 +1288,8 @@ const REPORT_CLASSES = `flex min-w-0 flex-col gap-1 ${INSET_SURFACE_CLASSES}`;
 
 /**
  * The row's three controls on one line, so the row keeps the density token's height; the column is
- * pinned, so the controls stay visible however wide the table gets.
+ * the table's last, so the controls come into view with the container's own horizontal scroll, which
+ * the browser performs when one of them takes focus.
  */
 const ROW_ACTIONS_CLASSES = 'flex min-w-0 items-center gap-2';
 
@@ -1686,13 +1726,17 @@ interface RowActionHandlers {
  * actions, and rule P-8 requires each unavailable one to state its own reason, which a row has no other
  * surface for. The twelve specified columns keep their order and their content ahead of it.
  *
- * Every column declares `singleLine`, and the actions column declares `pinned` as well. A row's height is
- * the density token and a row's `height` is only a minimum, so a cell that wraps or stacks deeper than
- * the token would grow the row and leave the density switch with nothing to change; one line per cell
- * keeps every row at 32 px compact and 44 px comfortable (specification §4.3). Thirteen single-line
- * columns are wider than the table column at 1280 px, so the table scrolls inside `DataTable`'s own
- * container, the title is capped inside its cell, and the pinned actions column keeps the row controls
- * at the container's visible inline end from the `md` breakpoint up.
+ * Every column declares `singleLine`, and no column declares `pinned`. A row's height is the density
+ * token and a row's `height` is only a minimum, so a cell that wraps or stacks deeper than the token
+ * would grow the row and leave the density switch with nothing to change; one line per cell keeps
+ * every row at 32 px compact and 44 px comfortable (specification §4.3). Thirteen single-line columns
+ * are wider than the table column at 1280 px, so the table scrolls inside `DataTable`'s own container
+ * as one surface and the title is capped inside its cell. Nothing in this table is pinned, because a
+ * pinned cell is painted above the columns that scroll under it: held at the container's inline end it
+ * covers the status, owner, age and freshness values along with the sort controls in their headers.
+ * The row itself opens the record — by pointer or by `Enter` on the row cursor — and the two write
+ * controls are reached by the container's horizontal scroll, which the browser performs when a control
+ * takes focus.
  */
 function columnsFor(handlers: RowActionHandlers): readonly TableColumn<ExceptionRow>[] {
   return [
@@ -1717,10 +1761,18 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       singleLine: true,
       /*
         A title is a whole sentence and the longest value in its row, so it is the one cell that is
-        capped: `max-w-64` holds it to 256 px and ellipsises it. The whole string stays in the DOM, and
-        so in the accessibility tree, and opening the row shows the full record.
+        capped: `max-w-64` holds it to 256 px and ellipsises it, which keeps the row at the density
+        token rather than letting the longest title set its height. The whole string stays in the DOM,
+        and so in the accessibility tree, while the `title` carries that same string, so a reader using
+        a pointer reads the sentence the ellipsis hides without leaving the row. The disclosure is a
+        description and not an accessible name on purpose: an `aria-label` would replace the text the
+        cell shows (WCAG 2.2 SC 2.5.3, rule B-3).
       */
-      render: (row) => <span className="block max-w-64 truncate">{row.title}</span>,
+      render: (row) => (
+        <span className="block max-w-64 truncate" title={row.title}>
+          {row.title}
+        </span>
+      ),
     },
     {
       id: 'products',
@@ -1848,7 +1900,6 @@ function columnsFor(handlers: RowActionHandlers): readonly TableColumn<Exception
       id: 'actions',
       header: EXCEPTION_QUEUE_TEXT.columnActions,
       singleLine: true,
-      pinned: true,
       render: (row) => (
         <span className={ROW_ACTIONS_CLASSES}>
           <RowAction
@@ -1915,11 +1966,20 @@ function mayWork(actingUser: ActiveUser, plantId: PlantId): boolean {
 /**
  * The sentence a row's write controls are disabled with when the acting persona may not work the row.
  *
- * It states the three facts the adapter's own refusal states — the role it enforces, the permission that
- * role lacks and the plant the row lands on — and then, once the roster has answered, the roles that
- * hold the permission in the roster's own order, which is what rule P-8 owes a reader who has not
- * activated the control yet. A roster nobody has reported, or one that reports no holder at all, leaves
- * that closing clause out rather than claiming no role may act.
+ * {@link mayWork} refuses for two different reasons, and the sentence states the one that failed rather
+ * than one shape for both:
+ *
+ * - The persona holds `exception.work` while its own plants do not include the row's. It is then one of
+ *   the permission's holders, so nothing here names the roles that hold it: the sentence states the
+ *   permission it holds, the plant it does not reach and the plants it does, the last of them the
+ *   persona's own `plantIds` in the order the adapter reports them (rule P-6).
+ * - The persona does not hold the permission at all. The sentence states the permission and the plant,
+ *   and then, once the roster has answered, the roles that hold the permission in the roster's own
+ *   order, with the acting role left out because this branch has established that it is not one of
+ *   them. A roster nobody has reported, or one that reports no holder at all, leaves that closing
+ *   clause out rather than claiming no role may act.
+ *
+ * Either way rule P-8 owes a reader who has not activated the control a true reason for its state.
  *
  * @param actingUser - The persona the adapter is enforcing.
  * @param plantId - The plant the row lands on.
@@ -1931,16 +1991,30 @@ function noWorkReason(
   plantId: PlantId,
   rolesWithWork: readonly Role[] | null,
 ): string {
+  if (actingUser.permissions.includes(WORK_PERMISSION)) {
+    const reached =
+      `${EXCEPTION_QUEUE_TEXT.noWorkActor} (${actingUser.role}) ${EXCEPTION_QUEUE_TEXT.noWorkHolds} ` +
+      `${WORK_PERMISSION} ${EXCEPTION_QUEUE_TEXT.noWorkNotOver} ${plantId}, ` +
+      EXCEPTION_QUEUE_TEXT.noWorkOutcome;
+
+    /* A persona whose own scope names no plant has no plant to state, so the clause is left out. */
+    return actingUser.plantIds.length === 0
+      ? reached
+      : `${reached} ${EXCEPTION_QUEUE_TEXT.noWorkPlants} ${actingUser.plantIds.join(', ')}.`;
+  }
+
   const opening =
     `${EXCEPTION_QUEUE_TEXT.noWorkActor} (${actingUser.role}) ${EXCEPTION_QUEUE_TEXT.noWorkLacks} ` +
     `${WORK_PERMISSION} ${EXCEPTION_QUEUE_TEXT.noWorkOver} ${plantId}, ` +
     EXCEPTION_QUEUE_TEXT.noWorkOutcome;
+  const othersWithWork =
+    rolesWithWork === null ? [] : rolesWithWork.filter((role) => role !== actingUser.role);
 
-  if (rolesWithWork === null || rolesWithWork.length === 0) {
+  if (othersWithWork.length === 0) {
     return opening;
   }
 
-  return `${opening} ${EXCEPTION_QUEUE_TEXT.noWorkRoles} ${rolesWithWork.join(', ')}.`;
+  return `${opening} ${EXCEPTION_QUEUE_TEXT.noWorkRoles} ${othersWithWork.join(', ')}.`;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -2167,11 +2241,12 @@ export interface ExceptionQueueScreenProps {
  * SCR-02, the exception queue.
  *
  * One read, through `useService()` (rule P-2): the queue itself, one cache entry per filter set and
- * ordering, and the five enumerated filters' options are the distinct values of that same answer. One
- * `listExceptions` call per mount is the whole of the screen's data path, whatever the entry narrowed it
- * to, because every call computes the entire exception aggregate and the port declares no payload of
- * filter options to read instead. The read's settled facts decide the screen's state in one place
- * ({@link deriveScreenState}).
+ * ordering, and the five enumerated filters' options are the distinct values of that same answer — the
+ * plant filter's narrowed to the plants the acting persona's scope covers ({@link filterOptionsWith}).
+ * One `listExceptions` call per mount is the whole of the screen's data path, whatever the entry
+ * narrowed it to, because every call computes the entire exception aggregate and the port declares no
+ * payload of filter options to read instead. The read's settled facts decide the screen's state in one
+ * place ({@link deriveScreenState}).
  *
  * The writes are the port's own: `assignException` sends the acting persona, which the provider reports
  * from the adapter that enforces it, and `dismissException` sends the reason the dialog collected. Each is
@@ -2249,13 +2324,35 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
   const [pendingExceptionId, setPendingExceptionId] = useState<ExceptionId | null>(null);
 
   /*
+   * The plant the stored filter set is allowed to state, checked against the scope of the persona acting
+   * now.
+   *
+   * The filter set outlives the screen ({@link QueueViewState}) and the persona does not, so a plant a
+   * reader chose under one role outlives the switch to a role whose scope misses it. The one scope
+   * resolver (`src/domain/aggregation/scope.ts`) reduces a selection of that plant to no plant at all, so
+   * stating it would hide every row and then blame the reader's filters for the emptiness — the very harm
+   * the option list already refuses to offer such a plant for (see {@link filterOptionsWith}). The stored
+   * plant is therefore derived as "All plants" while the persona's scope does not cover it, and the store
+   * is left exactly as the reader left it, so the selection is still theirs if the switcher comes back to
+   * a role that reaches it.
+   *
+   * A session whose persona the provider has not reported yet keeps the stored plant: nothing has said
+   * that plant is out of reach, and narrowing the read for a scope this screen cannot state would trade
+   * one unreported narrowing for another.
+   */
+  const storedPlantId =
+    activeUser === null || activeUser.plantIds.includes(filters.plantId) ? filters.plantId : '';
+
+  /*
    * The plant the read is narrowed by, and the filter state the controls show: the reader's own choice
    * once they have made one, otherwise the plant the shell's scope names. One value feeds both the
    * control and the query, so the select and the query it builds always name the same plant — neither
    * states "All plants" while the other names one (rule P-8) — and where the filter names none, the
-   * shell's plant selection narrows the read in its place.
+   * shell's plant selection narrows the read in its place. The shell's selection is stated as it arrives,
+   * even where the persona's scope misses it, because the top bar is stating it and the select must report
+   * the narrowing the read carries (rule P-8).
    */
-  const shownPlantId = plantFilterTouched ? filters.plantId : (shellPlantId ?? '');
+  const shownPlantId = plantFilterTouched ? storedPlantId : (shellPlantId ?? '');
   const shownFilters: FilterValues =
     filters.plantId === shownPlantId ? filters : { ...filters, plantId: shownPlantId };
 
@@ -2287,14 +2384,25 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
   );
 
   /*
-   * The options the plant filter offers, which always include the plant the shell names: the rows this
-   * read returns are the ones the port admitted, and an exception can be admitted for reaching the
-   * selection from a plant it is recorded at elsewhere, so the selection's own plant need not appear
-   * among them (see `filterOptionsWith`).
+   * The options the plant filter offers: the plants this read returned that the acting persona's own
+   * scope covers, plus the plant the control states. The rows the port admitted can include an exception
+   * recorded outside that scope which reaches a plant inside it, and a selection of that recorded plant
+   * resolves to nothing, so offering it could only produce an empty queue (see `filterOptionsWith`). The
+   * plant the control states stays offered even where the scope misses it, because the shell's top-bar
+   * filter can name one and the select must still state what the read is narrowed by (rule P-8) — and the
+   * only plant that can be is the shell's, because a plant the stored filter set kept from another role's
+   * session is derived away while the persona's scope misses it. That derivation is what leaves no
+   * out-of-scope plant on offer, so the carve-out below never re-offers one. A session whose persona is
+   * not reported yet keeps every plant the rows state.
    */
   const filterOptions = useMemo(
-    () => filterOptionsWith(options, shellPlantId),
-    [options, shellPlantId],
+    () =>
+      filterOptionsWith(
+        options,
+        activeUser === null ? null : activeUser.plantIds,
+        shownPlantId === '' ? null : shownPlantId,
+      ),
+    [options, activeUser, shownPlantId],
   );
 
   /*
@@ -2540,10 +2648,17 @@ export function ExceptionQueueScreen(props: ExceptionQueueScreenProps): ReactEle
 
   /**
    * The sentence the table's one full-width cell states when the read answered with no row: the filter
-   * wording for a read the reader narrowed, the trigger-neutral sentence for one nothing narrowed (see
+   * wording for a read a filter set narrowed, the trigger-neutral sentence for one nothing narrowed (see
    * {@link narrowsRead}).
+   *
+   * It is answered from {@link shownFilters}, the set the read was built from and the controls state,
+   * rather than from the stored set: the persona's scope blanks a stored plant it misses and the shell's
+   * plant narrows the read in its place, so the stored set can name a constraint no control on the page
+   * sets and can name none where the plant filter states one. The sentence therefore describes the
+   * constraint the reader can see, and a read nothing narrowed — the emptied queue included — still
+   * states the trigger-neutral one (rule P-4, AAP 0.2.1).
    */
-  const emptySentence = narrowsRead(filters, day)
+  const emptySentence = narrowsRead(shownFilters, day)
     ? EXCEPTION_QUEUE_TEXT.empty
     : EXCEPTION_QUEUE_TEXT.emptyUnnarrowed;
 

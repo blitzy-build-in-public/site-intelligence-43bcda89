@@ -294,8 +294,17 @@ function requireWritable(ctx: HandlerContext): void {
  *
  * The check is made against the exception as its subject, so the contracts §7.1 matrix applies both the
  * role's plant scope and the persona's own: a planner cannot change an exception at a plant outside
- * their reach even while another persona in the same role could. The refusal names the permission and
- * the roles that hold it, which is what a disabled action's explanation prints (rule P-8).
+ * their reach even while another persona in the same role could. The refusal states the cause that
+ * failed, the way the disabled control beside it does (rule P-8):
+ *
+ * - A persona that holds `exception.work` while its own plants miss the exception's is refused as a
+ *   record outside its plant scope. It is one of the permission's holders, so the sentence says it
+ *   holds the permission, names the plant it does not reach and the plants it covers — its own
+ *   `plantIds`, in the order the adapter reports them (rule P-6) — and names no holders, because
+ *   listing them beside a role that is one of them would contradict itself.
+ * - A persona that does not hold the permission at all is refused for the missing permission, and the
+ *   sentence closes with the roles that hold it, the acting role left out because this branch has
+ *   established that it is not one of them.
  *
  * None of the family's writes consults the policy engine: `evaluate()`'s `PolicyAction` union covers an
  * outbound endpoint, an approval decision, an assistant query and a policy lookup, and none of the
@@ -303,19 +312,34 @@ function requireWritable(ctx: HandlerContext): void {
  *
  * @param ctx - The call's context.
  * @param exception - The exception the write concerns.
- * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
+ * @throws Problem - A `'permission'` failure naming the permission a write requires, the plant the
+ *   exception sits on and, for a missing permission, the roles that hold it.
  */
 function requireWork(ctx: HandlerContext, exception: OperationalException): void {
   if (hasPermission(ctx.actor.role, EXCEPTION_WORK, exception, ctx.actor)) {
     return;
   }
 
+  if (hasPermission(ctx.actor.role, EXCEPTION_WORK, null, ctx.actor)) {
+    throw permissionProblem(
+      ctx,
+      EXCEPTION_WORK,
+      `Exception ${exception.id} is outside the acting role's plant scope ` +
+        `(${ctx.actor.plantIds.join(', ')}): the acting role (${ctx.actor.role}) holds the ` +
+        `${EXCEPTION_WORK} permission, but not over ${exception.plantId}, so the exception cannot be ` +
+        `changed here.`,
+    );
+  }
+
+  const otherHolders = rolesWith(EXCEPTION_WORK).filter((role) => role !== ctx.actor.role);
+  const holderClause =
+    otherHolders.length === 0 ? '' : ` The roles that hold it are ${otherHolders.join(', ')}.`;
+
   throw permissionProblem(
     ctx,
     EXCEPTION_WORK,
     `The acting role (${ctx.actor.role}) does not hold the ${EXCEPTION_WORK} permission over ` +
-      `${exception.plantId}, so ${exception.id} cannot be changed here. The roles that hold it are ` +
-      `${rolesWith(EXCEPTION_WORK).join(', ')}.`,
+      `${exception.plantId}, so ${exception.id} cannot be changed here.${holderClause}`,
   );
 }
 

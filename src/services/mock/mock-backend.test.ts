@@ -1183,6 +1183,17 @@ describe('permission enforcement', () => {
     expect(problem.rolesWithPermission).toContain(plantManager.role);
     expect(problem.message).toContain(outside.plantId);
 
+    // The sentence states the cause that failed: the record is outside the persona's plant scope, the
+    // permission is one this role holds, and the plants it does cover are the persona's own. It names no
+    // holders, because the acting role is one of them and a list beside that sentence would contradict
+    // itself (rule P-8).
+    expect(problem.message).toContain("outside the acting role's plant scope");
+    expect(problem.message).toContain(`(${plantManager.plantIds.join(', ')})`);
+    expect(problem.message).toContain('holds the');
+    expect(problem.message).toContain(problem.requiredPermission);
+    expect(problem.message).not.toContain('does not hold');
+    expect(problem.message).not.toContain('The roles that hold it are');
+
     // Nothing was written: the record is read back, by a persona whose scope reaches every plant.
     await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
 
@@ -3659,7 +3670,7 @@ describe("the port's remaining reads", () => {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The nine port reads whose payload is a collection, each named as the port names it.
+ * The ten port reads whose payload is a collection, each named as the port names it.
  *
  * The table is the whole set: the `empty` trigger empties every collection the adapter serves rather
  * than the exception queue alone, so a read missing from this table would be one that answered records
@@ -3705,6 +3716,10 @@ const COLLECTION_READS: readonly {
   {
     name: 'searchIdentifiers',
     read: async (backend) => (await backend.searchIdentifiers(DOCUMENT_TERM, NO_SCOPE)).data,
+  },
+  {
+    name: 'listSuggestedQuestions',
+    read: async (backend) => (await backend.listSuggestedQuestions()).data,
   },
 ];
 
@@ -5167,21 +5182,23 @@ async function conflictReadSubjects(backend: MockBackend): Promise<ConflictReadS
 }
 
 /**
- * Every read the port declares whose payload is a collection, as the conflict cases address them.
+ * Every read the port declares whose payload presents a set of records — a collection, or the aggregate
+ * computed over one — as the conflict cases address them.
  *
  * These are the reads the trigger refuses, because a set presented as current is what the
- * conflicting-update state prevents: the whole of that surface is listed here, and a collection read
+ * conflicting-update state prevents: the whole of that surface is listed here, and a read of either kind
  * added to the port without a line here is one no case proves the trigger reaches.
  *
  * @param backend - The session the reads are made against.
  * @param subject - The identifiers read before the trigger was set.
- * @returns One labelled thunk per collection read member of the port.
+ * @returns One labelled thunk per read member of the port whose payload presents a set.
  */
 function everyCollectionRead(
   backend: MockBackend,
   subject: ConflictReadSubjects,
 ): readonly (readonly [string, () => Promise<unknown>])[] {
   return [
+    ['getOverview', () => backend.getOverview(NO_SCOPE)],
     ['listExceptions', () => backend.listExceptions({}, NO_SCOPE)],
     ['getAffectedLines', () => backend.getAffectedLines(subject.exceptionId)],
     ['listApprovals', () => backend.listApprovals({}, NO_SCOPE)],
@@ -5191,19 +5208,22 @@ function everyCollectionRead(
     ['listPins', () => backend.listPins({})],
     ['listPackages', () => backend.listPackages({})],
     ['searchIdentifiers', () => backend.searchIdentifiers(subject.exceptionId, NO_SCOPE)],
+    ['listSuggestedQuestions', () => backend.listSuggestedQuestions()],
   ];
 }
 
 /**
- * Every read the port declares whose payload is one record, as the conflict cases address them.
+ * Every read the port declares whose payload is one record rather than a set, as the conflict cases
+ * address them.
  *
  * These are the reads the trigger serves, so a case proves each one is answered while it is in effect.
- * The persona is carried beside the member because a served read runs its family's own permission
- * check — the one the refused reads never reached — and no single role holds every permission of the
- * matrix: the head of supply chain holds the exception, audit, evidence, document and competitive
- * reads, and the auditor holds the sovereignty and policy reads. The list is ordered so those two
- * groups stay together, and every persona the matrix admits to a member is named per member rather than
- * assumed.
+ * The refused class beside them is the read whose payload presents a set of records — a collection, or
+ * the aggregate computed over one — and {@link everyCollectionRead} is where those are listed. The
+ * persona is carried beside the member because a served read runs its family's own permission check —
+ * the one the refused reads never reached — and no single role holds every permission of the matrix:
+ * the head of supply chain holds the exception, audit, evidence, document and competitive reads, and
+ * the auditor holds the sovereignty and policy reads. The list is ordered so those two groups stay
+ * together, and every persona the matrix admits to a member is named per member rather than assumed.
  *
  * The two members carried for conformance alone — the plan grid and the exit package, whose record
  * families this set does not hold — are not listed here: their own families refuse them with a
@@ -5219,7 +5239,6 @@ function everyRecordRead(
   subject: ConflictReadSubjects,
 ): readonly (readonly [string, UserId, () => Promise<unknown>])[] {
   return [
-    ['getOverview', HEAD_OF_SUPPLY_CHAIN, () => backend.getOverview(NO_SCOPE)],
     ['getExceptionDetail', HEAD_OF_SUPPLY_CHAIN, () => backend.getExceptionDetail(subject.exceptionId)],
     ['getScenarioSet', HEAD_OF_SUPPLY_CHAIN, () => backend.getScenarioSet(subject.exceptionId)],
     ['getApproval', HEAD_OF_SUPPLY_CHAIN, () => backend.getApproval(subject.approvalId)],
@@ -5227,7 +5246,6 @@ function everyRecordRead(
     ['getAuditEvent', HEAD_OF_SUPPLY_CHAIN, () => backend.getAuditEvent(subject.auditEventId)],
     ['verifyAuditChain', HEAD_OF_SUPPLY_CHAIN, () => backend.verifyAuditChain()],
     ['getModelCatalogue', HEAD_OF_SUPPLY_CHAIN, () => backend.getModelCatalogue()],
-    ['listSuggestedQuestions', HEAD_OF_SUPPLY_CHAIN, () => backend.listSuggestedQuestions()],
     ['getEvidence', HEAD_OF_SUPPLY_CHAIN, () => backend.getEvidence(subject.exceptionId)],
     ['getDocument', HEAD_OF_SUPPLY_CHAIN, () => backend.getDocument(subject.documentRef)],
     ['getPackage', HEAD_OF_SUPPLY_CHAIN, () => backend.getPackage(subject.packageId)],
@@ -5332,9 +5350,15 @@ describe('the conflict trigger', () => {
     /*
      * The reads the approval screens compose a decision from answer again once the control lifts the
      * trigger, and the set it refused answers with them: the lift is the popover's, and the records
-     * behind it never moved (rule P-8).
+     * behind it never moved (rule P-8). The overview is the aggregate computed over that set, so it
+     * answers only once the lift has happened, and it answers with the records rather than as an
+     * emptied reading.
      */
-    expect((await backend.getOverview(NO_SCOPE)).data).toEqual(before);
+    const overview = (await backend.getOverview(NO_SCOPE)).data;
+
+    expect(overview).toEqual(before);
+    expect(overview.openExceptions).toBeGreaterThan(0);
+    expect(overview.byPlant.length).toBeGreaterThan(0);
     expect((await backend.listExceptions({}, NO_SCOPE)).data.length).toBeGreaterThan(0);
     expect((await backend.getExceptionDetail(subject.exceptionId)).data.exception.id).toBe(
       subject.exceptionId,

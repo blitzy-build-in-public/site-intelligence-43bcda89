@@ -469,6 +469,9 @@ export function SimulationControls(): ReactElement | null {
   const isOpen = useShellStore((state) => state.simulationOpen);
   const setSimulationOpen = useShellStore((state) => state.setSimulationOpen);
   const setAnnouncement = useShellStore((state) => state.setAnnouncement);
+  const setSelectedNodeId = useShellStore((state) => state.setSelectedNodeId);
+  const setWallMode = useShellStore((state) => state.setWallMode);
+  const noteDemonstrationReset = useShellStore((state) => state.noteDemonstrationReset);
   const service = useService();
   const queryClient = useQueryClient();
 
@@ -513,9 +516,11 @@ export function SimulationControls(): ReactElement | null {
    * never who the session acts as, so the entry `ACTIVE_USER_QUERY_KEY` names would be re-read for a
    * value that did not move — and clearing it would blank the acting persona for a frame on every
    * trigger change, taking the scope and the permissions it carries with it. `Reset demo data` is the
-   * one change that does move it, because the reset puts the acting persona back to the seeded one, so
-   * that entry is reset with the rest there and every consumer of `useActiveUser()` follows the persona
-   * the adapter restored.
+   * one change that resets it with the rest, because it replaces the whole record set the identity is
+   * answered from: the entry is re-read rather than kept there, and the persona it reports is the one
+   * the reset left in force, because `resetDemo` restores the records, the chain and the triggers and
+   * keeps the acting persona. Every consumer of `useActiveUser()` therefore follows the same person,
+   * read from the records the reset installed.
    *
    * WHAT IS NOT AWAITED. The chain is issued and not awaited, so the panel's busy state still covers
    * the port call alone: the `loading` trigger holds every read open, and a panel that waited for
@@ -526,7 +531,8 @@ export function SimulationControls(): ReactElement | null {
    *
    * @param keepActingPersona - `true` for a trigger change, which leaves the entry
    *   `ACTIVE_USER_QUERY_KEY` names in place; `false` for `Reset demo data`, which resets it with
-   *   every other entry because the reset restored the seeded persona.
+   *   every other entry because the reset replaced the records the identity is answered from, and
+   *   reports the persona the reset kept in force.
    */
   function reissueReads(keepActingPersona: boolean): void {
     void queryClient
@@ -563,14 +569,25 @@ export function SimulationControls(): ReactElement | null {
         await service.resetDemo();
         setActiveState(null);
         setExtraFlags(initialFlagMirror());
+        /* THE DEMONSTRATION'S VIEW GOES BACK WITH ITS RECORDS. The selection and wall mode are the
+           shell's own two fields, so the panel is the one surface that can clear them; a remounted
+           canvas reports its own wall mode as off, so leaving the shell's flag on would hide the
+           navigation of a screen that no longer believes it is in wall mode. The count is what the
+           screens' own stores compare against: the canvas's lens and the atlas's class in view outlive
+           every mount, and neither module may read this store (AAP §0.18.1), so a choice made before
+           the reset is only tellable from one made after it by the count the router hands them. */
+        setSelectedNodeId(null);
+        setWallMode(false);
+        noteDemonstrationReset();
         /* The reset closes the panel, so this is the whole of what a reader who is not looking at the
            screen is told that it worked: the status region above carries the sentence, and it is
            written only after the port has resolved (rule B-3, WCAG 2.2 SC 4.1.3). */
         setAnnouncement(SIMULATION_CONTROLS_TEXT.resetCompleted);
-        /* The panel closes, and nothing else of the reader's session moves: the seeded records, the
-           chain and the triggers are the adapter's, while the persona in force, the scope filters, the
-           canvas selection and wall mode are the reader's own and survive the reset. Closing the panel
-           is also what returns focus to the badge that opened it. */
+        /* The panel closes, and the rest of the reader's session stands: the seeded records, the chain
+           and the triggers are the adapter's, while the persona in force and the top bar's scope filters
+           are the reader's own — the two values that describe who is reading rather than what the
+           demonstration shows — and survive the reset. Closing the panel is also what returns focus to
+           the badge that opened it. */
         setSimulationOpen(false);
         /* The records the reset installed are answered again by the screens that are mounted. The
            payloads cached for the routes the reader has left describe the session that has just been
@@ -580,9 +597,10 @@ export function SimulationControls(): ReactElement | null {
         queryClient.removeQueries({ type: 'inactive' });
         /* Issued, not awaited: the busy state covers the port call, and a refetch the `loading` trigger
            holds would otherwise keep every control disabled for the rest of the session (rule P-8). The
-           reads the reset was holding are dropped first, so the refetch starts a new one. The acting
-           persona is read afresh here rather than kept: the reset put back the seeded one, and every
-           consumer of `useActiveUser()` follows the persona the adapter restored. */
+           reads the reset was holding are dropped first, so the refetch starts a new one. The identity
+           entry is read afresh with the rest rather than kept: the reset replaced the records that read
+           is answered from, and it kept the acting persona, so every consumer of `useActiveUser()`
+           follows the same person the shell was already displaying. */
         reissueReads(false);
         return;
       }

@@ -991,8 +991,10 @@ export async function triggerSimulationState(page: Page, flag: SimulationFlag): 
  *
  * Drives the `Reset demo data` control of `src/app/simulation-controls.tsx` — the panel named by the
  * exact specification §5.3 label `Simulated control` — which calls the port's `resetDemo()`: the
- * adapter's records and triggers return to the seed, while the persona the session acts as and
- * everything else the reader chose in the shell stay as they were, and the panel closes itself.
+ * adapter's records and triggers return to the seed; the persona the session acts as, the top-bar
+ * scope filters and the row density stay as the reader left them; the shell's canvas selection and
+ * wall mode are cleared, and both demonstration screens return to their opening view because the
+ * shell keys them by its count of demonstration resets; and the panel closes itself.
  * Serving T-13, which asserts the stale-source banner and resets afterwards; T-15, whose "Simulated
  * data" badge and demonstration clock a reset leaves as they stand; and T-17, which walks the states
  * and the two further triggers and resets at the end.

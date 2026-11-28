@@ -237,26 +237,36 @@ const SELECT_CLASSES = [
  * behind a hover. The group is a column (`GROUP_CLASSES`), so the sentence always takes that line
  * rather than being squeezed between the two fields, and that line is reserved there in every state.
  *
- * ONE CLAMPED LINE, ITS WIDTH BOUNDED ON THE GRID. The sentence is the adapter's own message, and a
- * refusal names the permission it needs, the role that is acting and every role that holds it, so
- * it runs to some three hundred characters. Left to break, that set this group's preferred width
- * and wrapped onto up to five lines, and the row then displaced the two fields and left the
- * identifier search on a line of its own: one role's bar measured 420 px against 289 px for every
- * other role. `truncate` keeps the whole sentence as this element's text — which is the text
- * `aria-describedby` binds to the two disabled selects, so a screen reader is still given all of it
- * — while painting a single line. The `title` carries the same sentence, so a reader using a
- * pointer reads the remainder the ellipsis hides.
+ * THE WHOLE SENTENCE, PAINTED AND WRAPPED, BECAUSE RULE P-8 ASKS FOR AN EXPLANATION A READER CAN
+ * READ. The sentence is the adapter's own refusal, and a refusal names the permission it needs, the
+ * role that is acting and every role that holds it, so it runs to some three hundred characters.
+ * Painting it in full is what gives a sighted reader the explanation at all: clamped to a single line
+ * it ended mid-word behind an ellipsis, so the bar told the reader that a reason existed and withheld
+ * it, while the two selects it explains stayed disabled in front of them. The paragraph therefore
+ * wraps, and a refusal reads as the handful of lines its own sentence needs rather than as a fragment.
  *
- * HOW MUCH OF IT IS SHOWN IS THE ROW'S DECISION, NOT A FIXED CUT. `max-w-80` bounds the line at the
- * scale's 80th step, so the sentence cannot widen this group past what the top bar's first line
- * holds and cannot re-break that line when the notice appears or goes away; the reserved line the
- * column holds then keeps the bar's height the same in both states. From `xl` up the row has width
- * to spare, so the line may grow to the 36 rem step (`max-w-xl`): the notice then shows as much of
- * the sentence as one top-bar line can hold with the identifier search still beside it and no extra
- * row at the 1280 px width the desktop audit measures. Neither width is an arbitrary value: each is
- * a named step of the scale, so the bar's boxes stay on the grid.
+ * ITS WIDTH IS STILL BOUNDED ON THE GRID, AND THE WRAPPED LINES ARE THE PRICE OF READING IT.
+ * `max-w-80` bounds the text at the scale's 80th step, so the sentence cannot widen this group past
+ * what the top bar's first line holds and cannot re-break that line when the notice appears or goes
+ * away; from `xl` up the row has width to spare, so the text may grow to the 36 rem step
+ * (`max-w-xl`). Neither width is an arbitrary value: each is a named step of the scale, so the bar's
+ * boxes stay on the grid. What changes is that the reserved line `min-h-20` holds on the group is now
+ * a floor rather than the whole box: a settled announcement still occupies its one line, while a
+ * refusal adds the lines its own sentence needs, which is height the bar takes in that state alone
+ * and the price of giving the reader the explanation instead of an ellipsis.
+ *
+ * `break-words` IS WHAT KEEPS AN UNBROKEN TOKEN INSIDE THE CAP. A permission name carries no space in
+ * it, and with no break opportunity inside such a token the paragraph would push past the width above
+ * and take the group with it; `break-words` lets that token break rather than overflow, so the cap
+ * holds whatever the adapter's message spells.
+ *
+ * NO `title` ANY MORE. The attribute carried the same sentence so that a pointer could reveal what the
+ * ellipsis hid; with nothing hidden it would only duplicate the text already painted, and a tooltip
+ * was never a substitute for a reader on a keyboard or a touch screen. The sentence stays this
+ * element's content and stays bound to the two disabled selects with `aria-describedby`, so it reaches
+ * assistive technology as their description and reaches a sighted reader here.
  */
-const NOTICE_CLASSES = 'min-w-0 max-w-80 truncate text-12 text-text-caption xl:max-w-xl';
+const NOTICE_CLASSES = 'min-w-0 max-w-80 break-words text-12 text-text-caption xl:max-w-xl';
 
 /* ---------------------------------------------------------------------------------------------
  * The option lists, read from the payload rather than typed here
@@ -605,13 +615,7 @@ export function ScopeFilters(): ReactElement {
         />
       </div>
       {notice === null ? null : (
-        <p
-          id={noticeId}
-          role="status"
-          aria-live="polite"
-          title={notice}
-          className={NOTICE_CLASSES}
-        >
+        <p id={noticeId} role="status" aria-live="polite" className={NOTICE_CLASSES}>
           {notice}
         </p>
       )}

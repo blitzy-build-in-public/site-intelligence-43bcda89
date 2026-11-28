@@ -79,6 +79,88 @@ export const SVG_LABEL_TEXT_METRICS: SvgTextMetrics = {
   characterWidth: SVG_LABEL_CHARACTER_WIDTH,
 };
 
+/* ---------------------------------------------------------------------------------------------
+ * The rendered step — how large a label prints, whatever width the drawing is given
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The steps a label may print at, in CSS pixels, taken from specification §4.3's closed type scale.
+ *
+ * A drawing states its geometry in user units and the element scales that geometry into whatever
+ * width its frame gives it, so a label set at a fixed number of user units prints at a different
+ * size in every frame — the 12-unit step this module's charts share renders at about 7.5 px in a
+ * 324 px panel, and at 43 px in an 1854 px one, where it is unreadable in the first and larger than
+ * the page's own heading in the second. These are the scale's four steps between the caption and the
+ * section heading, so the rendered size of a label is always a size the design system states rather
+ * than a pixel count a drawing invented.
+ */
+const RENDERED_LABEL_STEPS_PX: readonly number[] = [12, 13, 14, 16];
+
+/**
+ * The metrics a drawing's labels are set in when the drawing is rendered at `scale` CSS pixels per
+ * user unit, so that a label prints at a type-scale step however wide its frame is.
+ *
+ * THE ANSWER IS IN USER UNITS, because that is the only unit an SVG `<text>` is set in: a drawing
+ * that divides its type step by the scale it is currently drawn at prints at that step, and one that
+ * states a fixed number of user units prints at the step multiplied by the scale. The returned
+ * metrics are therefore both the `font-size` a caller sets its `<text>` elements in and the type the
+ * placement estimates widths from, so what the placement keeps apart is what a reader sees.
+ *
+ * THE SAME RANGE IS CLAMPED IN BOTH DIRECTIONS. The step chosen is the LARGEST scale step that does
+ * not exceed the layer's 12 px step multiplied by the scale, and never below 12 px, so a drawing
+ * narrower than its natural width keeps a legible size instead of shrinking with the frame, and one
+ * wider than about four thirds of it stops growing at the 16 px step rather than outgrowing the page.
+ *
+ * `null` MEANS THE DRAWING HAS NO LAYOUT YET, and the answer is then the layer's own 12-unit step:
+ * under jsdom every element measures zero, so a suite sees `null` and each drawing lays itself out at
+ * its base proportions instead of dividing by nothing.
+ *
+ * @param scale CSS pixels per user unit of the drawing, or `null` where nothing could be measured.
+ * @returns The type step and character width the drawing's labels are set in, in its user units.
+ */
+export function renderedLabelMetrics(scale: number | null | undefined): SvgTextMetrics {
+  if (scale === null || scale === undefined || !Number.isFinite(scale) || !(scale > 0)) {
+    return SVG_LABEL_TEXT_METRICS;
+  }
+
+  const wanted = SVG_LABEL_FONT_SIZE * scale;
+  let stepPx = SVG_LABEL_FONT_SIZE;
+
+  for (const candidate of RENDERED_LABEL_STEPS_PX) {
+    if (candidate <= wanted) {
+      stepPx = candidate;
+    }
+  }
+
+  const fontSize = stepPx / scale;
+
+  return {
+    fontSize,
+    characterWidth: SVG_LABEL_CHARACTER_WIDTH * (fontSize / SVG_LABEL_FONT_SIZE),
+  };
+}
+
+/**
+ * How much larger or smaller than the layer's 12-unit step a drawing's labels are set, as a factor.
+ *
+ * WHY A CALLER MULTIPLIES ITS OWN LENGTHS BY THIS. Everything a drawing states in user units beside a
+ * label was tuned to the 12-unit step — the gap between a swatch and its words, the distance between
+ * two lines of one label, the halo behind the glyphs, the band's row heights, the distances a label
+ * is tried at, the clear space kept between two names. When the step prints at another size those
+ * lengths must travel with it, or a label set at 3.4 units would keep a 12-unit line height and its
+ * own halo would swallow it, while one set at 19 units would overlap its neighbour's. Multiplying by
+ * this factor leaves every drawing that is drawn at the 12-unit step exactly as it is, because the
+ * factor is then 1.
+ *
+ * @param metrics The type the drawing's labels are set in.
+ * @returns The factor its label geometry is stated at, relative to the 12-unit step.
+ */
+export function labelStepRatioOf(
+  metrics: SvgTextMetrics = SVG_LABEL_TEXT_METRICS,
+): number {
+  return metrics.fontSize / SVG_LABEL_FONT_SIZE;
+}
+
 /**
  * The width a run of text is taken to occupy, in the drawing's user units.
  *
@@ -95,6 +177,38 @@ export function estimateTextWidth(
   metrics: SvgTextMetrics = SVG_LABEL_TEXT_METRICS,
 ): number {
   return Array.from(text).length * metrics.characterWidth;
+}
+
+/**
+ * The share of {@link SVG_LABEL_CHARACTER_WIDTH} a run actually advances at, for drawing a leader to it.
+ *
+ * WHY A SECOND ESTIMATE EXISTS. {@link SVG_LABEL_CHARACTER_WIDTH} is deliberately generous, because a
+ * box the placement believes fits must still fit once the browser sets the text — so the box a name is
+ * SEATED in is wider than the glyphs it prints. A leader drawn to that box would therefore stop in the
+ * empty space the generosity reserved, a visible gap that reads as a line belonging to nothing, and the
+ * name it belongs to would still look unattached. The share below is the advance the type this layer
+ * sets actually renders at: measured on a rendered atlas name at the 16 px step, the drawn advance is
+ * 6.5 px per character against the 9.33 px box this module reserves at that step, so the share is 0.7 to
+ * within a tenth of a pixel. It is used only for a leader's endpoints and never for seating a label, so
+ * the reservation that keeps two names apart is untouched.
+ */
+export const LABEL_DRAWN_ADVANCE_SHARE = 0.7;
+
+/**
+ * The width a run is taken to occupy once it is drawn, for the geometry of a leader that points at it.
+ *
+ * @param text The run to measure.
+ * @param metrics The type step and character width it is set in.
+ * @returns The drawn width, in user units; zero for an empty run.
+ */
+export function estimateDrawnTextWidth(
+  text: string,
+  metrics: SvgTextMetrics = SVG_LABEL_TEXT_METRICS,
+): number {
+  return estimateTextWidth(text, {
+    fontSize: metrics.fontSize,
+    characterWidth: metrics.characterWidth * LABEL_DRAWN_ADVANCE_SHARE,
+  });
 }
 
 /**
@@ -350,21 +464,25 @@ function candidatesOf(
     const right = request.x + distance;
     const left = request.x - distance - width;
     const centred = request.x - width / 2;
-    const above = request.y - fit.markRadius - distance + 10;
-    const below = request.y + fit.markRadius + distance + 4;
+    /* The vertical offsets a run is offered at are fractions of the type step rather than fixed
+       distances, so a drawing whose labels print at another size keeps the same reading position
+       instead of drifting: at the 12-unit step they are the 10, 4 and 8 units this module has always
+       stated, and they grow and shrink with the type a caller states. */
+    const above = request.y - fit.markRadius - distance + (size * 5) / 6;
+    const below = request.y + fit.markRadius + distance + size / 3;
 
     for (const row of CANDIDATE_ROWS) {
       const shift = row * rowStep;
 
       candidates.push(
-        { labelX: right, labelY: request.y + 4 + shift },
+        { labelX: right, labelY: request.y + size / 3 + shift },
         { labelX: right, labelY: request.y - size + shift },
-        { labelX: right, labelY: request.y + size + 8 + shift },
-        { labelX: left, labelY: request.y + 4 + shift },
+        { labelX: right, labelY: request.y + size + (size * 2) / 3 + shift },
+        { labelX: left, labelY: request.y + size / 3 + shift },
         { labelX: left, labelY: request.y - size + shift },
         { labelX: centred, labelY: above + shift },
         { labelX: centred, labelY: below + shift },
-        { labelX: left, labelY: request.y + size + 8 + shift },
+        { labelX: left, labelY: request.y + size + (size * 2) / 3 + shift },
       );
     }
   }

@@ -902,23 +902,36 @@ const APPEARANCES = [
 /**
  * The sentence the screen is expected to disable a write control with, composed from its own text map.
  *
- * Composed rather than retyped, so a reworded sentence reaches these assertions from its one owner: what
- * a case proves is that the sentence names the role the adapter enforces, the permission that role lacks,
- * the plant the exception lands on and — once the roster has answered — the roles that may act instead
- * (AAP 0.2.1, rules P-6 and P-8).
+ * Composed rather than retyped, so a reworded sentence reaches these assertions from its one owner. The
+ * screen refuses for two reasons and states the one that failed, so this composes that same branch: a
+ * persona holding the permission whose plants miss the exception's states the permission, the plant it
+ * does not reach and the plants it does, and names no holder; a persona without the permission states
+ * that and — once the roster has answered — the roles that may act instead, the acting role left out of
+ * them (AAP 0.2.1, rules P-6 and P-8).
  */
 function expectedWorkReason(
   actingUser: ActiveUser,
   rolesWithWork: readonly Role[] | null,
 ): string {
+  if (actingUser.permissions.includes(WORK_PERMISSION)) {
+    return (
+      `${INVESTIGATION_TEXT.noWorkActor} (${actingUser.role}) ${INVESTIGATION_TEXT.noWorkHolds} ` +
+      `${WORK_PERMISSION} ${INVESTIGATION_TEXT.noWorkNotOver} ${EXCEPTION.plantId}, ` +
+      `${INVESTIGATION_TEXT.noWorkOutcome} ${INVESTIGATION_TEXT.noWorkPlants} ` +
+      `${actingUser.plantIds.join(', ')}.`
+    );
+  }
+
   const opening =
     `${INVESTIGATION_TEXT.noWorkActor} (${actingUser.role}) ${INVESTIGATION_TEXT.noWorkLacks} ` +
     `${WORK_PERMISSION} ${INVESTIGATION_TEXT.noWorkOver} ${EXCEPTION.plantId}, ` +
     INVESTIGATION_TEXT.noWorkOutcome;
+  const othersWithWork =
+    rolesWithWork === null ? [] : rolesWithWork.filter((role) => role !== actingUser.role);
 
-  return rolesWithWork === null || rolesWithWork.length === 0
+  return othersWithWork.length === 0
     ? opening
-    : `${opening} ${INVESTIGATION_TEXT.noWorkRoles} ${rolesWithWork.join(', ')}.`;
+    : `${opening} ${INVESTIGATION_TEXT.noWorkRoles} ${othersWithWork.join(', ')}.`;
 }
 
 /**
@@ -1839,6 +1852,17 @@ describe('SCR-03 investigation screen', () => {
       expect(addNote).toHaveAttribute('aria-disabled', 'true');
       expect(assign).toHaveAccessibleDescription(reason);
       expect(addNote).toHaveAccessibleDescription(reason);
+
+      /*
+       * The sentence states the cause that failed: nothing in it claims the role lacks the permission,
+       * it names the plants the persona does cover rather than the roles that hold the permission — the
+       * acting role is one of them — and the record's plant is the one it does not reach (rule P-8).
+       */
+      expect(reason).toContain(EXCEPTION.plantId);
+      expect(reason).toContain(ELSEWHERE_SCOPED_USER.plantIds.join(', '));
+      expect(reason).not.toContain(INVESTIGATION_TEXT.noWorkLacks);
+      expect(reason).not.toContain(INVESTIGATION_TEXT.noWorkRoles);
+      expect(ROLES_WITH_WORK).toContain(ELSEWHERE_SCOPED_USER.role);
     });
 
     it('leaves both write controls enabled for a persona that holds the permission over the plant', async () => {
