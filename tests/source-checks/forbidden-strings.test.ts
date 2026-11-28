@@ -2,7 +2,8 @@
 
 /**
  * Rules P-7, P-4 and P-1 source check: nothing under `src/` carries the barred product name, a real
- * company or cloud product name, placeholder Latin text, or the vocabulary of an unimplemented claim.
+ * company or cloud product name, placeholder Latin text, the reviewing platform's own name, or the
+ * vocabulary of an unimplemented claim.
  *
  * AAP §0.9 owns this row: the check reads every TypeScript, TSX and CSS file under `src/` as raw text
  * and runs inside `npm test`. The stylesheet half of that scan is vacuous in this environment by
@@ -240,17 +241,33 @@ function scanRepository(category: ProhibitedCategory): string[] {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * 1. The barred product name (rule P-7)
+ * 1. The barred names: the one rule P-7 fixes, and the reviewing platform's own
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The product name rule P-7 bars, in any casing and with or without a separator.
+ * The reviewing platform's own name, in the fragments its pattern and sample are assembled from.
  *
- * The pattern describes the name as two fragments around an optional whitespace, underscore or
- * hyphen, which covers every spelling a source could carry, and a `\b` at each end keeps a longer word
- * that merely contains the fragments from matching. Tolerating the separator is what stops the
- * hyphenated and spaced spellings from slipping past a rule whose whole purpose is to keep the name
- * out of the product, and the name is never written as one string anywhere in this file.
+ * It is never written as one string in this file, for the same reason the product name's pattern never
+ * is: a literal copy would sit beside the pattern that matches it, as a second spelling a later edit
+ * could change without changing the first.
+ */
+const REVIEWING_PLATFORM_NAME: readonly string[] = ['BLIT', 'ZY'];
+
+/**
+ * The two names barred outright under `src/`, in any casing and with or without a separator.
+ *
+ * The first is the product name rule P-7 forbids. The pattern describes it as two fragments around an
+ * optional whitespace, underscore or hyphen, which covers every spelling a source could carry, and a
+ * `\b` at each end keeps a longer word that merely contains the fragments from matching. Tolerating
+ * the separator is what stops the hyphenated and spaced spellings from slipping past a rule whose
+ * whole purpose is to keep the name out of the product.
+ *
+ * The second is the reviewing platform's own name, which a shipped file may not carry either: it is
+ * no part of this product, names nothing in the domain, and a comment opening with it states a
+ * process marker no reader of the product can resolve. The name itself is barred rather than a
+ * marker built around it, because whatever a later pass writes begins with the name. It is coined
+ * and shares no spelling with this domain's vocabulary or with a design token, so a word-bounded
+ * case-insensitive match reports it and nothing else.
  */
 const BARRED_PRODUCT_NAME: ProhibitedCategory = {
   label: 'barred product name',
@@ -265,6 +282,11 @@ const BARRED_PRODUCT_NAME: ProhibitedCategory = {
           ['plumb', 'line'].join('_'),
         ].join(' / '),
       caseVariants: () => [['plumb', 'line'].join('')],
+    },
+    {
+      pattern: new RegExp(`\\b${REVIEWING_PLATFORM_NAME.join('')}\\b`, 'gi'),
+      sample: () => REVIEWING_PLATFORM_NAME.join(''),
+      caseVariants: () => [REVIEWING_PLATFORM_NAME.join('').toLowerCase()],
     },
   ],
 };

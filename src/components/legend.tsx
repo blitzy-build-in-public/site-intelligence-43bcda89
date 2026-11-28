@@ -58,7 +58,10 @@ import type { StatusMeaning } from './status-indicator';
  * series is a simulated one (rule P-1).
  */
 export interface StatusLegendEntry {
-  /** Discriminator. */
+  /**
+   * A status series: the swatch takes the status role `meaning` names, and the row prints only the
+   * caller's label.
+   */
   readonly kind: 'status';
   /** The entry's identifier, unique within one legend, so React can key the row. */
   readonly id: string;
@@ -79,7 +82,10 @@ export interface StatusLegendEntry {
  * component carries the tag.
  */
 export interface CompetitorLegendEntry {
-  /** Discriminator. */
+  /**
+   * A competitor series: the swatch takes the role `index` selects, and the row prints the caller's
+   * label, then `COMPETITOR_NAME_TAG` and the mandatory `simLabel`.
+   */
   readonly kind: 'competitor';
   /** The entry's identifier, unique within one legend, so React can key the row. */
   readonly id: string;
@@ -103,7 +109,10 @@ export interface CompetitorLegendEntry {
  * to first-party flows.
  */
 export interface ClientSeriesLegendEntry {
-  /** Discriminator. */
+  /**
+   * The client's own series: the swatch takes the accent role, and the row prints the caller's
+   * label followed by the companion label its record states, or `CLIENT_SELF_ASSESSMENT_LABEL`.
+   */
   readonly kind: 'client-series';
   /** The entry's identifier, unique within one legend, so React can key the row. */
   readonly id: string;

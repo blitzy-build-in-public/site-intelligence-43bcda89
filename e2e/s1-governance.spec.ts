@@ -917,13 +917,13 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   /*
    * And it offers no time-boxed exception either. No exception can be requested against a rule nothing
    * evaluates, so the control is disabled and carries the reason in its own description, read the way
-   * assistive technology receives it — the half of rule P-8 a force-click would defeat (qa-w013-I31).
+   * assistive technology receives it — the half of rule P-8 a force-click would defeat.
    */
   const declaredGrant = page.getByRole('button', { name: GRANT_ACTION, exact: true });
 
   await expect(
     declaredGrant,
-    'a policy the engine never evaluates offers no time-boxed exception (qa-w013-I31)',
+    'a policy the engine never evaluates offers no time-boxed exception',
   ).toHaveAttribute('aria-disabled', 'true');
 
   const declaredRefusal = await descriptionOf(page, declaredGrant);
@@ -946,7 +946,7 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   await expect(page.getByText(EVALUATED_STATUS, { exact: true })).toBeVisible();
 
   /* The same route on a policy the engine does evaluate offers the flow, which is the contrast the
-     declared policy above is asserted against (qa-w013-I31). */
+     declared policy above is asserted against. */
   await expect(
     page.getByRole('button', { name: GRANT_ACTION, exact: true }),
     'an evaluated policy offers the time-boxed exception flow',
@@ -1011,9 +1011,9 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   /*
    * The time-boxed exception. The action belongs to the policy it would be raised against, so it is
    * offered in each policy row's own last column: the row a reader presses is the policy the dialog
-   * names (qa-w013-I31). The control acts, the dialog it opens collects the three terms AAP 0.12.4
-   * fixes, and each missing term is named by the submit's own explanation until it is supplied — which
-   * is rule P-8 applied to a form whose reader can fix every cause it has.
+   * names. The control acts, the dialog it opens collects the three terms AAP 0.12.4 fixes, and each
+   * missing term is named by the submit's own explanation until it is supplied — which is rule P-8
+   * applied to a form whose reader can fix every cause it has.
    */
   await follow(page, 'Sovereignty and policies');
 
@@ -1051,7 +1051,7 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   /* The dialog names the policy whose own row was pressed, not the first policy of the set. */
   await expect(
     grantRow,
-    'the dialog names the policy whose own row the reader pressed (qa-w013-I31)',
+    'the dialog names the policy whose own row the reader pressed',
   ).toContainText(requestedAgainst);
 
   /* Nothing supplied: the submit refuses, and the sentence it gives is the reason field's own. */

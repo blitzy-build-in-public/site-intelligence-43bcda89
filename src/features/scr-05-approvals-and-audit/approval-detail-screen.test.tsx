@@ -1038,7 +1038,7 @@ describe('T-07 the decision gate', () => {
     );
   });
 
-  it('qa-w013-I22 answers a refused decision with a visible reason and an announcement', async () => {
+  it('answers a refused decision with a visible reason and an announcement', async () => {
     const user = userEvent.setup();
     await renderPendingDetail();
 
@@ -1047,7 +1047,7 @@ describe('T-07 the decision gate', () => {
 
     /* Nothing is said before the attempt: the reason exists only as the control's description, in the
        `sr-only` element that mounted with it, so no hint is painted and no live region is mounted —
-       the silent state the finding records for a click that follows. */
+       a click that follows starts from that silent state. */
     expect(screen.queryByRole('tooltip')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(describedByText(approve)).toContain(APPROVAL_DETAIL_TEXT.commentRequiredReason);
@@ -1073,8 +1073,8 @@ describe('T-07 the decision gate', () => {
       APPROVAL_DETAIL_TEXT.commentRequiredReason,
     );
 
-    /* The second gate the finding names: with the comment supplied, approve is blocked by the
-       acknowledgement instead, and its refusal carries that sentence both ways. */
+    /* The second gate: with the comment supplied, approve is blocked by the acknowledgement instead,
+       and its refusal carries that sentence both ways. */
     await giveComment(user, 'plan accepted');
     await user.click(controlNamed(APPROVAL_DETAIL_TEXT.approve));
 
@@ -1087,7 +1087,7 @@ describe('T-07 the decision gate', () => {
     expect(mockService.decideApproval).not.toHaveBeenCalled();
   });
 
-  it('qa-w013-I22 marks the comment field and shows the sentence when a decision is refused without one', async () => {
+  it('marks the comment field and shows the sentence when a decision is refused without one', async () => {
     const user = userEvent.setup();
     await renderPendingDetail();
 
@@ -1141,7 +1141,7 @@ describe('T-07 the decision gate', () => {
     );
   });
 
-  it('qa-w013-I22 takes the message off the comment field as soon as the comment is supplied', async () => {
+  it('takes the message off the comment field as soon as the comment is supplied', async () => {
     const user = userEvent.setup();
     await renderPendingDetail();
 
@@ -1168,7 +1168,7 @@ describe('T-07 the decision gate', () => {
     expect(screen.queryByText(APPROVAL_DETAIL_TEXT.commentRequiredReason)).toBeNull();
   });
 
-  it('qa-w013-I22 leaves the comment field valid when another gate is what refused the decision', async () => {
+  it('leaves the comment field valid when another gate is what refused the decision', async () => {
     mockService.getApproval.mockResolvedValue(
       ok(pendingApproval(), freshnessOf('stale', STALE_AS_OF)),
     );

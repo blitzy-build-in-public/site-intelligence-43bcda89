@@ -44,14 +44,18 @@
  * a session takes.
  *
  * THE CORRELATION IDENTIFIER, DERIVED BECAUSE NO INPUT FIXES ITS PATTERN. contracts §1 fixes an
- * identifier pattern for every record it names and none for `traceId`, so `traceIdFor` derives one
- * from the demonstration day and the ticket the adapter took for the call: the day token comes from
- * the constant clock, and the ticket is the number the adapter writes once, at the call's entry, before
- * it awaits anything. Spelling the identifier from that number rather than from the counter as it
- * stands is what makes every event, result and failure of one call quote the same value while the
- * session's other calls are in flight. The seeded trail occupies the six-digit `TRC-nnnnnn` block and
- * its authored events the `TRC-9nnnnn` block, so a live call's identifier carries the day in front of
- * the ticket and cannot be mistaken for a seeded one.
+ * identifier pattern for every record it names and none for `traceId`, so `traceIdFor` derives one from
+ * three segments: the demonstration day, read from the constant clock; the session's nonce, drawn once
+ * by `../mock-state.ts` when the session was built; and the ticket the adapter took for the call,
+ * written once at the call's entry before it awaits anything. Spelling the identifier from that number
+ * rather than from the counter as it stands is what makes every event, result and failure of one call
+ * quote the same value while the session's other calls are in flight, and the nonce is what makes a
+ * quoted identifier resolve to one call rather than to whichever call happens to share its ordinal in
+ * another session — the counter restarts with every session and every reset, the nonce does not
+ * (AAP 0.18.1). The seeded trail occupies the six-digit `TRC-nnnnnn` block and its authored events the
+ * `TRC-9nnnnn` block, so a live call's identifier carries the day and the nonce in front of the ticket
+ * and cannot be mistaken for a seeded one. Nothing but the identifier reads the nonce: the ticket alone
+ * still fixes the call's number and its place on the latency ladder (AAP 0.18.2).
  *
  * WHAT A VERIFICATION SHOWS, AND WHAT IT DOES NOT. `verifyAuditChain` returns `verifyChain`'s report
  * unchanged: how many events were recomputed, every break as a `{ sequence, id }` pair, and how long
@@ -84,7 +88,7 @@
 import { appendEvent } from '../../../domain/audit/chain';
 import { verifyChain } from '../../../domain/audit/verify';
 import { hasPermission, rolesWith } from '../../../domain/policy/permissions';
-import { DEMO_CLOCK } from '../../../types';
+import { DEMO_CLOCK, FREE_TEXT_MAX_LENGTH } from '../../../types';
 import type {
   AuditAction,
   AuditActorType,
@@ -246,24 +250,31 @@ const TRACE_COUNTER_DIGITS = 6;
 const DAY_TOKEN_WIDTH = 10;
 
 /**
- * The correlation identifier of one call, spelled from the ticket the call was given.
+ * The correlation identifier of one call, spelled from the session it belongs to and the ticket the
+ * call was given.
  *
  * contracts §1 fixes no pattern for a trace identifier while fixing one for every record it names, so
- * the form is derived here: the demonstration day from the constant clock, a hyphen, then the ticket
- * zero-padded. The ticket is the number the adapter writes once, at the call's entry, before it awaits
- * anything — it is not read from the session's counter here, because that counter moves under a call
- * that is in flight and two calls served together would then be spelled with one value. Minting the
- * identifier once per call is what makes an identifier a reader quotes lead back to exactly one call,
- * which is the whole of this application's observability (AAP 0.18.1). The seeded blocks are untouched
- * by it: `TRC-nnnnnn` and `TRC-9nnnnn` hold no day token.
+ * the form is derived here: the demonstration day from the constant clock, the session's nonce, then the
+ * ticket zero-padded, as three hyphen-separated segments. The ticket is the number the adapter writes
+ * once, at the call's entry, before it awaits anything — it is not read from the session's counter here,
+ * because that counter moves under a call that is in flight and two calls served together would then be
+ * spelled with one value. The nonce is the segment that makes the identifier a reader quotes lead back
+ * to exactly one call, which is the whole of this application's observability (AAP 0.18.1): the ticket
+ * alone repeats, because the counter restarts with every session and with every reset, so two sessions
+ * reaching the same call ordinal would print one identifier for two different calls. The seeded blocks
+ * are untouched by it: `TRC-nnnnnn` and `TRC-9nnnnn` hold neither a day token nor a nonce.
  *
+ * @param sessionNonce - The segment the session was given when it was built, held on `MockState`.
  * @param ticket - The call's own number, taken from the session's counter by the adapter.
  * @returns The identifier, for the event an append records and the `Problem` a refusal throws.
  */
-export function traceIdFor(ticket: number): string {
+export function traceIdFor(sessionNonce: string, ticket: number): string {
   const dayToken = DEMO_CLOCK.slice(0, DAY_TOKEN_WIDTH).replaceAll('-', '');
 
-  return `${TRACE_PREFIX}${dayToken}-${String(ticket).padStart(TRACE_COUNTER_DIGITS, '0')}`;
+  return (
+    `${TRACE_PREFIX}${dayToken}-${sessionNonce}-` +
+    String(ticket).padStart(TRACE_COUNTER_DIGITS, '0')
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -419,47 +430,62 @@ export function listLimitOf(
 }
 
 /**
- * The greatest length of a free-text field the audited writes store — contracts §6, §9.
+ * The greatest length of a free-text field one request may carry, re-exported here for the families
+ * that bound their prose through {@link assertFreeTextLength} beside it — contracts §6, §9.
  *
- * 2000 characters is the ceiling for prose a person types into one field: a note against an
- * exception, a dismissal reason, a decision comment, the reason a policy exception is requested for,
- * and the corrected value an extraction review supplies. They are the only free-text members any
- * handler stores, and every one of them is kept in a record a later read scans — an exception's
- * history, a policy exception's pending list, a package element's own value — beside the `after` half
- * of the audit event the write appends, so every later read of those records and of the trail filters
- * and scans the paragraph a caller submitted. A bound on what is stored is therefore a bound on the
- * records and on the trail alike, and it is what keeps one request from filling the collections the
- * queue, the drawer and the audit screen read.
- *
- * A ceiling on stored input is not a figure the interface prints, so rule P-6 — which governs the
- * numbers a screen shows — fixes no value here: the figure is this folder's own declaration, stated
- * once for the reason this module's header gives, because the nine family modules AAP 0.12.1 fixes
- * leave no shared helper module to hold it. It holds a substantial paragraph, which is what a reason
- * a second approver has to read is, and it stays far below the size at which one request's prose
- * could dominate a collection every read of the session scans.
+ * The value is declared once in `src/types/primitives.ts`, because the assistant's composer puts the
+ * same ceiling on its question field while a screen reaches this folder only through the port (rule
+ * P-2): one declaration is what keeps a field from accepting text the adapter refuses, or refusing
+ * what it accepts. What the ceiling guards is what the writes that store prose leave behind — an
+ * exception's history, a policy exception's pending list, a package element's own value — beside the
+ * `after` half of the audit event each write appends, so every later read of those records and of the
+ * trail filters and scans the paragraph a caller submitted.
  */
-export const FREE_TEXT_MAX_LENGTH = 2000;
+export { FREE_TEXT_MAX_LENGTH };
+
+/**
+ * What a field refused for its length would otherwise have reached, stated once for the writes that
+ * store their text: the history and the trail every later read of the session filters and scans.
+ *
+ * It is the default consequence of {@link assertFreeTextLength}, so the writes that keep their prose
+ * answer with one sentence while the one caller whose text no record holds can state what is true of
+ * its own request instead of borrowing a consequence that does not apply to it.
+ */
+const STORED_REFUSAL_CONSEQUENCE =
+  'stored in the history and the audit trail those reads later scan';
 
 /**
  * Refuses free text longer than `FREE_TEXT_MAX_LENGTH`, and answers normally otherwise.
  *
- * Each audited write that stores prose calls this beside its own emptiness refusal, so the folder
+ * Every audited write that bounds prose calls this beside its own emptiness refusal, so the folder
  * bounds the input in one place rather than in each family. The value a caller passes is the trimmed
- * string the write is about to store, because that is the string the history and the trail will
- * carry; an empty one is the caller's own refusal to report, and one within the ceiling is nothing
- * this function has to say.
+ * string the write is about to store — or, where the field no record keeps, the trimmed string the
+ * request is about to read — because that is the string the call carries; an empty one is the
+ * caller's own refusal to report, and one within the ceiling is nothing this function has to say.
  *
  * The message names the field, the ceiling and the length actually submitted, so a caller learns what
  * was refused and by how much rather than that the call failed. `field` is the phrase the sentence
  * opens with, such as `a note against EXC-2026-1184`, and it is capitalised here so every caller
  * passes plain words and every refusal reads as one sentence.
  *
+ * The sentence closes with what the refusal spared, and that half is the caller's wherever its field
+ * is not stored: `consequence` defaults to the storage every audited write avoids, and a caller whose
+ * text no record keeps names what its own request would otherwise have done. The clause is a phrase
+ * the sentence completes with `rather than`, so the shape of the refusal is the same everywhere.
+ *
  * @param ctx - The call's context, whose trace the refusal carries.
  * @param field - How the refused field is named, such as `a decision comment`.
- * @param text - The trimmed text the write would store.
+ * @param text - The trimmed text the write would store, or the text the request would read.
+ * @param consequence - What the refusal spared, as a phrase the sentence completes with `rather
+ *   than`: by default, the storage in the history and the trail every later read scans.
  * @throws Problem - A `'validation'` failure when the text is longer than `FREE_TEXT_MAX_LENGTH`.
  */
-export function assertFreeTextLength(ctx: HandlerContext, field: string, text: string): void {
+export function assertFreeTextLength(
+  ctx: HandlerContext,
+  field: string,
+  text: string,
+  consequence: string = STORED_REFUSAL_CONSEQUENCE,
+): void {
   if (text.length <= FREE_TEXT_MAX_LENGTH) {
     return;
   }
@@ -469,7 +495,7 @@ export function assertFreeTextLength(ctx: HandlerContext, field: string, text: s
   throw validationProblem(
     ctx,
     `${subject} is at most ${FREE_TEXT_MAX_LENGTH} characters and this one is ${text.length}, so it ` +
-      'is refused rather than stored in the history and the audit trail those reads later scan.',
+      `is refused rather than ${consequence}.`,
   );
 }
 
@@ -478,8 +504,28 @@ export function assertFreeTextLength(ctx: HandlerContext, field: string, text: s
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * Appends one event to the chain and returns it, and is the only place in the application an audit
- * event comes into existence.
+ * Refuses a draft that names no action or no record, before any section of the write queue is taken.
+ *
+ * A link that cannot say what it records is of no use to a reader, and an append cannot be taken back.
+ * Both append paths below check it first, so a refusal neither waits behind a write nor holds one up,
+ * and a section a caller already holds is never spent on a draft that cannot be appended.
+ *
+ * @param ctx - The call's context, whose trace the refusal carries.
+ * @param draft - The event's content, as the caller supplied it.
+ * @throws Problem - A `'validation'` failure when the draft names no action or no record.
+ */
+function assertAppendable(ctx: HandlerContext, draft: AuditWriteDraft): void {
+  if (draft.action.trim() === '' || draft.objectRef.trim() === '') {
+    throw validationProblem(
+      ctx,
+      'An audit event is appended with the action it records and the identifier of the record it is about; this draft names no action or no record.',
+    );
+  }
+}
+
+/**
+ * Appends one event to the chain and returns it: the append path every audited write takes, except the
+ * role switch, which shares the same body from the section it already holds.
  *
  * The two members this function decides are the instant and the correlation identifier, and it decides
  * neither from a clock or a counter it moves: the instant comes from the constant demonstration clock
@@ -495,15 +541,21 @@ export function assertFreeTextLength(ctx: HandlerContext, field: string, text: s
  * function hands it, which is why none of them is computed, validated or cached here: one append path
  * means one arithmetic, and a second copy of it would be a second answer to what a hash is.
  *
- * The append runs inside the session's write queue. Deriving the instant, reading the chain's length
- * and its predecessor, awaiting the two digests and pushing the event would otherwise be a
- * read-modify-write two audited writes could interleave: issued together, they read one chain state,
- * derive one sequence from one predecessor, and push two events that claim the same position — a
- * forked chain, which AAP 0.12.2's strictly increasing sequence and predecessor link forbid. The whole
- * derivation therefore runs as one section through `runExclusive` in `../mock-state.ts`, so appends
- * stay in the order they were submitted and their instants stay strictly increasing with their
- * sequences. A draft this function refuses is refused before the queue is taken, so a refusal neither
- * waits behind a write nor holds one up.
+ * The append runs as one section of the session's write queue. Deriving the instant, reading the
+ * chain's length and its predecessor, awaiting the two digests and pushing the event would otherwise be
+ * a read-modify-write two audited writes could interleave: issued together, they read one chain state,
+ * derive one sequence from one predecessor, and push two events that claim the same position — a forked
+ * chain, which AAP 0.12.2's strictly increasing sequence and predecessor link forbid. The queue is
+ * taken here through `runExclusive` in `../mock-state.ts`, and the derivation itself is
+ * `appendAuditEventInSection` below, so the work runs in the order it was submitted and the appends'
+ * instants stay strictly increasing with their sequences. A draft that cannot be appended is refused
+ * before the queue is taken, so a refusal neither waits behind a write nor holds one up.
+ *
+ * A caller whose own work must not be interleaved with the event it appends calls
+ * `appendAuditEventInSection` directly, from inside the section it already holds. A section cannot take
+ * a second one: this queue is a plain promise chain rather than a re-entrant lock, so a section that
+ * awaited this function would wait on a release only its own section could give, and the session would
+ * hang with every write behind it.
  *
  * The section also binds the chain it works on, once, and pushes onto that same array. The session's
  * `auditEvents` is a member a reset replaces outright, so reading it again after the digests would
@@ -517,9 +569,6 @@ export function assertFreeTextLength(ctx: HandlerContext, field: string, text: s
  * refusal a policy made still has to reach the record — that is the event the policy block card points
  * at. The demonstration's forbidden trigger therefore does not stop an append; it stops the reads.
  *
- * A draft that names no action or no record is refused rather than appended: a link that cannot say
- * what it records is of no use to a reader, and an append cannot be taken back.
- *
  * @param ctx - The call's context: the chain to append to, the persona the event defaults its actor to,
  *   and the correlation identifier the event records. The chain is extended in place.
  * @param draft - The event's content, without the identity the chain derives.
@@ -530,42 +579,70 @@ export async function appendAuditEvent(
   ctx: HandlerContext,
   draft: AuditWriteDraft,
 ): Promise<AuditEvent> {
-  if (draft.action.trim() === '' || draft.objectRef.trim() === '') {
-    throw validationProblem(
-      ctx,
-      'An audit event is appended with the action it records and the identifier of the record it is about; this draft names no action or no record.',
-    );
-  }
+  assertAppendable(ctx, draft);
 
-  return runExclusive(ctx.state, async () => {
-    // The section's chain, read once. Both digests below are computed over this array and the push has
-    // to land on the same one, so it is bound here rather than read from the session again after the
-    // awaits: a chain replaced in the meantime — the reset installs a freshly hashed one — would take
-    // the push onto its first event with the old tail's predecessor hash, and a verification would
-    // report a break nobody caused (contracts §6).
-    const chain = ctx.state.auditEvents;
+  return runExclusive(ctx.state, () => appendAuditEventInSection(ctx, draft));
+}
 
-    const chainDraft: AuditEventDraft = {
-      timestamp: instantAfterSeconds(appendAdvanceSeconds(ctx.state)),
-      actorType: draft.actorType ?? DEFAULT_ACTOR_TYPE,
-      actorId: draft.actorId ?? ctx.actor.id,
-      action: draft.action,
-      objectRef: draft.objectRef,
-      result: draft.result,
-      // Written conditionally because `exactOptionalPropertyTypes` distinguishes an absent `policyId`
-      // from one holding `undefined`, and the event hash writes an absent policy as an empty string.
-      ...(draft.policyId === undefined ? {} : { policyId: draft.policyId }),
-      before: draft.before ?? null,
-      after: draft.after ?? null,
-      traceId: ctx.traceId,
-    };
+/**
+ * Appends one event to the chain of the critical section the caller already holds, taking no section of
+ * its own.
+ *
+ * The invariant is the caller's to keep: it holds the session's section through `runExclusive` in
+ * `../mock-state.ts`, and nothing this function awaits takes a section of its own. The two digests of
+ * `appendEvent` are the whole of what it awaits and the domain chain module opens no queue, so a
+ * section that keeps to the rule always releases the one it took; a section that broke it would wait on
+ * a release only it could give, and every write queued behind it would wait with it.
+ *
+ * The member that needs this is `MockBackend.switchRole`. The event a role switch appends records the
+ * identity the switch installs, so the read of the identity before it, the mutation and the append are
+ * one section: taken separately, two switches issued together serialise their appends correctly and
+ * still record the second one's `before` as the identity the first had already replaced, which is a
+ * trail stating a transition that never happened (AAP 0.12.2, contracts §6).
+ *
+ * Everything the append derives — the instant, the sequence, the `AUD-nnnnnn` identifier, the two
+ * hashes and the link — is `appendAuditEvent`'s derivation, because this function is the body that one
+ * runs inside its section. A second derivation here would be a second answer to what a hash is.
+ *
+ * @param ctx - The call's context: the chain to append to, the persona the event defaults its actor to,
+ *   and the correlation identifier the event records. The chain is extended in place.
+ * @param draft - The event's content, without the identity the chain derives.
+ * @returns The complete event, hashed and linked, as the state now holds it.
+ * @throws Problem - A `'validation'` failure when the draft names no action or no record.
+ */
+export async function appendAuditEventInSection(
+  ctx: HandlerContext,
+  draft: AuditWriteDraft,
+): Promise<AuditEvent> {
+  assertAppendable(ctx, draft);
 
-    const event = await appendEvent(chain, chainDraft);
+  // The section's chain, read once. Both digests below are computed over this array and the push has to
+  // land on the same one, so it is bound here rather than read from the session again after the awaits:
+  // a chain replaced in the meantime — the reset installs a freshly hashed one — would take the push
+  // onto its first event with the old tail's predecessor hash, and a verification would report a break
+  // nobody caused (contracts §6).
+  const chain = ctx.state.auditEvents;
 
-    chain.push(event);
+  const chainDraft: AuditEventDraft = {
+    timestamp: instantAfterSeconds(appendAdvanceSeconds(ctx.state)),
+    actorType: draft.actorType ?? DEFAULT_ACTOR_TYPE,
+    actorId: draft.actorId ?? ctx.actor.id,
+    action: draft.action,
+    objectRef: draft.objectRef,
+    result: draft.result,
+    // Written conditionally because `exactOptionalPropertyTypes` distinguishes an absent `policyId`
+    // from one holding `undefined`, and the event hash writes an absent policy as an empty string.
+    ...(draft.policyId === undefined ? {} : { policyId: draft.policyId }),
+    before: draft.before ?? null,
+    after: draft.after ?? null,
+    traceId: ctx.traceId,
+  };
 
-    return event;
-  });
+  const event = await appendEvent(chain, chainDraft);
+
+  chain.push(event);
+
+  return event;
 }
 
 /* ---------------------------------------------------------------------------------------------

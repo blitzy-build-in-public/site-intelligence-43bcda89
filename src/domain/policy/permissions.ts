@@ -47,6 +47,15 @@
  * vendor's pins and USR-04 never receives a customer-confidential document body, and the mock adapter
  * applies both before a record crosses the service boundary (AAP 0.2.1); filtering here would create a
  * second enforcement point for a rule the adapter already owns.
+ *
+ * The source-freshness catalogue read is deliberately not a cell either, and it is the one adapter
+ * read no cell covers. Its answer is the six sources' state and as-of instants, which already reach
+ * every persona in the `meta` of every result the port returns and which the shell's freshness strip
+ * prints in the top bar on every route, so a cell there would withhold nothing while leaving that
+ * strip unable to say how current the data behind the plan is (AAP 0.2.1, T-13). What refuses the read
+ * is the demonstration's forbidden trigger rather than a permission, `admin.read` stays the permission
+ * the sources workspace of a later stage requires, and `requireCatalogueReadable` in
+ * `src/services/mock/handlers/governance.ts` is the whole of the check.
  */
 
 import type { ActiveUser, Permission, PlantId, Role } from '../../types';

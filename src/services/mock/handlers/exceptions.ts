@@ -4,181 +4,35 @@
  * dismiss — and the resolution an approved plan's completed write-back records (see
  * `recordApprovedPlan`).
  *
- * Implements the "Handlers" row of AAP 0.12.1 at the `handlers/` path AAP 0.13.1 fixes, in the shape
- * the parent folder's brief gives this entry: "the queue list and the investigation detail:
- * `ExceptionRow[]` and `ExceptionDetail` built through `src/domain/aggregation/exceptions.ts` and
- * `urgency.ts` against the resolved scope, with filters from `ExceptionQuery`". AAP 0.12.2 derives the
- * three payload shapes it returns — `Overview`, `ExceptionRow` and `ExceptionDetail` — and AAP 0.8
- * fixes the rule the whole family exists to keep: every displayed number traces to a pure
- * deterministic function, so nothing below computes a figure of its own.
+ * Implements the "Handlers" row of AAP 0.12.1 at the `handlers/` path AAP 0.13.1 fixes, and the three
+ * payload shapes it returns are the ones AAP 0.12.2 derives — `Overview`, `ExceptionRow` and
+ * `ExceptionDetail`. AAP 0.8 fixes the rule the whole family exists to keep: every displayed number
+ * traces to a pure deterministic function, so nothing below computes a figure of its own.
  *
- * WHAT THIS MODULE DOES, IN ONE SENTENCE PER MEMBER. `getOverview` returns the aggregate
- * `src/domain/aggregation/overview.ts` computes — four tiles, the changed-since list, the by-plant
- * rows and the fourteen-day series (contracts §5). `listExceptions` narrows the exception population by
- * the filters `ExceptionQuery` declares — the six SCR-02 filters, and the day a reader chose on the
- * overview's series, which keeps the exceptions that day was counted for through `openedOrResolvedOn`
- * and nothing else — projects the queue rows `src/domain/aggregation/exceptions.ts` computes over what
- * those filters left, orders them with `sortUrgent` in `src/domain/aggregation/urgency.ts`, and pages
- * them.
- * `getException` returns the investigation payload: the record, the impact chain from purchase order
- * to customer orders, the projected closing stock the solver measures, the affected orders, the
- * missing inputs and confidence the record carries, and the activity recorded against the exception.
- * `getAffectedLines` returns one exception's stored `affectedLines` — the same lines the detail
- * payload carries inside its record — from the record alone, without building any of that payload.
- * Each of the three writes a persona performs updates the session's record, appends one history
- * record and appends exactly one audit event; `recordApprovedPlan` is the fourth write of the family
- * and the exception's own account of the plan it decided, called by the approvals family once the
- * approved change has landed.
- *
- * ONE SCOPE RESOLUTION, AND WHY IT LIVES HERE. AAP 0.2.1 requires one scope resolver combining the
- * top bar's selection with the role's plant scope, "used by every list call and every aggregate, so a
- * filtered queue and a filtered overview cannot disagree". `resolveScope` from
- * `src/domain/aggregation/scope.ts` is that resolver, and this module calls it once per call and hands
- * the single resulting `Scope` to the aggregate. The overview therefore belongs to this family: it is
- * the same exceptions, the same prices, the same order book and the same baseline solves, over the
- * same resolved scope, as the queue a screen shows beside it.
- *
- * THE QUEUE'S ORDER AND ITS LIST PARAMETERS. The default order is `sortUrgent`'s — severity, then days
- * to impact ascending, then revenue at risk descending, then identifier — which is SCR-02's default
- * sort. An explicit `sort=field:dir` (contracts §9) orders by one of the row's own comparable members
- * instead, and the severity ordering stays `sortUrgent`'s own: the urgency rank is the domain module's
- * ranking and is not restated here, because a second copy of it would be a second answer to "which
- * exception is most urgent" (rule P-6). `limit` is the greatest number of rows to return and `cursor`
- * is the identifier of the last row the previous page returned, from which the next page continues;
- * both are honoured as contracts §9 spells them.
- *
- * THE TWO TRIGGERS THIS FAMILY ANSWERS, AS DATA AND NOT AS A COMPONENT BRANCH. The emptied-queue
- * trigger returns no rows and computes the overview over the same emptied exception collection, so the
- * tiles and the queue describe one population rather than two. The forbidden trigger refuses every call
- * of the family with the permission failure a forbidden card renders, before any record is read. Both
- * reach a screen through the shape of the result, never through a flag a component reads
- * (AAP 0.12.1).
- *
- * WHAT THE INVESTIGATION DETAIL IS BUILT FROM, AND WHAT IT REFUSES TO INVENT. The impact chain runs
- * purchase order → material → production line → customer orders, each node carrying the identifier of
- * the record behind it so the evidence drawer resolves its evidence from that record, and each node's
- * detail being the record's own values rather than a figure authored here. The projected closing stock
- * is the daily series `solveSupplyDelay` measures for the exception's OWN solver case at the case's own
- * baseline levers — the do-nothing measurement AAP 0.8 fixes — over the case's own window, which is the
- * seeded 3 to 23 December 2026 window. An exception whose records name no case has no projection and
- * gets an empty series: the seeded case of another exception is never lent to it, because a projection
- * of one plant's supply position shown against another plant's disruption would be a figure rule P-6
- * forbids. For the same reason the affected orders are the solver's own per-order measurements, empty
- * when nothing was measured, and neither the confidence nor the missing inputs is synthesised: both are
- * copied from the record that states them.
- *
- * THE WRITES ARE ALL-OR-NOTHING, AUDITED ONCE, AND THEY DO NOT CONSULT THE POLICY ENGINE. Each write
- * authorises first (`exception.work` over the exception's plant, plus the forbidden trigger), then
- * appends one audit event through `./audit.ts`'s `appendAuditEvent` with the action contracts §6
- * spells — `assign`, `note`, `dismiss` — the exception's identifier as `objectRef`, and `before`/`after`
- * payloads holding only the fields the write changed. It then edits the session's record and appends
- * one history record stamped with the instant the appended audit event itself carries, so the two
- * records of one action agree and no clock is read. `recordApprovedPlan` appends its event the same
- * way and names the exception as `objectRef`, because the record a reader follows from it is the
- * exception the plan answers; the approval remains the subject of the decision event the approvals
- * family appends, and neither event is duplicated by the other. Its action is spelled `resolved`, from
- * the trail's own past-tense vocabulary rather than from the twelve acts contracts §6 enumerates — the
- * same kind of derivation the approvals family records for `simulated write-back`. `evaluate()` in
- * `src/domain/policy/evaluate.ts` is deliberately not called: its `PolicyAction` union covers an
- * outbound endpoint, an approval decision, an assistant query and a policy lookup, and none of the
- * actions here is one of them, so asking it would be asking a question it does not answer.
- *
- * WHAT IT REFUSES, AND THE CAUSE EACH REFUSAL NAMES. An identifier the record set does not hold, and
- * one it holds outside the acting role's plant scope, both produce `'not-found'`: the first because no
- * record answers it, the second because it is not part of the read this role may make, and the message
- * names the identifier either way. A role that lacks the permission produces `'permission'`, carrying
- * `requiredPermission` and the roles that hold it, which is what a forbidden card and a disabled
- * control's explanation print (rules P-3 and P-8). A dismissal without a reason, an empty note, an
- * unknown assignee and a dismissal of an exception that is no longer open produce `'validation'`. The
- * conflicting-update state specification §8 gives the screens has no cause of its own in
- * `ProblemType`, so a write that meets a record which has already moved on is reported as
- * `'validation'` with the record's current status in the message rather than through a sixth cause
- * invented here.
- *
- * LABELS: NONE ARE ATTACHED HERE, BECAUSE NO PAYLOAD HAS A PLACE FOR ONE. `Overview`, `ExceptionRow`
- * and `ExceptionDetail` in `src/types/screen-dto.ts` carry no `SimLabel` member — the label belongs to
- * the element that renders a figure (AAP 0.10), and `src/types/primitives.ts` owns the seven exact
- * strings — so this module types none of them, paraphrases none of them, and adds no member to a
- * contracts-derived shape to hold one (rules P-1 and P-6).
- *
- * DETERMINISTIC BY CONSTRUCTION. Every "now" is the constant `DEMO_CLOCK` of contracts §1, which the
- * aggregate bundle carries as its as-of instant; the writes take their history instant from the audit
- * event they appended. No system clock, random source, locale comparison or module-level mutable value
- * is read, so two calls with the same session return the same payload (AAP 0.18.2). The aggregates are
- * pure functions of the bundle, and the bundle is built fresh on every call from records the session
- * holds, so a caller can neither alter the session by editing what it was handed nor observe a figure
- * that a previous call cached.
- *
- * WHY THE AGGREGATE BUNDLE IS BUILT HERE RATHER THAN SHARED. `handlers/topology.ts` builds the same
- * bundle for the canvas ribbon, and the two builders are two copies of one fifteen-line function. They
- * stay two: AAP 0.12.1 fixes this folder at nine files, of which one per read/write family plus the
- * audit append path, so there is no shared helper module to hold the copy and adding one would make a
- * tenth. What the handlers do import from each other is another family's data —
- * `handlers/approvals.ts` reads the scenario set `handlers/scenarios.ts` builds — and the append path
- * `handlers/audit.ts` owns, which the writing families call instead of repeating it; neither is a
- * builder lifted out of another family. Each copy reads its own family's inputs from the session and
- * neither computes anything.
+ * ONE SCOPE RESOLUTION, AND WHY IT LIVES HERE. AAP 0.2.1 requires one scope resolver combining the top
+ * bar's selection with the role's plant scope, "used by every list call and every aggregate, so a
+ * filtered queue and a filtered overview cannot disagree". `resolveScope` is that resolver, and the
+ * overview therefore belongs to this family: it is the same exceptions, prices, order book and
+ * baseline solves, over the same resolved scope, as the queue a screen shows beside it (see `scopeOf`).
  *
  * Rules this module is built to satisfy:
- * - P-6: every number is an aggregate's or the solver's output, or a record value copied across. No
- *   currency amount, count, threshold or domain identifier is written here, and nothing is rounded —
- *   `halfUp2` and `wholePercent` live in `src/domain/solver/rounding.ts` and are reached only through
- *   the modules that own the arithmetic. `tests/fixtures/` is not imported.
- * - P-2: records are reached only through `ctx.state` and the sibling `../seed-loader.ts` type surface,
- *   and the arithmetic only through `src/domain`. No `src/seed` import, no React, no `src/app`, no
- *   `src/features`, no API client: only `mock-backend.ts` imports this file, so the port stays the one
- *   data boundary.
  * - P-1: it types no simulation label, and no payload it returns carries one.
- * - P-3, P-8: the permission verdict comes from `ctx.actor`, so bypassing the role switcher changes
- *   nothing, and the failure carries the permission and the roles that hold it so a disabled control
- *   can say who may act. The checks are a demonstration control: they run in a browser page and are not
- *   production authorisation.
- * - P-4: nothing here claims a security property. The audit trail it appends to is a mechanism the
- *   interface labels `Simulated control`, and no sentence below claims anything of the chain beyond the
- *   recomputation a verification performs.
+ * - P-2: records are reached only through `ctx.state` and the sibling `../seed-loader.ts` type surface,
+ *   and the arithmetic only through `src/domain`; only `mock-backend.ts` imports this file.
+ * - P-3, P-8: the permission verdict comes from `ctx.actor`, and every failure carries the permission
+ *   and the roles that hold it so a disabled control can say who may act. The checks are a
+ *   demonstration control: they run in a browser page and are not production authorisation.
+ * - P-4: nothing here claims a security property; the trail it appends to is a mechanism the interface
+ *   labels `Simulated control`.
  * - P-5: no market-intelligence value enters any payload, so no overview tile, queue row or detail
  *   figure can blend a competitor reading with a first-party one.
- * - P-7: every name it returns is a seed record's own synthetic name or identifier; this file names no
- *   company, product or person of its own and carries no placeholder text.
+ * - P-6: every number is an aggregate's or the solver's output, or a record value copied across; no
+ *   currency amount, count, threshold or domain identifier is written here and nothing is rounded.
+ * - P-7: every name it returns is a seed record's own synthetic name or identifier.
  * - B-1, B-2: it contacts no host, addresses none, holds no credential-shaped literal and reads no
  *   configuration.
- * - B-3: it renders nothing, so no focusable element, colour or motion is its to get wrong. What it owes
- *   the rule is the other half of it: every refusal carries the plain-words sentence a screen prints and
- *   the permission with the roles that hold it, so the control a reader meets is an explained one rather
- *   than a silent disabled button.
- *
- * WHY THE PRODUCT SELECTION TRAVELS BESIDE THE QUERY RATHER THAN INSIDE IT. `src/types/service.ts` gives
- * `ExceptionQuery` the plant, type, severity, status, owner and supplier filters, the day the overview's
- * series narrows the queue to, and no product member, because AAP 0.12.2 fixes that query as the queue's
- * own filters and AAP 0.12.4 fixes the series' dates as one of them. The shell's product selection reaches
- * the service as a member of `Scope` instead, so each read of this family takes the shell's selection as
- * a `ScopeFilterInput` of its own beside the query and resolves it once through `resolveScope`. A product
- * chosen in the top bar therefore narrows the queue and the overview through the same aggregate
- * predicate (`admitsProducts`) both already apply, and neither read is narrowed by a plant alone.
- *
- * THE CURSOR IS A ROW IDENTIFIER, AND A CURSOR NO ROW CARRIES IS REFUSED. `ListQuery.cursor` is opaque
- * by contracts §9 and the method returns rows rather than a paged envelope, so the position this module
- * accepts is the identifier of the last row the previous call returned, and the next page continues
- * after it in the order that call reported. A cursor the ordered page does not hold — a malformed one,
- * or one from an order the caller has since changed — is refused as a `'validation'` failure, which is
- * what the approvals, audit, governance and evidence families do with the same input: a page that
- * silently began again at the top would read to a paging client as a truncated queue whose tail it had
- * already seen, so the wrong answer would be dressed as a right one, where a refusal names the position
- * that did not hold and the client can restart from the first page.
- *
- * THE PAGE THE QUEUE RETURNS IS BOUNDED, BY THE FOLDER'S ONE RULE. `limit` is `listLimitOf`'s, declared
- * in `./audit.ts`: an absent parameter returns the default page, a parameter above the maximum returns
- * the maximum, and one that is present and bounds no page is refused. The queue therefore cannot be read
- * whole by an unbounded request, and the same bound holds in the inbox, the trail, the ledger, the
- * policy set, the pins and the packages, so contracts §9's `limit` means one thing across the adapter
- * rather than one thing per family.
- *
- * `ExceptionDetail.activity` CARRIES THE CHAIN'S EVENTS, NOT THE SEEDED HISTORY. The member is typed as
- * audit events, and `src/types/screen-dto.ts` fixes it as `AuditEvent[]` — "the audit events recorded
- * against this exception, in chain order" — so it carries the chain's events whose `objectRef` is the
- * exception, shallow-copied per call. The seeded `EXCEPTION_HISTORY` records date the overview's
- * median-hours tile and are read by `overview.ts`; they are not a second activity list and are not
- * dressed up as chain events here.
+ * - B-3: it renders nothing, so what it owes the rule is that every refusal carries the plain-words
+ *   sentence a screen prints beside the permission and the roles that hold it.
  */
 
 /* ---------------------------------------------------------------------------------------------
@@ -440,6 +294,10 @@ function requireWritable(ctx: HandlerContext): void {
  * their reach even while another persona in the same role could. The refusal names the permission and
  * the roles that hold it, which is what a disabled action's explanation prints (rule P-8).
  *
+ * None of the family's writes consults the policy engine: `evaluate()`'s `PolicyAction` union covers an
+ * outbound endpoint, an approval decision, an assistant query and a policy lookup, and none of the
+ * actions here is one of them, so asking it would be asking a question it does not answer.
+ *
  * @param ctx - The call's context.
  * @param exception - The exception the write concerns.
  * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
@@ -658,6 +516,12 @@ function baselineSolves(
  * population (AAP 0.2.1). Every member is a record the session holds or the aggregate's own declared
  * shape, so the bundle states no figure and copies nothing a record does not say.
  *
+ * Two handlers build this bundle, this one and `handlers/topology.ts` for the canvas ribbon, and the
+ * two builders stay two copies of one short function: AAP 0.12.1 fixes this folder at nine files, one
+ * per read/write family plus the audit append path, so there is no shared helper module to hold the
+ * copy and adding one would make a tenth. Each copy reads its own family's inputs from the session and
+ * neither computes anything.
+ *
  * @param ctx - The call's context, whose records and triggers are read. Not modified.
  * @param exceptions - The exceptions the reads are computed over: the record set's own, or an empty
  *   collection when the queue has been emptied.
@@ -702,6 +566,13 @@ function aggregateBundle(
  * which narrowed the queue did not count (AAP 0.12.4). Each filter is applied only where the query states
  * it, and deciding the whole filter here is what lets the queue narrow the population before it measures
  * it.
+ *
+ * The shell's product selection does not travel inside the query. `ExceptionQuery` carries the plant,
+ * type, severity, status, owner and supplier filters and the day the overview's series narrows the
+ * queue to, because AAP 0.12.2 fixes that query as the queue's own filters and AAP 0.12.4 fixes the
+ * series' dates as one of them; a product chosen in the top bar reaches the service as a member of
+ * `Scope` instead, so each read of this family resolves it once through `resolveScope` and the queue
+ * and the overview are narrowed by the same aggregate predicate (`admitsProducts`) both apply.
  *
  * @param exception - The exception to test.
  * @param query - The query the call was served with.
@@ -1576,7 +1447,7 @@ export async function addExceptionNote(
  * rather than trusting the control's own state, so a dismissed row always says why it was set aside. Only
  * an exception that still stands open is dismissed: a record that has already moved on is reported with
  * its current status, which is the conflicting-update state reported through `'validation'` because
- * `ProblemType` gives it no cause of its own (see the module header).
+ * `ProblemType` gives it no cause of its own (see `validationProblem`).
  *
  * @param ctx - The session and the persona the call acts as.
  * @param id - The exception to dismiss.

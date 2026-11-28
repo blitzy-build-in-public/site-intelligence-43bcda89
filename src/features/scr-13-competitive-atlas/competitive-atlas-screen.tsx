@@ -6,157 +6,59 @@
  * FIXING INPUTS. AAP 0.12.4's SCR-13 row fixes the content in full — "Banner naming the simulated
  * pack; selector for the client and three competitors filtered by product class; network view with
  * shared chokepoints; five-axis resilience radar with competitor series tagged `Simulated market
- * intelligence` and the client series `Simulated data: client self-assessment`; chokepoint table
- * with overlap, competitor buffer days and contention note. Primary action: Export the chokepoint
- * brief as JSON. Every competitor name carries the imported competitor tag; forbidden for USR-08."
- * AAP 0.13.1 and 0.15.1 give this path its row (High, source), AAP 0.14.1's S3 row and F13 place it
- * in stage S3, AAP 0.12.3 assigns the read `GET /market-intelligence/atlas` the permission
- * `competitive.read`, and AAP 0.12.1 with contracts §11 fix the chokepoint brief the export
- * downloads. Acceptance test T-21 asserts the banner, the overlay, the labelled series and the
- * chokepoint table against this screen.
+ * intelligence` and the client series `Simulated data: client self-assessment`; chokepoint table with
+ * overlap, competitor buffer days and contention note. Primary action: Export the chokepoint brief as
+ * JSON. Every competitor name carries the imported competitor tag; forbidden for USR-08." AAP 0.13.1
+ * and 0.15.1 give this path its row (High, source), AAP 0.14.1's S3 row and F13 place it in stage S3,
+ * AAP 0.12.3 assigns the read `GET /market-intelligence/atlas` the permission `competitive.read`, and
+ * AAP 0.12.1 with contracts §11 fix the chokepoint brief the export downloads. Acceptance test T-21
+ * asserts the banner, the overlay, the labelled series and the chokepoint table against this screen.
  *
  * WHAT THIS FILE OWNS AND WHAT IT HANDS TO ITS SIBLINGS. It is the listener of the `/competitive`
- * route and the composer of three siblings: {@link ChokepointAlertStrip}, which alerts on the
- * crossings the pack records, {@link CompetitorNetwork}, which draws the sites, lanes and crossings,
- * and {@link ChokepointTable}, which lists them. All three are presentational and take their records
- * as props. This file owns the one read, the two selectors, the pack banner, the alert strip's
- * wording, the two chart frames, the legend, the export and the resolver the chokepoint table names a
- * competitor with, and nothing else.
+ * route and the composer of three presentational siblings that take their records as props:
+ * {@link ChokepointAlertStrip} alerts on the crossings the pack records, {@link CompetitorNetwork}
+ * draws the sites, lanes and crossings, and {@link ChokepointTable} lists them. This file owns the one
+ * read, the two selectors, the pack banner, the alert strip's wording, the two chart frames, the
+ * legend, the export and the resolver the chokepoint table names a competitor with.
  *
- * RULE P-5 IS THE GOVERNING RULE HERE, AND IT IS STRUCTURAL RATHER THAN REVIEWED. Market
- * intelligence is never blended with a first-party record in one number. The payload keeps the two
- * families in separate members (`clientSites` and `radarSeries`' first-party member against
- * `competitors` and its market-intelligence members), each series carries its own label, and this
- * screen adds no aggregate of any kind: no total, no average, no combined series, no "overall
- * score", no summed column. The radar's table view carries one column per series and one row per
- * axis, which is the payload read as a table rather than a figure over it. Every competitor name it
- * paints is followed by `COMPETITOR_NAME_TAG`, and that treatment is decided by the record's own
- * provenance: only a series stating {@link COMPETITOR_PROVENANCE} is a competitor's, while the
- * client's `first_party` score and a `computed` first-party figure stay client series (AAP §0.8).
- * Each series prints the label its own record states — the market-intelligence member of
- * `SIM_LABELS` for a competitor's, `CLIENT_SELF_ASSESSMENT_LABEL` for the client's and no second
- * label — so a label can never disagree with the payload that supplied the series (rule P-5).
+ * RULE P-5 IS THE GOVERNING RULE HERE, AND IT IS STRUCTURAL RATHER THAN REVIEWED. Market intelligence
+ * is never blended with a first-party record in one number: the payload keeps the two families in
+ * separate members, each series prints the label its own record states, and this screen adds no
+ * aggregate of any kind — no total, no average, no combined series, no overall score. Which family a
+ * series belongs to is decided by the record's own provenance rather than by a name
+ * ({@link COMPETITOR_PROVENANCE}, {@link MARKET_INTELLIGENCE_LABEL}), and every competitor name it
+ * paints carries `COMPETITOR_NAME_TAG` (rule P-5).
  *
- * THE NETWORK'S TABLE VIEW STATES THE FAMILY OF EVERY FIGURE IT PRINTS. The drawing beside the table
- * labels each competitor's group, so the table cannot leave its reader to infer the same thing from
- * the tag on the network's name: its last column carries the label the row's family owns — the
- * market-intelligence member of the fixed list for a competitor's site, `Simulated data` for one of
- * the client's own — in the same `StatusIndicator` treatment `./chokepoint-table.tsx` gives its own
- * provenance column. One column for the row states it, where a label repeated beside each figure
- * would say the same thing three times and leave a reader nothing to scan: a row's network, its site
- * and both of its coordinates come from one record and share one family (rules P-1, P-5).
+ * NOTHING HERE IS COMPUTED, FORMATTED OR TYPED (rules P-6, P-2). Every figure, name and identifier on
+ * the surface arrives from `getAtlas()` through the port: this module sums nothing, averages nothing,
+ * rounds nothing, sorts nothing and reads no clock, and it types no currency literal and no domain
+ * identifier. The class selector decides which records are drawn and the entity selector which record
+ * the two drawings mark; neither computes a value.
  *
- * THE CHOKEPOINT TABLE NAMES THE COMPETITOR BESIDE ITS IDENTIFIER. A crossing's buffer map is keyed by
- * `CMP-0x`, and the pack keeps those companies' names on its networks rather than on the crossing, so
- * this screen builds the table's `competitorNameOf` resolver over `competitors` and the table prints
- * the name the payload holds. Nothing is joined outside the payload and no name is written here
- * (rules P-6, P-7): a reader can tell from the on-screen table which competitor holds the buffer days
- * at a crossing, and the table names the same companies the exported brief maps those identifiers to.
+ * THE SEVEN STATES COME FROM THE READ, NEVER FROM A FLAG (AAP 0.8, 0.12.1). The body is wrapped in
+ * `StateBoundary`, and the shared `deriveScreenState` (`src/components/screen-state.ts`) reads only what
+ * the one query settled to — its refusal, the freshness report on `Result.meta`, or a pack with nothing
+ * in view. No member of `SimulationFlag` is named here, so the single simulation popover reaches this
+ * screen by changing what the adapter answers, not by a branch in the view.
  *
- * RULE DIVERGENCE, REPORTED AND NOT RESOLVED IN THIS FILE (the same note `src/components/legend.tsx`
- * and `./competitor-network.tsx` carry). Rule P-5's text fixes one company word for the competitor
- * tag while AAP 0.10's companion-string row pairs the same tag with a different one;
- * `src/types/primitives.ts` settles the pair by shipping `COMPETITOR_NAME_TAG` as the rule's own
- * wording, naming the rule — the highest-ranked input (AAP 0.1) — as the winner in that constant's
- * documentation. This file imports the constant and renders it verbatim, so a change to the
- * resolution needs one edit in the types layer and none here.
+ * THE SIX REPORTED GAPS ARE RECORDED WHERE EACH ONE BITES RATHER THAN HERE: the class selector
+ * narrowing what is drawn rather than what is read at the head of the in-view helpers, the entity the
+ * drawings mark on {@link SELECTION_CAPTION_CLASSES}, the chips' `aria-pressed` on
+ * {@link RESTING_CHIP_CLASSES}, the frames' unlabelled variant beside the network chart frame, the
+ * client network's absent lane list on {@link NO_CLIENT_LANES}, and the two unfixed strings on their
+ * {@link COMPETITIVE_ATLAS_TEXT} members.
  *
- * NOTHING HERE IS COMPUTED, FORMATTED OR TYPED (rules P-6, P-2). Every figure, name and identifier
- * on the surface arrives from `getAtlas()` through the port: the class list, the series' scores, the
- * sites' coordinates, the crossings' overlap and buffer days, the contention notes. This module sums
- * nothing, averages nothing, rounds nothing, sorts nothing and reads no clock, and it types no
- * currency literal and no domain identifier — the classes a reader selects are the payload's own
- * `productClasses` entries. The class selector decides which of those records are drawn and the entity
- * selector which record the two drawings mark and which one the captions name; neither computes a
- * value, and nothing either narrows is derived from a figure.
- *
- * THE SEVEN STATES COME FROM THE READ, NEVER FROM A FLAG — AAP 0.8, 0.12.1. The body is wrapped in
- * `StateBoundary`, and the shared `deriveScreenState` (`src/components/screen-state.ts`) reads only
- * what the one query settled to: a
- * `'permission'` refusal is the forbidden card built from the service's own `requiredPermission`,
- * `rolesWithPermission` and `traceId` (the refusal USR-08 meets); a `'validation'` refusal is the
- * conflict notice; any other rejection is offline with a retry that re-runs the read; a pending read
- * is the loading state; the freshness report the adapter attaches to `Result.meta` raises the stale
- * banner, naming the source and its as-of instant, or the partial notice above content that still
- * renders; and a pack with no competitor series or no crossing is the empty state. No member of
- * `SimulationFlag` is named here, so the single simulation popover reaches this screen by changing
- * what the adapter answers rather than by a branch in the view. This screen performs no permission
- * check of its own and says nothing about the standing of the browser-side checks behind the port
- * (rules P-2, P-3): it explains the refusal the service made.
- *
- * THE EXPORT IS A BROWSER-BUILT FILE AND NEVER A REQUEST (rules B-1, B-2). `exportChokepointBrief()`
- * resolves the download payload — its suggested file name, its media type and the document's text,
- * which already carries `"simulated": true` at its top level — and this screen offers it through a
- * `Blob` object URL and a transient download anchor. Nothing is added to, stripped from or reshaped
- * in that payload. No address is opened, no credential exists and no configuration is read anywhere
- * in the path; the only global it touches is the browser's own `URL` and `document`.
- *
- * REPORTED GAPS, AND WHAT EACH MARKING RESTS ON, recorded where it bites rather than worked around:
- * 1. The port's `getAtlas()` takes no argument, so the product-class selector narrows what this
- *    screen draws rather than what it reads: one payload answers every class the selector offers, and
- *    the class in view decides which competitor networks are drawn, together with the sites, the
- *    crossings their lanes traverse, the alerts the band leads with and the radar series those
- *    networks carry (AAP §0.12.4). The narrowing runs on the pack's own classification —
- *    `CompetitorNetwork.productClasses`, joined to each series by `AtlasSeries.competitorId` — so it
- *    states no figure of its own and no first-party measure of a competitor, which is what keeps rule
- *    P-5 intact through a filter that follows one of the client's own product classes. The client's
- *    own series and sites stay drawn in every class, because they report on the client rather than on
- *    a competitor the class could select.
- * 2. THE ENTITY IN VIEW IS MARKED IN BOTH DRAWINGS. `RadarChart` takes `selectedSeriesId` and draws
- *    that series' outline heavier while its label-band row states `aria-current` and prints its name
- *    in the emphasised weight; `CompetitorNetwork` takes `highlightedCompetitorId` and emphasises the
- *    family in view — the client's own network when the value is `null` — while a competitor in view
- *    recedes the OTHER competitor families and the client's own network in view recedes none of them,
- *    so every mark in the atlas's opening state keeps the hue its own legend row promises. The
- *    selector therefore performs the selection it presents rather than only highlighting its own
- *    control (rule P-8), the marking is a stroke weight, a text weight and an attribute rather than a
- *    hue (rule B-3), and the caption beside the group and the chip's own `aria-pressed` state it in
- *    words as before. The legend beside the radar is the one surface that only describes the series.
- *    EACH SERIES' CONTROL CARRIES ITS CATEGORY'S OWN COLOUR: every entity control opens with a
- *    decorative swatch in the role its series is drawn in — the accent role for the client's own
- *    series, `--color-competitor-1/2/3` for a competitor's — resolved from the same
- *    `competitorSlotOf`/`CHART_TONE_CLASSES` lookup the radar polygon, the network mark, the legend
- *    row and `./chokepoint-table.tsx`'s competitor line resolve, so one category is one colour on
- *    every surface of this screen; the swatch is `aria-hidden`, so the control's name and the P-5 tag
- *    beside it are exactly what they were. Both drawings also answer with evidence instead of
- *    restating the selection: every radar vertex carries `<series id>#<axis id>` (see
- *    {@link radarVertexReference}) and every site mark and crossing halo carries the identifier it was
- *    drawn from (see {@link networkMarkReference}), so each vertex, site and halo opens the record
- *    behind it (AAP §0.2.1 F12, §0.12.4) and no mark is a focus stop with nothing behind it (rule
- *    P-8).
- * 3. BOTH SELECTOR GROUPS STATE THEIR CHOSEN CHIP PROGRAMMATICALLY. Each chip of both groups renders
- *    the plain `Button` primitive of `src/components/button.tsx` — the owner of a button whose state
- *    lives in an aria attribute — and carries `aria-pressed`, true for the class or the entity in view
- *    and false for every other chip, so a reader is told which one is chosen rather than left to
- *    compare fills (rule B-3). The caption beside each group still restates the choice in words, and
- *    the two drawings keep marking the entity in view with `aria-current`. `ActionButton`
- *    (`src/components/tooltip.tsx`) admits neither attribute, so it now renders the export action
- *    alone.
- * 4. The network drawing mixes the client's own sites with the competitors' networks, so no single
- *    frame-level simulation label would be true of all of it. Both frames are composed with
- *    `ChartFrame`'s market-intelligence variant, which paints no frame-level label, and each family
- *    is labelled inside the drawing by `./competitor-network.tsx` itself (rule P-5).
- * 5. The payload carries no lane list for the client's own network — `Atlas` declares `clientSites`
- *    and each competitor's `lanes`, and the client's lanes are neither declared nor composed — so the
- *    network view is handed `NO_CLIENT_LANES` rather than a lane list this screen would have to
- *    invent. The client's sites are drawn, and the shared crossings are placed from the competitor
- *    lanes that traverse them.
- * 6. Two strings the plan does not fix are written here and reported: the empty sentence (the
- *    specification fixes none for SCR-13) and the sentence shown when the export fails in a shape
- *    that did not arrive as the service's `Problem`.
- *
- * Rules this module is built to satisfy: B-1 (no address, no request, no remote font, icon or
- * image), B-2 (no credential, no environment read), B-3 (every control keyboard operable with the
- * shared 24x24 px target and focus ring, the active selection stated in text and in `aria-pressed` and
- * never by colour alone, both frames offering "View as table", headings running `h1` then the cards'
- * `h2`s, no animation declared here), P-1 (the pack banner from its constant, the per-series labels
- * from the types layer, no model and no live feed implied), P-2 (`useService()` is the only data path;
- * no seed, adapter, app, domain or sibling feature module is imported), P-3 (nothing about
- * authorisation), P-4 (nothing about sovereignty, copying or resistance), P-5 (the governing rule
- * above), P-6 (no figure, currency literal or identifier typed), P-7 (Site Intelligence's own
- * vocabulary, every company and place name from the payload, no filler text) and P-8 (every control
- * either acts — the two selector groups through `Button`, the export through `ActionButton` — or is
- * disabled through `ActionButton` with the reason in its `disabledReason`).
+ * Rules this module is built to satisfy: B-1 and B-2 (no address, no request, no credential and no
+ * configuration read — the export is a `blob:` URL of a document the service composed), B-3 (every
+ * control keyboard operable with the shared 24x24 px target and focus ring, the active selection stated
+ * in text and in `aria-pressed` and never by colour alone, both frames offering "View as table",
+ * headings running `h1` then the cards' `h2`s), P-1 (the pack banner from its constant, the per-series
+ * labels from the types layer, no model and no live feed implied), P-2 (`useService()` is the only data
+ * path), P-3 (nothing about authorisation), P-4 (nothing about sovereignty, copying or resistance), P-5
+ * (the governing rule above), P-6 (no figure, currency literal or identifier typed), P-7 (every company
+ * and place name from the payload, no filler text) and P-8 (every control either acts — the two selector
+ * groups through `Button`, the export through `ActionButton` — or is disabled through `ActionButton`
+ * with the reason in its `disabledReason`).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
@@ -263,7 +165,12 @@ export const COMPETITIVE_ATLAS_TEXT = {
   /** Why the export cannot act while a brief it already asked for is being prepared. */
   exportRunning: 'A brief is already being prepared.',
 
-  /** What the export states when it fails in a shape that did not arrive as the service's `Problem`. */
+  /**
+   * What the export states when it fails in a shape that did not arrive as the service's `Problem`.
+   *
+   * No input fixes a sentence for that case, so this one is the screen's own and is the other of the
+   * two strings the plan does not fix.
+   */
   exportFailedUntyped: 'The brief could not be prepared.',
 
   /**
@@ -452,7 +359,12 @@ export const COMPETITIVE_ATLAS_TEXT = {
    */
   chokepointCoordinate: 'No coordinate stated',
 
-  /** What the boundary says when nothing the class in view selects can be compared. */
+  /**
+   * What the boundary says when nothing the class in view selects can be compared.
+   *
+   * SCR-13's row fixes no empty sentence, so this one is the screen's own and is the second of the two
+   * strings the plan does not fix.
+   */
   empty: 'No competitor series and no shared crossing are in view, so there is nothing to compare.',
 
   /** What the boundary says when a source behind the pack answered incompletely. */
@@ -574,6 +486,12 @@ const SELECTOR_GROUP_CLASSES = 'flex min-w-0 flex-wrap items-center gap-2';
 /**
  * The caption stating the class or the entity in view. It is the reason the selection never rests on
  * colour alone: the two controls differ by label and the words here say which one is active (B-3).
+ *
+ * The mark each drawing makes is a stroke weight, a text weight and an attribute rather than a hue:
+ * `RadarChart` draws the series in view heavier and states it on its label row with `aria-current`, and
+ * `CompetitorNetwork` emphasises the family in view and recedes the other competitor families, so the
+ * selector performs the selection it presents rather than only highlighting its own control (rules P-8,
+ * B-3). The legend beside the radar is the one surface that only describes the series.
  */
 const SELECTION_CAPTION_CLASSES = 'min-w-0 text-13 text-text-secondary';
 
@@ -584,7 +502,10 @@ const SELECTION_CAPTION_CLASSES = 'min-w-0 text-13 text-text-secondary';
  * Composing the two exported lists rather than writing them again is what keeps a chip and the
  * secondary action beside it one control pattern, and it lets the plain `Button` primitive own the
  * element — which is what a chip needs, because the chip states which of its peers is chosen through
- * `aria-pressed` and `ActionButton`'s props admit no such attribute (rule B-3).
+ * `aria-pressed`, the state `Button` owns, and the drawing beside it marks the entity in view with
+ * `aria-current`, which `ActionButton`'s props do not admit. The export action alone is rendered
+ * through `ActionButton`, because it carries neither state and its disabled form must carry a
+ * sentence (rules B-3, P-8).
  */
 const RESTING_CHIP_CLASSES = `${CONTROL_STRUCTURE_CLASSES} ${SECONDARY_CONTROL_CLASSES}`;
 
@@ -733,6 +654,15 @@ function labelOfEntity(
 /* ---------------------------------------------------------------------------------------------
  * What the class in view leaves drawn — AAP 0.12.4's selector at work on the payload
  * ------------------------------------------------------------------------------------------- */
+
+/*
+ * The port's `getAtlas()` takes no argument, so the class selector narrows what this screen draws
+ * rather than what it reads: one payload answers every class the selector offers, and the narrowing
+ * runs on the pack's own classification — `CompetitorNetwork.productClasses`, joined to each series by
+ * `AtlasSeries.competitorId` — so it states no figure of its own and no first-party measure of a
+ * competitor (rules P-5, P-6, AAP 0.12.4). The client's own series and sites stay drawn in every class,
+ * because they report on the client rather than on a competitor the class could select.
+ */
 
 /**
  * The competitor networks a product class leaves in view.
@@ -1299,10 +1229,10 @@ const ATLAS_SOURCE: SourceId = 'market-pack';
  *
  * The shell unmounts the atlas when the reader leaves `/competitive`, so the three sat in `useState` and
  * were discarded by every client-side route change — a competitor chosen in the selector fell back to the
- * class's own default before the reader had come back (QA5-F40). A zustand store created in this module
- * outlives the component, so the reader returns to the surface they left. It is this module's own store
- * and holds no shell vocabulary: AAP 0.6.1 gives the shell store the active role, the scope, the selected
- * node, wall mode and the simulation popover, and none of those is a choice made on this screen.
+ * class's own default before the reader had come back. A zustand store created in this module outlives
+ * the component, so the reader returns to the surface they left. It is this module's own store and holds
+ * no shell vocabulary: AAP 0.6.1 gives the shell store the active role, the scope, the selected node,
+ * wall mode and the simulation popover, and none of those is a choice made on this screen.
  *
  * Created with no persistence middleware: theme and density are the only preferences this application
  * writes to browser storage (platform-contracts.md §1), so a reload opens on the class the shell's
@@ -1451,8 +1381,7 @@ interface SeriesSwatchProps {
  * everywhere else on the screen.
  *
  * It is `aria-hidden` and carries no text: the control's accessible name is the series' own name and
- * its tag, exactly as before, so the colour reaches a reader who can see it and nothing is announced
- * twice (rule B-3).
+ * its tag, so the colour reaches a reader who can see it and nothing is announced twice (rule B-3).
  *
  * @param props - The series the control selects.
  * @returns The swatch, or `null` when the series has no hue of its own to show.
@@ -1477,11 +1406,11 @@ function SeriesSwatch({ series }: SeriesSwatchProps): ReactElement | null {
  *
  * Nothing here writes, so a re-render can move no record; the state the component owns is the
  * reader's own — the class in view, the entity in view and the mark the network holds as selected —
- * held in this module's store so a route change keeps them (QA5-F40), plus the one refusal the reader
- * has to be told about, a brief this page could not hand over, and never a copy of service data. The
- * class in view narrows every surface the screen draws — the alerts the band lists, the radar series,
- * the competitor networks, their sites and the crossings their lanes traverse — from the payload's own
- * classification, so the selector filters the atlas rather than restating it (AAP §0.12.4).
+ * held in this module's store so a route change keeps them, plus the one refusal the reader has to be
+ * told about, a brief this page could not hand over, and never a copy of service data. The class in view
+ * narrows every surface the screen draws — the alerts the band lists, the radar series, the competitor
+ * networks, their sites and the crossings their lanes traverse — from the payload's own classification,
+ * so the selector filters the atlas rather than restating it (AAP §0.12.4).
  *
  * @param props - The shell's selection. See {@link CompetitiveAtlasScreenProps}.
  * @returns The header with its export action, the pack banner, the chokepoint alert strip, the
@@ -1831,7 +1760,11 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
                       {/* The tag states the family the record belongs to: the competitor name tag
                           for a market-intelligence series, and the label the record states for every
                           other one, so a computed first-party series is not tagged as a competitor's
-                          (rule P-5). */}
+                          (rule P-5). Rule P-5's company word and AAP 0.10's companion-string row fix
+                          the tag differently, and `src/types/primitives.ts` settles the pair by
+                          shipping `COMPETITOR_NAME_TAG` as the rule's own wording; this file imports
+                          the constant and renders it verbatim, so a change to the resolution needs one
+                          edit in the types layer and none here. */}
                       <span className={CONTROL_TAG_CLASSES}>
                         {entry.provenance === COMPETITOR_PROVENANCE
                           ? COMPETITOR_NAME_TAG
@@ -1869,6 +1802,10 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
             </Card>
 
             <Card title={COMPETITIVE_ATLAS_TEXT.networkCardTitle}>
+              {/* Both frames carry the market-intelligence provenance, which paints no frame-level
+                  label: the network drawing mixes the client's own sites with the competitors'
+                  networks, so no single frame-level simulation label would be true of all of it, and
+                  each family is labelled inside the drawing by `./competitor-network.tsx` (rule P-5). */}
               <ChartFrame<NetworkTableRow>
                 provenance="market_intelligence"
                 title={COMPETITIVE_ATLAS_TEXT.networkFigureTitle}

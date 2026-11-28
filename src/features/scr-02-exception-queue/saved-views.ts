@@ -10,10 +10,10 @@
  * THE WHOLE SET IS WHAT A VIEW STANDS FOR. Applying one answers exactly the members it saved, so a
  * filter the queue holds and the view does not carry is cleared rather than left in force, and the
  * queue shows the records the view shows — the filter set the planner saved, not that set laid over
- * whatever they chose afterwards (QA3-F21: a view saved on severity alone left a later status filter
- * standing, and the two together matched nothing). A view lives in memory and only for the session: the
- * theme and the density are the only preferences this application keeps between visits
- * (platform-contracts.md §1), so no view reaches browser storage, a cookie or a request.
+ * whatever they chose afterwards, since a view saved on severity alone laid over a later status filter
+ * matches no record at all. A view lives in memory and only for the session: the theme and the density
+ * are the only preferences this application keeps between visits (platform-contracts.md §1), so no view
+ * reaches browser storage, a cookie or a request.
  *
  * A pure module (AAP 0.12.4 "saved views in memory"; AAP 0.13.1 and 0.15.1 name this file). It holds
  * no React, no I/O, no clock and no module-level mutable state, and every function returns a fresh

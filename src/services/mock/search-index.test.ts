@@ -664,7 +664,7 @@ describe('the bound the answer keeps', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * The index the adapter reuses and rebuilds — CR4-F19
+ * The index the adapter reuses and rebuilds
  * ------------------------------------------------------------------------------------------- */
 
 describe('the index the adapter reuses', () => {

@@ -121,17 +121,16 @@ export interface MetricTileProps {
    * Which step of the closed specification §4.3 type scale the figure takes: the page tile's 28 px, or
    * the ribbon tile's 16 px.
    *
-   * Defaults to `'page'`, the step every tile has taken until now, so a caller that names nothing —
-   * the overview's four tiles — renders exactly as it did. `'ribbon'` answers a measured width rather
-   * than a preference: at the 1280 px breakpoint each tile of the canvas ribbon's six-across grid is
-   * 198 px wide with a 164 px content box, an amount such as `3.916.800 EUR` measures 221 px at the
-   * 28 px step before the 16 px evidence mark is added, and `./mono-value.tsx`'s money formatter puts
-   * a no-break space before the currency code, so the figure has no soft wrap point and paints past
-   * the tile's own boundary into its neighbour. At the 16 px step the same amount and mark measure
-   * 142 px and fit the box, and 16 px is the largest step §4.3 exposes that does: the scale holds 12,
-   * 13, 14, 16, 20 and 28 px only, so the steps below it would shrink the loudest figure on the tile
-   * without a width the layout needs. The figure is never truncated, clipped, ellipsised or rescaled
-   * to fit either step (rule P-6).
+   * Defaults to `'page'`, the 28 px step of a page tile, so a caller that names no step gets the page
+   * tile's figure. `'ribbon'` answers a measured width rather than a preference: at the 1280 px
+   * breakpoint each tile of the canvas ribbon's six-across grid is 198 px wide with a 164 px content
+   * box, an amount such as `3.916.800 EUR` measures 221 px at the 28 px step before the 16 px evidence
+   * mark is added, and `./mono-value.tsx`'s money formatter puts a no-break space before the currency
+   * code, so the figure has no soft wrap point and paints past the tile's own boundary into its
+   * neighbour. At the 16 px step the same amount and mark measure 142 px and fit the box, and 16 px is
+   * the largest step §4.3 exposes that does: the scale holds 12, 13, 14, 16, 20 and 28 px only, so the
+   * steps below it would shrink the loudest figure on the tile without a width the layout needs. The
+   * figure is never truncated, clipped, ellipsised or rescaled to fit either step (rule P-6).
    */
   readonly valueStep?: 'page' | 'ribbon';
 

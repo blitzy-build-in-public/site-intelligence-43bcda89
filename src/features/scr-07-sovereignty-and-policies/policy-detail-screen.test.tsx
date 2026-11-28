@@ -4,11 +4,10 @@
  *
  * WHAT IT PROVES. Three contracts the route is relied on for, each read off the page a reader receives:
  * that a permission refusal keeps the page header — one `h1` and one description above the forbidden
- * card, so one refusal has one shape whichever SCR-07 route meets it (qa-w013-I32); that a policy the
- * engine never evaluates offers no grant control and states the record's own condition as the reason
- * (qa-w013-I31, rules P-4 and P-8); and that an evaluated policy offers the control, which opens the
- * dialog naming that policy and offering the roster's second approvers without the acting persona
- * (qa-w013-I31, AAP 0.12.4).
+ * card, so one refusal has one shape whichever SCR-07 route meets it; that a policy the engine never
+ * evaluates offers no grant control and states the record's own condition as the reason (rules P-4 and
+ * P-8); and that an evaluated policy offers the control, which opens the dialog naming that policy and
+ * offering the roster's second approvers without the acting persona (AAP 0.12.4).
  *
  * WHERE THE DATA COMES FROM. The service and the demonstration capability are mocked at
  * `service-provider.tsx`, the one boundary a screen may read through (rule P-2), and `useParams` is
@@ -317,7 +316,7 @@ beforeEach(() => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * One shape for one refusal — qa-w013-I32
+ * One shape for one refusal
  * ------------------------------------------------------------------------------------------- */
 
 describe('PolicyDetailScreen', () => {
@@ -335,7 +334,7 @@ describe('PolicyDetailScreen', () => {
     expect(card).toBeVisible();
 
     // The header is still there — the same `h1` and the same description the loaded page carries, so a
-    // refused policy is not a bare card beside the parent screen's headed page (qa-w013-I32).
+    // refused policy is not a bare card beside the parent screen's headed page.
     const rendered = await heading(TEXT.title);
 
     expect(descriptionOfHeader()).toBe(TEXT.description);
@@ -365,7 +364,7 @@ describe('PolicyDetailScreen', () => {
   });
 
   /* -------------------------------------------------------------------------------------------
-   * The grant control, gated on the record the engine evaluates — qa-w013-I31
+   * The grant control, gated on the record the engine evaluates
    * ----------------------------------------------------------------------------------------- */
 
   it('offers no exception against a policy the engine never evaluates, and says why', async () => {

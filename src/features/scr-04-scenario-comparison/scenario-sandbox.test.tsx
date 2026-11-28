@@ -40,7 +40,10 @@
  *    theme hides a figure.
  * 8. THE DISABLED STATE. With no option to duplicate, the recompute control keeps its label, refuses
  *    activation, and carries its reason as its accessible description and as the hint a keyboard
- *    reader brings up (rule P-8) — asserted as text, never as `aria-disabled` alone.
+ *    reader brings up (rule P-8) — asserted as text, never as `aria-disabled` alone. The same holds for
+ *    a persona the matrix does not let measure an option, whose sentence the caller composes and the
+ *    panel renders verbatim, while a fact nobody has reported — an absent sentence, or `null` —
+ *    disables nothing and the control still sends its call.
  * 9. THE BOUNDS THE CASE SETS. Each lever field is described by the rule the case holds every lever to
  *    and, where the option set records them, by the case's own bound statements — the failing option's
  *    constraint messages, naming that case's maximum and step — handed to the panel verbatim and
@@ -455,6 +458,18 @@ const PERMISSION_PROBLEM: Problem = {
   rolesWithPermission: ROLES_WITH_PERMISSION,
 };
 
+/**
+ * The sentence the screen composes for a persona the matrix does not let measure an option.
+ *
+ * It is a caller's fact to this component, which reads no permission and no roster (rule P-2), and it is
+ * built here from the same permission and role fixtures a `'permission'` refusal carries, so nothing in
+ * this suite retypes the screen's sentence or the permission it names (rule P-6).
+ */
+const PERMISSION_BLOCKER =
+  `The acting role (a persona that reads only) may not measure an option of ${EXCEPTION_ID}. ` +
+  `That needs the ${REQUIRED_PERMISSION} permission, which the roles ` +
+  `${ROLES_WITH_PERMISSION.join(', ')} hold.`;
+
 /** One lever position the evidence record states as an input, in place of a reference. */
 const EVIDENCE_INPUT = 'a lever position the measurement read';
 
@@ -724,15 +739,23 @@ async function activate(user: UserEvent, control: HTMLElement): Promise<void> {
  * The explanation the component must give for a control it cannot let act, in its own words.
  *
  * `sandboxDisabledReason` is imported rather than the sentence being retyped, so a reworded reason
- * reaches the component and this suite together (rule P-8).
+ * reaches the component and this suite together (rule P-8). The permission sentence a case supplies is
+ * the caller's own fact, so it is named only by the cases that hand one in.
  */
 function expectedBlocker(input: {
   readonly hasOption: boolean;
   readonly isPending: boolean;
   readonly invalidField: keyof Levers | null;
   readonly constraintMessages: readonly string[];
+  readonly permissionBlocker?: string | null;
 }): string {
-  const reason = sandboxDisabledReason(input);
+  const reason = sandboxDisabledReason({
+    hasOption: input.hasOption,
+    permissionBlocker: input.permissionBlocker ?? null,
+    isPending: input.isPending,
+    invalidField: input.invalidField,
+    constraintMessages: input.constraintMessages,
+  });
 
   if (reason === null) {
     throw new Error('the case expects the control to be disabled, and the component named no reason');
@@ -1201,6 +1224,59 @@ describe('a sandbox with nothing to duplicate', () => {
     fireEvent.click(control);
     await settleRecomputeDelay();
     expect(solveScenario).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A persona the matrix does not let measure an option, which is the fact the screen composes a sentence
+ * for and the panel renders (rule P-8). The panel decides nothing about permissions itself: it is handed
+ * the sentence or it is not, so these cases drive the fact rather than a persona.
+ */
+describe('a persona that may not measure an option', () => {
+  it('disables the recompute control with the sentence naming the permission and its holders', async () => {
+    const user = userSession();
+    renderSandbox({ scenario: makeBaseScenario(), permissionBlocker: PERMISSION_BLOCKER });
+
+    const control = recomputeControl();
+
+    expect(control).toHaveTextContent(SCENARIO_SANDBOX_TEXT.recomputeLabel);
+    expect(control).toHaveAttribute('aria-disabled', 'true');
+    expect(control).toHaveAccessibleDescription(PERMISSION_BLOCKER);
+
+    /* The reason is not only an attribute: tabbing past the two lever fields to the control paints the
+       hint that carries it, so a keyboard reader is told which permission the call needs. */
+    await tabToNextStop(user);
+    await tabToNextStop(user);
+    await tabToNextStop(user);
+    expect(control).toHaveFocus();
+    expect(screen.getByRole('tooltip')).toHaveTextContent(PERMISSION_BLOCKER);
+
+    /* And it refuses activation rather than sending a call the adapter would refuse. */
+    fireEvent.click(control);
+    await settleRecomputeDelay();
+    expect(solveScenario).not.toHaveBeenCalled();
+  });
+
+  it.each<{ readonly condition: string; readonly permissionBlocker: string | null | undefined }>([
+    { condition: 'the persona has not been reported', permissionBlocker: undefined },
+    { condition: 'the roster has not answered', permissionBlocker: null },
+  ])('leaves the control able to act while $condition', async ({ permissionBlocker }) => {
+    solveScenario.mockResolvedValue(resultOf(makeRecomputedScenario()));
+
+    const user = userSession();
+    renderSandbox({ scenario: makeBaseScenario(), permissionBlocker });
+
+    const control = recomputeControl();
+
+    /* A fact nobody has reported blocks nothing: the control says nothing it does not know, and the
+       adapter keeps the refusal only it can make (rule P-8). */
+    expect(control).not.toHaveAttribute('aria-disabled');
+    expect(control).toHaveAccessibleDescription('');
+
+    /* And it performs its function rather than only looking able to: the call goes out. */
+    await activate(user, control);
+    await settleRecomputeDelay();
+    expect(solveScenario).toHaveBeenCalledTimes(1);
   });
 });
 

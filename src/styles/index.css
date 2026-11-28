@@ -76,16 +76,16 @@
   :root {
     --evidence-drawer-dock-width: 420px;
 
-    /* Finding QA2-08: the content column had no measure, so at 1920 px the policy-detail lead
-       paragraph ran to 283 characters on one line and thirteen to seventeen prose blocks on most
-       routes passed 120 — a return sweep longer than a reader tracks comfortably. This is the
-       measure that keeps a block of this typeface's 13–14 px body copy to roughly 70–80 characters
-       per line, the span a sentence can be read across without losing its place: measured at
-       1920 px it renders the 14 px lead at 71–74 characters and a 13 px note at 75–79, where a 42rem
-       cap still ran them past 100. It is stated in rem, so it follows the reader's own
-       root font size the way the type scale's rem utilities do, and 28rem rather than a pixel figure
-       because it is a length the scale already carries — the container step Tailwind exposes as
-       `max-w-md` is the same 28rem — so no new value enters the system. */
+    /* The content column has no measure of its own, so at 1920 px the lead paragraph of a long-form
+       screen would run to 283 characters on one line and most routes' prose blocks would pass 120 — a
+       return sweep longer than a reader tracks comfortably — so this is the measure that holds a block
+       of this typeface's 13–14 px body copy to roughly 70–80 characters per line, the span a sentence
+       can be read across without losing its place: measured at 1920 px it renders the 14 px lead at
+       71–74 characters and a 13 px note at 75–79, where a 42rem cap still ran them past 100. It is
+       stated in rem, so it follows the reader's own root font size the way the type scale's rem
+       utilities do, and 28rem rather than a pixel figure because it is a length the scale already
+       carries — the container step Tailwind exposes as `max-w-md` is the same 28rem — so no new value
+       enters the system. */
     --prose-measure: 28rem;
 
     /* The theme ground is painted on the root as well as on the body, so the user agent's canvas,

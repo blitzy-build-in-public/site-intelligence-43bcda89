@@ -641,8 +641,9 @@ interface MountCase {
 }
 
 /**
- * The two mounts held to one read each: the queue the shell opens whole, and the queue the overview's day
- * has already narrowed — the shape that used to pay a second, unfiltered read for the filters' options.
+ * The two mounts, each held to one read of the queue: the queue the shell opens whole, and the queue the
+ * overview's day has already narrowed. The five filters' options are the distinct values of the rows one
+ * answer carries, so filling them costs no further read of the queue.
  */
 const MOUNT_CASES: readonly MountCase[] = [
   { mount: 'no narrowing', props: {} },
@@ -684,8 +685,8 @@ describe('ExceptionQueueScreen', () => {
    * is cleared here because a case sets it before rendering.
    *
    * The screen's own view state outlives a mount on purpose, because that is what a client-side route
-   * change needs (QA5-F40), so each case returns it to a first visit's values before it renders: without
-   * this a filter or a saved view one case chose would still be in force in the next.
+   * change needs, so each case returns it to a first visit's values before it renders: without this a
+   * filter or a saved view one case chose would still be in force in the next.
    */
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1465,7 +1466,7 @@ describe('ExceptionQueueScreen', () => {
     renderQueue();
     await awaitQueue();
 
-    /* The planner saves the high-severity rows on their own — QA3-F21's own reproduction. */
+    /* The planner saves the high-severity rows on their own. */
     await user.selectOptions(filterControl(EXCEPTION_QUEUE_TEXT.severityFilter), 'high');
     await waitFor(() => {
       expect(lastQuery()).toMatchObject({ severity: 'high' });
@@ -1489,9 +1490,9 @@ describe('ExceptionQueueScreen', () => {
     );
 
     /*
-     * The saved set comes back whole: the status chosen afterwards is cleared rather than left to narrow
-     * the saved rows to nothing, which is the defect QA3-F21 recorded — severity restored, status left in
-     * force, and an empty queue.
+     * The saved set comes back whole: the status chosen afterwards is cleared rather than left in force to
+     * narrow the saved rows to nothing. A view that restored its own filter alone and kept the later one
+     * would leave the saved rows an empty queue.
      */
     await waitFor(() => {
       expect(lastQuery()).toEqual({ severity: 'high' });
@@ -1516,8 +1517,8 @@ describe('ExceptionQueueScreen', () => {
     await user.type(screen.getByLabelText(EXCEPTION_QUEUE_TEXT.viewNameLabel), viewName);
     await user.click(screen.getByRole('button', { name: EXCEPTION_QUEUE_TEXT.saveView }));
 
-    /* The shell unmounts this screen when the reader leaves the route, which is the moment QA5-F40
-       recorded the choice being discarded. */
+    /* The shell unmounts this screen when the reader leaves the route, which is the moment the choice is
+       discarded unless the view state outlives the mount. */
     first.unmount();
     stub.service.listExceptions.mockClear();
 

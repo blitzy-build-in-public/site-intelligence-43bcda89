@@ -23,15 +23,17 @@
  * `e2e/s1-labelling-and-states.spec.ts`; this module proves its own derivation and the body's
  * renderings, and cannot substitute for that pass.
  *
- * IT COMPUTES, FORMATS AND TIMES NOTHING (rule P-6). No question text, no sentence, no figure, no
- * currency amount, no model label and no identifier is typed here: the questions and their prompts come
- * from `listSuggestedQuestions`, the model entries from `getModelCatalogue`, the answer's prose,
- * citations, queries, model and missing inputs from the `Answer`, and every refusal's rule, reason,
- * permitted alternative and recorded event from the `Problem`. The strings this file owns are control
- * labels and state wording — the SCR-06 primary action's name, the composer's field label, the reason a
- * control cannot act, and the caller's empty message. Nothing reads a clock, rounds a number, or
- * formats an amount: the one formatter the interface has (`MonoValue`) belongs to the components that
- * render record values, and this file renders none of its own.
+ * IT COMPUTES, FORMATS AND TIMES NOTHING (rule P-6). No question text, no sentence, no displayed
+ * figure, no currency amount, no model label and no identifier is typed here: the questions and their
+ * prompts come from `listSuggestedQuestions`, the model entries from `getModelCatalogue`, the answer's
+ * prose, citations, queries, model and missing inputs from the `Answer`, and every refusal's rule,
+ * reason, permitted alternative and recorded event from the `Problem`. The strings this file owns are
+ * control labels and state wording — the SCR-06 primary action's name, the composer's field label, the
+ * reason a control cannot act, and the caller's empty message. The one number it holds is read rather
+ * than stated — {@link FREE_TEXT_MAX_LENGTH}, the audited writes' own ceiling, which bounds what the
+ * composer's field accepts so a reader cannot type past what the adapter refuses. Nothing reads a
+ * clock, rounds a number, or formats an amount: the one formatter the interface has (`MonoValue`)
+ * belongs to the components that render record values, and this file renders none of its own.
  *
  * THE UNSCRIPTED NOTICE IS THE ADAPTER'S, NOT THIS PANEL'S. `askAssistant` returns the seeded notice as
  * an ordinary answer's `text` when a question falls outside the six scripted ones, so this file renders
@@ -43,8 +45,8 @@
  * and `StateBoundary` then renders the content alone. That one derivation owns all seven states for
  * every screen, so this panel answers the seven-state question exactly as its siblings do and a
  * `'validation'` refusal reaches it as `'conflict'` — the assistant family produces one only for a
- * request that carried no question (`src/services/mock/handlers/assistant.ts`), and T-17 owns the
- * app-wide proof of the seven.
+ * request that carried no question or a question longer than the free-text ceiling
+ * (`src/services/mock/handlers/assistant.ts`), and T-17 owns the app-wide proof of the seven.
  *
  * RULES THIS MODULE IS BUILT TO SATISFY.
  * - P-2: the port through `useService()` is the only data path; the cache is written only by the
@@ -89,6 +91,7 @@ import { TextField } from '../../components/text-field';
 import { ActionButton } from '../../components/tooltip';
 import { WRITE_READS } from '../../services/write-reads';
 import { useService } from '../../services/service-provider';
+import { FREE_TEXT_MAX_LENGTH } from '../../types';
 import type {
   Answer,
   ModelCatalogue,
@@ -530,6 +533,7 @@ export function AssistantPanelBody(props: AssistantPanelBodyProps): ReactElement
                 id={fieldId}
                 className={FIELD_CLASSES}
                 type="text"
+                maxLength={FREE_TEXT_MAX_LENGTH}
                 value={draft}
                 onChange={handleDraftChange}
                 autoComplete="off"

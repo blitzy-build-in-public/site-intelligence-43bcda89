@@ -57,13 +57,14 @@
  *
  * TWO RECORDED DIVERGENCES. (1) The plan names one test module for five source files, so this file
  * carries all five contracts; a later stage that splits them makes that split its own decision.
- * (2) `'conflict'` has no reachable assistant path: the family's only `'validation'` refusal is a
- * request that carried no question, which is a malformed request rather than a record that moved under
- * the reader (`src/services/mock/handlers/assistant.ts`, as `assistant-panel.tsx` describes it). The
- * state mapping is one owner for every screen (`src/components/screen-state.ts`), so a `'validation'`
- * refusal does reach the panel as `'conflict'` exactly as it does its siblings; the state is proven
- * through `AssistantPanelBody`, which renders it when handed it, and this suite fabricates no service
- * signal to reach it through the connected panel.
+ * (2) `'conflict'` has no reachable assistant path: the family's `'validation'` refusals are malformed
+ * requests rather than a record that moved under the reader — a request that carried no question, and a
+ * question longer than the audited writes' free-text ceiling, which the composer's own bound keeps a
+ * reader from typing (`src/services/mock/handlers/assistant.ts`, as `assistant-panel.tsx` describes
+ * it). The state mapping is one owner for every screen (`src/components/screen-state.ts`), so a
+ * `'validation'` refusal does reach the panel as `'conflict'` exactly as it does its siblings; the
+ * state is proven through `AssistantPanelBody`, which renders it when handed it, and this suite
+ * fabricates no service signal to reach it through the connected panel.
  *
  * THE PARTIAL NOTICE'S SENTENCE COMES FROM THE RECORD. `AssistantPanelBody` derives the detail its
  * partial notice prints from the missing inputs the answer carries and hands it to `StateBoundary`,
@@ -85,7 +86,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
-import { DEMO_CLOCK, SIM_LABELS, SOURCE_IDS, SOURCE_LABELS } from '../../types';
+import { DEMO_CLOCK, FREE_TEXT_MAX_LENGTH, SIM_LABELS, SOURCE_IDS, SOURCE_LABELS } from '../../types';
 import type {
   Answer,
   Evidence,
@@ -845,6 +846,23 @@ describe('AssistantPanel — a question in flight', () => {
     });
 
     expect(await screen.findByText(ANSWER_TEXT)).toBeVisible();
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The composer's bound
+ * ------------------------------------------------------------------------------------------- */
+
+describe("AssistantPanel — the composer's bound", () => {
+  it('bounds the question field at the free-text ceiling the service refuses a longer question with', async () => {
+    renderWithProviders(<AssistantPanel />);
+
+    const field = await screen.findByLabelText(ASSISTANT_PANEL_TEXT.composerLabel);
+
+    /* The ceiling is the application's one free-text bound, read from the shared vocabulary it is
+       declared in rather than typed here; the assistant's handler refuses a longer question with that
+       same value, so a reader cannot type past what the service would accept. */
+    expect(field).toHaveAttribute('maxlength', String(FREE_TEXT_MAX_LENGTH));
   });
 });
 

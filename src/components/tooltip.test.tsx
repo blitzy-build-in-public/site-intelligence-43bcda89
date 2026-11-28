@@ -354,11 +354,11 @@ describe('Tooltip', () => {
 });
 
 /*
- * The placement rule on its own, with the boxes a browser would report. jsdom lays nothing out, so
- * these are the cases a rendered assertion cannot reach: the two the findings came from — a row
- * action at the right edge of a 1440 px window, whose hint used to end 113.48 px past it, and a
- * navigation entry whose hint used to open over the row above — plus the clamp and the width cap
- * that keep a hint readable when neither side and no width fits.
+ * The placement rule on its own, with the boxes a browser would report. jsdom lays nothing out,
+ * so these are the cases a rendered assertion cannot reach: a row action at the right edge of a
+ * 1440 px window, whose hint would otherwise end past it; a navigation entry whose hint would
+ * otherwise open over the row above; the clamp and the width cap that keep a hint readable when
+ * neither side and no width fits.
  */
 describe('resolveHintGeometry', () => {
   const desktop = { width: 1440, height: 900 } as const;
@@ -407,7 +407,8 @@ describe('resolveHintGeometry', () => {
 
     expect(geometry.alignment).toBe('end');
     expectInsideHorizontally(geometry, hint.width, desktop.width);
-    /* The measured defect this row comes from: the hint ended past the window's right edge. */
+    /* A hint that opens on the end side stays clamped entirely inside the viewport, so its right edge
+       never passes the window's. */
     expect(geometry.left + hint.width).toBeLessThanOrEqual(desktop.width);
   });
 
@@ -598,9 +599,8 @@ describe('ActionButton', () => {
     expect(onRefusedActivation).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).toBeNull();
 
-    /* The refused activation answers exactly as it did before the callback existed — the held hint
-       paints the reason and the live region announces it — and the owner is told once, so a field of
-       its own can answer the same attempt. */
+    /* A refused activation keeps the hint held and the live region announcing the reason, and reports
+       the refusal to the owner once, so a field of its own can answer the same attempt. */
     await user.click(screen.getByRole('button', { name: 'Open part' }));
 
     expect(onRefusedActivation).toHaveBeenCalledTimes(1);

@@ -391,10 +391,9 @@ function joinClassNames(...values: readonly string[]): string {
  * once and then finds the control beside it rather than inside the announced text.
  *
  * `self-start` keeps the control at its own width inside the column that holds it. That column stretches
- * its children by default, which made the retry span the whole content width and read as a broken bar
- * rather than as an action (QA finding QA2-18); the alignment is set here rather than on the column
- * because the loading region reuses the same column for its skeleton bars, and those bars are meant to
- * fill it.
+ * its children by default, which makes the retry span the whole content width and read as a broken bar
+ * rather than as an action; the alignment is set here rather than on the column because the loading
+ * region reuses the same column for its skeleton bars, and those bars are meant to fill it.
  */
 function retryControl(label: string, onRetry: (() => void) | undefined): ReactNode {
   if (onRetry === undefined) {

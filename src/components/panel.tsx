@@ -1,3 +1,20 @@
+/**
+ * The second raised surface, for content grouped under a small caption.
+ *
+ * AAP §0.5.2's component-mapping table places `Panel` beside `Card`, `PageHeader` and `Legend` in
+ * its token-driven row. Two surface levels exist and this is the lower of them: `Card` is the
+ * titled content surface on `--color-surface-1` with `--radius-card`, carrying the heading that
+ * gives a block its name; `Panel` sits on `--color-surface-2` with `--radius-panel` inside a card
+ * or beside one, grouping content that is already named — an evidence drawer section, a block of
+ * the canvas right stack, the assistant's side panel. `Panel` renders no heading, so it never
+ * disturbs the heading outline a screen's page header and cards own, and it drops the caption
+ * rather than inventing a name when none is given. Reach for `Card` when the block needs a heading
+ * of its own.
+ *
+ * Every value comes from a role defined in `src/theme/tokens.css`, so the surface, its hairline and
+ * its caption follow the active theme: a panel is never themed by a component, and no raw palette
+ * value is reachable from here.
+ */
 import { useId } from 'react';
 import type { ReactNode } from 'react';
 
@@ -26,19 +43,12 @@ export interface PanelProps {
 }
 
 /**
- * The second raised surface, for content grouped under a small caption.
+ * The caller's element on the second surface, with the caption as that region's accessible name.
  *
- * Two surface levels exist and this is the lower of them: `Card` is the titled content surface on
- * `--color-surface-1` with `--radius-card`, carrying the heading that gives a block its name;
- * `Panel` sits on `--color-surface-2` with `--radius-panel` inside a card or beside one, grouping
- * content that is already named — an evidence drawer section, a block of the canvas right stack,
- * the assistant's side panel. `Panel` renders no heading, so it never disturbs the heading outline
- * a screen's page header and cards own, and it drops the caption entirely rather than inventing a
- * name when none is given. Reach for `Card` when the block needs a heading of its own.
- *
- * Every value comes from a role defined in `src/theme/tokens.css`, so the surface, its hairline and
- * its caption follow the active theme: a panel is never themed by a component, and no raw palette
- * value is reachable from here.
+ * `as` selects the element — `<section>` by default, `<div>` on request — and `className` adds
+ * layout only, never a colour or a surface, so a caller positions the panel without theming it. The
+ * caption names the region only where the element carries a role for `aria-labelledby` to point at,
+ * which the default `<section>` does and a `<div>` does not.
  */
 export function Panel({ children, label, as = 'section', className }: PanelProps) {
   const captionId = useId();

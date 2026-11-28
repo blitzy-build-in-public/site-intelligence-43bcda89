@@ -13,158 +13,54 @@
  * recorded once with its comment), T-13 (the visible half of the freshness rule) and T-17 (the seven
  * states) assert.
  *
- * WHERE THE DATA COMES FROM — rules P-2 and P-6. Four reads, each one `useQuery` keyed
- * `[method, ...args]` and each through `useService()`:
- * - `getApproval(approvalId)` is the record: the plan reference, the requester and the roles that may
- *   decide it, the two euro members, the decision where one exists and the write-backs in their
- *   recorded order. Its `meta.freshness` is what the freshness gate below reads.
- * - `getScenarioSet(exceptionId)` is the plan's own option, because `Approval` carries no member for
- *   the side effects an approver has to acknowledge: the option's `sideEffects` are the record's.
- * - `getExceptionDetail(exceptionId)` is the plant the plan lands on (see what `Approval` does not
- *   carry, below) and the missing inputs the record states.
- * - `getApprovalOutcome(approvalId)` is the outcome card's two measurements, read only once the plan
- *   is approved, because only an approved plan has a change whose effect can be set beside it.
+ * THE SERVICE IS THE AUTHORITY AND THIS SCREEN IS THE EXPLANATION BESIDE IT (rules P-2, P-3, P-6). Six
+ * reads — four through `useService()` and two through the demonstration capability beside it — and
+ * three writes, a decision, a write-back retry and the outcome review, all of them the port's. Nothing
+ * here writes a record, holds a figure of its own or decides whether an action is permitted: every
+ * amount, count, input and sentence on screen is a record's own, which is what
+ * `tests/source-checks/no-typed-figures.test.ts` checks. Each read states why it exists on the query
+ * itself.
  *
- * A fifth read, `getActiveUser`, goes through the demonstration capability that sits beside the port
- * rather than through the port itself, and answers who the decision gate below is about. It is taken
- * on mount rather than read from the persona the provider seeded at start-up, because a reader may
- * have switched role since: the adapter is enforcing whichever persona the switch selected, and the
- * gate has to describe the role a decision would actually be evaluated against. The capability is
- * absent on an adapter without identity, and `skipToken` then reads nothing.
+ * THE FRESHNESS GATE IS THE RULE'S VISIBLE HALF (AAP §0.2.1, T-13). `decideApproval` is refused while
+ * the gating source reports `stale` or `unavailable`, and this screen states the same rule rather than
+ * leaving it to the service: the boundary raises the stale banner naming the source and the instant it
+ * last answered, and all three decision controls are disabled with that same sentence, read from the
+ * same report ({@link gateFreshnessOf}, {@link gateRefusalReason}). A source reported `partial` keeps
+ * the controls enabled, because the service accepts it.
  *
- * A sixth read, `listPersonas`, is the roster the plan summary names the requester from. The approval
- * states `requestedBy` and nothing that reads as a person, and rule P-2 makes the roster the only
- * source of a persona's name, so the requester is shown as the person the records hold for that
- * identifier, in the shape the shell's role switcher presents the same persona. The member is
- * optional on the capability and read under this screen's own cache key; until it answers, when the
- * adapter carries none, or when the roster does not name that identifier, the record's own identifier
- * stays on screen exactly as it was, because the alternative is a name invented here (rules P-6,
- * P-7).
+ * THE DECISION GATE STATES EVERY CONDITION BEFORE THE PRESS (AAP §0.2.2, rule P-8). Each of the three
+ * decisions needs a comment, an approval additionally needs every side effect the plan carries to be
+ * acknowledged ({@link sideEffectAcknowledgement}), and the record itself names who may decide it, so a
+ * persona the record does not open to meets a disabled control carrying
+ * {@link decisionEligibilityReason} rather than the refusal the service would return. An unknown
+ * persona blocks nothing, because a control disabled on a fact nobody knows yet would lie about what it
+ * can do.
  *
- * Nothing is computed here. The two euro members are the record's, the side-effect figures are the
- * option's, the missing inputs are the exception's, the write-back steps are the approval's, and the
- * outcome's two sides are the service's own `solveSupplyDelay` output. This module adds, subtracts,
- * rounds and derives nothing, so `tests/source-checks/no-typed-figures.test.ts` — which scans this
- * folder for currency literals and identifier literals — has nothing to find: every value on screen
- * arrives through a record.
+ * THE SEVEN STATES ARE DERIVED, NEVER FLAGGED (`platform-specification.md` §8, AAP §0.12.4).
+ * `src/components/screen-state.ts` decides which state the records are in from what the queries settled
+ * to, and `StateBoundary` owns what each state looks like; a route that named no approval, or one whose
+ * identifier the records do not hold, is answered by the not-found panel rather than by an empty page.
  *
- * THE FRESHNESS GATE — T-13's visible half, AAP §0.2.1. The service refuses `requestApproval` and
- * `decideApproval` while ERP reports `stale` or `unavailable`, naming the source and its as-of time.
- * This screen is the explanation beside that refusal: it locates the ERP entry in `meta.freshness` by
- * `APPROVAL_GATE_SOURCE`, and when that entry is stale or unavailable it raises `StateBoundary`'s
- * stale banner — which names the same source label and prints the same instant — and disables all
- * three decision controls with one shared sentence built from the record's own label and as-of value.
- * A source reported `partial` keeps the controls enabled, because the service's gate accepts it: a
- * control disabled where the service would act is the usability defect rule P-8 exists to prevent.
- * An absent entry raises no gate at all, because a notice naming a source nobody reported would assert
- * a record that does not exist.
+ * WHERE THE REST OF THIS FILE'S RATIONALE SITS: the plan's own option, the exception behind it and the
+ * outcome read on their queries inside {@link ApprovalDetailScreen}; what `Approval` does not carry on
+ * the comments beside the markup that renders it; the primitives this file composes on
+ * {@link CommentField}, {@link AcknowledgementToggle} and {@link PolicyBlockPanel}; the invalidation on
+ * {@link invalidateReads}; and the outcome review on its own handler.
  *
- * THE DECISION GATE. Approve, reject and request changes each require a comment (AAP §0.12.2), and
- * approve additionally requires every side effect the plan carries to be acknowledged, one control per
- * side effect whose accessible name is {@link sideEffectAcknowledgement} of the plan's plant. Who may
- * decide the plan is read from the record as well: POL-003 keeps its requester from deciding it, and
- * the record names the roles that may, so a persona the record does not open to meets a disabled
- * control carrying {@link decisionEligibilityReason} rather than the refusal the service would return
- * (AAP §0.2.2, rule P-8). The persona that sentence is about is the adapter's own current answer, read
- * through the demonstration capability's `getActiveUser` on mount rather than taken from the persona
- * the provider seeded at start-up, so a reader who switched role is judged, and explained to, on the
- * role the adapter is actually enforcing. That gate blocks only when the persona is known: while the
- * read is pending or has failed, or the bound adapter carries no identity, the screen falls back to the
- * comment and acknowledgement gate and to the service's own refusal, because a control disabled on a
- * fact nobody knows yet is the control rule P-8 forbids. The comment and the acknowledgements are held
- * in this component, sent to the port, and never written to a record locally: a refused decision
- * changes nothing on screen except the message the service returned, which is what keeps the service
- * the only author of what happened. A decision attempted while the comment gate holds is answered at
- * the field as well as by the control: {@link ActionButton} reports the refusal to this screen, which
- * marks the comment field invalid — `aria-invalid`, `aria-errormessage` naming
- * {@link APPROVAL_DETAIL_TEXT.commentRequiredReason} beside the field, and that sentence carried in the
- * field's description too — until the reader types the comment it asks for. The description is how the
- * message is conveyed: a second live region for the field would announce the sentence twice, on top of
- * the announcement the control that refused has already made, so the field states instead where the
- * value is wrong and what is wrong with it whenever it is reached. Only the comment turns the field
- * invalid, because it is the one gate the field can answer: a stale source, an ineligible persona, a
- * policy block, a decided plan or a write in flight is not a sentence the reader can type their way out
- * of, and the control's own hint and announcement already answer those.
- *
- * THE SEVEN STATES — `platform-specification.md` §8, AAP §0.12.4. `src/components/screen-state.ts` is
- * the one place any screen decides which state its records are in, from facts the queries settled to: a
- * permission refusal (of any read, or of a decision) is `forbidden`, a non-`Problem` rejection is
- * `offline`, a validation refusal of the read is `conflict`, a stale gating source is `stale`, an
- * unavailable one is `offline`, an incomplete one is `partial`, and a pending read is `loading`. A
- * record missing a member this screen shows, or a plan whose option could not be read, is `partial`. A
- * `'not-found'` refusal, which the union reads as `empty`, is answered by the not-found panel naming
- * the record rather than by the boundary's empty state, as the exception route answers it; and a route
- * that named no approval — which the union reads the same way — is answered by that same panel, so no
- * reader is told the address carried no approval when it carried one the records do not hold.
- * `StateBoundary` owns what each remaining state looks like.
- *
- * PERMISSION AND POLICY FAILURES. A decision refused for permission renders `ForbiddenCard` through
- * the boundary's forbidden state, naming `requiredPermission`, `rolesWithPermission` and `traceId`. A
- * decision refused by a policy renders {@link PolicyBlockPanel} with the rule identifier, the service's
- * sentence and the alternative the rule permits, and disables the controls with that same sentence.
- * Neither path creates an approval, a write-back or an audit record locally, and nothing here states
- * that the refusal establishes anything about the deployment (rule P-4).
- *
- * THE COMPONENTS THIS FILE OWNS. `TextAreaField` and `Button` in `src/components` own the `<textarea>`
- * and the `<button>` this screen needs (AAP §0.5.2), so {@link CommentField} and
- * {@link AcknowledgementToggle} compose those primitives and render no native control themselves. Both
- * stay non-exported components of this file because each joins the primitive to this screen's own copy
- * rather than owning an element: the comment field is a labelled `TextAreaField` with its hint, and the
- * acknowledgement is a `Button` carrying `aria-pressed` and composing the shared
- * `CONTROL_STRUCTURE_CLASSES` and `SECONDARY_CONTROL_CLASSES`, so it keeps the same target size, focus
- * ring and surface as every other control. Both render inside the decision card, above the three
- * controls they gate, so the gate and the reason for it sit together.
- *
- * WHAT `Approval` DOES NOT CARRY. It declares no `sideEffects` member and `SideEffect` carries no plant,
- * while AAP §0.12.4 fixes the acknowledgement as "I have read the side effect on <plant>" for "that
- * plan's plant": the side effects are read from the approved option's own record and the plant named is
- * the exception's `plantId`, never a value invented here. It carries no missing-input member either, so
- * the missing inputs shown are the exception's own `missingInputs`, the record that assessed them; and
- * it carries no evidence reference, so each of the two euro members opens the drawer through the
- * approval's own identifier and the member's name, as the inbox's figure columns do —
- * `<APR- identifier>#<member>` to `GET /evidence?ref=`, which the evidence read resolves to that one
- * figure rather than to the record as a whole.
- *
- * THE INVALIDATION, AND THE ACTION THE CARD OFFERS. The cache is invalidated after a write through
- * `queryClient.invalidateQueries` with the port member's own name as the key prefix rather than through
- * a helper owned by the shell: this module may not import `src/app`, and a write's invalidation is one
- * call per read, so the grant-exception dialog declares the same helper beside its own write. Which
- * reads move is not decided here: every write takes its row from the one write-reads map in
- * `src/services/write-reads.ts`, and an approved decision is the reason that row reaches past the
- * approval — the handler continues into the approved plan, which resolves the exception, so the queue's
- * status column, the overview's open-exception tile, the exception's own detail, the canvas ribbon and
- * the topology all move with the approval, the outcome and the trail. Every write invalidates its row
- * whichever way the call settled, because a decision can move the record even when it throws.
- *
- * The approved plan's card offers the outcome review AAP §0.6.2 enumerates among the audited writes: a
- * control that calls `reviewApprovalOutcome` once the comparison has been read, invalidating its row of
- * that same map — `getApproval`, whose `outcomeReviewed` member the write sets, the outcome measured
- * from it, and `listAuditEvents`, whose trail gained its event. The control is gated in the order the
- * service refuses in: the acting persona's eligibility, which mirrors the handler's own permission and
- * record checks; a record that already carries its review, which the handler refuses rather than
- * recording twice; and the call in flight. It takes no freshness gate, because the review writes no
- * source and the handler consults none.
- *
- * Rules this module is built to satisfy:
- * - P-1: the two euro members carry `Simulated calculation` from `SIM_LABELS`, every write-back step
- *   carries `WRITE_BACK_TAG` from its own module, and the outcome card carries its own label.
- * - P-2: every read and all three writes go through `useService()`; no seed, adapter, domain or HTTP
- *   module is reachable, and no record is mutated locally.
- * - P-3: nothing here presents a browser-side check as the authorisation a deployment would make.
- * - P-4: no sentence claims that the flow establishes a configuration, prevents a copy or resists an
- *   edit; the write-backs are labelled simulated wherever they appear.
- * - P-6: no figure, amount, date, identifier or missing input is typed — each is a record's own.
- * - P-7: every name on screen is a seeded persona, plant or record reference; no real company or
- *   product is named and no placeholder prose stands in for a record.
- * - P-8: all three decisions, every retry and the outcome review either act or are disabled with the
- *   sentence explaining why, reachable by keyboard through the shared control.
- * - B-1, B-2: nothing here fetches, reads configuration or carries a credential.
- * - B-3: WCAG 2.2 AA — the comment field has a programmatic label, every control keeps the 24x24 px
- *   target and the 2 px focus ring, the acknowledgement's state is carried by `aria-pressed` and by a
- *   status label rather than by colour, the headings descend from the single `<h1>`, and every colour
- *   is a role token of `src/theme/tokens.css`, so both themes keep the contrast the specification
- *   measured.
+ * Rules this module is built to satisfy: P-1 (the two euro members carry `Simulated calculation` from
+ * `SIM_LABELS`, every write-back step carries the tag its own module owns and the outcome card its own
+ * label), P-2 (every read and all three writes go through `useService()`, and no record is mutated
+ * locally), P-3 (no browser-side check is presented as the authorisation a deployment would make), P-4
+ * (no sentence claims the flow establishes a configuration, prevents a copy or resists an edit, and the
+ * write-backs are labelled simulated wherever they appear), P-6 (no figure, amount, date, identifier or
+ * missing input is typed), P-7 (every name on screen is a seeded persona, plant or record reference),
+ * P-8 (all three decisions, every retry and the outcome review either act or are disabled with the
+ * sentence explaining why) and B-1, B-2 and B-3 (nothing is fetched, configured or credentialed; the
+ * comment field has a programmatic label, every control keeps the 24x24 px target and the 2 px focus
+ * ring, the acknowledgement's state is carried by `aria-pressed` and a status label rather than by
+ * colour, the headings descend from the single `<h1>`, and every colour is a role token).
  */
+
 import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { useId, useMemo, useState } from 'react';
@@ -786,7 +682,9 @@ function gateRefusalReason(gate: Freshness | undefined): string | null {
  * the inbox, the exception the decision resolved, the overview's tiles and the trail as well, and the
  * lists of what it moves are `WRITE_READS.decideApproval` and `WRITE_READS.retryWriteBack` — the one
  * write-reads map in `src/services/write-reads.ts`, which the write channel feeding the cache reads too,
- * so this screen's immediate refresh and the cache's own invalidation cannot name different reads.
+ * so this screen's immediate refresh and the cache's own invalidation cannot name different reads. It is
+ * declared here rather than delegated to a helper of the shell's, because a feature module may not import
+ * `src/app` (AAP 0.18.1).
  *
  * @param queryClient The client this screen obtained with `useQueryClient()`.
  * @param reads The port members the write moved. An empty list invalidates nothing.

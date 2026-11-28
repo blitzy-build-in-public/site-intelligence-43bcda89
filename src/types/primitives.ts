@@ -119,6 +119,21 @@ export const APP_TIME_ZONE = 'Europe/Berlin';
  */
 export const LEDGER_WINDOW_DAYS = 30;
 
+/**
+ * The greatest length of free text one request may carry: a note against an exception, a dismissal
+ * reason, a decision comment, the reason a policy exception is requested for, the corrected value an
+ * extraction review supplies, and the question a reader puts to the evidence assistant — whose text no
+ * record keeps, but whose request is read by the same matcher, the same context search and the same
+ * answer path.
+ *
+ * Held once, for the reason {@link LEDGER_WINDOW_DAYS} is: the ceiling the adapter refuses a longer
+ * field with and the bound the assistant's composer puts on its question field are one value, so a
+ * field cannot accept text the service refuses, nor refuse text it accepts. A ceiling on input is not
+ * a figure the interface prints, so rule P-6 fixes no value here; the rule's requirement is that the
+ * whole application states this one in a single place.
+ */
+export const FREE_TEXT_MAX_LENGTH = 2000;
+
 /* ---------------------------------------------------------------------------------------------
  * Simulation labels — specification §5.3, AAP 0.10
  * ------------------------------------------------------------------------------------------- */

@@ -766,8 +766,8 @@ const DEFAULT_LENS: LensId = 'map';
  *
  * The shell unmounts the canvas when the reader leaves `/canvas`, so a lens chosen in `useState` was
  * discarded by every client-side route change and the screen came back on the map however the reader had
- * left it (QA5-F40). A zustand store created here outlives the component, so the reader returns to the
- * lens they were reading.
+ * left it. A zustand store created here outlives the component, so the reader returns to the lens they
+ * were reading.
  *
  * Only the lens lives here. Wall mode is a presentation request the shell owns the navigation for, the
  * screen's own selection is the fallback for a shell that holds none, and the armed preview names a
@@ -837,7 +837,7 @@ export function resetCanvasViewState(): void {
  * Nothing here writes, so a re-render can move no record; the state the component owns is the reader's
  * own — wall mode, a selection the shell has not taken over, and the response option the reader armed in
  * the preview switch — beside the lens in view, which lives in the module store above so a route change
- * keeps it (QA5-F40).
+ * keeps it.
  *
  * @param props - The shell's scope, the selection it holds and the two callbacks it offers. See
  *   {@link FilemapCanvasScreenProps}: every member is optional.

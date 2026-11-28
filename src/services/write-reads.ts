@@ -248,8 +248,12 @@ export const WRITE_READS = {
    * `outcome review` event and stamps `outcomeReviewed` on the approval (`handlers/approvals.ts`).
    *
    * The approval and its outcome card both report the flag, and the trail gains the event (AAP §0.6.2,
-   * contracts §6). The payload over the approval reports the flag it now carries, and the index gains the
-   * review event's identifier (AAP §0.6.2, contracts §6).
+   * contracts §6). The member the review moves is `Approval.outcomeReviewed`, which the handler stamps on
+   * the record. `getApproval` answers with the record that carries it, so a card served from the cache
+   * keeps its review control live over a record the trail already holds a review for — one the handler
+   * refuses rather than records — and `getApprovalOutcome` measures the figures that review is a reading
+   * of, so the card is re-read whole rather than half-refreshed. The index gains the review event's
+   * identifier (AAP §0.6.2, contracts §6).
    */
   reviewApprovalOutcome: [
     'getApproval',

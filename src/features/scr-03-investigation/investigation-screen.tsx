@@ -509,8 +509,8 @@ function stockPointsOf(
  * cover the whole window and say nothing about the option the reader is looking at. The baseline answers
  * only where nothing is designated, or where the designated option carries no series of its own.
  *
- * A series with no zero closing day has no idle window, so no band is drawn: the surface then shades
- * nothing rather than inventing a span, and the projection reads exactly as it did before.
+ * A series with no zero closing day has no idle window, so no band is drawn: the surface shades nothing
+ * rather than inventing a span, and the series is otherwise unchanged.
  *
  * @param points - The series the figure plots, exactly as its points state it.
  * @returns One band over the zero run, or no band at all.
@@ -959,6 +959,15 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
 
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
 
+  /* The latch a submission is held by. `submitting` reaches the rendered control only in the pass that
+     follows the state change that set it, so two activations inside one synchronous block both read the
+     state before that pass and both pass the gate; the latch is tested and set in the handler itself,
+     before the port is called, so a second activation arriving ahead of that pass is discarded and one
+     note cannot be recorded twice, while the control's presentation stays the one rule P-8 asks for. It
+     is released once the port has answered, whatever it answered, so a refused note leaves the reader
+     free to correct it and record it again. */
+  const inFlight = useRef(false);
+
   /* While the write is in flight that state outranks the field's own requirement: the reader can no
      longer change the outcome, so the control says what is actually holding it. */
   const blocker = submitting
@@ -982,12 +991,13 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
 
   /** Records the note once, through the port, and reports what the service answered. */
   const recordNote = (): void => {
-    if (blocker !== null) {
+    if (blocker !== null || inFlight.current) {
       return;
     }
 
     const note = draft.trim();
 
+    inFlight.current = true;
     setFailure(null);
     setSubmitting(true);
 
@@ -1000,6 +1010,8 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
       } catch (thrown) {
         setSubmitting(false);
         setFailure(failureMessageOf(thrown));
+      } finally {
+        inFlight.current = false;
       }
     })();
   };

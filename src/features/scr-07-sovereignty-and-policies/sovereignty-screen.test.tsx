@@ -1208,7 +1208,7 @@ describe('SovereigntyScreen', () => {
 
     // Each count column states the window its figure covers, in the same terms the ledger aggregate
     // measures it with, so the number means something to a reader who arrives at the column without
-    // the heading above the table (qa-w013-I30).
+    // the heading above the table.
     expect(countHeaders).toEqual([
       `Allowed, ${LEDGER_WINDOW_DAYS} days`,
       `Blocked, ${LEDGER_WINDOW_DAYS} days`,
@@ -1831,7 +1831,7 @@ describe('SovereigntyScreen', () => {
     /*
      * No policy row was read, so no row carries a grant control, and the page states no empty set: the
      * sentence that reports an empty policy set describes a read that answered with nothing, and none
-     * of these states answered (rule P-8, rule P-6, qa-w013-I29).
+     * of these states answered (rule P-8, rule P-6).
      */
     await waitFor(() => {
       expect(screen.queryByText(TEXT.policiesEmpty)).toBeNull();

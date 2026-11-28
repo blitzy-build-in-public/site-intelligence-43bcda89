@@ -24,11 +24,13 @@
  * partial read warns without withholding the figures; that each of the seven states specification §8
  * fixes renders for the outcome the screen maps it to, and that a `not-found` refusal lands on the
  * panel linking back to the queue rather than a blank page; that the four controls act — two navigate,
- * two write once through the port and re-read what they moved — that the note form takes focus into its
- * field as it opens and gives it back to the control that opened it as it closes, and that a control
- * which cannot act is disabled with a reason reachable from the keyboard, the two writes among them for
- * a persona that does not hold `exception.work` over the exception's plant, whose reason names the
- * roles that do; and that both themes render the same content.
+ * two write once through the port and re-read what they moved, that a note whose control is activated
+ * twice in one synchronous block is still written once, that a refused note stays recordable so the
+ * retry is written, that the note form takes focus into its field as it opens and gives it back to the
+ * control that opened it as it closes, and that a control which cannot act is disabled with a reason
+ * reachable from the keyboard, the two writes among them for a persona that does not hold
+ * `exception.work` over the exception's plant, whose reason names the roles that do; and that both
+ * themes render the same content.
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a screen
  * may read through (rule P-2), so no seed module, adapter or domain module is reached and the suite
@@ -65,7 +67,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -1673,6 +1675,57 @@ describe('SCR-03 investigation screen', () => {
       await waitFor(() => {
         expect(port.getExceptionDetail).toHaveBeenCalledTimes(2);
       });
+    });
+
+    it('records one note when the record control is activated twice inside one synchronous block', async () => {
+      const user = userEvent.setup();
+      const note = 'The fixture supplier confirmed the moved date.';
+
+      renderScreen();
+      await settledScreen();
+
+      await user.click(screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote }));
+      await user.type(screen.getByLabelText(INVESTIGATION_TEXT.noteField), note);
+
+      const record = screen.getByRole('button', { name: INVESTIGATION_TEXT.recordNote });
+
+      /* Two activations with nothing awaited between them, which is what a reader produces by pressing
+         the control twice before the pass that disables it has run: the first activation sets the
+         control's disabled state and it reaches the page in that pass, so both activations meet the
+         handler. One note is one write, whatever the page has had time to show. */
+      await act(async () => {
+        record.click();
+        record.click();
+      });
+
+      expect(port.noteException).toHaveBeenCalledTimes(1);
+      expect(port.noteException).toHaveBeenCalledWith(EXCEPTION_ID, note);
+      expect(await screen.findByText(INVESTIGATION_TEXT.noted)).toBeVisible();
+    });
+
+    it('leaves the note recordable after a refusal, so the corrected note is recorded on the retry', async () => {
+      const user = userEvent.setup();
+      const note = 'The fixture supplier confirmed the moved date.';
+
+      port.noteException.mockRejectedValueOnce(MOVED_RECORD);
+
+      renderScreen();
+      await settledScreen();
+
+      await user.click(screen.getByRole('button', { name: INVESTIGATION_TEXT.addNote }));
+      await user.type(screen.getByLabelText(INVESTIGATION_TEXT.noteField), note);
+
+      await user.click(screen.getByRole('button', { name: INVESTIGATION_TEXT.recordNote }));
+
+      /* The refusal prints the service's own sentence and the typed note survives it, so the reader's
+         work is not discarded and the write gate the refusal answered is released again. */
+      expect(await screen.findByText(MOVED_RECORD.message)).toBeVisible();
+      expect(screen.getByLabelText(INVESTIGATION_TEXT.noteField)).toHaveValue(note);
+
+      await user.click(screen.getByRole('button', { name: INVESTIGATION_TEXT.recordNote }));
+
+      expect(port.noteException).toHaveBeenCalledTimes(2);
+      expect(port.noteException).toHaveBeenLastCalledWith(EXCEPTION_ID, note);
     });
 
     it('moves focus into the note field as the form opens, so a keyboard reader’s first keystrokes land there', async () => {

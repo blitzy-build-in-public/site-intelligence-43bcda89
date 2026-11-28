@@ -1,71 +1,20 @@
 /**
- * The graph lens of the FileMap canvas: the same network the map lens draws, laid out in six lanes.
+ * The graph lens of the FileMap canvas: the same network the map lens draws, hand-laid in six lanes.
  *
- * WHY THIS FILE EXISTS. AAP 0.5.2 places `DependencyGraph` in this folder with "topology typed prop,
- * selection callbacks" and the note that the graph "is hand-laid in six lanes", and AAP 0.12.4 fixes
- * the lens itself: "six lanes, dimming, upstream and downstream path, scenario preview switch". The
- * payload is the one `getTopology` returns, so the two lenses of the canvas describe one network and
- * a reader who finds a node in either finds it in both.
+ * THE FIXING INPUTS. AAP 0.5.2 places `DependencyGraph` in this folder with "topology typed prop,
+ * selection callbacks" and the graph "hand-laid in six lanes"; AAP 0.12.4 fixes the lens — "six
+ * lanes, dimming, upstream and downstream path, scenario preview switch" — over the one `getTopology`
+ * payload the map lens draws, so a node found in either lens is found in both.
  *
- * THE LAYOUT IS HAND-LAID AND DETERMINISTIC. Every lane has a fixed column and every node a fixed
- * slot in that column, computed from its index within its family as the service ordered it. There is
- * no force simulation, no physics pass, no random jitter and no measurement of the rendered box, so
- * the same topology draws the same picture on every render and in every environment — which is what
- * lets a browser test and a component test assert the same layout, and what keeps the graph free of
- * force-simulation machinery the canvas does not need.
+ * THE LAYOUT IS HAND-LAID AND DETERMINISTIC: a fixed column per lane, a fixed slot per node from its
+ * index in its family as the service ordered it — no force simulation, no jitter, no measurement —
+ * so the same topology draws the same picture in a browser test and a component test alike.
  *
- * THE SIX LANES ARE THE STAGES OF THE NETWORK, NOT THE NODE TYPES. The record shapes of
- * `src/types/topology.ts` carry five node families — plants, suppliers, materials, tier-2 origins and
- * customers — while the lens the specification fixes draws the supply chain's stages: tier-2 origins,
- * suppliers, materials, plants, lines and customers. A lane is therefore a fixed column with a label,
- * and a node is placed in the lane its family names: origins, suppliers, materials, plants and
- * customers. The one stage the topology payload does not carry — lines, whose records belong to the
- * stage that opens them — keeps its column, its label and its guide, and states that it holds no nodes
- * in this view rather than being filled with anything invented (rule P-6). No sixth node kind is
- * invented to populate it.
- *
- * SELECTION IS SHARED WITH THE MAP LENS, AND NEITHER LENS OWNS IT. `selectedNodeId` and
- * `onSelectNode` are the same prop pair `./map-canvas.tsx` takes, and the canvas screen holds the
- * value: selecting a node in one lens highlights the same node in the other, because both read one
- * id the screen owns. This component never keeps the selection in its own state, never derives a
- * second one and never reports anything but the id the reader activated.
- *
- * THE TABLE VIEW BELONGS TO `ChartFrame`. This module is a pure surface: it draws the nodes, the
- * lanes and the pin summaries and carries no toggle of its own, because a chart, a map or a graph
- * may only reach a screen composed inside `./chart-frame.tsx`, which owns the "View as table" switch
- * and the rows that switch renders (success criterion 9, rule B-3). A table view here would be a
- * second one with its own ordering rules.
- *
- * THE EVIDENCE THE DRAWER OPENS, AND WHY ITS REFERENCE COMES FROM THE CALLER. Activating a node
- * reports the selection and opens {@link EvidenceDrawer} beside the drawing, mounted as a sibling of
- * the `svg` rather than inside it, because a dialog cannot live in an SVG fragment. The reference
- * the drawer resolves is a record reference: the evidence read answers the composed aggregates, an
- * atlas series, the nine record families, the policy family, the seven node families and a declared
- * outbound endpoint, and a topology node's identifier is the identifier of the record behind it — but
- * the topology payload carries the pin *counts* of a
- * node rather than the references of its pins, and which record a node was drawn from is the screen's
- * to state. `evidenceRefForNode` is therefore required: it is how the caller that holds a node's
- * evidence supplies the reference, so no composition of this lens can leave a node without a stated
- * answer. A node it resolves nothing for reports the selection and opens no dialog, so the lens can
- * never put a refusal in front of a reader in place of a record.
- *
- * WHAT IT DOES NOT DO. It reads no data (rule P-2): the topology arrives as a prop, the drawer does
- * its own read, and nothing here calls the service. It computes no business figure (rule P-6): the
- * pin counts are the payload's, every coordinate is the fixed layout's, and the only arithmetic is
- * summing a node's own counts for its summary. It types no simulation label of its own (rule P-1):
- * the dock and the ribbon carry the labels for the figures they show, and a node's pin summary is
- * record content rather than a computed figure. It carries no competitor concept (rule P-5), states
- * nothing about where a record is held or whether it could be altered (rule P-4), fetches nothing
- * (rule B-1) and reads no configuration (rule B-2).
- *
- * KEYBOARD AND POINTER — rule B-3. Every node is a focus stop with the role of a button, an
- * accessible name that carries its label, its family and its whole pin summary, and the two-pixel
- * focus ring of the `--color-focus-ring` role; `Enter` and `Space` activate it exactly as a click
- * does. Dimming and path emphasis never rest on colour alone: a dimmed node also draws a thinner
- * boundary and a lighter label, an emphasised node draws a heavier boundary, and the emphasised path
- * between two such nodes draws a heavier lane. The one transition in the file is a colour change
- * carried by `motion-safe:`, so a reduced-motion session gets the state change without the
- * animation, and no mark animates at all.
+ * THE SIX LANES ARE THE STAGES OF THE NETWORK, NOT THE NODE FAMILIES, and the stage the payload
+ * carries no records for keeps its column, its label and its guide and says it holds no nodes rather
+ * than inventing any (rule P-6). SELECTION IS THE SCREEN'S: `selectedNodeId` and `onSelectNode` are
+ * the `./map-canvas.tsx` pair, and the canvas holds the value, so both lenses highlight one node.
+ * Every other decision is stated at the symbol that makes it true.
  */
 import { memo, useMemo, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react';
@@ -88,11 +37,10 @@ import { ActionButton, CONTROL_STRUCTURE_CLASSES, SECONDARY_CONTROL_CLASSES, Too
  *
  * Only one of them is a fixed specification string: the stage tooltip `Arrives in stage S4`, which
  * AAP 0.12.4 and rule P-8 require character for character on the disabled "Open part" control, and
- * which is not re-cased or paraphrased here. The rest are this component's own labels — a lane's
- * heading, the four emphasis controls and the sentence explaining why they cannot act, the switch's
- * caption, the empty-lane note — and none of them claims a security property for the workspace
- * (rule P-4). Nothing below carries a figure, an amount, a date or a record identifier (rule P-6): a
- * node's label, its pin counts and its families all arrive from the payload.
+ * which is not re-cased or paraphrased here. The rest are this component's own labels, and none of
+ * them claims a security property for the workspace (rule P-4). Nothing below carries a figure, an
+ * amount, a date or a record identifier (rule P-6): a node's label, its pin counts and its families
+ * all arrive from the payload.
  */
 export const DEPENDENCY_GRAPH_TEXT = {
   /** The accessible caption of the scenario preview switch, completed by the scenario it would preview. */
@@ -363,6 +311,8 @@ interface NodePlacement {
  *
  * The `switch` is exhaustive over `TopologyNodeKind` and carries no `default` arm, so a family added
  * to that union fails to compile here instead of rendering a column that silently lost its nodes.
+ * These five families are the whole of what the lens draws, so no competitor concept reaches the
+ * drawing (rule P-5): market intelligence is never blended with the first-party records of a network.
  */
 function nodesOfFamily(topology: Topology, kind: TopologyNodeKind): readonly TopologyNode[] {
   switch (kind) {
@@ -576,10 +526,9 @@ function nodeAccessibleName(node: TopologyNode, counts: PinCounts | undefined): 
  * How strongly one node is drawn.
  *
  * The four levels are ranked, and a node that qualifies for more than one takes the strongest: the
- * selection outranks the traced path, and the traced path outranks dimming, because the node a
- * reader asked for is never also the node the lens is pushing away. The two class maps below are
- * keyed by this union, so a level added without a decided appearance fails to compile instead of
- * rendering as whichever arm happened to be last.
+ * selection outranks the traced path, and the traced path outranks dimming, because the node a reader
+ * asked for is never also the node the lens is pushing away. The class maps below are keyed by this
+ * union, so a level added without a decided appearance fails to compile.
  */
 type NodeEmphasis = 'selected' | 'path' | 'dimmed' | 'default';
 
@@ -592,17 +541,14 @@ type NodeEmphasis = 'selected' | 'path' | 'dimmed' | 'default';
  * token — no raw palette value, no arbitrary value and no opacity — so a boundary that must not
  * appear on a surface cannot be selected, and the contrasts are the ones specification 4 measured.
  *
- * Every level answers the pointer too, and in the same two steps, so a reader learns one rule from the
- * whole lens. `hover:` lifts the boundary to the accent role where it is not already there and steps the
- * surface to its neighbour — the selected node and the traced node trade their resting surface for the
- * other one, the plain node steps in to the first surface — so the node under the pointer is always
- * distinguishable from the neighbours sharing its level. `active:` holds the accent boundary and steps
- * the surface down to the ground, so a press reads as one step below the hover that preceded it. The
- * dimmed level is no exception and its dimming survives every state: it keeps the ground fill and the
- * hairline weight while merely hovered, taking only the accent boundary, and a press raises its surface
- * by the one step that makes the press visible. No level therefore rests its meaning on those colours —
- * each keeps its own boundary weight and its own label weight throughout — and none of the four states
- * changes the geometry, the text or the size of a box.
+ * Every level answers the pointer in the same two steps, so a reader learns one rule from the whole
+ * lens. `hover:` lifts the boundary to the accent role and steps the surface to its neighbour, so the
+ * node under the pointer is distinguishable from the neighbours sharing its level; `active:` holds the
+ * accent boundary and steps the surface to the ground, so a press reads as one step below the hover
+ * that preceded it. Dimming survives both — the dimmed node keeps its ground fill and hairline weight
+ * while hovered, taking only the accent boundary, and a press raises its surface by that one step.
+ * No level rests its meaning on those colours: each keeps its own boundary weight and its own label
+ * weight throughout, and none of the four states changes the geometry, the text or the size of a box.
  */
 const NODE_BOX_CLASSES = {
   selected:
@@ -632,12 +578,12 @@ const NODE_SUMMARY_CLASSES = 'text-12 fill-text-caption';
 /**
  * A node's focus stop, pointer affordance and the one transition in the file.
  *
- * `focus-visible:outline-*` is the two-pixel `--color-focus-ring` outline the themes define, drawn
- * for the keyboard rather than for a click; `motion-safe:` keeps the colour transition out of a
- * reduced-motion session (rule B-3), and nothing on the drawing moves. The `group` marker is what the
- * boundary's `hover:` and `active:` variants in {@link NODE_BOX_CLASSES} hang on, so the pointer states
- * are applied by the browser rather than held in React state, and the transition above is the one that
- * carries them whichever emphasis level the node is drawn at.
+ * Every node is a focus stop with the role of a button, and `Enter` or `Space` activates it exactly as
+ * a click does (rule B-3). `focus-visible:outline-*` is the two-pixel `--color-focus-ring` outline the
+ * themes define, drawn for the keyboard rather than for a click; `motion-safe:` keeps the colour
+ * transition out of a reduced-motion session, and nothing on the drawing moves. The `group` marker is
+ * what the boundary's `hover:` and `active:` variants in {@link NODE_BOX_CLASSES} hang on, so the
+ * pointer states are applied by the browser rather than held in React state.
  */
 const NODE_GROUP_CLASSES = [
   'group cursor-pointer',
@@ -669,12 +615,11 @@ const EMPHASISED_ARROW_CLASSES = 'fill-accent';
 /**
  * The scenario preview switch.
  *
- * It composes the shared control structure and the secondary appearance from `./tooltip.tsx`, so the
- * target size, the focus ring and the pointer states are the ones every other control in the product
- * uses, and it adds only what makes a switch a switch: the accent boundary and the first raised
- * surface while it is on, painted from the `aria-checked` state rather than from a conditional class
- * list. Its disabled appearance follows the same pattern the disabled action uses: `aria-disabled`
- * outranks the pointer states, so a switch that cannot act answers neither a hover nor a press.
+ * It composes the shared control structure and secondary appearance from `./tooltip.tsx`, so its
+ * target size, focus ring and pointer states are every other control's, and adds only what makes a
+ * switch a switch: the accent boundary and raised surface while on, painted from `aria-checked`
+ * rather than from a conditional class list. Its disabled appearance is the disabled action's:
+ * `aria-disabled` outranks the pointer states, so a switch that cannot act answers no hover or press.
  */
 const PREVIEW_SWITCH_CLASSES = [
   CONTROL_STRUCTURE_CLASSES,
@@ -688,12 +633,11 @@ const PREVIEW_SWITCH_CLASSES = [
 /**
  * One emphasis-direction control: an exclusive choice, pressed or not.
  *
- * It composes the shared control structure and secondary appearance for the reason the switch below
- * composes them, and adds the pressed treatment through `aria-pressed` — the attribute, not a
- * conditional class list, so the state a reader sees is the state assistive technology is told. The
- * pressed control takes the accent boundary, the first raised surface and a heavier label, so the
- * choice is never carried by colour alone (rule B-3); the `aria-disabled` overrides answer neither
- * the pointer nor a press while no node is selected, exactly as the switch's do.
+ * It composes the shared control structure and secondary appearance for the preview switch's reason,
+ * and adds the pressed treatment through `aria-pressed` — the attribute, not a conditional class list,
+ * so the state a reader sees is the state assistive technology is told. The pressed control takes the
+ * accent boundary, the raised surface and a heavier label, so the choice never rests on colour alone
+ * (rule B-3); the `aria-disabled` overrides answer neither the pointer nor a press without a selection.
  */
 const EMPHASIS_DIRECTION_CLASSES = [
   CONTROL_STRUCTURE_CLASSES,
@@ -707,11 +651,10 @@ const EMPHASIS_DIRECTION_CLASSES = [
 /**
  * The dimming switch: the preview switch's own appearance, plus the weight its checked state carries.
  *
- * It builds on {@link PREVIEW_SWITCH_CLASSES} rather than restating that list, so the two switches of
- * this lens cannot drift apart: the accent boundary and the first raised surface while on, the same
- * inert appearance while it cannot act, and one addition — a heavier label on `aria-checked` — so the
- * state a reader who cannot tell the two theme surfaces apart is looking at is not stated in colour
- * alone (rule B-3).
+ * It builds on {@link PREVIEW_SWITCH_CLASSES} rather than restating it, so the two switches cannot
+ * drift apart: the accent boundary and raised surface while on, the same inert appearance while it
+ * cannot act, and one addition — a heavier label on `aria-checked` — so the state a reader who cannot
+ * tell the two theme surfaces apart is looking at is never stated in colour alone (rule B-3).
  */
 const DIMMING_SWITCH_CLASSES = [PREVIEW_SWITCH_CLASSES, 'aria-checked:font-semibold'].join(' ');
 
@@ -883,7 +826,8 @@ export interface DependencyGraphProps {
 
   /**
    * Resolves the evidence reference a node opens, or `undefined` for a node no record stands behind.
-   * Required.
+   * Required: the payload states a node's pin counts and not the references of its pins, so which
+   * record a node was drawn from is the caller's to state.
    *
    * REQUIRED BECAUSE A NODE MAY NOT LOSE ITS EVIDENCE SILENTLY. AAP 0.2.1 F12 opens the evidence
    * drawer from "any figure, chart mark, node, arc or pin", so a lens that could be composed without
@@ -894,10 +838,14 @@ export interface DependencyGraphProps {
    * family by its own shape and looks the record up by its exact identifier: the composed aggregates
    * (`overview:`, `canvas:`), an atlas series (`atlas:`), the nine record families `PPAP-`, `EXC-`,
    * `SCN-`, `APR-`, `AUD-`, `PIN-`, `DOC-`, `CO-` and `PO-`, the policy family `POL-`, the seven node
-   * families a canvas node can name — `PLT-`, `SUP-`, `ORG-`, `CUS-`, `MAT-`, `LN-` and `PRD-` — and a
-   * declared outbound endpoint by the endpoint string its ledger row states. A node's identifier is the
-   * identifier of the record behind it, so a node's own identifier resolves; a pin attached to the node
-   * — `EvidencePin.nodeRef` names the node whose evidence the pin is — resolves as well.
+   * families a canvas node can name — `PLT-`, `SUP-`, `ORG-`, `CUS-`, `MAT-`, `LN-` and `PRD-` — the
+   * three market-intelligence families `CHK-`, `CMP-` and `SER-`, and a declared outbound endpoint by
+   * the endpoint string its ledger row states. A node's identifier is the identifier of the record
+   * behind it, so a node's own identifier resolves; a pin attached to the node — `EvidencePin.nodeRef`
+   * names the node whose evidence the pin is — resolves as well. A `CHK-` reference is a shared
+   * chokepoint of the simulated market-intelligence pack, a `CMP-` reference a competitor's site
+   * (`CMP-nn-Sn`) or the network that owns it (`CMP-nn`), and a `SER-` reference a radar series
+   * reading, optionally followed by `#<axis id>` for the one vertex a single axis draws.
    *
    * `undefined` IS AN ANSWER, AND AN HONEST ONE. It says no record stands behind this node. Activating
    * the node still reports the selection to the screen and opens no dialog, so a reader is never shown
@@ -909,23 +857,25 @@ export interface DependencyGraphProps {
 /**
  * The graph lens: the canvas's network drawn in six fixed lanes, with the pin summary of every node.
  *
- * The drawing is a single `svg` sized by its view box, so it scales with the column the screen gives
- * it and needs no measuring pass: the lane columns, the rows, the lane paths and the arrowheads are
- * all computed from the payload's own counts by the pure functions above. It carries no table and no
- * toggle, because `./chart-frame.tsx` owns the table view of every chart, map and graph.
+ * It carries no table and no toggle, because `./chart-frame.tsx` owns the table view of every chart,
+ * map and graph (success criterion 9, rule B-3): a second one here would need its own row order.
  *
  * IT OWNS THE LENS'S CONTROLS, AND AAP 0.5.2 IS WHY. AAP 0.12.4 and AAP 0.14.1 name the dimming and
  * the upstream and downstream path among the lens's features a reader drives, and AAP 0.5.2 permits a
- * native interactive element only inside the component that owns it — so the three direction controls
- * and the dimming switch sit here, beside the preview switch this component already carried, rather
- * than in the feature file that composes the lens. They are controlled for the same reason the
- * selection is: the caller holds the direction and the dimming state, so the `pathNodeIds` it traced
- * and the caption that states in words what the drawing did are two readings of one choice.
+ * native interactive element only inside the component that owns it, so the three direction controls
+ * and the dimming switch sit here, beside the preview switch, rather than in the feature file that
+ * composes the lens. They are controlled for the selection's reason: the caller's `pathNodeIds` and
+ * the caption stating what the drawing did are two readings of the one choice it holds.
  *
  * Activation reports the node and, when the caller's mapper resolves a reference for it, opens the
- * evidence drawer beside the drawing; a control that opens the drawer declares that with
- * `aria-haspopup="dialog"`. The drawer is a sibling of the `svg`, never a child of it: a dialog cannot
- * live inside an SVG fragment, and the drawer itself portals into the document body.
+ * evidence drawer beside the drawing, which declares that with `aria-haspopup="dialog"`. The drawer
+ * is a sibling of the `svg`, never a child of it — a dialog cannot live inside an SVG fragment — and
+ * portals into the document body itself.
+ *
+ * WHAT IT DOES NOT DO. It reads no data (rule P-2: the topology is a prop and the drawer makes its own
+ * read), types no simulation label of its own (rule P-1: the dock and the ribbon label the figures
+ * they show, and a pin summary is record content), carries no competitor concept (rule P-5), fetches
+ * nothing (rule B-1) and reads no configuration (rule B-2).
  *
  * @param props The topology, the drawing's title, the shared selection, the controlled emphasis and
  *   the optional overlays. See {@link DependencyGraphProps}.

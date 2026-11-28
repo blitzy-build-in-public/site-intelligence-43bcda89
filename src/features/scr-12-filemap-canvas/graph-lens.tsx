@@ -42,7 +42,7 @@
  * THE DIRECTION AND THE DIMMING ARE THE READER'S; THE CONTROLS ARE THE DRAWING'S. AAP 0.12.4 and AAP
  * 0.14.1 name "dimming, upstream and downstream path" among the lens's features, so neither is decided
  * for the reader: this file holds both in state — the direction defaulting to `'both'` and the dimming
- * to on, which is exactly the reading the lens gave before the controls existed — and the four
+ * to on, so the lens opens on the whole path with everything off it dimmed — and the four
  * controls that report a change are rendered by `src/components/dependency-graph.tsx`, because AAP
  * 0.5.2 permits a native interactive element only inside the component that owns it. One walk of the
  * payload serves the drawing's emphasis and the table view's path column alike, so a direction chosen
@@ -163,12 +163,12 @@ export const GRAPH_LENS_TEXT = {
   /**
    * What the lens shows once a node is selected: the emphasis it applied, stated in words.
    *
-   * Rule B-3 requires the emphasis to be legible without the drawing's colours, and the reader now
-   * chooses both the direction and the dimming, so this sentence is built from the choice actually
-   * applied rather than written for the default: a reader who chose upstream is told upstream, and one
-   * who turned the dimming off is told that nothing else is dimmed. With neither choice moved it reads
-   * exactly as it did before the controls existed, which is why the browser checks that quote it still
-   * find the sentence they were written against.
+   * Rule B-3 requires the emphasis to be legible without the drawing's colours, and the reader chooses
+   * both the direction and the dimming, so this sentence is built from the choice applied rather than
+   * written for one of them: a reader who chose upstream is told upstream, and one who turned the
+   * dimming off is told that nothing else is dimmed. The default choices yield the sentence the frame
+   * states when nothing has been chosen, which is why the browser checks that quote it find the
+   * sentence they were written against.
    */
   descriptionTracing: (
     nodeLabel: string,
@@ -287,7 +287,7 @@ const NO_MEMBERSHIP: ReadonlySet<string> = new Set<string>();
 const NO_DIMMED_NODES: readonly string[] = [];
 
 /**
- * The direction the lens opens on: both, the path it traced before the direction was a reader's choice.
+ * The direction the lens opens on: both halves of the path, upstream and downstream of the node.
  *
  * It is a named constant rather than an argument to `useState` for the reason the drawing holds its
  * wording in one object: the default a reader starts from is stated once, so a suite asserting it and
@@ -295,7 +295,7 @@ const NO_DIMMED_NODES: readonly string[] = [];
  */
 const DEFAULT_EMPHASIS_DIRECTION: GraphEmphasisDirection = 'both';
 
-/** Dimming on by default, which is the reading the lens gave before the switch existed. */
+/** Dimming on by default: the lens opens with everything off the path dimmed. */
 const DEFAULT_DIMMING = true;
 
 /* ---------------------------------------------------------------------------------------------
@@ -497,12 +497,12 @@ export interface GraphLensTrace {
  * Both lists are emitted in lane order, so the drawing's emphasis and the table view's path column are
  * two readings of one computation rather than two computations, and a direction the reader chose
  * cannot be applied to the drawing while the table still reports the whole path. `'both'` walks both
- * directions and is the reading the lens gave before the direction was a choice.
+ * directions, which is the default the lens opens on.
  *
  * @param topology The payload the drawing shows, exactly as the service returned it.
  * @param selectedNodeId The identifier the screen holds as selected, or `null` for none.
- * @param direction Which half of the path to walk, defaulting to both so a caller that offers no
- *   choice still traces what a reader saw before the control existed.
+ * @param direction Which half of the path to walk, defaulting to both, so a caller that offers no
+ *   choice traces the whole path.
  * @returns The traced path, the dimmed complement, and the node the trace started from.
  */
 export function traceGraphPath(

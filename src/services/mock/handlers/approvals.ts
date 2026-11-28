@@ -1,137 +1,40 @@
 /**
  * The approvals family of the in-browser mock adapter: the inbox, the approval detail, the
- * approve / reject / request-changes decision, the simulated write-back tracker, the retry of a
- * failed write-back, and the outcome card's planned-versus-resulting figures.
+ * approve / reject / request-changes decision, the simulated write-back tracker, the retry of a failed
+ * write-back, and the outcome card's planned-versus-resulting figures.
  *
  * Implements the "Handlers" row of AAP 0.12.1 and the `handlers/` line of AAP 0.13.1, over
- * `platform-contracts.md` §3 (`Approval`, `ApprovalStatus`, `WriteBack`, `WriteBackState`,
- * `Decision`), §6 (the audited actions), §7.1 (the permission matrix) and §7.2 (POL-003). The
- * invariants of this family are enforced here rather than only displayed, so no caller can bypass
- * any of them:
+ * `platform-contracts.md` §3 (`Approval`, `ApprovalStatus`, `WriteBack`, `WriteBackState`, `Decision`),
+ * §6 (the audited actions), §7.1 (the permission matrix), §7.2 (POL-003, POL-005) and AAP 0.2.2's
+ * write-back rule. Every invariant of the family is enforced here rather than only displayed, so no
+ * caller can bypass one: each is stated in the block of the check that keeps it.
  *
- * - A REQUEST ANSWERS AN OPEN EXCEPTION (one plan per open disruption). `requestApproval` refuses a
- *   request against an exception whose status is not `open`, naming the record and the status it
- *   stands in, before it reads a set, solves an option, asks a policy or writes anything. A resolved
- *   or dismissed record has already been answered or set aside, and the change a plan sets in motion
- *   would land nowhere: `./exceptions.ts`'s `recordApprovedPlan` leaves such a record untouched, so
- *   the write-backs would report success against a record the workspace considers closed.
- * - A STALE OR UNAVAILABLE ORDER BOOK REFUSES BOTH APPROVAL WRITES (AAP 0.2.1, AAP 0.12.3).
- *   `requestApproval` and `decideApproval` — and the write-back writes that continue a decision —
- *   read the order-book source's freshness through `freshnessFor(ctx.state)` and throw a `Problem`
- *   naming that source's label and the instant it last answered when the source is `stale` or
- *   `unavailable`. A refused call creates no approval, no write-back state change and no audit
- *   record, and the same instant reaches the screen's stale banner and the disabled control's
- *   explanation from the one source, so the tooltip and the refusal cannot disagree (T-13).
- * - A RESPONSE OPTION THAT FAILS ITS CONSTRAINT CHECK IS NOT SENT FOR APPROVAL (AAP F7, POL-005).
- *   `requestApproval` asks the policy engine before it writes anything, and an option whose check
- *   reports a breach is refused with the rule and the solver's own message rather than recorded: the
- *   refusal appends a policy-actor event, no approval record is created, and the rule's subject is
- *   the one `src/seed/policies.ts` states.
- * - A SIMULATED WRITE-BACK IS ALL-OR-NOTHING (AAP 0.2.1). The steps advance in the record's own
- *   array order, each transition is recorded on the step and in the trail, and a step that fails
- *   stops the run: no later step runs, the change is not applied, and the failure is thrown as a
- *   `'simulated-write-back'` failure whose message is the failure's own. A retry re-attempts that
- *   one step and then lets the remaining steps run once; a step that already succeeded is never
- *   written a second time.
- * - AN APPROVED PLAN THAT LANDS RESOLVES ITS EXCEPTION (AAP 0.2.2). Once every step of the approved
- *   change has succeeded, the decision continues into `./exceptions.ts`'s `recordApprovedPlan`, which
- *   moves the exception to `resolved`, appends the resolution about the exception and records the
- *   `approved` and `resolved` activity the seeded trail spells. A decision whose write-back failed
- *   calls it nowhere, because the change landed nowhere, so the exception stays open until a retry
- *   lands it. The exception's record is the exceptions family's to write; this module only asks it to
- *   close the loop the decision opened.
+ * THE ORDER-BOOK GATE IS THE HALF A BYPASSED CONTROL CANNOT ESCAPE — AAP 0.2.1, AAP 0.12.3. A stale or
+ * unavailable book refuses every approval write, and the same instant reaches the screen's stale banner
+ * and the disabled control's explanation, so the tooltip and the refusal cannot disagree (T-13); see
+ * `requireFreshOrderBook`.
  *
- * WHERE THE FIXED WORDING LIVES. This module types no simulation label, exactly as `./audit.ts`
- * does: the tracker renders the fixed `Simulated write-back` tag beside each step from
- * `src/types/primitives.ts`, and the outcome card's figures are labelled `Simulated calculation`
- * where they are displayed. Nothing here paraphrases either string and nothing here invents a
- * failed-write label — the failure's own message travels on the thrown `Problem`, and the component
- * sets it beside the tag (rule P-1).
+ * THE MATRIX IS ASKED BEFORE THE POLICY, as every write of this adapter does: the acting role's hold and
+ * then the record's plant scope are answered first, so a policy block is recorded only for a caller the
+ * matrix admits. The one persona POL-003 can refuse is a requester that also holds `approval.decide`,
+ * and it meets the rule, its reason and the event the denial appended rather than a permission failure:
+ * see `requireDecidableByPolicy`.
  *
- * WHAT THIS MODULE COMPUTES, AND WHAT IT DOES NOT. `Approval.addedCostEur` is the plan's own cost
- * exactly as the solver (or the shipped scenario record) states it, and both figures the outcome card
- * shows are two `solveSupplyDelay` calls returned untouched (rule P-6). The one derived figure the
- * record carries is `Approval.protectedRevenueEur`, which AAP 0.8 states as the delayed revenue the plan
- * avoids, and this module does not compute it: `./scenarios.ts`'s `protectedRevenueOf` owns that
- * arithmetic — the delayed revenue the exception's do-nothing position leaves, less the delayed revenue
- * the option itself still leaves — and `plannedFiguresFor` reads the answer, so the trade-off sentence's
- * last figure and an approval's protected revenue are one call on one set of measurements. AAP 0.12.2
- * gives the `Approval` that member and AAP 0.12.4 shows it on SCR-05 against the added cost, so the pair
- * reads as what the plan spends against the delay it buys. Carrying the option's own residual in its
- * place would report a better option as protecting less than a worse one and the do-nothing option as
- * protecting the whole disruption, which contradicts the figure AAP 0.8 fixes. Where the records state no
- * option at both levers unpulled, the unmitigated position that function measures is the set's greatest
- * delayed revenue — the path the disruption takes when nothing is done — so the figure is still read from
- * the records rather than from the option's own residual. The module self-dates nothing: the instant a
- * decision or a review is recorded at is read from the audit event that append produced, because
- * contracts §1 forbids reading the system clock for business logic and this module holds no second clock
- * of its own.
- *
- * DECISIONS THIS MODULE TAKES WHERE NO INPUT FIXES THE ANSWER, each recorded here because a reader
- * otherwise takes it for a mistake.
- *
- * 1. THE STALENESS REFUSAL IS A `'validation'` CAUSE. `ProblemType` in `src/types/service.ts`
- *    enumerates the five causes contracts §2 fixes — permission, policy, validation,
- *    simulated-write-back and not-found — and none of them is "a source behind this record is out of
- *    date". The refusal is therefore reported as `'validation'`, which is the cause that already
- *    carries the family's other "the records cannot honour this request" refusals, and a sixth cause
- *    is not invented. The message names the source and its instant, which is what T-13 asserts.
- * 2. THE CONFLICTING-UPDATE STATE IS THE SAME CAUSE. A decision on an approval that is no longer
- *    pending, a review of an approval whose outcome is already reviewed, and every write of this
- *    family while the simulation's `conflict` trigger is in effect are refused as `'validation'`
- *    with a message stating that the record changed since it was read. `ProblemType` has no
- *    conflict member and adding one is forbidden, so the screen state is carried by the message.
- * 3. READS REQUIRE `exception.read`. An approval is the plan for an exception, and the matrix in
- *    `src/domain/policy/permissions.ts` grants `exception.read` to every role that may request or
- *    decide one. Gating the inbox on either approval permission would hide a route a persona needs:
- *    on `approval.request` it would hide the plant manager's own `/approvals` home, since no role
- *    that requests also covers the request gate for them, and on `approval.decide` it would hide from
- *    a requester the plan it put forward and may not decide. Each record's plant scope is then the
- *    matrix's own answer, `hasPermission` with the approval's exception as the subject, rather than a
- *    second copy of the scope rule. The inbox resolves each approval's exception once for the whole
- *    read and hands the resolved record to that answer, because the scope test and the query's
- *    plant-set narrowing both read it: a scan of the exception set per predicate per row would look
- *    the same record up twice to decide one row's place.
- * 4. A REQUESTER'S OWN DECISION IS REFUSED BY POL-003 BEFORE THE PERMISSION CHECK, so the refusal
- *    carries `policyId: 'POL-003'` and the rule's own plain-words reason instead of a permission
- *    failure the reader could not act on. The deny appends a policy-actor event and the failure
- *    names it, as every policy block of this adapter does (AAP 0.8).
- * 5. THE WRITE-BACK STEP'S AUDIT SPELLING IS DERIVED. contracts §6 fixes sixteen action names and
- *    the inputs available in this run enumerate twelve; two more are derived in this tree — this one
- *    and `policy exception request` in `./governance.ts` — so the adapter appends fourteen distinct
- *    values, and the last two of the sixteen are named by no available input. A step's transition is
- *    spelled `simulated write-back` after the specification §5.3 label it carries, in the lower-case
- *    form the seeded spellings use, and `./governance.ts` sets the same precedent for `policy
- *    exception request`. A supplied contracts document supersedes the constant without a consumer
- *    change.
- * 6. THE RETRY IS ADDRESSED BY THE STEP'S OWN REFERENCE. `WriteBack` declares no identifier member,
- *    and the tracker's retry control calls its handler with the step's `recordRef`, so that
- *    reference is the key a retry names; an unknown or blank reference is a `'not-found'` failure
- *    listing the references the record holds.
- * 7. THE AUDIENCE A NEW REQUEST NAMES IS THE DECIDERS THAT REACH THE PLAN. `eligibleApproverRoles` is
- *    the matrix's decider roles less the requester's own role (POL-003) less the roles whose plant
- *    scope does not cover the exception, because the decision path refuses a role that cannot reach
- *    the record and a control offering one would explain nothing (rule P-8). A plan no role in reach
- *    could then decide — the acting persona is the only role whose scope covers it and has requested
- *    it — is refused rather than created, since an approval nobody may decide is a record that can
- *    only sit in the inbox.
- *
- * DETERMINISTIC BY CONSTRUCTION (AAP 0.2.1, AAP 0.18.2). No clock, no random source and no
- * module-level mutable value is read. The solver is a pure function of its arguments, the seeded
- * records arrive as the session's own clone, the identifier a new approval takes is derived from the
- * identifiers the records hold, and every instant is taken from the append that recorded it — so two
- * calls made against equal states answer equally.
+ * DETERMINISTIC BY CONSTRUCTION (AAP 0.2.1, AAP 0.18.2). No clock, no random source and no module-level
+ * mutable value is read: the solver is pure, the records arrive as the session's own clone, the new
+ * identifier follows `nextApprovalIdentifier`, and every instant comes from the append that recorded it.
  *
  * Rules this module is built to satisfy:
- * - P-1: it types no label. The write-back tag and the outcome card's label are applied where those
+ * - P-1: it types no label; the write-back tag and the outcome card's label are applied where those
  *   elements surface, from the fixed vocabulary of `src/types/primitives.ts`.
- * - P-2: records are reached through `ctx.state` and the sibling `../seed-loader.ts` type surface
- *   only, and the module imports no seed record, no React, no app module, no screen and no API
- *   client, so it cannot become a second data boundary.
+ * - P-2: records are reached through `ctx.state` and the sibling `../seed-loader.ts` type surface only,
+ *   and no seed record, React module, screen or API client is imported.
  * - P-3, P-8: every verdict comes from `ctx.actor` through the contracts §7.1 matrix, so a disabled
- *   control's reason and this module's refusal share one source, and every refusal names the
- *   permission required and the roles that hold it. The checks run in the browser of a build with no
- *   backend and no sign-in: they are a demonstration control and not production authorisation.
+ *   control's reason and this module's refusal share one source; a permission refusal names the
+ *   permission required and the roles that hold it, and a record outside the acting role's plant
+ *   scope is reported as not found in the exceptions family's shape rather than as a permission the
+ *   role lacks. The checks run in the browser of a build with no backend and no sign-in: they are a
+ *   demonstration control and not production authorisation.
  * - P-4: the tracker and the outcome card demonstrate a mechanism. Nothing here claims that the
  *   flow establishes sovereignty, withstands an edit or prevents a copy, and the write-backs are
  *   recorded as steps rather than as assurances.
@@ -259,7 +162,11 @@ const FAILED_STEP: WriteBackState = 'failed';
  *
  * `approval request`, `decision`, `outcome review` and `policy block` are the enumerated canonical
  * spellings of `src/types/audit.ts` and of `src/seed/audit-events.ts`. `simulated write-back` is
- * derived — see decision 5 in the module header.
+ * derived: contracts §6 fixes sixteen action names and the inputs available in this run enumerate
+ * twelve, so a step's transition is spelled after the specification §5.3 label it carries, in the
+ * lower-case form the seeded spellings use, and `./governance.ts` sets the same precedent for
+ * `policy exception request`. A supplied contracts document supersedes the constant without a
+ * consumer change.
  */
 const APPROVAL_REQUEST_ACTION: AuditAction = 'approval request';
 const DECISION_ACTION: AuditAction = 'decision';
@@ -339,7 +246,7 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
  * The refusal a request the records cannot honour throws.
  *
  * It carries the causes this family reports as validation: a stale or unavailable order book (see
- * decision 1 in the module header), a record that moved under the reader (decision 2), a blank
+ * `requireFreshOrderBook`), a record that moved under the reader (see `requireNoConflict`), a blank
  * decision comment, an approval whose plan cannot be measured because the records carry no case for
  * its exception, a retry of a step that already succeeded, and a page cursor that names no position
  * of the ordered page.
@@ -466,9 +373,14 @@ function findException(state: MockState, exceptionId: ExceptionId): OperationalE
  *
  * Two ways to be refused, reported as one shape because a screen renders one forbidden card: the
  * simulation's forbidden trigger is in effect, which refuses every call of the family while it is
- * set, or the persona's role does not hold `exception.read` (decision 3 in the module header). The
- * trigger is checked first because it stands for a session-wide refusal rather than for a fact about
- * the role.
+ * set, or the persona's role does not hold `exception.read`. The trigger is checked first because it
+ * stands for a session-wide refusal rather than for a fact about the role.
+ *
+ * `exception.read` is the permission the reads require, and not either approval permission: an
+ * approval is the plan for an exception, and the matrix grants `exception.read` to every role that may
+ * request or decide one. Gating the inbox on `approval.request` would hide the plant manager's own
+ * `/approvals` home, and gating it on `approval.decide` would hide from a requester the plan it put
+ * forward and may not decide.
  *
  * The permission is evaluated with no subject here: which approvals a role may read within its
  * plants is `landsInScope`'s answer, applied per record.
@@ -525,21 +437,56 @@ function requireNotForbidden(ctx: HandlerContext, permission: Permission): void 
 }
 
 /**
- * Refuses the write unless the acting persona holds a permission over the exception at hand.
+ * Refuses the write unless the acting role holds the permission at all.
  *
- * The check is made against the exception as its subject, so the contracts §7.1 matrix applies both
- * the role's plant scope and the persona's own: a planner cannot act on an approval at a plant
- * outside their reach even while another persona in the same role could. The refusal names the
- * permission and the roles that hold it, which is what a disabled action's explanation prints (rule
- * P-8); where the record itself narrows the audience further, the caller says so in `reason`.
+ * This is the matrix's hold question, asked with no subject, and it runs before the call resolves the
+ * record it is about: a role the matrix excludes therefore learns that the call needs a permission it
+ * does not hold and nothing about the record set, so an identifier the records do not hold and one
+ * they hold outside the persona's reach answer alike. `./exceptions.ts` and `./scenarios.ts` take the
+ * same two steps in the same order. The refusal names the permission and the roles that hold it,
+ * which is what a disabled action's explanation prints (rule P-8); where the record itself narrows
+ * the audience further, the caller says so in `reason`.
  *
  * @param ctx - The call's context.
  * @param permission - The permission the call requires.
- * @param exception - The exception the call concerns, used as the matrix's subject.
  * @param reason - What the call would have done, in plain words, including any further restriction.
  * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
  */
-function requirePermission(
+function requireRolePermission(ctx: HandlerContext, permission: Permission, reason: string): void {
+  if (hasPermission(ctx.actor.role, permission, null, ctx.actor)) {
+    return;
+  }
+
+  throw permissionProblem(
+    ctx,
+    permission,
+    `The acting role (${ctx.actor.role}) does not hold the ${permission} permission, so ${reason} ` +
+      `The roles that hold it are ${rolesWith(permission).join(', ')}.`,
+  );
+}
+
+/**
+ * Refuses the write unless the acting persona may act on the exception the record is about.
+ *
+ * The hold question has already been answered by `requireRolePermission`, so a refusal here is the
+ * matrix's plant-scoping half alone: the record exists and the role holds the permission, while this
+ * persona's own plants do not reach the record. That is a record the call does not cover rather than
+ * a permission the role lacks, which is why it is reported as `'not-found'` in the shape
+ * `./exceptions.ts`'s `visibleException` uses. The contracts §7.1 matrix applies both the role's plant
+ * scope and the persona's, so a planner cannot act on a record at a plant outside their reach even
+ * while another persona in the same role could.
+ *
+ * What the sentence names is the acting role's own plants and never the record's: the identifier is
+ * the one the caller supplied, and a refusal that reported the record's plant would answer whether a
+ * record exists at all to a caller that may not act on it (rule P-8).
+ *
+ * @param ctx - The call's context, whose persona the matrix is evaluated for.
+ * @param permission - The permission the call requires.
+ * @param exception - The exception the call concerns, used as the matrix's subject.
+ * @param reason - What the call would have done, in plain words.
+ * @throws Problem - A `'not-found'` failure naming the exception and the acting role's plant scope.
+ */
+function requireSubjectInScope(
   ctx: HandlerContext,
   permission: Permission,
   exception: OperationalException,
@@ -549,11 +496,10 @@ function requirePermission(
     return;
   }
 
-  throw permissionProblem(
+  throw notFoundProblem(
     ctx,
-    permission,
-    `The acting role (${ctx.actor.role}) does not hold the ${permission} permission over ` +
-      `${exception.plantId}, so ${reason} The roles that hold it are ${rolesWith(permission).join(', ')}.`,
+    `Exception ${exception.id} is outside the acting role's plant scope ` +
+      `(${plantScopeFor(ctx.actor.role).join(', ')}), so ${reason}`,
   );
 }
 
@@ -562,10 +508,10 @@ function requirePermission(
  *
  * The matrix's own answer, taken with the approval's exception as the subject, so the role's plant
  * scope and the persona's narrower one are applied by the contracts §7.1 rule rather than by a
- * second copy of it (decision 3 in the module header). An approval whose exception the records do
- * not hold cannot be placed and is outside every scope. The rule has one owner, `admitsInboxRead`,
- * which the inbox itself calls: this is that answer with no query narrowing stated, so the
- * single-record check and the inbox cannot disagree about who may see a record.
+ * second copy of it. An approval whose exception the records do not hold cannot be placed and is
+ * outside every scope. The rule has one owner, `admitsInboxRead`, which the inbox itself calls: this
+ * is that answer with no query narrowing stated, so the single-record check and the inbox cannot
+ * disagree about who may see a record.
  *
  * @param ctx - The call's context, whose actor the matrix is evaluated for.
  * @param state - The session whose records the exception is read from.
@@ -574,6 +520,31 @@ function requirePermission(
  */
 function landsInScope(ctx: HandlerContext, state: MockState, approval: Approval): boolean {
   return admitsInboxRead(ctx, approval, exceptionOf(state, approval));
+}
+
+/**
+ * The approval an identifier names, when the session holds one, or the failure that names it.
+ *
+ * The record set is the only question answered here: a caller establishes that the record exists
+ * before it asks whether this persona may act on it, so the two refusals stay distinct. The sentence
+ * echoes the identifier the caller supplied and nothing else — the identifiers the session holds are
+ * what a reader entitled to this family can list for themselves, so repeating them would answer an
+ * unknown identifier with an account of the whole set (`./exceptions.ts` reports its own not-found
+ * the same way).
+ *
+ * @param ctx - The call's context: the state searched and the correlation identifier the failure carries.
+ * @param id - The approval identifier the call names.
+ * @returns The record, by reference, so a write can change it.
+ * @throws Problem - A `'not-found'` failure naming the identifier.
+ */
+function approvalByIdOrThrow(ctx: HandlerContext, id: ApprovalId): Approval {
+  const approval = findApproval(ctx.state, id);
+
+  if (approval === undefined) {
+    throw notFoundProblem(ctx, `No approval record answers ${id}.`);
+  }
+
+  return approval;
 }
 
 /**
@@ -590,17 +561,7 @@ function landsInScope(ctx: HandlerContext, state: MockState, approval: Approval)
  *   outside the role's reach, the plants that role covers.
  */
 function approvalOrThrow(ctx: HandlerContext, id: ApprovalId): Approval {
-  const approval = findApproval(ctx.state, id);
-
-  if (approval === undefined) {
-    throw notFoundProblem(
-      ctx,
-      `No approval record answers ${id}. The records this session holds are ` +
-        `${approvalsFor(ctx.state)
-          .map((record) => record.id)
-          .join(', ')}.`,
-    );
-  }
+  const approval = approvalByIdOrThrow(ctx, id);
 
   if (!landsInScope(ctx, ctx.state, approval)) {
     throw notFoundProblem(
@@ -659,6 +620,12 @@ function orderBookFreshness(ctx: HandlerContext): Freshness {
  *
  * Nothing is written before this runs, which is what makes a refused call create no approval, no
  * write-back state change and no audit record.
+ *
+ * The refusal is a `'validation'` cause rather than one of its own: `ProblemType` in
+ * `src/types/service.ts` enumerates the five causes contracts §2 fixes, and none of them is "a source
+ * behind this record is out of date". It therefore takes the cause that already carries this family's
+ * other "the records cannot honour this request" failures, and a sixth cause is not invented. The
+ * message names the source and its instant, which is what T-13 asserts.
  *
  * @param ctx - The call's context, whose triggers and seeded source health are read.
  * @throws Problem - A `'validation'` failure naming the source's label and the instant it last
@@ -740,7 +707,7 @@ async function policyDenialProblem(
   if (rule === undefined) {
     throw new Error(
       'The policy engine returned a denial without naming the rule that caused it, so the refusal ' +
-        'cannot be reported. Every denial from src/domain/policy/evaluate.ts names its rule.',
+        'cannot be reported. Every denial the policy engine returns names its rule.',
     );
   }
 
@@ -768,13 +735,16 @@ async function policyDenialProblem(
 }
 
 /**
- * Refuses a decision POL-003 denies, before the matrix is consulted.
+ * Refuses a decision POL-003 denies, once the matrix has let the caller act.
  *
- * The requester of an approval never decides it, and the engine owns that rule; asking it first
- * means a requester's own attempt is answered with the rule and its reason rather than with a
- * permission failure they could not act on (decision 4 in the module header). An approval the
- * records do not hold yields `notApplicable` here, which cannot happen for a record this module has
- * already resolved, and no verdict is invented for it.
+ * The requester of an approval never decides it, and the engine owns that rule. Asking it after the
+ * role's hold and the record's plant scope means a policy block is recorded only for a caller the
+ * matrix admits, and the one persona the rule can refuse is a requester that also holds
+ * `approval.decide`: that persona is answered with the rule and its reason rather than with a
+ * permission failure, and the denial's event is appended before the failure is thrown, so the failure
+ * names a record that already exists. An approval the records do not hold yields `notApplicable`
+ * here, which cannot happen for a record this module has already resolved, and no verdict is invented
+ * for it.
  *
  * @param ctx - The call's context: the persona the rule compares and the chain a denial extends.
  * @param approval - The approval the decision is about.
@@ -853,9 +823,9 @@ async function requireRequestableByPolicy(
  *
  * The conflicting-update state needs a failure with a cause, and `ProblemType` fixes five causes
  * none of which is a conflict, so it is reported as `'validation'` with a message stating what
- * happened (decision 2 in the module header). Two ways to meet it: the simulation's `conflict`
- * trigger, which stands for a record another persona changed between the read and the write, and a
- * record the write's own precondition already rules out.
+ * happened. Two ways to meet it: the simulation's `conflict` trigger, which stands for a record
+ * another persona changed between the read and the write, and a record the write's own precondition
+ * already rules out.
  *
  * The trigger refuses this family's reads beside this write, so the write half answers a decision
  * attempted from records the caller read before the trigger came on rather than from reads taken under
@@ -983,7 +953,7 @@ function statusForDecision(ctx: HandlerContext, decision: Decision): ApprovalSta
  *
  * The scope answer is the matrix's own, taken with the approval's exception as the subject, so the
  * role's plant scope and the persona's narrower one are applied by the contracts §7.1 rule rather than
- * by a second copy of it (decision 3 in the module header). It is asked first, and an approval whose
+ * by a second copy of it. It is asked first, and an approval whose
  * exception the records do not hold is refused rather than admitted: a subject nobody can place is not
  * a licence to hand the record to every role, so the predicate fails closed.
  *
@@ -1511,8 +1481,8 @@ function changeLanded(approval: Approval): boolean {
  *
  * `WriteBack` declares no identifier member, and the tracker's retry control calls its handler with
  * the step's `recordRef` — the record's own reference for what it writes — so that reference is the
- * key a retry names (decision 6 in the module header). The failure lists the references the approval
- * holds, which is what a reader needs to address a step correctly instead of guessing.
+ * key a retry names. The failure lists the references the approval holds, which is what a reader
+ * needs to address a step correctly instead of guessing.
  *
  * @param ctx - The call's context, whose trace the failure carries.
  * @param approval - The approval whose steps are searched.
@@ -1657,9 +1627,9 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * Puts one option forward for approval and records the request.
  *
  * The order the checks run in is the order the rules are stated in, and nothing is written before
- * the last of them passes: the forbidden trigger, the exception's existence and the actor's
- * permission over it, the exception's own status — only an open record can have a plan put forward
- * for it, so a set-aside or already-answered disruption answers no request — the order-book gate
+ * the last of them passes: the forbidden trigger, the role's hold, the exception's existence and the
+ * plant scope it has to fall in, the exception's own status — only an open record can have a plan put
+ * forward for it, so a set-aside or already-answered disruption answers no request — the order-book gate
  * (AAP 0.2.1 — a stale or unavailable source refuses the request and creates no record), the option's
  * own constraint check, which the policy engine decides as POL-005 (an option that cannot be measured
  * is refused with the rule and the breach rather than put forward, and the refusal appends its
@@ -1682,7 +1652,8 @@ export async function getApproval(ctx: HandlerContext, id: ApprovalId): Promise<
  * @param scenarioId - The option the plan puts forward.
  * @returns The created approval, as a copy.
  * @throws Problem - A `'permission'` failure when the role may not request or while the forbidden
- *   trigger is on, a `'not-found'` failure for an exception or an option the records do not answer, a
+ *   trigger is on, a `'not-found'` failure for an exception the records do not answer or one outside
+ *   the acting role's plant scope, a `'not-found'` failure for an option the records do not answer, a
  *   `'validation'` failure when the exception's status is not `open`, when the order book is stale or
  *   unavailable, when the option already carries an approved plan or when no role left in the audience
  *   could decide the plan at the exception's plant, or a `'policy'` failure when POL-005 refuses the
@@ -1694,6 +1665,7 @@ export async function requestApproval(
   scenarioId: ScenarioId,
 ): Promise<Approval> {
   requireNotForbidden(ctx, APPROVAL_REQUEST);
+  requireRolePermission(ctx, APPROVAL_REQUEST, `${exceptionId} cannot be put forward for approval here.`);
 
   const exception = findException(ctx.state, exceptionId);
 
@@ -1701,7 +1673,7 @@ export async function requestApproval(
     throw notFoundProblem(ctx, `No exception record answers ${exceptionId}, so no plan can answer it.`);
   }
 
-  requirePermission(
+  requireSubjectInScope(
     ctx,
     APPROVAL_REQUEST,
     exception,
@@ -1732,7 +1704,14 @@ export async function requestApproval(
   // The audience is the roles the matrix lets decide *this* plan, less the requester's own role: a role
   // whose plant scope does not reach the exception could not decide it, so naming it would offer a
   // decider the decision path refuses (rule P-8), and the requester's own role is left out because
-  // POL-003 forbids the persona who requested a plan from deciding it (AAP 0.12.2).
+  /*
+   * The audience a new request names is the deciders that reach the plan: the matrix's decider roles
+   * less the requester's own role — POL-003 forbids the persona who requested a plan from deciding it
+   * (AAP 0.12.2) — less the roles whose plant scope does not cover the exception, because the decision
+   * path refuses a role that cannot reach the record and a control offering one would explain nothing
+   * (rule P-8). A plan no role in reach could decide is refused rather than created, since an approval
+   * nobody may decide is a record that can only sit in the inbox.
+   */
   const eligibleApproverRoles: Role[] = rolesWith(APPROVAL_DECIDE).filter(
     (role) => role !== ctx.actor.role && plantScopeFor(role).includes(exception.plantId),
   );
@@ -1783,12 +1762,13 @@ export async function requestApproval(
  * Decides one approval: approves it, rejects it, or sends it back for changes.
  *
  * The checks run in the order a reader would state them, and every one of them refuses before a
- * record is written. The forbidden trigger refuses the call. The plan is resolved inside the acting
- * role's scope. POL-003 is asked first, so a requester's own attempt is answered with the rule, its
- * reason and the event it appended rather than with a permission failure. The matrix then answers
- * whether the role may decide at all, the record's own audience answers whether it may decide this
- * plan, the conflicting-update state answers whether the record moved, the order book answers whether
- * a decision may be written against it, and the comment answers what the reader said.
+ * record is written. The forbidden trigger refuses the call. The matrix then answers whether the role
+ * may decide at all, before the plan is resolved, so a role it excludes learns nothing about the
+ * record set. The plan is resolved inside the acting persona's plant scope, POL-003 answers whether
+ * this persona may decide it — a requester that also holds `approval.decide` is refused with the
+ * rule, its reason and the event it appended — the record's own audience answers whether the role may
+ * decide this plan, the conflicting-update state answers whether the record moved, the order book
+ * answers whether a decision may be written against it, and the comment answers what the reader said.
  *
  * What an approval does beyond recording the decision: it sets the tracker's steps in motion through
  * `advanceWriteBacks`, recording each transition and stopping at the first step that fails (AAP
@@ -1810,8 +1790,10 @@ export async function requestApproval(
  * @param comment - The text the reader submitted; the authoritative comment the record keeps.
  * @returns The decided approval, as a copy.
  * @throws Problem - A `'permission'` failure when the role may not decide this plan or while the
- *   forbidden trigger is on; a `'policy'` failure when POL-003 refuses it, carrying the rule, the
- *   reason and the appended event; a `'validation'` failure when the record moved, the order book is
+ *   forbidden trigger is on; a `'not-found'` failure when the approval answers no record inside the
+ *   acting role's reach or its exception the records do not hold; a `'policy'` failure when POL-003
+ *   refuses it, carrying the rule, the reason and the appended event; a `'validation'` failure when
+ *   the record moved, the order book is
  *   stale or unavailable, the approval is no longer pending, or the comment is blank or longer than
  *   `FREE_TEXT_MAX_LENGTH`; and a `'simulated-write-back'` failure when a step of the approved change
  *   did not complete.
@@ -1823,8 +1805,9 @@ export async function decideApproval(
   comment: string,
 ): Promise<Approval> {
   requireNotForbidden(ctx, APPROVAL_DECIDE);
+  requireRolePermission(ctx, APPROVAL_DECIDE, `${id} cannot be decided here.`);
 
-  const approval = approvalOrThrow(ctx, id);
+  const approval = approvalByIdOrThrow(ctx, id);
   const exception = exceptionOf(ctx.state, approval);
 
   if (exception === undefined) {
@@ -1835,8 +1818,8 @@ export async function decideApproval(
     );
   }
 
+  requireSubjectInScope(ctx, APPROVAL_DECIDE, exception, `${id} cannot be decided here.`);
   await requireDecidableByPolicy(ctx, approval);
-  requirePermission(ctx, APPROVAL_DECIDE, exception, `${id} cannot be decided here.`);
   requireRecordEligibility(ctx, approval);
   requireNoConflict(ctx, `Approval ${id} is reported ${approval.status}.`);
   requireFreshOrderBook(ctx);
@@ -1903,9 +1886,10 @@ export async function decideApproval(
  * @param writeBackId - The reference of the step to re-attempt, as the tracker reports it.
  * @returns The step, as a copy, in the state the retry left it.
  * @throws Problem - A `'permission'` failure when the role may not act on this plan or while the
- *   forbidden trigger is on; a `'not-found'` failure when the reference answers no step; and a
- *   `'validation'` failure when the approval is not approved, the record moved, the order book is
- *   stale or unavailable, or the step already succeeded.
+ *   forbidden trigger is on; a `'not-found'` failure when the approval answers no record inside the
+ *   acting role's reach, when its exception is one the records do not hold, or when the reference
+ *   answers no step; and a `'validation'` failure when the approval is not approved, the record moved,
+ *   the order book is stale or unavailable, or the step already succeeded.
  */
 export async function retryWriteBack(
   ctx: HandlerContext,
@@ -1913,8 +1897,9 @@ export async function retryWriteBack(
   writeBackId: string,
 ): Promise<WriteBack> {
   requireNotForbidden(ctx, APPROVAL_DECIDE);
+  requireRolePermission(ctx, APPROVAL_DECIDE, `a write-back of ${id} cannot be retried here.`);
 
-  const approval = approvalOrThrow(ctx, id);
+  const approval = approvalByIdOrThrow(ctx, id);
   const exception = exceptionOf(ctx.state, approval);
 
   if (exception === undefined) {
@@ -1925,7 +1910,12 @@ export async function retryWriteBack(
     );
   }
 
-  requirePermission(ctx, APPROVAL_DECIDE, exception, `a write-back of ${id} cannot be retried here.`);
+  requireSubjectInScope(
+    ctx,
+    APPROVAL_DECIDE,
+    exception,
+    `a write-back of ${id} cannot be retried here.`,
+  );
   requireRecordEligibility(ctx, approval);
   requireNoConflict(ctx, `Approval ${id} is reported ${approval.status}.`);
   requireFreshOrderBook(ctx);
@@ -2019,16 +2009,18 @@ export async function getApprovalOutcome(
  * @param id - The approval whose outcome is reviewed.
  * @returns The approval, as a copy, with its outcome marked reviewed.
  * @throws Problem - A `'permission'` failure when the role may not act on this plan or while the
- *   forbidden trigger is on, and a `'validation'` failure when the approval is not approved, the
- *   record moved, or the review is already recorded.
+ *   forbidden trigger is on; a `'not-found'` failure when the approval answers no record inside the
+ *   acting role's reach or its exception the records do not hold; and a `'validation'` failure when
+ *   the approval is not approved, the record moved, or the review is already recorded.
  */
 export async function reviewApprovalOutcome(
   ctx: HandlerContext,
   id: ApprovalId,
 ): Promise<Approval> {
   requireNotForbidden(ctx, APPROVAL_DECIDE);
+  requireRolePermission(ctx, APPROVAL_DECIDE, `the outcome of ${id} cannot be reviewed here.`);
 
-  const approval = approvalOrThrow(ctx, id);
+  const approval = approvalByIdOrThrow(ctx, id);
   const exception = exceptionOf(ctx.state, approval);
 
   if (exception === undefined) {
@@ -2039,7 +2031,12 @@ export async function reviewApprovalOutcome(
     );
   }
 
-  requirePermission(ctx, APPROVAL_DECIDE, exception, `the outcome of ${id} cannot be reviewed here.`);
+  requireSubjectInScope(
+    ctx,
+    APPROVAL_DECIDE,
+    exception,
+    `the outcome of ${id} cannot be reviewed here.`,
+  );
   requireRecordEligibility(ctx, approval);
   requireNoConflict(ctx, `Approval ${id} is reported ${approval.status}.`);
 

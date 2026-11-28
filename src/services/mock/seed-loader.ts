@@ -2,47 +2,26 @@
  * The application's one door to the seeded record set (AAP 0.8, AAP 0.12.1 "Seed loader",
  * AAP 0.13.2 "Data", rule P-2).
  *
- * What it is for. `src/seed/` holds the demonstration's synthetic records as typed modules, and rule
- * P-2 allows them to be read by the in-browser mock adapter and by nothing else. This module is the
- * only file in the application that imports that folder, so the records reach the adapter through
- * one named function, and `tests/source-checks/no-seed-import-outside-mock.test.ts` fails the build
- * on every other import of `src/seed/`. A screen, a component, a domain module or a test that wanted a
- * record would therefore have to name this folder and be caught, which is what stops a second
- * boundary being written by accident.
+ * `src/seed/` holds the demonstration's synthetic records as typed modules, and rule P-2 allows them to
+ * be read by the in-browser mock adapter and by nothing else. This module is the only file in the
+ * application that imports that folder, so the records reach the adapter through one named function,
+ * and `tests/source-checks/no-seed-import-outside-mock.test.ts` fails the build on every other import
+ * of `src/seed/` — which is what stops a second boundary being written by accident.
  *
- * WHY IT CLONES, AND WHY THAT IS THE WHOLE POINT — contracts §1. The adapter keeps the demonstration's
- * state in memory and edits it: an exception is dismissed, a note is added, an approval is decided,
- * a simulation flag flips. If it edited the seed modules themselves, `Reset demo data` could not
- * restore the seeded records, because a module's exported array has already been rewritten by the
- * time anyone asks for the original. `loadSeed()` therefore hands back a deep clone on every call:
- * the adapter mutates its own copy, a reset calls this function again, and the seed modules are never
- * written to. The same property makes each caller's copy independent of every other's, so one
- * caller's edit cannot surface in another's read.
+ * WHY IT CLONES. `loadSeed` hands back a fresh copy on every call rather than the modules themselves,
+ * so the adapter edits its own state and `Reset demo data` can restore the seed; both the copy and the
+ * reason `structuredClone` makes it are stated where they are made (`loadSeed`).
  *
- * WHY `structuredClone` RATHER THAN A JSON ROUND TRIP. The records are plain data — strings, numbers,
- * booleans, arrays and object literals, as `src/seed/` publishes them — so the platform's own
- * structured clone copies them exactly, keeps the types `number` and `boolean` instead of degrading
- * them to text, and preserves keys whose value is `undefined` rather than dropping them, which a
- * JSON round trip would not. It is also the same call a browser makes natively, so the clone behaves
- * identically in the test runner and in the page (rule B-1: nothing is fetched to perform it).
+ * THE SURFACE. Three things and no more: `loadSeed()`, a type-only re-export of every name `src/seed/`
+ * declares so sibling modules can type their work without reaching the folder themselves, and the six
+ * fixed scalar constants a consumer addresses the seed by, each documented where it is exported below.
+ * The `SEED` aggregate and every record array stay unexported on purpose: an exported array would let a
+ * caller edit a seed module directly and break the reset behaviour this file exists to provide.
  *
- * WHAT IT DOES NOT DO. It holds no state of its own, runs no side effect, and composes no figure: it
- * publishes records, never a computed number, so no measure, identifier or expected result is typed
- * here (rule P-6). The deterministic filler of `src/seed/filler.ts` is a generator rather than a
- * record set, so its builders are not re-exported — this module's job is to hand back the record set
- * the barrel gathers, not the machinery that derives part of it. It names no company, product or
- * person of its own (rule P-7), reaches no address and reads no configuration (rules B-1 and B-2),
- * and claims nothing about what the records establish (rule P-4).
- *
- * THE SURFACE, STATED ONCE. The whole module is three things: `loadSeed()`, a type-only re-export of
- * every name `src/seed/` declares so sibling modules can type their work without reaching the folder
- * themselves, and the six fixed scalar constants a consumer addresses the seed by — the four the
- * adapter and the simulation popover key records on, and the assistant's two fixed texts. The `SEED`
- * aggregate and every record array stay unexported on purpose: an exported
- * array would let a caller edit a seed module directly and break the reset behaviour this file
- * exists to provide. The option positions `src/seed/exception-scenarios.ts` publishes for the case
- * measured at call time are the one record set the aggregate does not gather, so `loadSeed()` clones
- * them into the record set beside it (see `MockRecordSet`).
+ * WHAT IT DOES NOT DO. It holds no state between calls, runs no side effect and composes no figure: it
+ * publishes records, never a computed number (rule P-6). It names no company, product or person of its
+ * own (rule P-7), reaches no address and reads no configuration (rules B-1 and B-2), and claims nothing
+ * about what the records establish (rule P-4).
  */
 
 /* ---------------------------------------------------------------------------------------------
@@ -120,9 +99,20 @@ export interface MockRecordSet extends SeedRecordSet {
  * positions the barrel publishes beside the aggregate are cloned the same way, so a caller cannot
  * edit a seed module through the record set either.
  *
+ * The clone is `structuredClone` rather than a JSON round trip: the records are plain data — strings,
+ * numbers, booleans, arrays and object literals, as `src/seed/` publishes them — so the platform's own
+ * structured clone copies them exactly, keeps `number` and `boolean` instead of degrading them to text,
+ * and preserves a key whose value is `undefined` rather than dropping it. It is also the call a browser
+ * makes natively, so the clone behaves identically in the test runner and in the page (rule B-1:
+ * nothing is fetched to perform it).
+ *
  * The clone is typed with `MockRecordSet`, which states `SeedRecordSet`, the barrel's own type for the
  * aggregate, plus that one published family. Adding a record set to `SEED` therefore widens the
  * returned type without this module being edited.
+ *
+ * The deterministic filler of `src/seed/filler.ts` is a generator rather than a record set, so its
+ * builders are not re-exported: this module's job is to hand back the record set the barrel gathers,
+ * not the machinery that derives part of it.
  *
  * @returns Every seeded record set — the master data, the order book, the exceptions, scenarios and
  * history, governance records, the audit drafts, the package and pin data, the market pack, the

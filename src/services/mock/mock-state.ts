@@ -2,7 +2,7 @@
  * The demonstration's mutable state: the seeded record set the mock adapter edits, the hashed audit
  * chain it appends to, the persona it acts as, the simulation triggers in effect, the time-boxed
  * policy exceptions the session has requested, the queue that serialises its audited writes, and the
- * deterministic counter behind `Meta.traceId`.
+ * ticket and session nonce behind `Meta.traceId`.
  *
  * Implements the "Mock state" row of AAP 0.12.1 — "Seeded mutable state, the async bootstrap that
  * hashes the 200 seeded events, the simulation flags, and the reset that restores the seed" — at the
@@ -53,10 +53,14 @@
  * to the chain wherever it surfaces, from the one vocabulary `src/types/primitives.ts` owns (rules P-1
  * and P-4), and no sentence below claims more than the recomputation shows.
  *
- * DETERMINISTIC BY CONSTRUCTION. No clock, no random source and no module-level mutable value is read.
- * Every seeded timestamp arrives on its own draft; no random-number generator and no UUID source is
- * touched anywhere below; and the correlation counter is a plain integer, so the same sequence of
- * calls yields the same identifiers in every run (AAP 0.18.2). The only platform global the bootstrap
+ * DETERMINISTIC WHERE IT MATTERS, AND UNIQUE WHERE IT HAS TO BE. No clock and no module-level mutable
+ * value is read, every seeded timestamp arrives on its own draft, and the request counter is a plain
+ * integer, so a session's n-th call takes the n-th ticket and the ladder's n-th delay in every run
+ * (AAP 0.18.2). The one random draw below is the session nonce, taken once when a session is built and
+ * once more when it is reset, from the platform's own `crypto.getRandomValues`: it reaches the
+ * diagnostic identifier and nothing else, so no record value, no business figure and no delay depends
+ * on it, while the identifier a user quotes resolves to one session's one call instead of to whichever
+ * session happened to reach that call ordinal (AAP 0.18.1). The other platform global the bootstrap
  * reaches is the Web Crypto inside `hash.ts`, through `chain.ts`, which is a function of its input
  * alone.
  *
@@ -114,14 +118,15 @@ import type { MockRecordSet } from './seed-loader';
 
 /**
  * Everything the demonstration remembers between calls: the records, the audit chain, the acting
- * persona, the simulation triggers, the pending policy exceptions, the write queue and the request
- * counter.
+ * persona, the simulation triggers, the pending policy exceptions, the write queue, the request counter
+ * and the session nonce.
  *
  * One of these is created by `createMockState()` and held by the mock adapter for the session's
  * lifetime. Every member is mutable because the session is meant to change: a handler edits the
  * records, appends an event, switches the persona, flips a trigger, records a pending policy
  * exception, and increments the counter, and `restoreSeed` puts back what a fresh state holds — every
- * member that carries a record or a counter, and never the write queue, which holds neither.
+ * member that carries a record, a counter or a nonce, and never the write queue, which holds none of
+ * them.
  */
 export interface MockState {
   /**
@@ -195,16 +200,32 @@ export interface MockState {
   policyExceptions: PolicyException[];
 
   /**
+   * The segment that distinguishes this session's identifiers from any other session's.
+   *
+   * Eight hexadecimal digits drawn once, from the platform's own `crypto.getRandomValues`, when the
+   * session is built and once more when `restoreSeed` puts it back — a reset restarts the request
+   * counter, so without a fresh draw the first call after a reset would repeat the identifier of the
+   * first call before it. The counter alone cannot do this job: it starts at the same value in every
+   * session, so two sessions that reach the same call ordinal mint the same identifier and a trace a
+   * user quotes names two different calls (AAP 0.18.1). Nothing but the diagnostic identifier reads
+   * it: it reaches no record value, no business figure and not the latency ladder, which stay functions
+   * of the ticket (AAP 0.18.2).
+   */
+  sessionNonce: string;
+
+  /**
    * The number of the last ticket the adapter took, from which the next call's `Meta.traceId` is spelled.
    *
-   * A counter rather than a clock or a random source, so the trace identifier of the n-th call is the
-   * same in every run of the demonstration (AAP 0.18.2). The adapter takes a call's ticket here once,
-   * at the call's entry and before it awaits anything, and a call's identifier is spelled from that
-   * number and never from this member again — the counter moves under a call that is in flight, so a
-   * second read of it would let a neighbouring call's ticket reach a result, a refusal or an event.
-   * The counter starts at its initial value and the adapter advances it; how the identifier is spelled
-   * from the ticket is the adapter's own decision, and the seeded trail already occupies the `TRC-000nnn`
-   * and `TRC-9nnnnn` blocks, so the block a live call draws from is chosen where the identifier is
+   * A counter rather than a clock or a random source, so the n-th call of a session takes the ladder's
+   * n-th delay in every run and nothing about a call depends on when it ran (AAP 0.18.2). The adapter
+   * takes a call's ticket here once, at the call's entry and before it awaits anything, and a call's
+   * identifier is spelled from that number and never from this member again — the counter moves under a
+   * call that is in flight, so a second read of it would let a neighbouring call's ticket reach a
+   * result, a refusal or an event. The ticket alone does not identify a call across sessions, because
+   * every session starts this counter at the same value: `sessionNonce` above is the segment that makes
+   * the identifier a user quotes resolve to one session's one call. How the identifier is spelled from
+   * the two is the adapter's own decision, and the seeded trail already occupies the `TRC-nnnnnn` and
+   * `TRC-9nnnnn` blocks, so the form a live call draws from is chosen where the identifier is
    * formatted.
    */
   requestCount: number;
@@ -230,11 +251,14 @@ export interface HandlerContext {
   readonly actor: ActiveUser;
 
   /**
-   * The call's correlation identifier, minted once by the adapter from the ticket it took at entry.
+   * The call's correlation identifier, minted once by the adapter from the session's nonce and the
+   * ticket it took at entry.
    *
    * Every refusal this call raises and every event it appends quotes this value rather than reading the
    * session's counter again, because that counter is advanced by whichever call entered next and a
-   * second read would stamp one call's record with another call's identifier (AAP 0.18.1).
+   * second read would stamp one call's record with another call's identifier. The nonce is what makes
+   * the value this call's alone rather than this call ordinal's: the counter restarts with every
+   * session, and the nonce does not (AAP 0.18.1).
    */
   readonly traceId: string;
 }
@@ -252,12 +276,45 @@ export interface HandlerContext {
  */
 const INITIAL_REQUEST_COUNT = 0;
 
+/**
+ * How many random bytes the session nonce carries, and the width one byte is written in.
+ *
+ * Four bytes are eight hexadecimal digits: wide enough that two sessions drawing one collide with a
+ * probability below one in four billion, and short enough that a quoted identifier still reads as three
+ * segments rather than a paragraph.
+ */
+const SESSION_NONCE_BYTES = 4;
+const HEX_DIGITS_PER_BYTE = 2;
+const HEX_RADIX = 16;
+
+/**
+ * Mints the segment that tells one session's identifiers apart from another session's.
+ *
+ * The platform's own `globalThis.crypto` is the one random source this demonstration touches, and it is
+ * asked once per session rather than once per call: a draw per call would be a second identifier nothing
+ * quotes, and a value read from a clock would repeat under a reset. The bytes are written as lowercase
+ * hexadecimal, so the segment has a fixed width and cannot be read as the ticket beside it, and a live
+ * identifier keeps the `TRC-<day>-<nonce>-<ticket>` form the seeded `TRC-nnnnnn` and `TRC-9nnnnn`
+ * records do not have (AAP 0.18.1).
+ *
+ * @returns Eight lowercase hexadecimal digits.
+ */
+function mintSessionNonce(): string {
+  const bytes = new Uint8Array(SESSION_NONCE_BYTES);
+
+  globalThis.crypto.getRandomValues(bytes);
+
+  return Array.from(bytes, (byte) =>
+    byte.toString(HEX_RADIX).padStart(HEX_DIGITS_PER_BYTE, '0'),
+  ).join('');
+}
+
 /* ---------------------------------------------------------------------------------------------
  * The seeded baseline both entry points install — AAP 0.2.1, AAP 0.12.1
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The three members a seeded session starts from, built together so that `createMockState` and
+ * The four members a seeded session starts from, built together so that `createMockState` and
  * `restoreSeed` cannot drift into two different notions of a pristine state.
  *
  * Not exported: a caller receives the whole state from one of the two functions below, and no
@@ -272,6 +329,9 @@ interface SeededSession {
 
   /** The persona the session acts as, taken from the clone's user records. */
   readonly activeUserId: UserId;
+
+  /** The nonce the session's identifiers carry, drawn fresh for this session alone. */
+  readonly sessionNonce: string;
 }
 
 /**
@@ -327,16 +387,21 @@ function defaultPersonaId(records: MockRecordSet): UserId {
 }
 
 /**
- * Clones the seeded records, hashes their audit drafts and names the persona the session acts as.
+ * Clones the seeded records, hashes their audit drafts, names the persona the session acts as and mints
+ * the session's nonce.
  *
- * Every start and every reset passes through here, which is what makes the two indistinguishable: the
- * clone is fresh, the chain is rebuilt from it by the same sequential fold, and the persona is read
- * from that clone rather than from anything left over from the session being replaced.
+ * Every start and every reset passes through here, which is what makes the records and the chain of the
+ * two indistinguishable: the clone is fresh, the chain is rebuilt from it by the same sequential fold,
+ * and the persona is read from that clone rather than from anything left over from the session being
+ * replaced. The nonce is the one value drawn anew each time, and it has to be: a reset restarts the
+ * request counter, so a session that kept the nonce of the session it replaced would mint identifiers it
+ * had already minted (AAP 0.18.1).
  *
  * The hash pass is why both entry points are asynchronous, and it completes before the caller installs
  * anything (AAP 0.2.1).
  *
- * @returns The seeded records, the chain hashed from them, and the acting persona's identifier.
+ * @returns The seeded records, the chain hashed from them, the acting persona's identifier, and the
+ *   nonce this session's identifiers carry.
  */
 async function buildSeededSession(): Promise<SeededSession> {
   const records = loadSeed();
@@ -345,6 +410,7 @@ async function buildSeededSession(): Promise<SeededSession> {
     records,
     auditEvents: await hashSeededTrail(records.auditEvents),
     activeUserId: defaultPersonaId(records),
+    sessionNonce: mintSessionNonce(),
   };
 }
 
@@ -356,13 +422,13 @@ async function buildSeededSession(): Promise<SeededSession> {
  * Builds the session the adapter's `whenReady()` hands to the provider: one whose chain is already
  * hashed, so no screen ever renders against drafts that carry no hash.
  *
- * Each call builds an independent state from a fresh clone. The adapter keeps the promise of its first
- * call and starts no second bootstrap over the same state; a second call here is a second state, which
- * is what comparing a reset session against a fresh one needs and what keeps two sessions from sharing
- * a record array.
+ * Each call builds an independent state from a fresh clone and draws its own nonce, which is what keeps
+ * two sessions from sharing a record array or minting one identifier. The adapter keeps the promise of
+ * its first call and starts no second bootstrap over the same state; a second call here is a second
+ * state, which is what comparing a reset session against a fresh one needs.
  *
- * @returns A freshly seeded state, its chain hashed, its triggers clear, its write queue empty and its
- *   counter at its starting value.
+ * @returns A freshly seeded state, its chain hashed, its triggers clear, its write queue empty, its
+ *   counter at its starting value and its nonce its own.
  */
 export async function createMockState(): Promise<MockState> {
   const session = await buildSeededSession();
@@ -375,6 +441,7 @@ export async function createMockState(): Promise<MockState> {
     activeUserId: session.activeUserId,
     flags: new Set<SimulationFlag>(),
     policyExceptions: [],
+    sessionNonce: session.sessionNonce,
     requestCount: INITIAL_REQUEST_COUNT,
   };
 }
@@ -386,13 +453,15 @@ export async function createMockState(): Promise<MockState> {
  * the reference — and every handler built from it — sees the reset without being handed anything. The
  * records and the chain are installed together once the hash pass resolves, so a reader never meets a
  * cloned record set beside the chain of the session being replaced. The trigger set and the pending
- * policy exceptions are cleared rather than swapped, so whoever holds either sees it emptied, and the
- * counter returns to the value a fresh session starts from so a reset session's identifiers restart
- * with it.
+ * policy exceptions are cleared rather than swapped, so whoever holds either sees it emptied. The
+ * counter returns to the value a fresh session starts from, and the nonce is redrawn with it, because
+ * the counter restarting is exactly what would make a kept nonce mint the identifiers the session had
+ * already printed — one call, quoted twice, for two different calls (AAP 0.18.1).
  *
  * After this resolves, the state holds what `createMockState()` returns for a fresh session: the same
- * records, the same hashed chain, the same acting persona, no trigger, no pending policy exception
- * and the same counter value.
+ * records, the same hashed chain, the same acting persona, no trigger, no pending policy exception and
+ * the same counter value. The nonce is the one member that differs, and it must: it is what keeps a
+ * reset session's identifiers from repeating the ones it minted before the reset.
  *
  * The write queue is the one member left as it stands. It holds no seeded value to put back, and a
  * section already in flight on the chain being replaced still has to be able to release it, so
@@ -412,6 +481,7 @@ export async function restoreSeed(state: MockState): Promise<void> {
   state.activeUserId = session.activeUserId;
   state.flags.clear();
   state.policyExceptions.length = 0;
+  state.sessionNonce = session.sessionNonce;
   state.requestCount = INITIAL_REQUEST_COUNT;
 }
 
@@ -429,7 +499,10 @@ export async function restoreSeed(state: MockState): Promise<void> {
  * forbids — and the adapter's latency band makes audited writes overlap by design, so the overlap is
  * the session's normal behaviour rather than an edge case. The append path queues its work here
  * instead: `state.writeQueue` is the tail of the session's sections, this function chains the caller's
- * section behind it, and the section runs when everything in front of it has settled.
+ * section behind it, and the section runs when everything in front of it has settled. The role switch
+ * queues here for the other half of the same reason: its event records the identity it installs, so the
+ * read of the identity before it, the mutation and the append are one section or the trail can state a
+ * transition that never happened.
  *
  * Three properties a queue on the state has to hold, and how they are met:
  * - First in, first out. The new tail is installed synchronously, before this section waits on the old
@@ -441,8 +514,12 @@ export async function restoreSeed(state: MockState): Promise<void> {
  *   or threw — a section that threw still hands the queue on.
  * - A section never takes another section. This is a plain promise chain rather than a re-entrant
  *   lock: a section that awaited a function which itself called `runExclusive` would wait on a release
- *   only it could give, and the session would hang. `appendAuditEvent` is the application's one
- *   section, and it awaits nothing that takes one.
+ *   only it could give, and the session would hang. Two sections exist today: the one
+ *   `appendAuditEvent` holds around an audited write's append, and the one `MockBackend.switchRole`
+ *   holds around the whole switch, its identity mutation included, so that the `before` its event
+ *   records is the identity the section before it left. Neither awaits anything that takes a section —
+ *   which is why the switch appends through `appendAuditEventInSection`, the sibling `appendAuditEvent`
+ *   calls inside its own section, rather than through `appendAuditEvent` itself.
  *
  * The queue is a member of the state it is handed and this function reads no clock, no random source
  * and no module-level value, so two sessions never wait on each other (AAP 0.18.2).

@@ -522,8 +522,9 @@ function clearPositionOf(
  * cut to each of {@link LabelFit.shorteningWidths}.
  *
  * A cut identical to the one before it is dropped, so a drawing that states no ladder — or whose names
- * all fit — costs one attempt and behaves as it did before the ladder existed. A cut that would print
- * nothing at all is dropped too, because a label of no glyphs is not a label.
+ * all fit — costs the single attempt of its own run, and a further attempt is spent only when a
+ * narrower cut actually changes the text. A cut that would print nothing at all is dropped too,
+ * because a label of no glyphs is not a label.
  *
  * @param request The label to place.
  * @param fit The room and geometry the drawing states.

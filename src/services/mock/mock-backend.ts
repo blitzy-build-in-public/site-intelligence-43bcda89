@@ -269,7 +269,7 @@ function activeUserOf(record: MockState['records']['users'][number]): ActiveUser
  * counter again would label this result with a neighbour's identifier (AAP 0.18.1).
  *
  * @param state - The session the call was served from. Not modified.
- * @param traceId - The call's correlation identifier, minted from its own ticket.
+ * @param traceId - The call's correlation identifier, minted from the session's nonce and its own ticket.
  * @returns The envelope's `meta`.
  */
 function metaFor(state: MockState, traceId: string): Meta {
@@ -310,6 +310,23 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
  */
 function notFoundProblem(ctx: HandlerContext, message: string): Problem {
   return { type: 'not-found', message, traceId: ctx.traceId };
+}
+
+/**
+ * The refusal a value the session cannot hold throws: a cause, the reason in plain words and the
+ * call's own trace, which is the whole of what AAP 0.18.1 asks a `Problem` to carry.
+ *
+ * A union of string literals is erased at run time, so a value a JavaScript caller supplies reaches
+ * this adapter as an ordinary string and would otherwise be written into a record and read back by a
+ * consumer whose switch over the union has no arm for it. Refusing here keeps such a value out of the
+ * session, which is where the guarantee has to hold: a stored value outlives the call that wrote it.
+ *
+ * @param ctx - The call's context, whose trace the refusal carries.
+ * @param message - The reason, in the plain words the caller supplies, naming the field at fault.
+ * @returns The `Problem` to throw.
+ */
+function validationProblem(ctx: HandlerContext, message: string): Problem {
+  return { type: 'validation', message, traceId: ctx.traceId };
 }
 
 /**
@@ -434,6 +451,81 @@ function withCallTrace(error: unknown, traceId: string): unknown {
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The sets a caller's argument must belong to — AAP 0.18.1, contracts §3
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Every member of `PinState`, held once at run time, so a value a caller supplies can be tested
+ * against the union the type only describes.
+ *
+ * The map is declared `satisfies Record<PinState, true>`, which makes it total at compile time: a
+ * seventh state added to contracts §3 fails this file rather than leaving a value nothing rejects.
+ * Its keys are the members every refusal below names, so a member that changes is renamed in the
+ * sentence a caller reads without a second list to keep in step.
+ */
+const PIN_STATES = {
+  empty: true,
+  pending: true,
+  pass: true,
+  fail: true,
+  stale: true,
+  review: true,
+} as const satisfies Record<PinState, true>;
+
+/** Every member of the pin-state set, in the order the map declares them. */
+const PIN_STATE_NAMES: readonly string[] = Object.keys(PIN_STATES);
+
+/**
+ * Every member of `SimulationFlag`, held once at run time for the reason `PIN_STATES` is.
+ *
+ * The union composes the seven screen states the simulation popover offers with the two triggers that
+ * are not screen states — the edited audit event and the emptied exception queue — so a member added
+ * to either half is a compile error here rather than a flag the session would store unread.
+ */
+const SIMULATION_FLAGS = {
+  loading: true,
+  empty: true,
+  stale: true,
+  partial: true,
+  offline: true,
+  forbidden: true,
+  conflict: true,
+  'tampered-audit': true,
+  'empty-queue': true,
+} as const satisfies Record<SimulationFlag, true>;
+
+/** Every member of the simulation-flag set, in the order the map declares them. */
+const SIMULATION_FLAG_NAMES: readonly string[] = Object.keys(SIMULATION_FLAGS);
+
+/**
+ * The refusal a value outside the set a member accepts throws.
+ *
+ * The sentence names the field, the value the call carried and every member the field accepts, which
+ * are the three things a caller needs to correct the call without reading this module: the accepted
+ * members come from the set's own keys rather than from a second list that could drift from it.
+ *
+ * @param ctx - The call's context, whose trace the refusal carries.
+ * @param field - What accepts the value, named as the caller's own argument.
+ * @param value - The value the call carried, as it will be quoted back.
+ * @param members - Every member the field accepts, from the set's own keys.
+ * @returns The `Problem` to throw.
+ */
+function outsideSetProblem(
+  ctx: HandlerContext,
+  field: string,
+  value: unknown,
+  members: readonly string[],
+): Problem {
+  const received = typeof value === 'string' ? `"${value}"` : String(value);
+
+  return validationProblem(
+    ctx,
+    `${field} accepts one of ${members.join(', ')}, and the value received (${received}) is none ` +
+      'of them, so the call is refused and the session is unchanged.',
+  );
+}
+
+/* ---------------------------------------------------------------------------------------------
  * The vocabulary this adapter decides for itself — contracts §6 and §7.1, specification §5.1 and §5.2
  * ------------------------------------------------------------------------------------------- */
 
@@ -448,9 +540,6 @@ const EXCEPTION_READ: Permission = 'exception.read';
 
 /** The permission the audit trail's reads require. */
 const AUDIT_READ: Permission = 'audit.read';
-
-/** The permission the policy reads require. */
-const POLICY_READ: Permission = 'policy.read';
 
 /** The permission the evidence reads require. */
 const EVIDENCE_READ: Permission = 'evidence.read';
@@ -842,8 +931,10 @@ function searchableCandidates(ctx: HandlerContext): readonly SearchCandidate[] {
  *    records place that node in, which is the reach the pin filter applies to the same node; a plant is
  *    its own reach; a line is its plant's; a material and a product are not plant-scoped, because the
  *    drawer gives neither a plant subject (AAP 0.12.2, F12).
- * 3. `audit.read` — audit event.
- * 4. `policy.read` — policy.
+ * 3. `audit.read` — audit event, gated by `evidence.mayReadAuditEvents`: the predicate is the permission
+ *    the trail's own read requires, so the hit and the record behind it are released by one rule.
+ * 4. `policy.read` — policy, gated by `evidence.mayReadPolicies`: the permission the policy set's own
+ *    read requires, for the same reason.
  * 5. `competitive.read` — competitor network, competitor site, shared chokepoint, withheld as the whole
  *    read is while the forbidden trigger is in effect.
  *
@@ -1030,13 +1121,13 @@ function buildSearchCandidates(ctx: HandlerContext): SearchCandidate[] {
     }
   }
 
-  if (holds(AUDIT_READ)) {
+  if (evidence.mayReadAuditEvents(ctx)) {
     for (const event of ctx.state.auditEvents) {
       candidates.push(searchCandidate(event.id, AUDIT_EVENT_KIND, drawerTarget(event.id)));
     }
   }
 
-  if (holds(POLICY_READ)) {
+  if (evidence.mayReadPolicies(ctx)) {
     for (const policy of records.policies) {
       candidates.push(
         searchCandidate(policy.id, POLICY_KIND, routeTarget(`${POLICY_ROUTE}${policy.id}`)),
@@ -1132,10 +1223,12 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * The order is fixed and each step depends on the one before it. The bootstrap settles first, so the
    * records and the chain are whole. The call's ticket is taken next and before anything is awaited —
    * the counter holds the last ticket taken, so this call's is the next number — and the correlation
-   * identifier is minted from that same number once. The delay is then waited, from the ticket rather
-   * than from the counter, so the ladder follows the session's own call sequence, a pending screen has
-   * something to show, and two calls issued together wait the ladder steps of their own tickets. The
-   * persona is resolved from the session, and only then does the family run.
+   * identifier is minted once from that same number and the session's nonce, so it names this call in
+   * this session rather than this call ordinal in whichever session printed it (AAP 0.18.1). The delay
+   * is then waited, from the ticket rather than from the counter, so the ladder follows the session's
+   * own call sequence, a pending screen has something to show, and two calls issued together wait the
+   * ladder steps of their own tickets. The persona is resolved from the session, and only then does the
+   * family run.
    *
    * Reading the counter at the end instead would be the same mistake twice over: several reads fired by
    * one screen mount enter before any of them answers, so each would wait one step and each would be
@@ -1186,14 +1279,14 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
   ): Promise<Result<T>> {
     const state = await this.bootstrap;
 
-    // The ticket is written before anything is awaited, which is the whole of the fix this method
-    // needed: the counter holds the last ticket taken, so a call's number is the next one, and a call
-    // that read it after a delay would read a number another call had already taken (AAP 0.18.1).
+    // The ticket is claimed here, before the call waits, because the counter holds the last number
+    // taken: a call that read it after the delay would take a number another call had already taken,
+    // and its result, refusal or event would be spelled with a neighbour's identifier (AAP 0.18.1).
     const ticket = state.requestCount + FIRST_TICKET;
 
     state.requestCount = ticket;
 
-    const traceId = audit.traceIdFor(ticket);
+    const traceId = audit.traceIdFor(state.sessionNonce, ticket);
 
     await wait(latencyForTicket(ticket));
 
@@ -1879,7 +1972,8 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * @param state - The state the reviewer sets.
    * @returns The pin as it now stands.
    * @throws Problem - A `'permission'` failure when the role does not hold `evidence.review`, a
-   *   `'not-found'` failure for an identifier the set does not hold.
+   *   `'validation'` failure for a state outside `PinState`, a `'not-found'` failure for an
+   *   identifier the set does not hold.
    */
   async reviewPin(pinId: EvidencePinId, state: PinState): Promise<Result<EvidencePin>> {
     return this.dispatch(async (ctx) => {
@@ -1890,6 +1984,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
           `Reviewing an evidence pin requires the ${EVIDENCE_REVIEW} permission, which the acting ` +
             `role (${ctx.actor.role}) does not hold, so no review is recorded.`,
         );
+      }
+
+      if (!Object.hasOwn(PIN_STATES, state)) {
+        throw outsideSetProblem(ctx, "An evidence pin review's state", state, PIN_STATE_NAMES);
       }
 
       const pin = ctx.state.records.evidencePins.find((candidate) => candidate.id === pinId);
@@ -2284,9 +2382,15 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    *   emptied exception queue.
    * @param on - `true` to put the trigger in effect, `false` to lift it.
    * @returns The literal `true`, in the envelope every call returns.
+   * @throws Problem - A `'validation'` failure for a flag outside `SimulationFlag`; no trigger is set
+   *   and no event is edited for it.
    */
   async setSimulation(flag: SimulationFlag, on: boolean): Promise<Result<true>> {
     return this.dispatchControl<true>((ctx) => {
+      if (!Object.hasOwn(SIMULATION_FLAGS, flag)) {
+        throw outsideSetProblem(ctx, 'The simulation flag', flag, SIMULATION_FLAG_NAMES);
+      }
+
       setSimulationFlag(ctx.state, flag, on);
 
       if (on && flag === TAMPER_FLAG) {
@@ -2359,40 +2463,50 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * neither an identity nor an event changed, and a successful one appends the `role switch` event with
    * the persona before and after it, so the trail records who acted as whom (contracts §6).
    *
+   * The whole switch is one section of the session's write queue: the identity before it is read there,
+   * the mutation happens there and the event is appended there. Two switches issued together therefore
+   * queue behind one another and the second one's `before` names the persona the first installed, which
+   * is the transition the trail has to state — read before the section, that half would be the identity
+   * the call entered with, which is a transition that never happened (AAP 0.12.2, contracts §6). The
+   * append is `appendAuditEventInSection` because a section cannot take a second one.
+   *
    * @param userId - The identifier of one of the seeded personas.
    * @returns The persona the session now acts as, in the envelope every call returns.
    * @throws Problem - A `'not-found'` failure for an identifier that matches no seeded persona.
    */
   async switchRole(userId: UserId): Promise<Result<ActiveUser>> {
-    return this.dispatchControl(async (ctx) => {
-      const record = ctx.state.records.users.find((candidate) => candidate.id === userId);
+    return this.dispatchControl((ctx) =>
+      runExclusive(ctx.state, async (): Promise<ActiveUser> => {
+        const previous: ActiveUser = actorOf(ctx.state);
+        const record = ctx.state.records.users.find((candidate) => candidate.id === userId);
 
-      if (record === undefined) {
-        const known = ctx.state.records.users.map((candidate) => candidate.id).join(', ');
+        if (record === undefined) {
+          const known = ctx.state.records.users.map((candidate) => candidate.id).join(', ');
 
-        throw notFoundProblem(
-          ctx,
-          `The seeded personas are ${known}, and none of them carries the identifier ${userId}, so ` +
-            'the demonstration cannot act as it and the acting persona is unchanged.',
-        );
-      }
+          throw notFoundProblem(
+            ctx,
+            `The seeded personas are ${known}, and none of them carries the identifier ${userId}, so ` +
+              'the demonstration cannot act as it and the acting persona is unchanged.',
+          );
+        }
 
-      const before: AuditPayload = { id: ctx.actor.id, role: ctx.actor.role };
+        const before: AuditPayload = { id: previous.id, role: previous.role };
 
-      ctx.state.activeUserId = record.id;
+        ctx.state.activeUserId = record.id;
 
-      const after: AuditPayload = { id: record.id, role: record.role };
+        const after: AuditPayload = { id: record.id, role: record.role };
 
-      await audit.appendAuditEvent(ctx, {
-        action: ROLE_SWITCH_ACTION,
-        objectRef: record.id,
-        result: 'succeeded',
-        before,
-        after,
-      });
+        await audit.appendAuditEventInSection(ctx, {
+          action: ROLE_SWITCH_ACTION,
+          objectRef: record.id,
+          result: 'succeeded',
+          before,
+          after,
+        });
 
-      return actorOf(ctx.state);
-    });
+        return actorOf(ctx.state);
+      }),
+    );
   }
 
   /**

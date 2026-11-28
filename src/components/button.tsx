@@ -1,40 +1,20 @@
 /**
- * The button: the single owner of the product's plain `<button>` element, beside the disabled-capable
- * `ActionButton`.
+ * The plain `<button>`, and the single owner of every button a screen shows that is not an action:
+ * `ActionButton` is the action, and never disabled without the sentence that explains why (rule P-8).
  *
- * AAP §0.5.2 fixes that "a raw `<input>`/`<select>`/`<textarea>`/`<button>`/heading is permitted only
- * inside the component that owns it; no screen or feature file may use one directly", and §0.18.1
- * restates the same requirement as "interactive elements are components, never raw elements in a
- * screen". `ActionButton` was the only button owner §0.5.2 listed, and it is the disabled-capable
- * action whose reason rule P-8 requires: it renders a fixed `type="button"` and the union of its
- * props admits no `aria-pressed`, no `aria-expanded` and no `aria-controls`. The controls that need
- * those — the scenario matrix's column select, the approval acknowledgement toggle, the assistant's
- * disclosure and the shell's simulation popover trigger — therefore had no component to compose and
- * wrote the element themselves. This module is that owner: between the two primitives, every button a
- * screen shows belongs to one of them.
+ * AAP §0.5.2 permits a raw `<button>` "only inside the component that owns it", and §0.18.1 restates
+ * that as "interactive elements are components, never raw elements in a screen": this primitive owns
+ * the toggle carrying `aria-pressed`, the disclosure carrying `aria-expanded` and `aria-controls`,
+ * and the column select. Callers never disable it through `disabled`; a caller that must be inert
+ * marks it `aria-disabled` and states its own explanation, as `TriggerToggle` does in
+ * `src/app/simulation-controls.tsx`. A disabled control with a tooltip composes `ActionButton`.
  *
- * WHY THERE ARE TWO BUTTON PRIMITIVES, AND WHICH ONE A CALL SITE COMPOSES. `ActionButton` is the
- * action: something the screen does, enabled or disabled, and a disabled one cannot be constructed
- * without the sentence that explains why. This primitive is every other button: a toggle that carries
- * `aria-pressed`, a disclosure that carries `aria-expanded` and `aria-controls`, a column-select
- * control that states which column the matrix is ordered by. Those controls are never disabled in
- * this application, and their state is the caller's — so the caller owns the state attributes and the
- * activation handler, and both arrive through the spread untouched, exactly as the caller wrote them.
- * A call site that needs to be disabled, or needs the tooltip that explains a disabled control, is
- * `ActionButton`'s; a call site whose state lives in an aria attribute is this primitive's.
- *
- * WHAT THIS MODULE OWNS, AND WHAT THE CALLER OWNS. The primitive owns the element, its `type` and its
- * activation contract: `type` defaults to `'button'` because a button inside a form that omits the
- * attribute submits the form, which is the one failure mode the default has to rule out, and a caller
- * that really means to submit states `'submit'`. The caller owns the visible label, its children, and
- * whatever supporting sentence it wires with `aria-describedby` — this component invents no copy of
- * its own. Every native prop the caller passes reaches the element unchanged.
- *
- * The appearance is the application's bordered secondary control: the structure every bordered control
- * shares plus the secondary appearance, both imported from `./tooltip` where their single owner lives.
- * Composing those two exported lists rather than copying them is what keeps a button here and the
- * secondary action there from drifting apart, and it means no colour, size or state utility is chosen
- * in this module at all.
+ * The primitive owns the element, `type` defaulting to `'button'` because a button in a form that
+ * omits it submits the form, and the activation contract; the caller owns the visible label, the
+ * `aria-describedby` sentence, the state attributes and the handler, every native prop forwarded
+ * unchanged. The appearance is the application's bordered secondary control, composed from the two
+ * exported lists `./tooltip` owns — `CONTROL_STRUCTURE_CLASSES` and `SECONDARY_CONTROL_CLASSES` —
+ * so no colour, size or state utility is chosen in this module.
  */
 import type { ComponentPropsWithoutRef, ReactElement, ReactNode, Ref } from 'react';
 

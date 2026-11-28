@@ -16,7 +16,9 @@
  * polygon can take a press that belongs to a mark; the pointer resolved by the drawing itself to the
  * vertex nearest it — for the value it reads out as the pointer moves as much as for the press it
  * activates, even where a neighbouring vertex's target is painted above that dot, and to nothing at all
- * when it lands clear of every vertex; a vertex the mapper cannot resolve left a plain
+ * when it lands clear of every vertex — with the vertex a press activated keeping focus, so closing the
+ * drawer returns the reader to that vertex rather than to the neighbour the browser focused above it; a
+ * vertex the mapper cannot resolve left a plain
  * mark rather than a control (rule P-8); the slot a colour is selected by, which follows the
  * competitor's own identifier rather than this list's order; a polygon's fill and
  * stroke read from the one chart tone table the other surfaces resolve too; the read-out a vertex
@@ -913,6 +915,66 @@ describe('RadarChart', () => {
     // One gesture, one activation: the press resolved to a single vertex.
     expect(getEvidence).toHaveBeenCalledTimes(1);
     expect(getEvidence).toHaveBeenCalledWith(`${lower.id}#${axis.id}`);
+  });
+
+  it('leaves focus on the vertex a press activated, not on the neighbour painted above it', async () => {
+    const user = userEvent.setup();
+    const axis = AXES[0];
+
+    if (axis === undefined) {
+      throw new Error('no axis is defined to press a mark on');
+    }
+
+    /* The same two series as the press case above: on one axis their vertices sit a few units apart,
+       so the target painted last covers the earlier series' dot. */
+    const lower: AtlasSeries = {
+      ...COMPETITOR_ALPHA,
+      id: 'series-lower',
+      competitorId: 'competitor-lower',
+      label: 'Lower network',
+      values: [50, 50, 50, 50, 50],
+    };
+    const upper: AtlasSeries = {
+      ...COMPETITOR_BETA,
+      id: 'series-upper',
+      competitorId: 'competitor-upper',
+      label: 'Upper network',
+      values: [55, 55, 55, 55, 55],
+    };
+
+    renderChart({
+      series: [lower, upper],
+      evidenceRefFor: (seriesId, axisId) => `${seriesId}#${axisId}`,
+    });
+
+    const lowerMark = screen.getByRole('button', { name: vertexName(lower, 0) });
+    const upperMark = screen.getByRole('button', { name: vertexName(upper, 0) });
+    const lowerTarget = targetOf(lowerMark);
+    const upperTarget = targetOf(upperMark);
+
+    expect(distanceBetween(lowerTarget.point, upperTarget.point)).toBeLessThan(upperTarget.radius);
+
+    /* The reproduction: a browser focuses the topmost focusable element under the pointer when a press
+       begins, which here is the neighbouring series' target rather than the dot the press is aimed at.
+       jsdom runs no hit test, so the case states that focus itself, then presses the covered dot. */
+    upperMark.focus();
+    expect(upperMark).toHaveFocus();
+
+    pressAt(lowerTarget.point);
+
+    expect(
+      await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title }),
+    ).toBeInTheDocument();
+    expect(getEvidence).toHaveBeenCalledWith(`${lower.id}#${axis.id}`);
+
+    await user.click(screen.getByRole('button', { name: EVIDENCE_DRAWER_TEXT.closeLabel }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    /* Closing the drawer returns the reader to the vertex whose record they opened, never to the
+       neighbour's target the browser focused for them. */
+    expect(document.activeElement === lowerMark).toBe(true);
+    expect(document.activeElement === upperMark).toBe(false);
   });
 
   it('activates nothing when the press lands clear of every vertex', () => {

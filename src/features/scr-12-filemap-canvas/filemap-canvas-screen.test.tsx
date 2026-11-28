@@ -1112,8 +1112,8 @@ async function tabTo(
 /**
  * Arms every stub with the payloads a case starts from, so a case states only the read it changes.
  *
- * The screen's lens outlives a mount on purpose, because that is what a client-side route change needs
- * (QA5-F40), so every case returns the store to a first visit's values before it renders.
+ * The screen's lens outlives a mount on purpose, because that is what a client-side route change needs,
+ * so every case returns the store to a first visit's values before it renders.
  */
 beforeEach(() => {
   for (const member of Object.values(port)) {
@@ -1395,14 +1395,14 @@ describe('FilemapCanvasScreen', () => {
     await user.keyboard('{Enter}');
 
     /* The node identifier is the record identifier the evidence read resolves, because the topology
-       payload copies the record into its node — the screen composes no reference of its own (rule P-6,
-       cr-w007-F02). */
+       payload copies the record into its node — the screen composes no reference of its own
+       (rule P-6). */
     expect(port.getEvidence).toHaveBeenCalledWith(OPENING_PLANT_ID);
 
     const drawer = await screen.findByRole('dialog', { name: EVIDENCE_DRAWER_TEXT.title });
 
     /* The drawer opens on the record's own content — its value, the rule behind it and the section that
-       carries them — and not on the region that reports a reference nothing answers (cr-w007-F19). */
+       carries them — and not on the region that reports a reference nothing answers. */
     expect(within(drawer).getByText(EVIDENCE.value)).toBeInTheDocument();
     expect(within(drawer).getByText(EVIDENCE.formula)).toBeInTheDocument();
     expect(within(drawer).getByText(EVIDENCE_DRAWER_TEXT.valueSection)).toBeInTheDocument();
@@ -1469,7 +1469,7 @@ describe('FilemapCanvasScreen', () => {
     expect(scenarioSwitch).toHaveAttribute('aria-checked', 'true');
 
     /* The caption names the option from the record's own name, and it changes without a page load, so it
-       is a status region that announces the option now in preview (rule B-3, cr-w007-F07). */
+       is a status region that announces the option now in preview (rule B-3). */
     expect(
       await screen.findByText(
         `${FILEMAP_CANVAS_TEXT.previewCaptionPrefix} ${RECOMMENDED_OPTION.name}`,
@@ -1528,8 +1528,8 @@ describe('FilemapCanvasScreen', () => {
 
     expect(screen.getByText(lensCaption(FILEMAP_CANVAS_TEXT.graphLens))).toBeInTheDocument();
 
-    /* The shell unmounts this screen on a client-side route change, which is the moment QA5-F40 recorded
-       the canvas reverting to the map lens. */
+    /* The shell unmounts this screen on a client-side route change, so a lens the component held would be
+       lost with it; the module store is what carries the reader's choice across that unmount. */
     first.unmount();
 
     renderScreen();
@@ -1759,7 +1759,7 @@ describe('FilemapCanvasScreen', () => {
 
     /* A scope that draws a node has something to draw, so the surface renders and the sentence saying
        nothing falls in the selection is withheld — here it would be false. The both-empty scope still
-       renders that sentence, which the case above asserts (cr-w007-F15). */
+       renders that sentence, which the case above asserts. */
     expect(
       within(canvas).getByRole('button', { name: /^Northgate plant,/u }),
     ).toBeInTheDocument();

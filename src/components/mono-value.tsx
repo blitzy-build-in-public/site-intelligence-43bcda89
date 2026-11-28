@@ -1,87 +1,28 @@
 /**
- * The presentation formatter of the interface's own figures: one amount carrying its currency code,
- * two readings of a duration in hours, one grouped count, and one identifier, timestamp and hash style
- * in the tabular mono face.
+ * The presentation formatter of the interface's own figures — an amount, two duration readings,
+ * a grouped count, an identifier, a timestamp, a hash — in the tabular mono face.
+ * `platform-contracts.md` §1 fixes what is rendered: a EUR amount, at most two decimals and a
+ * thousands separator; an ISO 8601 instant with a Europe/Berlin offset; the record identifier
+ * patterns; the lowercase hex digest. AAP §0.8 gives that presentation half one owner,
+ * `src/types/figure-text.ts`, whose money and grouped-number rules are re-exported here as
+ * {@link formatMoney} and {@link formatQuantity}, because the comparison CSV's composer is a
+ * service module that may not import `src/components` and a second formatter would drift. A
+ * surface needing another rendering adds no formatter of its own, recording the departure here
+ * first. One money figure has four recorded renderings — two in use and two retired — and a site
+ * that names one names it by number in this passage:
  *
- * `platform-contracts.md` §1 fixes the conventions rendered here — a EUR amount carrying at most two
- * decimals with a thousands separator, an instant as ISO 8601 with an offset in Europe/Berlin, the
- * record identifier patterns, and the lowercase hex digest of the audit chain — and AAP §0.8 gives
- * the presentation half of those conventions exactly one owner. For money that owner is
- * `src/types/figure-text.ts`, which holds the rule and which this module imports and re-exports as
- * {@link formatMoney}: the comparison CSV states the same amount the comparison matrix shows, that
- * composer is a service module and may not import `src/components`, and a formatter each layer kept
- * for itself is the drift the move removes. The grouped, unitless number a lever echo is written in
- * has the same owner for the same reason, re-exported here as {@link formatQuantity}. The rules this
- * module still states itself — the two readings of a duration, and the mono face that aligns a value
- * down a column — are formatted here and nowhere else.
+ * 1. An amount in one of the interface's own figures, through {@link formatMoney}: `de-DE`, the
+ *    code `EUR`, a full stop between thousands.
+ * 2. An amount inside a record's own sentence — the prose formatter groups it with commas and
+ *    neither adds nor moves the `EUR ` marker the sentence's template carries, rule P-6.
+ * 3. A dot-decimal CSV field, retired: the comparison CSV prints {@link formatMoney}'s text.
+ * 4. The ungrouped machine amount an aggregate's evidence reading printed, retired:
+ *    `src/services/mock/handlers/evidence.ts` composes a drawer's amounts, its `*Eur` inputs and
+ *    its lever echoes through the rules re-exported here.
  *
- * ONE MONEY FIGURE REACHES A READER IN TWO SHAPES, AND TWO FORMER SHAPES WERE RETIRED. This passage
- * is the only record of that decision, and every other site in the tree points here instead of
- * restating it:
- *
- * 1. An amount in one of the interface's own figures — the money rule in `src/types/figure-text.ts`,
- *    re-exported below as {@link formatMoney}. It is written with `de-DE`, the currency as the code
- *    `EUR`, and a full stop between thousands, which is the grouping locale AAP §0.8 names for the one
- *    locale the inputs fix (Europe/Berlin).
- * 2. An amount inside a record's own sentence — grouped with a comma, and marked by the `EUR ` prefix
- *    the sentence itself carries. `src/services/mock/assistant-script.ts` composes such a sentence from
- *    a template the seed owns, and the template writes the marker as its own text; AAP §0.8 quotes the
- *    resulting shape verbatim — "Spends EUR 21,300 and defers 900 Brno service kits (EUR 108,000) by 10
- *    days to avoid EUR 2,257,000 of delayed revenue." The prose formatter groups the digits and neither
- *    adds nor moves the marker, because that marker is the record's content and rule P-6 admits no
- *    currency marker a service module writes of its own accord.
- *
- * TWO FORMER SHAPES WERE RETIRED, AND NEITHER IS A TYPO FOR ANOTHER. A dot decimal with no grouping
- * separator, written for a spreadsheet engine, was how `src/services/exports/scenario-csv.ts` stated
- * the comparison's own amounts; the checkpoint holds the export payload to the screen, so its money
- * cells now print {@link formatMoney} and that shape is gone — the matrix read `18.600 EUR` while the
- * file it exported read `18600.00` for the same record's Added cost. The ungrouped machine amount an
- * aggregate's evidence used to print, `3348000 EUR at risk` beside the tile's `3.348.000 EUR`, was the
- * same drift in the one surface every figure travels through: `src/services/mock/handlers/evidence.ts`
- * now states a drawer's amounts, its `*Eur` inputs and its lever echoes through the rules this module
- * re-exports, imported from `src/types` because a handler may not import `src/components` (AAP
- * §0.18.1's boundary discipline, rule P-2). `Evidence.value` and `Evidence.inputs` are strings the
- * record already carries (contracts §3, AAP §0.12.2), which is why that tier composes the text rather
- * than this one, and `src/services/mock/mock-backend.test.ts` compares the payload's text with
- * {@link formatMoney}'s output for the same figure, so a drawer and the tile it explains cannot
- * disagree.
- *
- * Another rendering is not a quiet decision. A surface that needs an amount written another way adds
- * no formatter of its own — it records the departure in this passage first, so a maintainer reads one
- * record instead of four modules re-litigating the same figure.
- *
- * WHAT A DURATION IS, AND WHERE ITS UNIT LIVES. A duration arrives as the exact difference the domain
- * measured, and this module renders it under the one of two rules the value's own meaning decides. An
- * age — a record's `ageHours`, the difference a reader scans down a queue's column — is the nearest
- * whole hour, because nobody can scan `145.08333333333334` off a card ({@link formatHours}). A measured
- * figure — the median hours to an approved plan, which AAP §0.8 fixes as the middle value of the
- * qualifying history records, unrounded — is {@link formatMeasuredHours}: as much of the value's own
- * precision as it states, up to two decimals, so the tile can never print `11` beside a drawer that
- * states `11.25`. Both are presentation alone: `src/domain/aggregation/overview.ts` keeps the median
- * unrounded as AAP §0.8 fixes it, and nothing here writes back to that value. Neither appends a unit —
- * the screen owns the caption that names it ("Age (hours)", "Median hours to approved plan"), so a
- * figure that spelled its own unit would state it twice.
- *
- * One duration is not rendered here at all, for the money passage's reasons: the median the fourth
- * Overview tile carries reaches its evidence drawer as the aggregate's own unrounded figure, with the
- * unit named in words in the reading ("26.666666666666668 hours from detection to an approved plan,
- * unrounded"), which `src/services/mock/handlers/evidence.ts` composes because the service tier may not
- * import this module and the drawer has to print the figure the tile was computed from. The reading says
- * "unrounded" in its own words, so the exact value is never passed off as the narrower width the tile
- * shows.
- *
- * Formatting never changes a value (AAP §0.8, rule P-6). The money rule groups and labels what it is
- * handed and never re-rounds, re-scales or appends a unit of its own; each duration and quantity rule's
- * fraction ceiling is a width on the text rather than an arithmetic step on the value, and none calls a
- * rounding helper — AAP §0.8 keeps every one of those in `src/domain/solver/rounding.ts`. The other
- * rules render their string character for character. The mono face and the tabular numerals are AAP
- * §0.5.3's requirement, so amounts, identifiers, timestamps and hashes align down a column and read as
- * one class of value inside a sentence; a duration is not one of them and keeps the type step of the
- * tile it sits in.
- *
- * A value with no formatted form is shown as the raw input rather than as a formatted `NaN` or a
- * silent zero (rule P-6): a wrong number on screen is the failure that rule exists to prevent, and a
- * visible stranger can be traced back to its source where a plausible zero cannot.
+ * THE TWO DURATION READINGS ARE STATED HERE AND NOWHERE ELSE: {@link formatHours} for an age,
+ * {@link formatMeasuredHours} for a figure left unrounded; the one duration a service composes,
+ * an aggregate's unrounded median in its evidence reading, does not pass through this module.
  */
 import type { ReactElement } from 'react';
 

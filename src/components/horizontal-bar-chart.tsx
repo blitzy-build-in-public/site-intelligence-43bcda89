@@ -460,18 +460,17 @@ const TRACK_START = LABEL_COLUMN_WIDTH;
 /** How wide the track is: what is left of the viewBox once both columns are reserved. */
 const TRACK_WIDTH = CHART_WIDTH - LABEL_COLUMN_WIDTH - VALUE_COLUMN_WIDTH;
 
-/* BLITZY [A11Y] WCAG 2.2 SC 2.5.8 Equivalent exception: a row is as tall as the row spacing allows,
-   and at a narrow panel that is fewer than 24 CSS px. The chart is composed inside `./chart-frame.tsx`,
-   whose "View as table" view reaches the same values at full size, which is the equivalent the
-   exception asks for. The row's width is never the problem: the target spans the whole drawing. */
 /**
  * One row's height, on the 4 px grid and equal to the compact row height of specification §4.3.
  *
  * THE ROW IS THE MARK'S WHOLE TARGET, so this length is also the height a pointer or a focus target
  * gets. It cannot be enlarged without overlapping the row above and below it, which would hand one
  * datum's share of the drawing to another: two adjacent rows would each answer for the other's
- * category, and a reader aiming at one would open the other. The target is therefore the row, and the
- * chart relies on the equivalent control every frame carries.
+ * category, and a reader aiming at one would open the other. The target is therefore the row, and at a
+ * narrow panel a row is fewer than 24 CSS px, which is the case WCAG 2.2 SC 2.5.8's Equivalent
+ * exception covers: the chart relies on the equivalent control every frame carries, the "View as
+ * table" view of `./chart-frame.tsx`, which reaches the same values at full size. The row's width is
+ * never the problem, because the target spans the whole drawing.
  */
 const ROW_HEIGHT = 32;
 

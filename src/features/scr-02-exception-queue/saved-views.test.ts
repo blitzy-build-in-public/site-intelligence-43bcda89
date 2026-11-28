@@ -8,8 +8,8 @@
  * already saved; a view stores the filters — the day the queue was narrowed to among them — the page
  * size and the ordering rather than a continuation position, and applying one restores exactly that
  * set with nothing of the queue's current query laid under it, so a filter the view does not carry is
- * cleared rather than left to narrow the saved rows to nothing (QA3-F21); listing returns a new array
- * in the order the planner's own names imply; and no call reaches browser storage, because the theme
+ * cleared rather than left to narrow the saved rows to nothing; listing returns a new array in
+ * the order the planner's own names imply; and no call reaches browser storage, because the theme
  * and the density are the only preferences this application keeps between visits
  * (platform-contracts.md §1).
  *
@@ -175,7 +175,7 @@ describe('applySavedView', () => {
     /*
      * The whole set comes back: the filters, the day the queue was narrowed to, the page size and the
      * ordering. A queue that had since chosen a status and an owner shows the saved rows again, because
-     * neither of those was part of what the planner saved (QA3-F21).
+     * neither of those was part of what the planner saved.
      */
     expect(applied).toEqual({
       limit: PAGE_SIZE,
@@ -199,7 +199,7 @@ describe('applySavedView', () => {
     const applied = applySavedView(view);
 
     /* The day is part of the saved set like any filter: a view saved over the whole calendar leaves no day
-       in force, so the day the queue happened to hold cannot narrow the saved rows away (QA3-F21). */
+       in force, so the day the queue happened to hold cannot narrow the saved rows away. */
     expect('date' in applied).toBe(false);
     expect(applied).toEqual({ severity: 'high' });
   });
@@ -297,7 +297,7 @@ describe('determinism', () => {
 
     /*
      * Applying a view is a function of the view alone, so two views saved from deep-equal queries answer
-     * deep-equal queries whatever the queue happened to hold when each was applied (QA3-F21).
+     * deep-equal queries whatever the queue happened to hold when each was applied.
      */
     const firstApplied = applySavedView(firstView);
     const secondApplied = applySavedView(secondView);

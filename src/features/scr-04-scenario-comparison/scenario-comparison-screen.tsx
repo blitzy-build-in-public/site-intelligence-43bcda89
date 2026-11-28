@@ -2,125 +2,51 @@
  * SCR-04 Scenario comparison, the composition root of the route
  * `/exceptions/:exceptionId/scenarios` (specification §7 SCR-04, AAP 0.12.4's SCR-04 row, AAP 0.13.1).
  *
- * WHAT THE SCREEN IS FOR. A planner has one exception in front of them and several ways to answer it.
- * This screen lays those ways side by side with their arithmetic — one column per option, the eight
- * measures AAP 0.12.4 names as its rows — states which option the recommendation rule picked, the rule
- * it applied and the trade-off it makes, lists nothing of its own about the options that were set
- * aside, compares the orders the options leave late, previews the write-back the selected
- * option would set in motion, and lets the reader duplicate one option at their own lever values. It
- * approves nothing: requesting an approval is the last thing it does, and the decision belongs to
- * SCR-05, which is where a successful request lands. It does report the decision a plan has already
- * taken, where one exists, because a reader who returns to the comparison has to be able to tell that
- * the option in front of them has been decided rather than merely put forward.
+ * WHAT THE SCREEN IS. One exception in front of the planner, its ways of answering laid side by side
+ * with their arithmetic: one column per option for the eight measures AAP 0.12.4 names as its rows, the
+ * recommendation with the rule it applied and the trade-off it makes, the orders the options leave late,
+ * the write-back the selected option would set in motion, and a duplicate of one option at the reader's
+ * own lever values. It approves nothing — requesting an approval is the last thing it does, and the
+ * decision belongs to SCR-05, where a successful request lands — and it reports the decision a plan has
+ * already taken, because a reader returning to the comparison has to be able to tell that the option in
+ * front of them is decided rather than merely put forward.
  *
- * WHERE EVERY FIGURE COMES FROM — contracts §3 `ScenarioSet`, contracts §4 rules 1 to 11, rule P-6.
- * The measures are the solver's: the domain layer computes them, the adapter composes the `Scenario`
- * records, and this module renders the members it was handed. It types no
- * figure, computes none and formats none: no sum, no difference, no maximum, no ordering by a measure,
- * no percentage and no locale formatter appears below, and the one axis ceiling a chart requires is
- * drawing geometry (see the note on {@link axisCeilingOf}). `recommendedId` is a lookup, never a
- * comparison — the rule that picked it belongs to the recommendation, and the rule it states arrives
- * in `recommendationRule` to be rendered verbatim.
+ * NO FIGURE IS TYPED, COMPUTED OR FORMATTED HERE (contracts §3 `ScenarioSet`, contracts §4 rules 1 to
+ * 11, rule P-6). The domain layer computes the measures, the adapter composes the records, and this
+ * module renders the members it was handed: no sum, no difference, no maximum, no ordering by a measure,
+ * no percentage and no locale formatter appears below, `recommendedId` is a lookup rather than a
+ * comparison, and the one axis ceiling a chart requires is drawing geometry (see
+ * {@link axisCeilingOf}).
  *
- * THE FIXED STRINGS AND THEIR ONE OWNER — AAP 0.12.4, AAP 0.10, rule P-1. The empty sentence, the
- * disabled sentence, the two action labels and the recommended badge are exported constants, so the
- * colocated suite asserts them against one owner rather than retyping a sentence the plan fixes. Each
- * figure carries its own label and never the route's page-level badge: the matrix labels every column
- * from its own origin, this screen labels the recommendation block `Simulated recommendation` from
- * `SIM_LABELS`, the chart frame labels its surface `Simulated calculation`, and each write-back step
- * is labelled by the component that renders it.
- *
- * ALL DATA THROUGH ONE BOUNDARY — rule P-2. `useService()` is the only path to a record: no seed
- * module, no adapter, no API client and no domain module is imported here, and the export's CSV text is
+ * EVERY READ GOES THROUGH ONE BOUNDARY (rule P-2). `useService()` is the only path to a record — no seed
+ * module, no adapter, no API client and no domain module is imported — and the export's CSV text is
  * composed by the service rather than by this file.
  *
- * THE THREE READS, AND WHY THE SECOND AND THIRD EXIST — AAP 0.2.2, AAP 0.2.1, rule P-8.
- * `getScenarioSet` states the options and the steps each of them would write, and it states neither an
- * approval nor a plant: whether an option has already been decided is the approval record's answer. The
- * screen therefore reads the approval list
- * as a second query, keyed under `listApprovals` so the invalidation a request and a decision perform
- * reaches it, and derives from that list the plan that decides the selected option: the approved record
- * naming it, whichever request followed it in that list, because that is the record the adapter's own
- * refusal reads. A plan that stands approved disables the request control with one sentence naming the
- * record and its status, because a control that cannot act explains why (rule P-8), and its own
- * write-backs replace the option's always-pending steps in the preview, so a reader returning after the
- * write-back reads the states the records reached rather than the states the option shipped in. A read
- * that is refused, or one that answers nothing, leaves this screen behaving exactly as it does without
- * it: the control decides from the option alone and the preview renders the option's own steps. Nothing
- * about the plan is typed here — the identifier, the status and the steps are the record's members.
+ * THE THREE READS, AND THE GATE THEY EXPLAIN (AAP 0.2.1, 0.2.2, T-13, rule P-8). `getScenarioSet` states
+ * the options and the steps each of them would write, and it states neither an approval nor a plant, so
+ * the screen reads the approval list and the exception itself beside it. The approval list is a query
+ * of its own, keyed under `listApprovals` so the invalidation a request and a decision perform reaches
+ * it, and what it says about the selected option is {@link decidedPlanForOption}. The exception is read
+ * only ever to explain and never gates the page, which {@link approvalBlockerOf} and its facts state.
+ * Freshness is the rule's other half: `APPROVAL_GATE_SOURCE` reported `stale` or `unavailable` raises
+ * the boundary's banner and disables the request with the same words (see {@link approvalGateReasonOf}).
  *
- * THE THIRD READ IS THE EXCEPTION, AND IT ONLY EVER EXPLAINS — AAP 0.2.1, rule P-8. `requestApproval`
- * refuses a plan when the exception does not stand `open`, and when no persona other than the one that
- * would request it may decide a plan at the exception's plant, because POL-003 keeps the requester of a
- * plan from deciding it; neither the option set nor the approval list carries the record's status or its
- * plant, so the screen reads the exception itself for both. That read decides nothing here: it never
- * reaches `deriveScreenState` and it never gates the screen. While it is pending, refused or absent,
- * neither precondition blocks — the same treatment an unknown persona gets — because a control disabled
- * on a fact nobody knows yet would lie about what it can do. The persona roster and the permission the
- * adapter requires reach this screen through the service boundary's own hooks ({@link usePersonaRoster},
- * {@link useRolesHolding}, {@link useActiveUser}), never through `src/domain` or `src/seed` (AAP 0.18.1).
+ * WHERE THE REST OF THIS FILE'S RATIONALE SITS: the fixed sentences and captions AAP 0.12.4 names on the
+ * exported constants below, the two specification §5.3 labels on {@link RECOMMENDATION_LABEL} and
+ * {@link CALCULATION_LABEL}, the seven preconditions `requestApproval` enforces on
+ * {@link approvalBlockerOf}, the permission a measurement needs on {@link sandboxPermissionBlockerOf},
+ * the page's one list of the options the set held back on
+ * `./comparison-matrix.tsx`, and the one option measured again on `./scenario-sandbox.tsx`.
  *
- * THE FRESHNESS GATE, IN BOTH HALVES — AAP 0.2.1, T-13, rule P-8. `requestApproval` is refused while
- * `APPROVAL_GATE_SOURCE` reports `stale` or `unavailable`, and this screen states the same rule rather
- * than leaving it to the service: the boundary renders the stale banner naming the source and the
- * instant it last answered, and the request control is disabled with a sentence naming that same source
- * and instant, read from the same freshness report. The sentence is assembled from
- * `SCENARIO_COMPARISON_TEXT`'s two halves plus the record's own label and as-of value; SCR-05's approval
- * detail states the same words for the same record, and a feature may not import another feature
- * (AAP 0.18.1), so the wording is held here as well by design rather than shared. Only `stale` and
- * `unavailable` block the request: a source reported `partial` is one the service accepts, and a control
- * disabled where the service would act would lie about what it can do.
- *
- * WHAT THE GATE PREDICTS, AND HOW MANY PRECONDITIONS IT MIRRORS — AAP 0.2.1, rule P-8.
- * `requestApproval` enforces seven preconditions before it records anything: the exception exists, the
- * acting role holds `approval.request` over its plant, the exception stands `open`, the order book it
- * reads is current, the option carries no approved plan, POL-005's constraint check passed, and some
- * persona other than the one that would request the plan may decide a plan at the plant. This screen
- * states every one of them before the reader presses, so no control here is offered enabled for a call
- * the adapter would always refuse, and each refusal names what would have to change rather than only that
- * it cannot act. The gate also owns one condition the adapter has no view of — the option set has not
- * been read yet — because the empty sentence of AAP 0.12.4 describes a record that holds no option, and a
- * read still in flight holds neither.
- *
- * FOUR GAPS THIS SCREEN REPORTS RATHER THAN WORKS AROUND.
- * 1. `getScenarioSet(exceptionId)` takes no `Scope`, so the shell's plant and product selection cannot
- *    be handed to it: the adapter applies the acting role's plant scope itself (AAP 0.12.4), which is
- *    why this screen never filters a record it was given. The selection is not carried in the set's
- *    cache key either — the method takes the identifier alone, so the selection cannot change the
- *    answer and a top-bar change re-reads nothing here.
- * 2. AAP 0.12.4's row asks for "rejected options with the blocking constraint", and
- *    `./comparison-matrix.tsx` already renders exactly that list from `ScenarioSet.rejected` directly
- *    beneath its table. A second list on the same page would state each rejected identifier and its
- *    constraint twice, so this screen renders none: the block has one owner, the matrix's. The row's
- *    further wish for a `permittedAlternative` cannot be met from `Rejected`, which carries no such
- *    member; the alternative a policy permits does reach the reader, in the refusal card below, where
- *    a policy blocks the approval request and the `Problem` carries it.
- * 3. `GroupedBarChart` requires its axis ceiling as a prop, because only the caller knows what the
- *    axis is scaled against. The ceiling is therefore derived here from the cells the chart draws, both
- *    of which are figures the solver produced — the same treatment `src/features/scr-01-overview/
- *    overview-screen.tsx` gives its own bars, and the only arithmetic in this file. It is geometry: the
- *    surface marks its axis guides `aria-hidden`, so no reader is offered a number that this screen
- *    computed in place of the record's own value.
- * 4. No member of the port adds a recomputed option to a scenario set, so the sandbox's duplicate is
- *    not appended as a ninth column here: the sandbox renders the measurement it received, in full,
- *    and `ScenarioSet` stays exactly what the service answered with. Minting a column from a
- *    measurement the service did not publish would be a figure this screen made up (rule P-6).
- *
- * Rules served:
- * - P-1: per-element labels, each read from `SIM_LABELS` or from a component that owns it.
- * - P-2: one boundary, `useService()`; no seed, mock, API-client or domain import.
- * - P-4: no sentence claims that the workspace establishes a configuration, prevents a copy or
- *   withstands an edit, and none suggests a model is connected: the screen reads a script of measures
- *   and says so.
- * - P-6, P-7: no typed number, no typed record identifier, no company, customer or vendor name; every
- *   word on screen is a fixed string of an input, a component's own, or a record's own field.
- * - P-8: every control acts or is visibly disabled through `ActionButton`'s `disabledReason`, and every
- *   refusal names its cause.
- * - B-1, B-2: nothing is fetched — the one download is offered from a `blob:` URL of a payload the
- *   service already composed — nothing is configured and no credential shape appears.
- * - B-3: `PageHeader` owns the single level-one heading, the body renders inside `StateBoundary`, the
- *   chart ships its table view through `ChartFrame`'s required `tableRows`, and every control is a
- *   first-party component with the focus ring and the minimum target the token layer fixes.
+ * Rules served: P-1 (per-element labels, each read from `SIM_LABELS` or from a component that owns it),
+ * P-2 (one boundary, `useService()`), P-4 (no sentence claims that the workspace establishes a
+ * configuration, prevents a copy or withstands an edit, and none suggests a model is connected), P-6 and
+ * P-7 (no typed number, no typed record identifier, no company, customer or vendor name), P-8 (every
+ * control acts or is visibly disabled through `ActionButton`'s `disabledReason`), B-1 and B-2 (nothing is
+ * fetched — the one download is a `blob:` URL of a payload the service composed — nothing is configured
+ * and no credential shape appears) and B-3 (`PageHeader` owns the single level-one heading, the body
+ * renders inside `StateBoundary`, the chart ships its table view through `ChartFrame`'s required
+ * `tableRows`, and every control is a first-party component with the focus ring and the minimum target).
  */
 
 import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -165,6 +91,7 @@ import type {
   Approval,
   ApprovalStatus,
   ExceptionDetail,
+  ExceptionId,
   ExceptionStatus,
   ExportPayload,
   Freshness,
@@ -229,6 +156,10 @@ export const WRITE_BACK_PREVIEW_LABEL = 'Write-back preview';
  *
  * `Simulated recommendation` marks the recommendation block, its rule and its trade-off.
  * `Simulated calculation` marks the chart frame, whose bars are the solver's measured counts.
+ *
+ * Each surface labels itself rather than carrying the route's page-level badge, which belongs to the
+ * shell and labels no individual figure: the matrix labels every column from its own origin, and each
+ * write-back step is labelled by the component that renders it.
  */
 const RECOMMENDATION_LABEL: SimLabel = SIM_LABELS[2];
 const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
@@ -265,6 +196,16 @@ const OPEN_EXCEPTION_STATUS: ExceptionStatus = 'open';
  */
 const REQUEST_PERMISSION: Permission = 'approval.request';
 const DECIDE_PERMISSION: Permission = 'approval.decide';
+
+/**
+ * The permission `solveScenario` requires of the acting role before an option can be measured again,
+ * which contracts §7.1 grants by role and `handlers/scenarios.ts` enforces before it measures.
+ *
+ * Named once, typed `Permission` so a renamed member of the matrix is a compile error here rather than
+ * a comparison that silently answers `false`, and read against the roster's own derived facts rather
+ * than against a second copy of the matrix: a feature may not import `src/domain` (AAP 0.18.1).
+ */
+const MEASURE_PERMISSION: Permission = 'scenario.create';
 
 /* ---------------------------------------------------------------------------------------------
  * The wording this screen states itself
@@ -367,6 +308,23 @@ export const SCENARIO_COMPARISON_TEXT = {
     ') does not hold the approval.request permission, so no plan can be put forward from this ' +
     'comparison.',
   requestPermissionRolesPrefix: 'The roles that hold it are',
+
+  /**
+   * Why the sandbox cannot measure an option for a role the matrix does not let measure one, in the
+   * parts the sentence is assembled from: the acting role's own name, the exception's own identifier,
+   * the permission the call requires and — when the roster has answered — the roles that hold it.
+   *
+   * Every part but the wording comes from a record or from {@link MEASURE_PERMISSION}, so neither a
+   * role, a role list nor the permission is typed into a sentence (rule P-6). The words are the ones
+   * the adapter's own refusal composes for the same call, so a reader quoting this screen and a reader
+   * quoting the refusal describe one rule (rule P-8).
+   */
+  measurePermissionPrefix: 'The acting role (',
+  measurePermissionSuffix: ') may not measure an option of ',
+  measurePermissionNeedPrefix: '. That needs the ',
+  measurePermissionNeedSuffix: ' permission.',
+  measurePermissionRolesPrefix: ' permission, which the roles ',
+  measurePermissionRolesSuffix: ' hold.',
 
   /**
    * Why the primary action cannot act when no persona other than the one that would request the plan may
@@ -1121,6 +1079,64 @@ function approvalBlockerOf(facts: ApprovalGateFacts): string | null {
 }
 
 /**
+ * Why the sandbox's recompute control cannot act for the acting persona, or `null` when it can.
+ *
+ * `solveScenario` refuses a caller whose role does not hold the `scenario.create` permission, and the
+ * sandbox sends that call for the selected option, so the control states the condition before the reader
+ * presses rather than the panel reporting the refusal afterwards (rule P-8). The sentence names the
+ * acting role, the exception the option belongs to, the permission and the roles that hold it — every
+ * one of them a record's own member or {@link MEASURE_PERMISSION}, and the words the adapter's own
+ * refusal composes, so the control and the refusal describe one rule.
+ *
+ * Three facts inform it, and an unknown blocks nothing: the acting persona and the record the option is
+ * measured for are what it decides from, and the roster supplies the roles it names. A control disabled
+ * on a fact nobody knows yet would lie about what it can do — the treatment {@link noDeciderReasonOf}
+ * gives an unreported persona as well. The service keeps refusing the call either way (rule P-3).
+ *
+ * @param actingUser - The acting persona the adapter reported, or `null` while it is unknown.
+ * @param rolesThatMayMeasure - The roles the roster reports as holding `scenario.create`, or `null`
+ *   while that is unknown.
+ * @param exceptionId - The exception the route names, or `undefined` when it names none.
+ * @returns The sentence the disabled recompute control explains itself with, or `null` when the persona
+ *   may measure an option.
+ */
+function sandboxPermissionBlockerOf(
+  actingUser: ActiveUser | null,
+  rolesThatMayMeasure: readonly Role[] | null,
+  exceptionId: ExceptionId | undefined,
+): string | null {
+  if (actingUser === null || exceptionId === undefined) {
+    return null;
+  }
+
+  if (actingUser.permissions.includes(MEASURE_PERMISSION)) {
+    return null;
+  }
+
+  const {
+    measurePermissionPrefix,
+    measurePermissionSuffix,
+    measurePermissionNeedPrefix,
+    measurePermissionNeedSuffix,
+    measurePermissionRolesPrefix,
+    measurePermissionRolesSuffix,
+  } = SCENARIO_COMPARISON_TEXT;
+
+  const sentence =
+    `${measurePermissionPrefix}${actingUser.role}${measurePermissionSuffix}${exceptionId}` +
+    `${measurePermissionNeedPrefix}${MEASURE_PERMISSION}`;
+
+  if (rolesThatMayMeasure === null || rolesThatMayMeasure.length === 0) {
+    return `${sentence}${measurePermissionNeedSuffix}`;
+  }
+
+  return (
+    `${sentence}${measurePermissionRolesPrefix}${rolesThatMayMeasure.join(', ')}` +
+    `${measurePermissionRolesSuffix}`
+  );
+}
+
+/**
  * Why the comparison export cannot act, or `null` when it can.
  *
  * Three causes, in the order a reader can act on them: a route that names no exception, so there is no
@@ -1381,10 +1397,13 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
   const [exportFailure, setExportFailure] = useState<string | null>(null);
 
   /*
-   * The option set. Retries are off on purpose, matching the cache the shell creates: the records are
-   * deterministic, so a silent second attempt would only delay the state the boundary reports, and the
-   * boundary offers the reader an explicit retry for the case where repeating the read can succeed.
-   * A route that names no exception asks for nothing at all.
+   * The option set. The method takes the exception's identifier alone — it declares no `Scope` — so the
+   * shell's plant and product selection reaches it through the acting role's plant scope the adapter
+   * applies, and the selection is deliberately absent from the key: it cannot change the answer, so a
+   * top-bar change re-reads nothing here (AAP 0.12.4). Retries are off on purpose, matching the cache
+   * the shell creates: the records are deterministic, so a silent second attempt would only delay the
+   * state the boundary reports, and the boundary offers the reader an explicit retry for the case where
+   * repeating the read can succeed. A route that names no exception asks for nothing at all.
    */
   const scenarioQuery = useQuery<Result<ScenarioSet>, unknown>({
     queryKey: ['getScenarioSet', exceptionId],
@@ -1401,8 +1420,8 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
    * the query it sends and the two halves of the shell's selection — the same shape the inbox keys its
    * own entry with, so the two readers of one (query, scope) share a single entry rather than fetching
    * it twice. A refusal here is not turned into a state of the page: the comparison below behaves as it
-   * does without the read (see the module note), so an inbox this persona may not read never breaks the
-   * comparison they may.
+   * does without the read (see {@link decidedPlanForOption}), so an inbox this persona may not read
+   * never breaks the comparison they may.
    */
   const approvalsQuery = useQuery<Result<Approval[]>, unknown>({
     queryKey: ['listApprovals', APPROVALS_QUERY, scope.plants, scope.products],
@@ -1425,12 +1444,14 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
     retry: false,
   });
 
-  /* Who is acting, which roles the roster reports as holding the permission the request needs, and which
-     personas it reports at all — the three facts the request gate reads instead of the permission matrix,
-     because a feature may not import `src/domain` (AAP 0.18.1). Each answers `null` while it is unknown,
-     and every gate that reads one of them declines to block on an unknown (rule P-8). */
+  /* Who is acting, which roles the roster reports as holding each permission this screen explains a
+     refusal for, and which personas it reports at all — the facts the request gate and the sandbox's
+     permission gate read instead of the permission matrix, because a feature may not import `src/domain`
+     (AAP 0.18.1). Each answers `null` while it is unknown, and every gate that reads one of them
+     declines to block on an unknown (rule P-8). */
   const actingUser = useActiveUser();
   const rolesThatMayRequest = useRolesHolding(REQUEST_PERMISSION);
+  const rolesThatMayMeasure = useRolesHolding(MEASURE_PERMISSION);
   const roster = usePersonaRoster();
 
   const result = scenarioQuery.data;
@@ -1658,6 +1679,16 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
     isRequesting,
     decided: decidedPlan,
   });
+  /* The same treatment for the sandbox: a persona the matrix does not let measure an option is given the
+     control already disabled, with the sentence the adapter's own refusal composes, so the call is not
+     attempted at all rather than refused afterwards. The record-absence sentence keeps first place inside
+     the panel, and an unknown persona or roster blocks nothing (rule P-8). */
+  const sandboxPermissionBlocker = sandboxPermissionBlockerOf(
+    actingUser,
+    rolesThatMayMeasure,
+    exceptionId,
+  );
+
   /* The export states the same condition the request does: while the set has not settled there is
      nothing to compare yet, which is a fact about the read rather than about the record. */
   const exportBlocker = exportBlockerOf(
@@ -1843,6 +1874,7 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
             <ScenarioSandbox
               scenario={selected ?? null}
               caseBoundStatements={caseBoundStatements}
+              permissionBlocker={sandboxPermissionBlocker}
               onRecomputed={handleSandboxRecomputed}
             />
           </div>

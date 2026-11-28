@@ -1,129 +1,30 @@
 /**
- * The five-axis resilience radar of the competitive atlas: one polygon per series, drawn apart, and
- * no combined reading anywhere on the drawing.
+ * The five-axis resilience radar of the competitive atlas: one polygon per series, drawn apart,
+ * and no combined reading anywhere on the drawing.
  *
- * WHY EACH SERIES IS DRAWN SEPARATELY (rule P-5). A radar chart is where provenance is normally
- * blended: the familiar version fills one area per company and then puts an average "resilience
- * score" beside it. This component has no such member. Every entry in `series` becomes its own
- * polygon with its own vertices and its own visible label, and the module carries nothing that sums,
- * averages, ranks or otherwise combines two series. The client's self-assessment and the competitors
- * therefore cross the same axes as separate outlines, which makes the separation structural rather
- * than a review note: a caller looking for a combined figure has nowhere to obtain one.
+ * Fixing inputs: AAP §0.8, which keeps first-party and market-intelligence series apart and has
+ * the radar draw each series separately; AAP §0.10, where the client radar series' own tag sits
+ * beside the seven §5.3 `SimLabel` strings rather than inside them; and AAP §0.5.2, which places
+ * `RadarChart` among the typed-series charts drawn as custom SVG with no charting dependency.
  *
- * WHY NO COMPANION STRING IS WRITTEN HERE (rule P-1). A competitor's name is followed by
- * `COMPETITOR_NAME_TAG`, imported from `../types` so a reworded tag moves in one place and this module
- * follows it, and every series' label line is the companion label its own record carries. For the
- * client's series that is the longer series-specific string that sits alongside the seven fixed
- * section 5.3 labels rather than inside them (AAP 0.10), so neither the tag nor a label literal appears
- * in this file, and no series is relabelled from its provenance.
+ * WHY EACH SERIES IS DRAWN SEPARATELY (rule P-5). A radar is where provenance is normally
+ * blended: the familiar version fills one area per company and puts an average "resilience score"
+ * beside it. This component has no such member — every entry in `series` is its own polygon with
+ * its own vertices and its own visible label, and nothing here sums, averages or ranks two
+ * series, so a caller looking for a combined figure has nowhere to obtain one.
+ *
+ * WHY NO COMPANION STRING IS WRITTEN HERE (rule P-1). `COMPETITOR_NAME_TAG` is imported from
+ * `../types`, so a reworded tag moves in one place and this module follows it, and every series'
+ * label line is the companion label its own record carries. Neither the tag nor a label literal
+ * appears in this file, and no series is relabelled from its provenance.
  *
  * WHY THE SWATCH LEGEND IS NOT HERE. The calling screen renders `./legend.tsx` from the same
- * `AtlasSeries` data, so a series' swatch and its polygon resolve the same role token — both from the
- * one chart tone table `./horizontal-bar-chart.tsx` exports — and cannot disagree. Which of the three
- * competitor hues that token is comes from `competitorSlotOf`, the same lookup the legend and the
- * network view read, so the slot follows the competitor's identifier rather than the position the
- * series holds in either list. This component prints each series' name and its companion tag inside
- * the drawing, which is what rule P-1 requires of a labelled series, and leaves the colour legend to
- * the screen.
- *
- * THE SCALE IS A CHART CONCERN. `RadarAxis` declares no bounds. The simulated market-intelligence
- * pack fixes its scores as integers from zero to one hundred, one per axis in axis order, with the
- * upper bound the strongest reading the pack records; `SCORE_MIN` and `SCORE_MAX` below are that
- * scale and nothing else reads them. They are geometry rather than a figure: a reading outside them
- * is drawn at the nearest ring instead of off the drawing, and the only numbers the drawing prints are
- * the scale's own two values — its midpoint and its upper bound, computed from those two constants —
- * so a reader can measure an outline against the axis and no reading is ever typed onto the screen
- * (rule P-6).
- *
- * WHY EVERY OUTLINE IS PAINTED UNDER EVERY MARK, AND THE POINTER AND THE PRESS ARE BOTH RESOLVED BY
- * PROXIMITY (pointer hit-testing). Paint order protects the read-out and the press alike, and the
- * drawing paints in two passes for it: an outline painted after a mark would sit above that mark's
- * vertex target and take the pointer aimed at it. A polygon is decoration for the readings the marks
- * carry and never acts
- * itself, so it is transparent to pointer events and every outline is painted before every mark,
- * both in payload order. Paint order alone cannot answer a pointer, though: a target has to stay
- * large enough for a pointer (rule B-3), and two series' scores on one axis can put their dots closer
- * together than one target is wide, so the target painted last covers the dot drawn before it and
- * sits above it wherever the two overlap. The drawing therefore resolves the pointer itself rather
- * than leaving it to the browser's hit test: {@link RadarChart} listens on the `<svg>` for the
- * pointer's movement and for its press, converts the pointer's coordinates into this drawing's own
- * units, and answers the vertex whose centre is NEAREST it — see {@link nearestRadarMark} — within
- * the hit radius a target already carries. Pointing into a dense cluster therefore reads out the dot
- * nearest the pointer however the targets overlap, a press at that point activates the same vertex,
- * and a pointer clear of every vertex reads out and activates nothing, so no reading is invented
- * (rule P-8). The ring follows the vertex that resolution picked, so the mark a reader is told about
- * is the mark that lights up even where another series' target is painted above it. The keyboard
- * route is untouched and stays exact, because it needs no hit-testing at all: one focus stop per
- * vertex, in axis order, each named with its axis, its series and its value, activated by `Enter` or
- * `Space` on the mark itself.
- *
- * WHY EACH POLYGON CARRIES ITS OWN LABEL (rule P-1). A legend beside a drawing relates a name to a
- * shape only through a swatch a reader has to match, so each series is labelled at its own outline as
- * well: the label sits at the vertex the series draws on the axis its index states
- * (`seriesIndex % axes.length`, so five series name five different axes and a drawing of MORE series
- * than axes shares an axis between polygons, which are then told apart by the vertices their own
- * readings place), {@link POLYGON_LABEL_OFFSET} beyond that vertex along the axis, with a short leader
- * line back to it and a swatch in the polygon's own role token. The words are set in the primary text
- * role, so they never rest on a hue, and they sit outside their swatch in both directions — away from
- * the drawing's vertical centre line, and one line clear of the spoke — so a label never crosses the
- * axis name printed at the outer end of its own spoke nor a neighbour's label. The label band below the
- * axes is unchanged: it keeps each series' name and its companion label, which is where the fixed
- * provenance string is printed for the series as a whole.
- *
- * WHY THOSE WORDS CARRY A HALO (rule B-3). A label sits outside its own polygon, but the drawing is
- * dense enough that an axis spoke or another series' outline still runs through the space its words
- * occupy, and a name painted straight over a dark or coloured stroke reads poorly against it. Each
- * label's words are therefore stroked in the ground role and filled after that stroke (SVG's
- * `paint-order: stroke` paints the stroke first and the fill over it), so the halo surrounds every
- * glyph instead of covering it: the label reads wherever it lands, the stroke is a role token the
- * theme owns rather than a raw colour, and the fill a reader reads the name in stays the primary text
- * role whose contrast specification §4 measures.
- *
- * WHY THE ENTITY IN VIEW IS MARKED IN THE DRAWING, NOT ONLY BESIDE IT (rule P-8). SCR-13's entity
- * selector reports the series a reader picked, and a control whose only effect is its own highlight
- * does not perform the selection function it presents. `selectedSeriesId` therefore reaches the
- * drawing: the series in view keeps its own outline, drawn with a heavier stroke, and its label-band
- * row states `aria-current` and prints its name in the emphasised weight, while every other series
- * stays drawn exactly as it was. No reading changes and no series is hidden, so the marking is
- * structural — a stroke weight, a text weight and an attribute — and never a hue a reader has to
- * separate (rule B-3).
- *
- * WHAT IT DOES NOT DO. It reads no clock, keeps no state beyond the vertices the drawing reports (the
- * one the pointer resolved and the one the keyboard is on) and the
- * evidence it has open, sends no request (rule B-1), reads no configuration (rule B-2) and imports no
- * seed record (rule P-2: every score arrives in the `series` prop exactly as the atlas payload stated
- * it). It computes and formats no domain figure (rule P-6), declares one transition — the guarded fade
- * that reveals a vertex's ring — and no animation at all, so a reduced-motion session is shown the
- * same drawing with nothing to undo (rule B-3), claims nothing about where a record is held or whether
- * it could be altered (rule P-4), and names no company, place or person of its own (rule P-7).
- *
- * ACCESSIBILITY (rule B-3). The drawing is one `<svg role="group">` named by
- * `RADAR_CHART_TEXT.groupLabel`, which deliberately does not repeat the `<figcaption>` the caller's
- * `./chart-frame.tsx` supplies. Each axis is named at its outer end in the secondary text role, and
- * the rings, spokes, the scale's two values and vertex dots are decoration, hidden from assistive
- * technology because every reading is named at its own vertex and printed again in the frame's table
- * view. A vertex that can act — because the caller's
- * `evidenceRefFor` resolved a reference for it, or because `onActivate` was supplied — is a
- * `<g role="button" tabIndex={0}>` whose accessible name states the axis, the series and the value,
- * operable by the pointer the drawing resolves and by `Enter` or `Space` on the mark itself, with a
- * ring in the `focus-ring` role drawn around the mark. WHICH VERTEX IS ACTIVE IS REACT STATE, set by
- * the drawing's nearest-vertex resolution as the pointer moves over it and by focus reaching a mark,
- * and cleared when the pointer leaves the drawing, when it moves clear of every vertex, or when that
- * mark loses focus: that state paints the ring and it is what `./chart-readout.tsx` prints beside the
- * drawing — the axis, the series and the score the mark already announces — so a pointer reader has
- * the same reading a screen reader does. A hover variant alone could not carry that: every hover
- * variant this project emits lives inside `@media (hover: hover)`, so it is inert wherever the engine
- * never matches it, and it would light the target painted above the dot a reader aimed at rather than
- * the vertex the drawing resolved. A vertex that can do nothing stays a plain `<circle>`, so rule P-8
- * is never broken by a control with nothing behind it, and the drawing's pointer listeners are not a
- * control: they add no focus stop and no accessible node. WHAT A POINTER MEANS is resolved by
- * distance: two series' readings on one axis can sit closer together than two invisible targets, so a
- * pointer movement reads out, and a press activates, the mark nearest the pointer among the drawing's
- * marks rather than the mark whose target received the event, and the outline polygons take no
- * pointer events at all, so a shape that performs nothing never swallows an aim. `Enter` and `Space`
- * are exact, because focus lands on one mark alone.
+ * `AtlasSeries` data, so a series' swatch and its polygon resolve one role token — the chart tone
+ * table `./horizontal-bar-chart.tsx` exports — and `competitorSlotOf` picks which of the three
+ * competitor hues it is, by identifier rather than by position in either list. This drawing prints
+ * each series' name and its companion tag itself and leaves the colour legend to the screen.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
@@ -405,6 +306,11 @@ const BAND_GEOMETRY: SeriesBandGeometry = {
 /**
  * The pack scale the seed's market-intelligence records use, and the only two numbers the geometry
  * needs: a score is placed by how far it runs from the first to the second.
+ *
+ * `RadarAxis` declares no bounds, so the scale is this chart's concern: the pack scores its readings as
+ * integers from zero to one hundred, its strongest reading the upper bound. A reading outside them is
+ * drawn at the nearest ring rather than off the drawing ({@link axisFraction}), and the drawing prints
+ * only this scale's midpoint and upper bound, computed from these constants, so none is typed (P-6).
  */
 const SCORE_MIN = 0;
 const SCORE_MAX = 100;
@@ -974,6 +880,17 @@ function isSameVertex(one: ActiveVertex | null, other: ActiveVertex): boolean {
   return one !== null && one.seriesId === other.seriesId && one.axisId === other.axisId;
 }
 
+/**
+ * The key one vertex's own control is held under, so the drawing can reach the element a reading was
+ * rendered as.
+ *
+ * The two identifiers are joined through a separator no identifier carries, rather than concatenated
+ * bare, so no series and axis pair can compose a key another pair also composes.
+ */
+function vertexKeyOf(vertex: ActiveVertex): string {
+  return `${vertex.seriesId}\u0000${vertex.axisId}`;
+}
+
 /** One vertex a press can resolve to: the reading it reports and the point its dot is drawn at. */
 interface RadarMarkCentre {
   /** The series whose record the vertex opens, or which the press reports through `onActivate`. */
@@ -998,6 +915,10 @@ interface RadarMarkCentre {
  * drawing paints them, so the answer is deterministic. A radius that is not positive, and a point the
  * browser could not resolve (a coordinate that is not a finite number), match nothing and yield
  * `null`, which is what keeps a press on empty space from activating a mark at all (rule P-8).
+ *
+ * BOTH POINTER ROUTES DISPATCH HERE. The drawing's pointer movement reads out this answer and its press
+ * handler activates the same vertex, and the ring follows the vertex answered here even where another
+ * series' target is painted above it. The keyboard route never comes here: focus lands on one mark.
  *
  * @param marks The vertices a press can resolve to, in the order the drawing paints them.
  * @param point The press, in the drawing's own coordinates.
@@ -1148,6 +1069,14 @@ interface SeriesMarksProps extends SeriesGeometryProps {
   readonly onVertexFocus: (vertex: ActiveVertex) => void;
   /** Reports the vertex focus left. */
   readonly onVertexBlur: (vertex: ActiveVertex) => void;
+  /**
+   * Reports the element one acting vertex is rendered as, or `null` once it leaves the drawing.
+   *
+   * The drawing holds these so a press can put focus on the vertex it resolved: what a browser
+   * focuses when a press begins is the topmost target under the pointer, which may belong to another
+   * series, so the mark that acted has to be found by its own identity rather than by paint order.
+   */
+  readonly onVertexElement: (vertex: ActiveVertex, element: SVGGElement | null) => void;
   /** The radius each acting vertex's invisible target is drawn at, in the drawing's own units. */
   readonly hitRadius: number;
 }
@@ -1218,6 +1147,12 @@ function SeriesOutline({
  * then did nothing would be a control that cannot act (rule P-8), and the drawing still shows every
  * reading it holds.
  *
+ * WHAT A CONTROL REPORTS ABOUT ITSELF. A control hands the chart the element it is drawn as, through
+ * `onVertexElement`, because a press activates the vertex the chart resolved and has to leave focus on
+ * that same vertex: what a browser focuses when a press begins is the topmost target under the pointer,
+ * which can be a neighbouring series' mark, and the vertex that acted is the one focus comes back to
+ * when the evidence drawer closes (rule B-3).
+ *
  * WHO DECIDES WHICH MARK A POINTER MEANS. The chart owns the drawing's pointer listeners: it converts
  * the pointer's position into the drawing's own units and reads out the mark nearest it as the pointer
  * moves, activating that same mark when it is pressed, so no layer needs its neighbours' geometry.
@@ -1233,6 +1168,7 @@ function SeriesMarks({
   activeVertex,
   onVertexFocus,
   onVertexBlur,
+  onVertexElement,
   hitRadius,
 }: SeriesMarksProps): JSX.Element | null {
   const vertices = verticesOf(series, axes);
@@ -1262,7 +1198,8 @@ function SeriesMarks({
        hit-testing involved. The pointer route is the drawing's own nearest-vertex resolution, which
        reads out and activates the vertex nearest the pointer; a mark deliberately carries no pointer
        handler, so a target painted above a neighbour can neither answer for it nor make one gesture
-       activate two readings. */
+       activate two readings. It does report the element it is drawn as, so the press that resolves to
+       this vertex can put focus here instead of on whichever target the browser focused. */
     function activate(): void {
       onVertexActivate(series.id, evidenceRef);
     }
@@ -1274,6 +1211,9 @@ function SeriesMarks({
     return (
       <g
         key={vertex.axisId}
+        ref={(element) => {
+          onVertexElement(mark, element);
+        }}
         role="button"
         tabIndex={0}
         aria-label={vertex.label}
@@ -1337,18 +1277,32 @@ function SeriesMarks({
  *
  * The drawing is presentational by contract: it takes the axes and the series the atlas payload
  * carried and draws one outline per series, one labelled mark per reading, and one name-and-label
- * line per series beneath them. It reads no clock, sends no request and computes no domain figure,
- * so a re-render of the atlas draws the same radar from the same payload.
+ * line per series beneath them, so a re-render of the atlas draws the same radar from the same
+ * payload.
+ *
+ * WHAT IT DOES NOT DO. It reads no clock, sends no request (rule B-1), reads no configuration (rule B-2)
+ * and imports no seed record, because every score arrives in the `series` prop (rule P-2). It computes and
+ * formats no domain figure (rule P-6), and declares one transition — the guarded fade on a vertex's ring —
+ * and no animation, so a reduced-motion session sees the same drawing (rule B-3); it claims nothing about
+ * where a record is held or whether it could be altered (rule P-4) and names no company or person
+ * (rule P-7).
+ *
+ * WHAT IT ANNOUNCES (rule B-3). The drawing is one `<svg role="group">` named by
+ * {@link RADAR_CHART_TEXT.groupLabel}, deliberately not repeating the caller's `<figcaption>`; rings,
+ * spokes, scale values and plain dots are hidden from assistive technology, because every reading is named
+ * at its vertex — axis, series, score — and printed in the frame's table view; an acting vertex is a `<g
+ * role="button" tabIndex={0}>` with a `focus-ring` ring, and an inert one a plain `<circle>` (rule P-8).
  *
  * The component holds three pieces of state — the vertex the pointer resolved, the vertex the keyboard
- * is on, and which evidence is open — and nothing else: activating a
- * mark asks the caller where that reading's evidence lives, opens `./evidence-drawer.tsx` beside the
- * drawing when it is told, and reports the series through `onActivate`. The drawer is a sibling of
- * the `<svg>` rather than a child of it, because a dialog is not an SVG element and the drawer
- * portals itself out of the flow anyway; keeping it outside the drawing also keeps it out of the
- * drawing's accessible name and out of its group. The one effect measures the drawing's width, through
- * `./chart-readout.tsx`'s `useChartScale`, so a vertex's target is sized in CSS pixels rather than in
- * the drawing's proportions; nothing here reads a clock or subscribes to anything else.
+ * is on, and which evidence is open — plus a map of the elements the acting marks are drawn as, and
+ * nothing else: activating a mark asks the caller where that reading's evidence lives, opens
+ * `./evidence-drawer.tsx` beside the drawing when it is told, and reports the series through
+ * `onActivate`. The drawer is a sibling of the `<svg>` rather than a child of it, because a dialog is
+ * not an SVG element and the drawer portals itself out of the flow anyway; keeping it outside the
+ * drawing also keeps it out of the drawing's accessible name and out of its group. The one effect
+ * measures the drawing's width, through `./chart-readout.tsx`'s `useChartScale`, so a vertex's target
+ * is sized in CSS pixels rather than in the drawing's proportions; nothing here reads a clock or
+ * subscribes to anything else.
  *
  * The height grows with the number of series, so the name band below the axes always fits whatever
  * the payload carries and no label is clipped.
@@ -1357,8 +1311,10 @@ function SeriesMarks({
  * answers the vertex nearest the pointer within the target radius as the pointer moves, so pointing into
  * a dense cluster reads out the dot under the pointer even where a neighbour's larger target is painted
  * above it, a press at that point activates that same vertex, and a pointer clear of every vertex leaves
- * nothing reading out. The keyboard route keeps setting and clearing the read-out on focus and blur and
- * keeps activating the focused mark exactly.
+ * nothing reading out. The press also leaves focus on the vertex it activated rather than on the topmost
+ * target the browser focused for it, which can belong to another series, so the reading a reader pressed
+ * is the one focus returns to when the drawer closes (rule B-3). The keyboard route keeps setting and
+ * clearing the read-out on focus and blur and keeps activating the focused mark exactly.
  */
 export function RadarChart({
   axes,
@@ -1371,6 +1327,11 @@ export function RadarChart({
   const [pointedVertex, setPointedVertex] = useState<ActiveVertex | null>(null);
   const [focusedVertex, setFocusedVertex] = useState<ActiveVertex | null>(null);
   const { surfaceRef, scale: measuredScale } = useChartScale(VIEW_WIDTH);
+
+  /* The elements the acting marks are drawn as, keyed by the vertex each one reads out. The drawing
+     resolves a press to a vertex rather than to the element the browser hit, so this map is how the
+     press reaches that vertex's own control. */
+  const vertexElements = useRef(new Map<string, SVGGElement>());
 
   const viewHeight = LABEL_BAND_TOP + series.length * SERIES_LABEL_ROW_HEIGHT + LABEL_BAND_PADDING;
   const marks = activateableMarksOf(series, axes, evidenceRefFor, onActivate);
@@ -1397,7 +1358,7 @@ export function RadarChart({
   /**
    * The scale's two values and where each is printed: the midpoint and the outer ring, computed from the
    * scale the records are scored on rather than typed in, and placed clear of every name the drawing
-   * already prints (QA5-F32).
+   * already prints.
    */
   const ringTicks = ringTicksOf(axes.length);
   const ringTickPlacements = ringTickPlacementsOf(ringTicks, axes, series);
@@ -1425,6 +1386,24 @@ export function RadarChart({
     MARK_HIT_RADIUS,
     Number.POSITIVE_INFINITY,
   );
+
+  /**
+   * Holds the element one acting vertex is drawn as, and drops it once that mark leaves the drawing.
+   *
+   * A mark reports itself in through {@link SeriesMarks}, so the drawing can find the control behind a
+   * reading by the two identifiers that name it rather than by paint order, and re-renders leave the
+   * map holding only the marks actually on screen.
+   */
+  function registerVertexElement(vertex: ActiveVertex, element: SVGGElement | null): void {
+    const key = vertexKeyOf(vertex);
+
+    if (element === null) {
+      vertexElements.current.delete(key);
+      return;
+    }
+
+    vertexElements.current.set(key, element);
+  }
 
   function activateVertex(seriesId: string, evidenceRef: string | null): void {
     onActivate?.(seriesId);
@@ -1564,6 +1543,13 @@ export function RadarChart({
    * a reader presses is the mark the read-out was naming, and a press clear of every vertex activates
    * nothing (rule P-8).
    *
+   * WHY FOCUS MOVES HERE. A browser focuses the topmost focusable element under the pointer when a press
+   * begins, and two vertices can sit closer together than their targets are wide, so that element can be
+   * a neighbouring series' mark. Focus is therefore put on the vertex this drawing resolved, which is the
+   * vertex the press activates: the reader stays on the reading they chose, and `./evidence-drawer.tsx`
+   * records this element as the one to return focus to, so closing the drawer puts them back on the same
+   * vertex rather than on a neighbour's (rule B-3).
+   *
    * @param event The press the drawing received.
    */
   function activateNearestVertex(event: ReactMouseEvent<SVGSVGElement>): void {
@@ -1573,6 +1559,7 @@ export function RadarChart({
       return;
     }
 
+    vertexElements.current.get(vertexKeyOf(mark))?.focus();
     activateVertex(mark.seriesId, evidenceRefFor(mark.seriesId, mark.axisId) ?? null);
   }
 
@@ -1621,7 +1608,8 @@ export function RadarChart({
 
           {/* Every outline first, then every series' marks. A polygon is decoration for the readings
               the marks carry, so painting the outlines in one pass is what keeps any polygon from
-              sitting above a mark and taking its activation. */}
+              sitting above a mark's vertex target and taking the pointer aimed at it: paint order
+              protects the read-out and the press alike. */}
           {series.map((one) => (
             <SeriesOutline
               key={one.id}
@@ -1644,6 +1632,7 @@ export function RadarChart({
               activeVertex={activeVertex}
               onVertexFocus={focusVertex}
               onVertexBlur={blurVertex}
+              onVertexElement={registerVertexElement}
               hitRadius={hitRadius}
             />
           ))}

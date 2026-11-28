@@ -1100,7 +1100,7 @@ function packBanner(): HTMLElement {
  * Arms every stub with the payloads a case starts from, so a case states only the read it changes.
  *
  * The choices the screen holds outlive a mount on purpose, because that is what a client-side route
- * change needs (QA5-F40), so every case returns the store to a first visit's values before it renders.
+ * change needs, so every case returns the store to a first visit's values before it renders.
  */
 beforeEach(() => {
   for (const member of Object.values(port)) {
@@ -2009,8 +2009,8 @@ describe('CompetitiveAtlasScreen', () => {
       screen.getByText(`${COMPETITIVE_ATLAS_TEXT.entityCaptionPrefix} ${third.label}`),
     ).toBeInTheDocument();
 
-    /* The shell unmounts this screen on a client-side route change, which is the moment QA5-F40 recorded
-       the atlas reverting to the class's default series. */
+    /* The shell unmounts this screen on a client-side route change, so a class choice the component held
+       would be lost with it; the module store is what carries that choice across the unmount. */
     first.unmount();
 
     renderScreen();

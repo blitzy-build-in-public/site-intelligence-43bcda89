@@ -236,19 +236,20 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  * The failure a policy identifier that answers no record produces.
  *
  * A policy a reader cannot open is a record the state does not hold rather than a malformed request,
- * which is the `'not-found'` cause of AAP 0.12.3; the message names the identifiers the record set
- * does hold, so the reader learns what may be opened instead.
+ * which is the `'not-found'` cause of AAP 0.12.3. The message echoes the identifier the caller asked
+ * for and nothing else: the identifiers the record set does hold are what a reader entitled to this
+ * family can list for itself, so repeating them here would answer one unknown identifier with an
+ * account of the whole set. `./exceptions.ts` and `./approvals.ts` report their own not-found the same
+ * way.
  *
- * @param ctx - The call's context, whose trace and identifiers the failure carries.
+ * @param ctx - The call's context, whose trace the failure carries.
  * @param policyId - The identifier that resolved to nothing.
  * @returns A fresh not-found failure.
  */
 function notFoundProblem(ctx: HandlerContext, policyId: PolicyId): Problem {
-  const known = ctx.state.records.policies.map((policy) => policy.id).join(', ');
-
   return {
     type: 'not-found',
-    message: `No policy record answers the identifier ${policyId}. The policy set holds ${known}.`,
+    message: `No policy record answers the identifier ${policyId}.`,
     traceId: ctx.traceId,
   };
 }
@@ -301,6 +302,11 @@ function requirePermission(ctx: HandlerContext, permission: Permission, subject:
  * unable to say how current the data behind the plan is. The trigger is kept so the demonstration's
  * refusal state is reported by the strip instead of being papered over with pills that would read as
  * current.
+ *
+ * The asymmetry a reader may notice — every other read in this family asks the matrix — is stated where
+ * the matrix itself is described: the module header of `src/domain/policy/permissions.ts` records that
+ * this read is deliberately not a cell, and why, beside the two redaction duties it likewise leaves to
+ * the adapter.
  *
  * @param ctx - The call's context: the state whose triggers are read, and the persona the refusal is
  *   reported for.
@@ -746,7 +752,11 @@ export interface PolicyExceptionDraft {
   /** Why the exception is needed, in the requester's own words. Required, and not blank. */
   reason: string;
 
-  /** When the exception stops applying, as an ISO 8601 instant later than the demonstration clock. */
+  /**
+   * When the exception stops applying: an ISO 8601 instant carrying an offset, naming a real calendar
+   * date and time of day, and falling after the demonstration clock. It is recorded in the offset that
+   * clock carries, whatever offset the caller wrote.
+   */
   expiresAt: Timestamp;
 
   /** The second persona whose approval the request needs; never the persona requesting it. */
@@ -874,21 +884,187 @@ export async function getPolicy(ctx: HandlerContext, policyId: PolicyId): Promis
  * The one write — specification SCR-07, contracts §7.2 and §6
  * ------------------------------------------------------------------------------------------- */
 
+/** Milliseconds in one minute, which is the unit an ISO 8601 offset states. */
+const MINUTE_MS = 60_000;
+
+/** Minutes in one hour, which turns an offset's two fields into one count. */
+const MINUTES_PER_HOUR = 60;
+
+/** Width an ISO 8601 instant pads its year to. */
+const YEAR_DIGITS = 4;
+
+/** Width an ISO 8601 instant pads its month, day, hour, minute and second to. */
+const TWO_DIGIT_WIDTH = 2;
+
+/** The greatest hour an offset states, as the two digits of its field. */
+const MAX_OFFSET_HOUR = 23;
+
+/** The greatest minute an offset states, as the two digits of its field. */
+const MAX_OFFSET_MINUTE = 59;
+
 /**
- * The instant an ISO 8601 value names, in epoch milliseconds, or `null` when it names none.
+ * The shape an exception expiry must take: an ISO 8601 instant stated to the second, carrying the
+ * numeric offset that makes the text name a moment rather than a reading of a clock.
  *
- * The value is compared against the constant demonstration clock rather than the current time, so the
- * same draft is accepted or refused identically in every run (AAP 0.2.1). A value this platform
- * cannot place — an empty string, a phrase, a date that does not exist — answers `null` rather than a
- * guess, which is what turns it into a validation failure naming the field.
+ * The shape is required beside the parse because `Date.parse` places far more than an instant — a
+ * written phrase, a date stated without an offset, an offset no zone carries — while contracts §1
+ * fixes every timestamp this build holds as ISO 8601 with an offset in Europe/Berlin. The groups are
+ * the fields the canonical spelling is rebuilt from, and the shape is the instant form of the one the
+ * grant dialog's own `ISO_DATE_PATTERN` guards on the screen's side.
+ */
+const INSTANT_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})([+-])(\d{2}):(\d{2})$/;
+
+/**
+ * The offset the demonstration clock carries, which is the one offset an instant is recorded in here.
+ *
+ * Read from the constant rather than typed, and used for every record this family stores: `compareText`
+ * orders two instants by their own text, which is their order in time only while both carry this one
+ * offset (contracts §1), so an expiry is re-expressed in it before anything holds it.
+ */
+const DEMO_CLOCK_OFFSET = DEMO_CLOCK.slice(-6);
+
+/** That offset in milliseconds, which is the step the canonical spelling is read at. */
+const DEMO_CLOCK_OFFSET_MS = offsetMinutesOf(DEMO_CLOCK_OFFSET) * MINUTE_MS;
+
+/**
+ * The instant an expiry names, and the one spelling the record and its audit event carry.
+ */
+interface ExceptionExpiry {
+  /**
+   * The instant in epoch milliseconds, which is what the comparison against the demonstration clock
+   * is made on.
+   */
+  readonly epochMillis: number;
+
+  /** The same instant spelled in the demonstration clock's own offset, as a record stores it. */
+  readonly canonical: Timestamp;
+}
+
+/**
+ * The instant a value names, with the canonical spelling a record carries, or `null` when it names none.
+ *
+ * Three checks stand between a text and an instant, and each rejects a class of value rather than
+ * trusting a parser: the shape (`INSTANT_PATTERN`), the offset's own two fields, and the calendar — the
+ * last by round trip, because `Date.UTC` rolls 30 February to 2 March and hour 24 to the next midnight
+ * rather than refusing them, so a text that does not read back as the fields it spelled names no day or
+ * time of day that exists. An empty string, a phrase, a date stated without an offset and an instant
+ * no calendar holds all answer `null` rather than a guess, which is what turns each of them into a
+ * validation failure naming the field.
+ *
+ * THE SPELLING IS THE RECORD'S, NOT THE CALLER'S. An instant is one moment however its offset is
+ * written, so an accepted value is re-expressed in the offset the demonstration clock carries before
+ * this module stores it: `2027-03-05T01:00:00+02:00` and `2027-03-05T00:00:00+01:00` name the one
+ * instant, and the second is the spelling the pending record and its audit event both carry. That is
+ * the same two-step the screen's own `expiryInstantOf` performs before it sends a date, and it is what
+ * keeps a lexical ordering of instants their ordering in time. The conversion is arithmetic on the
+ * parsed fields and the offset: no clock is read, no locale is consulted and the host time zone takes
+ * no part, so every machine answers the same (AAP 0.2.1).
  *
  * @param value - The value a draft carries as an expiration.
- * @returns The instant in epoch milliseconds, or `null` when the value is not one.
+ * @returns The instant and the spelling it is recorded in, or `null` when the value names no instant.
  */
-function instantOf(value: Timestamp): number | null {
-  const instant = Date.parse(value);
+function instantOf(value: Timestamp): ExceptionExpiry | null {
+  const match = INSTANT_PATTERN.exec(value);
 
-  return Number.isFinite(instant) ? instant : null;
+  if (match === null) {
+    return null;
+  }
+
+  /*
+   * Every group of the pattern is required, so a matched text states all nine of them; the empty
+   * fallbacks are what reading a match of that shape needs, not a case a matched text reaches.
+   */
+  const [
+    ,
+    yearText = '',
+    monthText = '',
+    dayText = '',
+    hourText = '',
+    minuteText = '',
+    secondText = '',
+    sign = '',
+    offsetHourText = '',
+    offsetMinuteText = '',
+  ] = match;
+
+  const offsetHour = Number(offsetHourText);
+  const offsetMinute = Number(offsetMinuteText);
+
+  /*
+   * The round trip below is taken on the wall clock alone, so the offset is bounded here: two digits
+   * are a shape, and `+99:00` names a moment east of nowhere rather than an instant.
+   */
+  if (offsetHour > MAX_OFFSET_HOUR || offsetMinute > MAX_OFFSET_MINUTE) {
+    return null;
+  }
+
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+
+  const wallMillis = Date.UTC(year, month - 1, day, hour, minute, second);
+  const wallClock = new Date(wallMillis);
+
+  if (
+    wallClock.getUTCFullYear() !== year ||
+    wallClock.getUTCMonth() !== month - 1 ||
+    wallClock.getUTCDate() !== day ||
+    wallClock.getUTCHours() !== hour ||
+    wallClock.getUTCMinutes() !== minute ||
+    wallClock.getUTCSeconds() !== second
+  ) {
+    return null;
+  }
+
+  const statedOffset = offsetMinutesOf(`${sign}${offsetHourText}:${offsetMinuteText}`);
+  const epochMillis = wallMillis - statedOffset * MINUTE_MS;
+
+  return { epochMillis, canonical: canonicalInstantOf(epochMillis) };
+}
+
+/**
+ * The instant `epochMillis` names, spelled in the demonstration clock's own offset.
+ *
+ * The field readings are the UTC ones taken after that offset is added back, so the wall clock is the
+ * demonstration's and the suffix is the offset it was read at — the derivation the audit family's
+ * `instantAfterSeconds` uses to stamp an event. It converts an instant it was handed and reads no
+ * clock, so the answer depends on its argument alone.
+ *
+ * @param epochMillis - The instant to spell, in epoch milliseconds.
+ * @returns The instant as ISO 8601 with the demonstration clock's offset.
+ */
+function canonicalInstantOf(epochMillis: number): Timestamp {
+  const wallClock = new Date(epochMillis + DEMO_CLOCK_OFFSET_MS);
+
+  const year = String(wallClock.getUTCFullYear()).padStart(YEAR_DIGITS, '0');
+  const month = twoDigits(wallClock.getUTCMonth() + 1);
+  const day = twoDigits(wallClock.getUTCDate());
+  const hours = twoDigits(wallClock.getUTCHours());
+  const minutes = twoDigits(wallClock.getUTCMinutes());
+  const seconds = twoDigits(wallClock.getUTCSeconds());
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${DEMO_CLOCK_OFFSET}`;
+}
+
+/**
+ * The offset a `+hh:mm` or `-hh:mm` text counts, east of UTC in minutes.
+ *
+ * @param offset - The offset text, with its sign and both of its fields.
+ * @returns The offset in minutes, negative west of UTC.
+ */
+function offsetMinutesOf(offset: string): number {
+  const magnitude = Number(offset.slice(1, 3)) * MINUTES_PER_HOUR + Number(offset.slice(4, 6));
+
+  return offset.startsWith('-') ? -magnitude : magnitude;
+}
+
+/** Formats a count of one or two digits with a leading zero, as ISO 8601 writes it. */
+function twoDigits(value: number): string {
+  return String(value).padStart(TWO_DIGIT_WIDTH, '0');
 }
 
 /**
@@ -899,6 +1075,12 @@ function instantOf(value: Timestamp): number | null {
  * learns what to correct rather than that the call failed: a reason a second approver can read, an
  * expiry later than the demonstration clock, and a second persona distinct from the requester and
  * present in the record set. The requester is the acting persona, never a caller's claim.
+ *
+ * THE EXPIRY IS STORED AS THE INSTANT, NOT AS THE TEXT THAT NAMED IT. A draft's `expiresAt` must be an
+ * ISO 8601 instant carrying an offset, must name a real calendar date and time of day, and must fall
+ * after the demonstration clock; a value that satisfies all three is re-expressed in the offset the
+ * clock itself carries before the pending record or its audit event holds it, so the record and the
+ * trail state one instant in one spelling whatever the caller sent (`instantOf`).
  *
  * WHAT THE REQUEST DOES NOT DO, stated because it is the point. It grants nothing and decides
  * nothing: the record enters the session as `status: 'pending'`, no policy verdict consults it, no
@@ -939,12 +1121,13 @@ export async function requestPolicyException(
   if (expiry === null) {
     throw validationProblem(
       ctx,
-      'A policy exception request states when it stops applying as an ISO 8601 instant, and ' +
+      'A policy exception request states when it stops applying as an ISO 8601 instant with an ' +
+        'offset, spelled YYYY-MM-DDTHH:MM:SS+HH:MM and naming a real calendar date and time of day; ' +
         `draft.expiresAt ("${draft.expiresAt}") is not one.`,
     );
   }
 
-  if (expiry <= DEMO_CLOCK_INSTANT) {
+  if (expiry.epochMillis <= DEMO_CLOCK_INSTANT) {
     throw validationProblem(
       ctx,
       'A policy exception request expires after the demonstration clock, and ' +
@@ -985,7 +1168,7 @@ export async function requestPolicyException(
   const exception: PolicyException = {
     policyId: policy.id,
     reason,
-    expiresAt: draft.expiresAt,
+    expiresAt: expiry.canonical,
     requestedBy: ctx.actor.id,
     secondApproverId,
     status: PENDING,

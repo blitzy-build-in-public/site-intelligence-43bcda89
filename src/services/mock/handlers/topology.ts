@@ -2,107 +2,30 @@
  * The topology family of the in-browser mock adapter: the FileMap canvas's one read payload and the
  * six tiles of the ribbon above it.
  *
- * Implements the "Handlers" row of AAP 0.12.1 at the `handlers/` path AAP 0.13.1 fixes, in the shape
- * the parent folder's brief gives this entry: the S2 `Topology` payload — plants, suppliers, materials,
- * origins and customers with coordinates, the lanes, `pinsByNode` copied from the seed's pin counts —
- * together with the six canvas ribbon tiles built from the aggregation modules, and with nothing that
- * addresses a map host and no competitor concept anywhere in it. `platform-contracts.md` §3 declares
- * `Topology` among the core types, and `src/types/topology.ts` is its declaration; this module fills
- * that shape from the session's records and computes nothing of its own.
+ * Implements the "Handlers" row of AAP 0.12.1 at the `handlers/` path AAP 0.13.1 fixes: the S2
+ * `Topology` payload — plants, suppliers, materials, origins and customers with coordinates, the lanes,
+ * `pinsByNode` copied from the seed's pin counts — together with the six canvas ribbon tiles built from
+ * the aggregation modules, and nothing that addresses a map host. `platform-contracts.md` §3 declares
+ * `Topology` and `src/types/topology.ts` is its declaration; this module fills that shape from the
+ * session's records and computes nothing of its own (AAP 0.12.3's `GET /topology`).
  *
- * WHAT THE READ IS NARROWED BY (AAP 0.2.1, AAP 0.12.3). `getTopology` and `getCanvasRibbon` take the
- * shell's selection as one `ScopeFilterInput` and resolve it once through `resolveScope`, so the canvas
- * describes the same scope the queue and the overview beside it do. The plant half of that scope decides
- * which nodes and lanes the payload holds: the plant nodes are the plants in scope; a material-to-plant
- * lane survives when it lands on one of them; a plant-to-customer lane survives when it leaves one of
- * them; a supplier-to-material lane survives when it reaches a material the payload still holds; and an
- * origin-to-supplier lane survives when it reaches a retained supplier. A material, supplier, origin or
- * customer node survives when a retained lane touches it or when the records place it at no plant at
- * all, and `pinsByNode` carries a count only for a node the payload still holds. An empty `scope.plants`
- * narrows the plant-anchored part of the network away entirely — it means nothing is in scope, never
- * "all plants" — which is the reading `src/domain/aggregation/scope.ts` fixes for that member. A material
- * is placed at the site its primary supplier ships from, because a material record holds no site of its
- * own. Every selection this narrowing tests is built once per read as a set, so the read costs a pass per
- * lane family and a membership test per node rather than a scan of a node list for every lane and every
- * node.
+ * ONE READ SERVES BOTH LENSES, so a selection and a scope cannot be described differently by the map and
+ * by the graph (AAP 0.12.4, SCR-12): `getTopology` states the narrowing and `getCanvasRibbon` the tiles.
  *
- * WHY THE PIN COUNTS TRAVEL WITH THE TOPOLOGY. AAP 0.2.1 requires "supplier-to-product reach in the
- * seed, and pin counts per node, because the graph lens and the canvas node badges in S2 need both
- * before the pin screens exist in S4", and AAP 0.12.3 makes `GET /topology` an S2 read whose response
- * "carries the per-node pin counts that S4 will later let a user open". The counts are therefore copied
- * out of the seeded tally the session holds, so the canvas badges a node without a second call and
- * without this module counting a pin record. All six `PinState` keys are copied onto every entry: a
- * badge then renders a state without an existence check, and a partial copy would not compile. A
- * material is the one family the tally never lists, because no evidence pin is attached to a material
- * record, so its node carries no entry and renders without a badge rather than with a badge of zeros.
- *
- * WHAT A NODE'S PRODUCT REACH IS, AND WHERE EACH FAMILY GETS IT. `TopologyNode.productIds` is the reach
- * the graph lens dims and traces by, and every family's share of it is derived from records rather than
- * stated here:
- * - a plant reaches the products its own production orders build;
- * - a supplier reaches the products its materials go into, read from the materials it is the primary
- *   supplier of;
- * - a material reaches the products it goes into, which is its own record's `productIds` — the reach that
- *   decides which plants its lane carries on to;
- * - a tier-2 origin reaches what the suppliers it feeds reach, which is the reach that follows the lane
- *   the origin's own record names;
- * - a customer reaches products only through its customer orders, so its reach is empty, which
- *   `src/types/topology.ts` documents as "no product reach to dim or trace" rather than a gap.
- *
- * THE LANES ARE DERIVED, NEVER COMPLETED BY HAND. `src/types/topology.ts` fixes `TopologyLane` as a
- * pair ordered upstream to downstream, and the four families of lane emitted here are the four hops the
- * records themselves imply: an origin to each supplier its `supplierIds` names, a supplier to each
- * material it is the primary supplier of, a material to each plant that builds a product the material
- * goes into, and a plant to each customer the order book ships to. A supplier's reach is not carried
- * straight to a plant, because that edge would jump the Materials column of the graph lens; the two
- * record-stated hops keep a lane between adjacent columns instead. A lane whose endpoint the record set
- * does not hold is reported as a validation failure naming both records instead of being dropped,
- * because a canvas that quietly lost an edge would look complete while describing a network the records
- * do not.
- *
- * WHAT THE PAYLOAD DOES NOT CARRY (rules B-1 and P-5). There is no map address, no host, no port, no
- * projection setting and no request of any kind in the value below: the boundaries are bundled in
- * `src/assets/geo/` and `src/components/map-canvas.tsx` projects them, so the canvas draws from the
- * application's own origin and the coordinates this module copies are record content. There is likewise
- * no competitor identifier, score or series: competitor and chokepoint material belongs to the atlas
- * family and composes on top of this payload in the client, so a first-party topology can never carry a
- * market-intelligence figure blended into it.
- *
- * THE RIBBON IS AN AGGREGATION'S OUTPUT, NOT THIS MODULE'S ARITHMETIC. `getCanvasRibbon` resolves the
- * scope once through `resolveScope`, from the same shell selection the topology read is narrowed by, and
- * assembles the record bundle the aggregates read; it then returns
- * `computeRibbonTiles(computeOverview(...), countAtHeadOfUrgency(...))` — six tiles whose every value is
- * an `Overview` member or the critical count the exception aggregate derived (rule P-6). The critical
- * count is counted over the population `./exceptions` admits rather than over projected queue rows, so a
- * ribbon read prices no exception it does not tile while the count still cannot disagree with the rows
- * the queue returns for the same scope (AAP 0.2.1). The empty-queue trigger empties the exception
- * collection both are computed from, which is what keeps the canvas's tiles and the queue's rows
- * describing the same population (AAP 0.12.4, T-17). No label is attached here: the tiles carry no
- * caption and no simulation label, because specification §5.3's seven exact strings belong to the
- * components that render them (rule P-1, AAP 0.10).
- *
- * WHY THE READ'S FRESHNESS IS THE ORDER-BOOK SOURCE'S RECORD. `ExceptionRow.freshness` is the state the
- * adapter attaches to a read rather than a member of an exception, and the bundle the aggregates read
- * carries one such record. This module reports the source whose state gates approval — the same source
- * `src/services/mock/simulation.ts` marks stale for the stale trigger — because that is the source whose
- * as-of instant a reader needs beside a figure drawn from the order book and the stock (AAP 0.2.1,
- * T-13). The state itself comes from `freshnessFor(state)`, so a trigger the popover set is reflected
- * here exactly as it is in the shell's freshness strip, and this module evaluates no trigger of its own
- * beyond the two it answers.
+ * THE PAYLOAD CARRIES NO ADDRESS AND NO COMPETITOR (rules B-1 and P-5). No map host, port, projection
+ * setting or request of any kind appears in the value below, because the boundaries are bundled in
+ * `src/assets/geo/`, and no competitor identifier, score or series enters it: that material belongs to
+ * the atlas family and composes on top of this payload in the client.
  *
  * DETERMINISTIC, PURE IN ITS INPUTS AND READ-ONLY (AAP 0.2.1, AAP 0.18.2). Neither export modifies the
- * session: records are read, arrays are freshly allocated, and the only value a call derives is a
- * baseline solve, which is a pure function of a case record and the do-nothing levers. No clock is read
- * — the aggregate's "now" is the constant `DEMO_CLOCK` of contracts §1 — and no random source, locale
- * or module-level mutable value is touched, so two consecutive calls return the same payload.
+ * session, and the only value a call derives is a baseline solve. No clock is read — the aggregate's
+ * "now" is `DEMO_CLOCK` of contracts §1 — and no random source, locale or mutable module state is used.
  *
  * Rules this module is built to satisfy:
- * - P-1: it types no label. The seven fixed strings live in `src/types/primitives.ts` and are applied by
- *   the components that render a computed figure.
+ * - P-1: it types no label; the seven fixed strings live in `src/types/primitives.ts` and are applied
+ *   by the components that render a computed figure.
  * - P-2: it reads records only through `ctx.state` and the sibling `../seed-loader.ts` type surface, and
- *   imports `src/domain/aggregation`, `src/domain/policy` and `src/domain/solver` for the arithmetic it
- *   delegates to. It imports no seed module, no React, no `src/app`, no `src/features` and no API client,
- *   so the port stays the only boundary — only `mock-backend.ts` imports this file.
+ *   imports `src/domain/*` for the arithmetic it delegates to; only `mock-backend.ts` imports it.
  * - P-3, P-8: the verdict comes from `ctx.actor`, and a permission failure names the permission and the
  *   roles that hold it, which is what a disabled canvas control or a forbidden card explains.
  * - P-4: nothing here claims a security property for the workspace; the payload is a set of records and
@@ -111,22 +34,9 @@
  *   figure into itself.
  * - P-6: no currency amount, threshold, count or domain identifier is written here. Every figure is a
  *   record value, a solver result or an aggregation's output, and no fixture is imported.
- * - P-7: every name the payload carries is a seed record's own synthetic name; this file names no
- *   company, product or person of its own.
+ * - P-7: every name the payload carries is a seed record's own synthetic name.
  * - B-1, B-2: it contacts no host, addresses none, holds no credential-shaped literal and reads no
  *   configuration.
- *
- * CUSTOMER NODES AND LANE COVERAGE. Every seeded customer record becomes a node, and every
- * plant-to-customer pair the loaded order book states becomes a lane. The book is the named customer
- * orders plus the records the deterministic filler derives (`src/seed/index.ts`, AAP 0.2.3), so a
- * customer whose orders the filler generates is connected like any other. No lane is invented for a
- * pair no order states, and no node is dropped, because the evidence-pin tally carries entries for
- * every customer record and dropping one would strand its counts.
- *
- * THE DO-NOTHING LEVERS. The two lever values below are the baseline of AAP 0.8,
- * `solveSupplyDelay(CASE-1184, { airSets: 0, transferSets: 0 })`, which is the measurement an exception's
- * affected lines are derived under. They are solver inputs rather than a business figure, and the solver
- * echoes them on the result it returns.
  */
 
 /* ---------------------------------------------------------------------------------------------
@@ -710,6 +620,12 @@ function pinCountsOf(nodeId: string, seeded: PinCounts): PinCounts {
 /**
  * Copies the session's per-node pin counts into the payload's map, for the nodes the payload holds.
  *
+ * The counts travel with the topology because AAP 0.2.1 requires "supplier-to-product reach in the seed,
+ * and pin counts per node, because the graph lens and the canvas node badges in S2 need both before the
+ * pin screens exist in S4", and AAP 0.12.3 makes `GET /topology` an S2 read whose response "carries the
+ * per-node pin counts that S4 will later let a user open": the canvas badges a node without a second
+ * call, and no pin record is counted here.
+ *
  * A node the seeded tally does not list has no pins at all and is left out of the map rather than entered
  * with six zeros, which is the reading `src/types/topology.ts` fixes: "a node missing from this map has no
  * pins", so the canvas renders it with no badge instead of a badge of nothing. A node the narrowed
@@ -825,7 +741,7 @@ function retainedNodes(
  * computed and no figure is stated. Both lenses of the canvas draw from this one value, so a selection and
  * a scope cannot be described differently by the map and by the graph (AAP 0.12.4, SCR-12).
  *
- * The narrowing is the scope's, and it is the rule the module header states: the plant nodes are the
+ * The narrowing is the scope's, in the rule stated here: the plant nodes are the
  * plants in scope, and each hop is retained only while the node it reaches is retained — a
  * material-to-plant lane while its plant is in scope, a supplier-to-material lane while its material is,
  * an origin-to-supplier lane while its supplier is, and a plant-to-customer lane while its plant is. A

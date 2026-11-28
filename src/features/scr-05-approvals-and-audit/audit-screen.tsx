@@ -14,129 +14,49 @@
  *
  * WHERE THE DATA COMES FROM, AND WHERE IT DOES NOT. Both reads go through `useService()` — rule P-2
  * binds every read to the one typed port, so this module imports no seed record, no mock or API-client
- * module, no domain module and no React Router: `listAuditEvents` returns the page of the trail the
- * filter admits and `verifyAuditChain` returns the report. Verification is deliberately *not* performed
- * here. In particular this file does not import `src/domain/audit/*` and computes no digest of its own:
- * the hashes are the in-browser adapter's work, and a screen that recomputed one would be a second
- * opinion on the record instead of a report of the record.
+ * module, no domain module and no React Router — and verification is deliberately *not* performed
+ * here: this file does not import `src/domain/audit/*` and computes no digest of its own, because the
+ * hashes are the in-browser adapter's work and a screen that recomputed one would be a second opinion
+ * on the record instead of a report of the record.
  *
- * WHAT THE SCREEN SHOWS OF THE CHAIN. One row per event of the page on screen: its stored sequence, its
- * identifier, the instant it was recorded, the actor type and actor, the action, the record it is about,
- * its outcome and, where a policy decided it, the policy. The default order is the service's own — the
- * trail newest first, which `src/services/mock/handlers/audit.ts` answers with — and it is announced on
- * the sequence column as this table's `defaultOrder` rather than applied here. The table's sort is
- * presentation only: it reorders rows and never renumbers, re-derives or hides a sequence, so the
- * position a row prints is always the position the chain gave it. Activating a row opens the detail
- * drawer, which prints the event's own fields and its `before` and `after` payloads side by side as
- * escaped markup (never through
- * `dangerouslySetInnerHTML`), traps focus while it is open, closes on `Esc` and returns focus to the
- * row that opened it.
+ * THE VERIFICATION IS AN ACTION, AND IT REPAIRS NOTHING. One activation is one call, whose report is
+ * held in this component's state and shown as the number of events checked plus either a pass reading
+ * or the position of the first break with its event identifier ({@link VerificationReportPanel}); no
+ * event is re-hashed, re-sequenced or dropped, here or anywhere else. {@link AUDIT_CHAIN_NOTE} is the
+ * sentence rule P-4 requires the chain to carry, rendered character for character, and it denies the
+ * claim rather than making it.
  *
- * HOW MUCH OF THE CHAIN IS ON SCREEN, AND WHY IT IS ONE PAGE. The chain is not bounded: every audited
- * write appends an event, and the seeded trail alone is more rows than one screen should render. The
- * read therefore asks for one page of `AUDIT_PAGE_SIZE` events plus the single event that follows them,
- * which is how the screen learns whether a further page exists without counting the chain; the table is
- * handed that page and `DataTable` takes the same page size as its own bound, so no read can render more
- * than one page however much it returned. The reader moves with the trail's own paging controls: the
- * journey is a stack of the cursors this screen has sent, "Next page" continues from the last event of
- * the page the read returned in its own order, "Previous page" pops back to where the reader came from,
- * and a change to any filter returns the trail to its newest page. The table's sort reorders the page on
- * screen and nothing else, so it never reaches the cursor and no event is skipped by paging in the order
- * the reader sees. "Verify chain" is outside all of it: it walks the records the adapter holds rather
- * than the page on screen, which is why it still reports the whole chain.
+ * THE TRAIL IS SHOWN ONE PAGE AT A TIME AND NEVER RECOMPUTED. The chain is not bounded, so the read
+ * asks for one page of {@link AUDIT_PAGE_SIZE} events plus the single event that follows them, which
+ * is how the screen learns whether a further page exists without counting the chain
+ * ({@link buildAuditQuery}); the reader moves with the trail's own paging controls, and the table's
+ * sort reorders the page on screen and nothing else ({@link TRAIL_DEFAULT_ORDER}). Every figure,
+ * identifier and instant printed is a record's own member, formed by the component that owns that kind
+ * of value ({@link COLUMNS}).
  *
- * WHAT THE VERIFICATION DOES AND DOES NOT CLAIM. "Verify chain" is an action, not a read on load: one
- * activation is one call, whose report is held in this component's state and shown as the number of
- * events checked plus either a pass reading or the position of the first break with its event
- * identifier and the total count when the report holds more than one. It repairs nothing — no event is
- * re-hashed, re-sequenced or dropped, here or anywhere else — and the screen says so rather than
- * implying that a clean report keeps the record clean. Every claim the application may not make is
- * absent by omission: nothing here states that the chain resists tampering, prevents copying or
- * establishes anything about the store behind a browser page (rule P-4).
+ * THE SEVEN STATES, AND THE ONE FAILURE THE MAPPING CANNOT NAME. Every read-driven screen renders
+ * inside `StateBoundary` (AAP 0.12.4) and the state is derived once, in `src/components/screen-state.ts`,
+ * from what the query settled to and from the freshness report the result carries; `StateBoundary`
+ * owns what each state looks like, so no banner, skeleton or denial card is composed here.
  *
- * HOW LONG A REPORT LIVES. Until the next activation replaces it, or until the trail's read is
- * re-issued under it — whichever comes first. A report describes the chain as it stood at the moment
- * of the check, and the application re-issues its reads whenever a record may have moved: every write,
- * every simulation trigger and `Reset demo data` invalidate the query cache, and a persona switch both
- * appends an audit event of its own and resets the reads the outgoing persona decided rather than
- * invalidating them (`switchTo` in `src/app/role-switcher.tsx` calls `queryClient.resetQueries`). So
- * this screen subscribes to that cache and drops the report when the trail's own read is invalidated,
- * reset or destroyed, rather than leaving a verdict the chain has outrun standing above the trail it
- * no longer describes. A reader's filter change reads a different cache entry and re-issues nothing on
- * the one on screen, so narrowing the trail never discards a verdict.
+ * WHERE THE REST OF THIS FILE'S RATIONALE SITS: the fixed note and the claim scan that must leave it
+ * alone on {@link AUDIT_CHAIN_NOTE}, the chain's label on {@link CHAIN_LABEL}, the filters on
+ * `AuditFilterValues` and {@link buildAuditQuery}, the drawer on {@link AuditDetailDrawer}, the filter
+ * primitives on {@link FilterTextField} and {@link FilterChoiceField}, and the report's lifetime on
+ * {@link AuditScreen}'s own notes.
  *
- * THE FIXED NOTE, AND WHY IT AND THE CLAIM SCAN HOLD TOGETHER. {@link AUDIT_CHAIN_NOTE} is the
- * sentence the "Verify chain" row of AAP §0.10 and the SCR-05 row of AAP §0.12.4 fix for this screen,
- * and rule P-4 requires the chain to carry it. It is rendered character for character: it names the
- * condition it denies — that what it shows is not the resistance of a production store — and that
- * denial is the whole point of the sentence.
- *
- * Neither side moves for the scan to pass. The claim patterns reject exactly the five adjectival forms
- * AAP §0.10 names — one for a proof against tampering, one for a resistance to it, one for a
- * trusting-nothing posture, one for a guarantee and one for a certification — and stop deliberately
- * short of the noun phrase this note carries, because the note *denies* the claim rather than making
- * it, and a pattern that reached the noun would forbid the very sentence rule P-4 requires. Both
- * halves of the rule prove it: `tests/source-checks/forbidden-strings.test.ts` lists the note among
- * the interface text its scan must leave alone (`REQUIRED_INTERFACE_TEXT`), and
- * `e2e/bundle-checks.spec.ts` does the same over the built `dist/` (`SAMPLES_THAT_MUST_NOT_MATCH`).
- * No file is exempt on either side, this one included.
- *
- * LABELLING (rules P-1 and P-4). The chain and its verification carry the exact `Simulated control`
- * string of specification §5.3 beside the reading the last check produced, and the persistent
- * `Simulated data` badge the shell mounts on every route covers the page. Every figure on screen comes
- * from a record: the checked count, the break's position and the total are the report's own members,
- * the table's cells are the events' own fields, and no number, currency amount or record identifier is
- * typed into this file (rule P-6, and `tests/source-checks/no-typed-figures.test.ts` scans this
- * folder).
- *
- * THE SEVEN STATES. Every read-driven screen renders inside `StateBoundary` (AAP 0.12.4) and the state
- * is derived once, in `src/components/screen-state.ts`, from what the query settled to and from the
- * freshness report the result carries: a refusal is the state the cause names, a pending read is
- * `loading`, a source that did not answer is `offline`, an order book reported `stale` is `stale`, a
- * source that answered incompletely is `partial`, and an empty result is `empty`. Each state therefore
- * describes what a source did, and none is inferred from the shape of a record the table happens to
- * hold. `StateBoundary` owns what each state looks like, so no banner, skeleton or denial card is
- * composed here.
- *
- * THE COMPONENTS THIS FILE OWNS. No drawer primitive for arbitrary payloads exists in `src/components`
- * — `EvidenceDrawer` is bound to an evidence reference — so {@link AuditDetailDrawer} is a
- * non-exported component in this file. `TextField` and `SelectField` own the `<input>` and the
- * `<select>` the filters need (AAP §0.5.2), so {@link FilterTextField} and {@link FilterChoiceField}
- * compose those primitives and render no native control themselves; each stays a non-exported
- * component of this file because it binds the primitive to one filter's visible label and hint, which
- * is this screen's own copy.
- *
- * THE READING, THE FILTERS AND A FAILURE THE MAPPING CANNOT NAME. `AuditResult` and `ProblemType` are
- * types in `src/types` with no runtime member list beside them, so the option lists below are declared
- * here and typed against those unions: a member the union gains or loses fails this file's compilation
- * instead of being hand-typed into a control. The port's `listAuditEvents(query)` takes no scope,
- * because the chain is not plant-scoped — a persona either holds `audit.read` or does not — so the
- * audit query is the whole of the read's key, and the shell's selection reaches neither the request nor
- * the key: a top-bar change re-reads nothing here, because the trail cannot differ under one. A
- * failure whose cause the state mapping does not name — a `policy` or `simulated-write-back` refusal of
- * a list read — is rendered `offline`: the boundary's offline rendering withholds content, says nothing
- * answered and offers a retry, and a cause it cannot name must not be presented as content that
- * exists. A `not-found` refusal is `empty` on every screen, from the one mapping in
- * `src/components/screen-state.ts`.
- *
- * Rules this module is built to satisfy:
- * - P-1: the chain's verification carries its own `Simulated control` label beside the figures it
- *   reports, and the screen states no computed figure without one.
- * - P-2: both reads go through `useService()`; no seed, adapter, domain or HTTP module is reachable.
- * - P-4: the fixed note, the chain's label and the absence of every claim about resistance, copying or
- *   sovereignty.
- * - P-6: no typed figure, amount or record identifier; every value is a record's own.
- * - P-7: every name on screen is a seeded persona, policy or record reference; no real company,
- *   customer, carmaker or cloud product is named and no placeholder prose stands in for a record.
- * - P-8: "Verify chain" and every control either act or are disabled with their reason, the
- *   verification control states why it cannot run while a check is already in flight, and the trail's
- *   paging controls state why there is nothing newer or nothing older to move to.
- * - B-3: WCAG 2.2 AA — the table's caption and scoped headers come from `DataTable`, every filter has a
- *   visible label, the drawer is an `aria-modal` dialog with a name that traps focus and returns it on
- *   `Esc`, the verification result is a `role="status"` region, targets are at least 24 by 24 px and
- *   every colour is a role token of `src/theme/tokens.css`.
- * - B-1, B-2: nothing here fetches, names an address, reads an environment value or carries a
- *   credential; the whole screen is in-browser computation over records the service already holds.
+ * Rules this module is built to satisfy: P-1 (the chain's verification carries its own label beside the
+ * figures it reports, and the screen states no computed figure without one), P-2 (both reads go through
+ * `useService()`; no seed, adapter, domain or HTTP module is reachable), P-4 (the fixed note, the
+ * chain's label and the absence of every claim about resistance, copying or sovereignty), P-6 (no typed
+ * figure, amount or record identifier), P-7 (every name on screen is a seeded persona, policy or record
+ * reference) and P-8 (every control either acts or is disabled with its reason: the verification
+ * control states why it cannot run while a check is in flight, and the paging controls state why there
+ * is nothing newer or older to move to). B-3 and B-1, B-2 hold throughout: the table's caption and
+ * scoped headers come from `DataTable`, every filter has a visible label, the drawer is an `aria-modal`
+ * dialog that traps focus and returns it on `Esc`, the verification result is a `role="status"` region,
+ * targets are at least 24 by 24 px, every colour is a role token, and nothing here fetches, names an
+ * address, reads an environment value or carries a credential.
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -188,9 +108,17 @@ import type {
  *
  * Exported so the colocated suite imports it rather than re-spelling it: a reworded note then fails a
  * test instead of being silently accepted. It is the sentence that *denies* the claim the application
- * may never make, which is why it is rendered exactly — see the module documentation for the two halves
- * of the rule that let the note and the claim scan pass together: the source check lists the note among
- * the text its scan must leave alone, and the bundle scan does the same over `dist/`.
+ * may never make, which is why it is rendered exactly.
+ *
+ * WHY THE NOTE AND THE CLAIM SCAN HOLD TOGETHER. The claim patterns reject exactly the five adjectival
+ * forms AAP §0.10 names — one for a proof against tampering, one for a resistance to it, one for a
+ * trusting-nothing posture, one for a guarantee and one for a certification — and stop deliberately
+ * short of the noun phrase this note carries, because the note *denies* the claim rather than making
+ * it, and a pattern that reached the noun would forbid the very sentence rule P-4 requires. Both halves
+ * of the rule prove it: `tests/source-checks/forbidden-strings.test.ts` lists the note among the
+ * interface text its scan must leave alone (`REQUIRED_INTERFACE_TEXT`), and `e2e/bundle-checks.spec.ts`
+ * does the same over the built `dist/` (`SAMPLES_THAT_MUST_NOT_MATCH`). No file is exempt on either
+ * side, this one included.
  */
 export const AUDIT_CHAIN_NOTE =
   'Simulated control: this shows the mechanism, not production tamper resistance.';
@@ -203,6 +131,13 @@ export const AUDIT_CHAIN_NOTE =
  * than a copy of it: the string the chain and its verification print is the same one the sovereignty
  * pill and the simulation popover print, and a reworded label reaches every surface at once. Typed
  * `SimLabel`, so a member the union gains or loses fails this file's compilation (rule P-1).
+ *
+ * The label sits beside the reading the last check produced. The persistent page-level badge belongs to
+ * the shell, which mounts it once above the router outlet, so this screen mounts none of its own; and
+ * every figure beside the label comes from a record — the checked count, the break's position and the
+ * total are the report's own members, and the table's cells are the events' own fields — so no number,
+ * currency amount or record identifier is typed into this file (rule P-6, and
+ * `tests/source-checks/no-typed-figures.test.ts` scans this folder).
  */
 const CHAIN_LABEL: SimLabel = SIM_LABELS[4];
 
@@ -651,11 +586,11 @@ const LABEL_CLASSES = 'text-12 text-text-caption';
  * The pointer is answered too: `hover:` lifts the boundary to the accent role, the same boundary the
  * secondary control and the simulated-data badge raise under the pointer, so a filter is not the one
  * control in the product that looks inert when it is aimed at. Nothing changes at rest — the resting
- * boundary, surface and label are exactly what they were — and a press needs no state of its own,
- * because a press on a text field *is* its focus: the caret appears and the focus ring says where the
- * reader is. `motion-safe:` gates the colour transition, so a reduced-motion session gets the same
- * hover with no transition (rule B-3), and no raw palette value, arbitrary value or shadow appears
- * here.
+ * boundary, surface and label are the ones the control wears with no pointer over it — and a press
+ * needs no state of its own, because a press on a text field *is* its focus: the caret appears and the
+ * focus ring says where the reader is. `motion-safe:` gates the colour transition, so a reduced-motion
+ * session gets the same hover with no transition (rule B-3), and no raw palette value, arbitrary value
+ * or shadow appears here.
  */
 const CONTROL_CLASSES =
   'min-h-6 min-w-32 rounded-control border border-control-boundary bg-surface-1 px-2 py-1 text-13 text-text-primary hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring motion-safe:transition-colors motion-safe:duration-150';

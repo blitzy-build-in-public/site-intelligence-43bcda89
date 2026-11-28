@@ -144,6 +144,7 @@ import type {
   ListQuery,
   PlantId,
   Permission,
+  PinState,
   PolicyDetail,
   PolicyException,
   PolicyId,
@@ -155,6 +156,7 @@ import type {
   Scenario,
   ScenarioId,
   Scope,
+  SimulationFlag,
   SolverResult,
   SourceId,
   Timestamp,
@@ -176,6 +178,7 @@ import { buildChokepointBrief } from '../exports/chokepoint-brief';
 import { buildEvidencePack } from '../exports/evidence-pack';
 import { buildScenarioComparisonCsv } from '../exports/scenario-csv';
 import { listApprovals } from './handlers/approvals';
+import { askAssistant } from './handlers/assistant';
 import { getAtlas } from './handlers/atlas';
 import { FREE_TEXT_MAX_LENGTH, traceIdFor } from './handlers/audit';
 import { getEvidence } from './handlers/evidence';
@@ -320,6 +323,15 @@ const OUTSIDE_THE_OPENING_SCOPE: ExceptionId = 'EXC-2026-1185';
 /** The permission the comparison read requires — contracts §7.1, AAP 0.12.4's SCR-04 row. */
 const EXCEPTION_READ_PERMISSION: Permission = 'exception.read';
 
+/**
+ * The two permissions the approval writes require — contracts §7.1, AAP 0.12.3's approval paths.
+ *
+ * Stated here because the cases below assert which one a refusal names and which roles hold it, and
+ * `plantScopeFor`/`hasPermission` are the only other spelling of either in this suite.
+ */
+const APPROVAL_REQUEST_PERMISSION: Permission = 'approval.request';
+const APPROVAL_DECIDE_PERMISSION: Permission = 'approval.decide';
+
 /* ---------------------------------------------------------------------------------------------
  * The words the cases submit
  * ------------------------------------------------------------------------------------------- */
@@ -356,6 +368,31 @@ const LATER_DATE = `${Number(DEMO_CLOCK.slice(0, 4)) + 1}${DEMO_CLOCK.slice(4, 1
  * date and the offset are both read from that constant rather than typed into the case (rule P-6).
  */
 const EXCEPTION_EXPIRY: Timestamp = `${LATER_DATE}T00:00:00${DEMO_CLOCK.slice(-6)}`;
+
+/**
+ * The hour `EXCEPTION_EXPIRY`'s instant is spelled with once its offset is put one hour ahead of the
+ * demonstration clock's own: its own hour, one on.
+ */
+const ALTERNATE_HOUR = String(Number(EXCEPTION_EXPIRY.slice(11, 13)) + 1).padStart(2, '0');
+
+/**
+ * The offset one hour ahead of the demonstration clock's own, as `hh:mm`, which is where the second
+ * spelling of the same instant sits. Both fields are read from `EXCEPTION_EXPIRY` except the hour,
+ * which is the one that moves (rule P-6).
+ */
+const ALTERNATE_OFFSET =
+  `${String(Number(EXCEPTION_EXPIRY.slice(-5, -3)) + 1).padStart(2, '0')}${EXCEPTION_EXPIRY.slice(-3)}`;
+
+/**
+ * The instant `EXCEPTION_EXPIRY` names, spelled in {@link ALTERNATE_OFFSET}: one hour later in the
+ * hour field beside an offset one hour ahead, so the two texts name one moment (contracts §1).
+ *
+ * This is the probe the canonicalisation case turns on, and it is a syntactic one: what moves is the
+ * caller's spelling of a moment, never the moment, and every part of it but those two hours is read
+ * from the constants above (rule P-6).
+ */
+const EXCEPTION_EXPIRY_IN_ANOTHER_OFFSET: Timestamp =
+  `${LATER_DATE}T${ALTERNATE_HOUR}:00:00+${ALTERNATE_OFFSET}`;
 
 /**
  * The first of the six seeded suggestions, character for character.
@@ -401,19 +438,19 @@ const DOCUMENT_TERM = 'DOC-';
  *
  * The band is checked twice over, and the two checks answer different questions. The delay the adapter
  * asks its timer for — recorded by the case below, which lets the timer itself through — must sit
- * inside 150 to 400 ms: that is the band AAP 0.12.1 fixes, and it is a fact about the adapter rather
- * than about this host, because the delay is a ladder over the session's request counter, so the first
- * two calls of a session take the floor and the floor plus one step and no scheduling can produce a
- * number outside the band. The measured duration must then be at least that same delay, less the
- * tolerance below, which is what proves a call really waits rather than scheduling a timer it never
- * awaits.
+ * inside 150 to 400 ms: that is the band AAP 0.12.1 fixes, and the delay is derived from the session's
+ * own request counter, so it is a function of the session rather than of the machine's load. The first
+ * two calls of a session take the floor and the floor plus one step, and no scheduling can change the
+ * number the adapter asks its timer for. The measured duration must then be at least that same delay,
+ * less the tolerance below, which is what proves a call really waits rather than scheduling a timer it
+ * never awaits.
  *
  * The two tolerances are deliberately different. The floor's is tight, because the scheduled delay and
  * the duration a clock measures for it are two readings of one wait, and 25 ms is room for the
  * difference between the clock read and the timer's own resolution. The ceiling's is generous, because
- * this suite runs on a host shared with other work and an event loop can be kept from a finished timer
- * for far longer than the delay itself; a tight ceiling there would report a loaded machine as a
- * defect, and what the generous one still catches is a band set an order of magnitude off.
+ * a timer that has already expired may fire far later than its delay while the event loop of the
+ * machine running the suite is busy, so the ceiling's tolerance measures the machine's scheduling while
+ * still catching a band set an order of magnitude out of place.
  */
 const LATENCY_FLOOR_MS = 150;
 const LATENCY_CEILING_MS = 400;
@@ -766,6 +803,37 @@ async function confidentialDocumentOf(backend: MockBackend): Promise<DocumentBod
 }
 
 /**
+ * One document classified anything but customer-confidential, as a persona that may read every body
+ * receives it.
+ *
+ * Found the way the case above finds its subject — through the identifiers the port indexes, read back
+ * through the port — so no record identifier is typed into a case (rule P-6). It is the document a
+ * question carries when a case needs one that is not the classified record, and it is read as a
+ * persona holding `document.confidential.read`, because the search lists the customer-confidential
+ * record first and opening that body is how the loop begins.
+ *
+ * @param backend - The session to read, acting as a persona holding `document.confidential.read`.
+ * @returns The released document body.
+ * @throws Error - The record set holds no document outside that classification.
+ */
+async function nonConfidentialDocumentOf(backend: MockBackend): Promise<DocumentBody> {
+  const hits = (await backend.searchIdentifiers(DOCUMENT_TERM, NO_SCOPE)).data;
+
+  for (const hit of hits) {
+    const releasedBody = (await backend.getDocument(hit.ref)).data;
+
+    if (releasedBody.classification !== CONFIDENTIAL_CLASSIFICATION) {
+      return releasedBody;
+    }
+  }
+
+  throw new Error(
+    'The seeded documents hold none outside the customer-confidential classification, so the case ' +
+      'cannot run.',
+  );
+}
+
+/**
  * The first option the records measure whose own constraint check reports a breach.
  *
  * Found through the port rather than by naming a record: every exception the acting persona may read
@@ -961,17 +1029,17 @@ describe('the latency band', () => {
     const writeElapsed = performance.now() - writeStartedAt;
     const writeDelay = lastOf(scheduledDelays(), 'delay the write scheduled');
 
-    // The delay the adapter chose is inside the band the plan fixes, which is a fact about the adapter
-    // and not about this host: no amount of load can make it schedule a number outside the band.
+    // The delay the adapter asks its timer for comes from the session's request counter, so no amount
+    // of load can make it ask for a number outside the band the plan fixes.
     expect(readDelay).toBeGreaterThanOrEqual(LATENCY_FLOOR_MS);
     expect(readDelay).toBeLessThanOrEqual(LATENCY_CEILING_MS);
     expect(writeDelay).toBeGreaterThanOrEqual(LATENCY_FLOOR_MS);
     expect(writeDelay).toBeLessThanOrEqual(LATENCY_CEILING_MS);
 
     // The floor is the delay just recorded, less room for the clock's own resolution, rather than the
-    // band's floor: this suite shares its host with other work, and a loaded event loop delays a timer
-    // that has already expired but can never fire one early. The ceiling stays generous for the same
-    // reason, and still catches a band set an order of magnitude out of place.
+    // band's floor: the machine's scheduling can delay a timer that has already expired but can never
+    // fire one early. The ceiling stays generous for the same reason, and still catches a band set an
+    // order of magnitude out of place.
     expect(readElapsed).toBeGreaterThanOrEqual(readDelay - FLOOR_TOLERANCE_MS);
     expect(writeElapsed).toBeGreaterThanOrEqual(writeDelay - FLOOR_TOLERANCE_MS);
     expect(readElapsed).toBeLessThan(LATENCY_CEILING_MS + CEILING_TOLERANCE_MS);
@@ -1194,7 +1262,11 @@ describe('the atlas pack', () => {
       'seeded plant manager',
     );
 
-    return { state, actor: personaFor(record), traceId: traceIdFor(state.requestCount + 1) };
+    return {
+      state,
+      actor: personaFor(record),
+      traceId: traceIdFor(state.sessionNonce, state.requestCount + 1),
+    };
   }
 
   it('fails loudly when a competitor network states no class the atlas offers', async () => {
@@ -1456,23 +1528,93 @@ describe('the evidence behind the atlas records', () => {
  * 5. Policy enforcement — the rule, its reason, its alternative and the event it wrote
  * ------------------------------------------------------------------------------------------- */
 
+/**
+ * A residency POL-007 does not block on, given to a session's own documents by the case below.
+ *
+ * Every seeded document declares `eu-only`, one of the two conditions the rule blocks, so the record
+ * set holds no document that would let a case tell "the first document was read" from "every document
+ * was read": with the seeded residency, a question carrying the benign document first is refused for
+ * that document rather than for the classified second one. This value is a fixture of the case's own
+ * making, in the company of the product class the atlas cases synthesise and the body excerpt the
+ * redaction case looks for; `Residency` is the open `string` alias AAP 0.12.2 fixes and the rule blocks
+ * the values it names rather than the ones it does not.
+ */
+const UNBLOCKED_RESIDENCY = 'fixture jurisdiction';
+
 describe('policy enforcement', () => {
-  it('refuses a decision the segregation rule denies and points at the event the denial appended', async () => {
+  it('refuses a decision the acting role may not make before the segregation rule is consulted', async () => {
     const backend = await readyBackend();
 
-    const lodged = (await backend.listApprovals({ status: 'pending' }, NO_SCOPE)).data;
+    const lodged = (await backend.listApprovals({ status: PENDING_APPROVAL_STATUS }, NO_SCOPE)).data;
     const target = firstOf(lodged, 'pending approval');
     const approvalsBefore = (await backend.listApprovals({}, NO_SCOPE)).data;
 
-    // The seeded pending plan was requested by the persona the session opens as, and a requester never
-    // decides its own plan, so that persona's attempt meets the rule.
+    // The session opens as the material planner, which holds `approval.request` and not
+    // `approval.decide`, and the seeded pending plan below was requested by that same persona. The
+    // matrix is asked first, so the attempt meets a permission refusal and POL-003, whose facts the
+    // attempt would have satisfied, is never consulted.
     const problem = await refusalOf(() =>
       backend.decideApproval(target.id, { action: 'approve', comment: DECISION_COMMENT }),
+    );
+
+    expect(problem.type).toBe('permission');
+    expect(problem.requiredPermission).toBe(APPROVAL_DECIDE_PERMISSION);
+
+    if (problem.rolesWithPermission === undefined) {
+      throw new Error('A permission failure carries the roles that hold the permission.');
+    }
+
+    // The sentence names the permission and every role that holds it, which is what a disabled
+    // control's explanation prints (rule P-8).
+    expect(problem.rolesWithPermission.length).toBeGreaterThan(0);
+    expect(problem.message).toContain(APPROVAL_DECIDE_PERMISSION);
+
+    for (const role of problem.rolesWithPermission) {
+      expect(problem.message).toContain(role);
+    }
+
+    // Nothing was written: no approval, no step of the change and no event of either kind.
+    const unchanged = (await backend.getApproval(target.id)).data;
+
+    expect((await backend.listApprovals({}, NO_SCOPE)).data).toEqual(approvalsBefore);
+    expect(unchanged.status).toBe(target.status);
+    expect(unchanged.writeBacks.every((step) => step.state === 'pending')).toBe(true);
+
+    await actAs(backend, AUDITOR);
+
+    const aboutApproval = (await backend.listAuditEvents({ objectRef: target.id })).data;
+
+    expect(aboutApproval.some((event) => event.action === DECISION_ACTION)).toBe(false);
+    expect(aboutApproval.some((event) => event.actorType === 'policy')).toBe(false);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a requester that also holds the decision permission, under the segregation rule', async () => {
+    const backend = await readyBackend();
+
+    const lodged = (await backend.listApprovals({ status: PENDING_APPROVAL_STATUS }, NO_SCOPE)).data;
+    const seeded = firstOf(lodged, 'pending approval');
+
+    // The head of supply chain holds `approval.request` and `approval.decide` both, which is the one
+    // persona POL-003 can refuse: the plan it puts forward is one it is otherwise able to decide. The
+    // plan and the option are the seeded pending record's own, read from the port rather than typed.
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const requested = (
+      await backend.requestApproval({ exceptionId: seeded.exceptionId, scenarioId: seeded.scenarioId })
+    ).data;
+
+    expect(requested.requestedBy).toBe(HEAD_OF_SUPPLY_CHAIN);
+
+    const approvalsBefore = (await backend.listApprovals({}, NO_SCOPE)).data;
+    const problem = await refusalOf(() =>
+      backend.decideApproval(requested.id, { action: 'approve', comment: DECISION_COMMENT }),
     );
 
     expect(problem.type).toBe('policy');
     expect(problem.policyId).toMatch(POLICY_ID_PATTERN);
     expect(problem.message.trim().length).toBeGreaterThan(0);
+    // The rule's own sentence names the requester it refused.
+    expect(problem.message).toContain(requested.requestedBy);
 
     if (problem.policyId === undefined || problem.auditEventId === undefined) {
       throw new Error('A policy failure carries the rule that denied the call and the event it wrote.');
@@ -1481,26 +1623,89 @@ describe('policy enforcement', () => {
     const rule = problem.policyId;
     const recorded = problem.auditEventId;
 
-    // The rule that denied this decision permits no alternative, so the member is absent; the next case
-    // covers a rule that names one.
+    // The rule that denied this decision permits no alternative, so the member is absent.
     expect(problem.permittedAlternative).toBeUndefined();
 
     // The approval is exactly as it stood, and no step of the change ran.
-    const unchanged = (await backend.getApproval(target.id)).data;
+    const unchanged = (await backend.getApproval(requested.id)).data;
 
     expect((await backend.listApprovals({}, NO_SCOPE)).data).toEqual(approvalsBefore);
-    expect(unchanged.status).toBe(target.status);
+    expect(unchanged.status).toBe(requested.status);
     expect(unchanged.writeBacks.every((step) => step.state === 'pending')).toBe(true);
 
     // The event the failure names exists, and the engine is its actor.
     await actAs(backend, AUDITOR);
 
-    const aboutApproval = (await backend.listAuditEvents({ objectRef: target.id })).data;
+    const aboutApproval = (await backend.listAuditEvents({ objectRef: requested.id })).data;
     const appended = aboutApproval.find((event) => event.id === recorded);
 
     expect(appended?.actorType).toBe('policy');
     expect(appended?.actorId).toBe(rule);
     expect(appended?.policyId).toBe(rule);
+  }, CASE_TIMEOUT_MS);
+
+  it('answers an approval write the same way whether or not its subject exists, and names no plant', async () => {
+    const backend = await readyBackend();
+    const planner = (await backend.getActiveUser()).data;
+
+    const lodged = (await backend.listApprovals({ status: PENDING_APPROVAL_STATUS }, NO_SCOPE)).data;
+    const seeded = firstOf(lodged, 'pending approval');
+    const laidOn = (await backend.getExceptionDetail(seeded.exceptionId)).data.exception.plantId;
+
+    // The external supplier engineer holds `evidence.read` alone, so it holds no `approval.request`
+    // and knows nothing of the exception set.
+    const supplierEngineer = await actAs(backend, EXTERNAL_ENGINEER);
+
+    expect(supplierEngineer.permissions).not.toContain(APPROVAL_REQUEST_PERMISSION);
+
+    const real = await refusalOf(() =>
+      backend.requestApproval({ exceptionId: seeded.exceptionId, scenarioId: seeded.scenarioId }),
+    );
+    const absentId = `${seeded.exceptionId}-absent`;
+    const absent = await refusalOf(() =>
+      backend.requestApproval({ exceptionId: absentId, scenarioId: seeded.scenarioId }),
+    );
+
+    // The matrix is asked before the record is resolved, so both attempts meet one shape and the
+    // answer says nothing about whether the identifier the caller named is one the records hold: the
+    // two sentences differ only by the identifier the caller supplied, and neither names a plant.
+    expect(real.type).toBe('permission');
+    expect(absent.type).toBe('permission');
+    expect(real.requiredPermission).toBe(APPROVAL_REQUEST_PERMISSION);
+    expect(absent.requiredPermission).toBe(APPROVAL_REQUEST_PERMISSION);
+    expect(absent.message).toBe(real.message.replace(seeded.exceptionId, absentId));
+    expect(real.message).not.toContain(laidOn);
+
+    // A planner does hold `approval.request`, so the matrix lets it make the call and the record is
+    // what its scope does not cover. That answer is the exceptions family's not-found: it names the
+    // plants the acting role reaches and never the plant the record sits on, so it tells a caller
+    // that may not act on the record nothing about where it is.
+    await actAs(backend, HEAD_OF_SUPPLY_CHAIN);
+
+    const outside = (await backend.getExceptionDetail(OUTSIDE_THE_OPENING_SCOPE)).data.exception;
+    const outsideOption = firstOf(
+      (await backend.getScenarioSet(outside.id)).data.scenarios,
+      'option of the exception outside the opening persona scope',
+    );
+
+    await actAs(backend, planner.id);
+
+    const excluded = await refusalOf(() =>
+      backend.requestApproval({ exceptionId: outside.id, scenarioId: outsideOption.id }),
+    );
+
+    expect(planner.permissions).toContain(APPROVAL_REQUEST_PERMISSION);
+    expect(planner.plantIds).not.toContain(outside.plantId);
+    expect(excluded.type).toBe('not-found');
+    expect(excluded.requiredPermission).toBeUndefined();
+    expect(excluded.message).toContain(outside.id);
+    expect(excluded.message).toContain("outside the acting role's plant scope");
+
+    for (const plant of planner.plantIds) {
+      expect(excluded.message).toContain(plant);
+    }
+
+    expect(excluded.message).not.toContain(outside.plantId);
   }, CASE_TIMEOUT_MS);
 
   it('refuses a question to the external model over classified context, counts the block on its endpoint and names the permitted alternative', async () => {
@@ -1686,6 +1891,170 @@ describe('policy enforcement', () => {
     expect(blockRow.actorType).toBe('policy');
     expect(blockRow.id).toBe(recorded);
     expect(questionRow.id).not.toBe(recorded);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a question whose classified document comes second in its context, in either order, and answers one carrying no document', async () => {
+    const backend = await readyBackend();
+    const catalogue = (await backend.getModelCatalogue()).data;
+    const external = firstOf(
+      catalogue.models.filter((entry) => entry.boundary === 'external'),
+      'external model entry',
+    );
+    const confidential = await confidentialDocumentOf(backend);
+    const benign = await nonConfidentialDocumentOf(backend);
+
+    // The two ways a question can state its context: the document whose body no rule withholds first
+    // and the customer-confidential one second, then the same pair the other way round. Both records
+    // are read from the set rather than typed here (rule P-6).
+    const benignFirst = [benign.id, confidential.id];
+    const classifiedFirst = [confidential.id, benign.id];
+
+    const refused = await refusalOf(() =>
+      backend.askAssistant({
+        question: UNSEEDED_QUESTION,
+        modelId: external.id,
+        contextRefs: benignFirst,
+      }),
+    );
+
+    // A question carrying both documents is refused, whichever order it states them in. Which of the
+    // two denies it is the case below's subject: every seeded document declares `eu-only` residency, so
+    // each of these two carries a blocking condition on its own (AAP 0.6.3, AAP 0.12.3).
+    expect(refused.type).toBe('policy');
+    expect(refused.policyId).toBe('POL-007');
+    expect(refused.permittedAlternative).toBeDefined();
+
+    const reversed = await refusalOf(() =>
+      backend.askAssistant({
+        question: UNSEEDED_QUESTION,
+        modelId: external.id,
+        contextRefs: classifiedFirst,
+      }),
+    );
+
+    // The same pair the other way round meets the same rule and offers the same alternative.
+    expect(reversed.type).toBe('policy');
+    expect(reversed.policyId).toBe('POL-007');
+    expect(reversed.permittedAlternative).toBe(refused.permittedAlternative);
+
+    // A question whose references resolve to no document carries no context, so the entry it was put
+    // to answers it: the gate reads the documents a question carries rather than refusing every
+    // question that states references. The two references are records the port serves — an exception
+    // the queue lists and an approval the inbox lists — and neither of them is a document (rule P-6).
+    const exceptionRef = firstOf(await queueOf(backend), 'exception row').id;
+    const approvalRef = firstOf(
+      (await backend.listApprovals({}, NO_SCOPE)).data,
+      'approval record',
+    ).id;
+
+    const answered = (
+      await backend.askAssistant({
+        question: UNSEEDED_QUESTION,
+        modelId: external.id,
+        contextRefs: [exceptionRef, approvalRef],
+      })
+    ).data;
+
+    expect(answered.text).toBe(UNSCRIPTED_NOTICE);
+    expect(answered.modelId).toBe(external.id);
+
+    // The block records the material that caused it and the context the question carried: the pair of
+    // the document the rule fired on, and every document identifier the question stated.
+    await actAs(backend, AUDITOR);
+
+    const questionRow = firstOf(
+      (await backend.listAuditEvents({ action: 'assistant question' })).data.filter(
+        (event) => event.traceId === reversed.traceId,
+      ),
+      'assistant question event for the refused question',
+    );
+    const blockRow = firstOf(
+      (await backend.listAuditEvents({ action: 'policy block' })).data.filter(
+        (event) => event.traceId === reversed.traceId,
+      ),
+      'policy block event for the refused question',
+    );
+
+    expect(questionRow.after?.context).toBe(`${confidential.id}, ${benign.id}`);
+    expect(blockRow.after?.classification).toBe(confidential.classification);
+    expect(blockRow.after?.residency).toBe(confidential.residency);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a question whose only document carrying a blocking condition stands second in its context', async () => {
+    const session = await createMockState();
+    const openingPersona = firstOf(
+      session.records.users.filter((user) => user.id === session.activeUserId),
+      'seeded opening persona',
+    );
+
+    // The session's documents are given the residency the rule does not name, so the only blocking
+    // condition this context can carry is the classification of the document that states one. The
+    // session's own record set is replaced rather than the seed (rule P-2), which is how the cases that
+    // arrange a record hold a set the seed cannot state.
+    const documents = session.records.documents.map((document) => ({
+      ...document,
+      residency: UNBLOCKED_RESIDENCY,
+    }));
+
+    session.records = { ...session.records, documents };
+
+    const context: HandlerContext = {
+      state: session,
+      actor: personaFor(openingPersona),
+      traceId: traceIdFor(session.sessionNonce, session.requestCount + 1),
+    };
+    const external = firstOf(
+      session.records.modelCatalogue.models.filter((entry) => entry.boundary === 'external'),
+      'external model entry',
+    );
+    const confidential = firstOf(
+      documents.filter((document) => document.classification === CONFIDENTIAL_CLASSIFICATION),
+      'customer-confidential document',
+    );
+    const benign = documents.filter(
+      (document) => document.classification !== CONFIDENTIAL_CLASSIFICATION,
+    );
+    const firstBenign = firstOf(benign, 'document outside that classification');
+    const secondBenign = firstOf(benign.slice(1), 'second document outside that classification');
+
+    // The evasion the seeded records cannot state: the document carrying no blocking condition first,
+    // the classified one second.
+    const refused = await refusalOf(() =>
+      askAssistant(context, {
+        text: UNSEEDED_QUESTION,
+        modelId: external.id,
+        contextRefs: [firstBenign.id, confidential.id],
+      }),
+    );
+
+    expect(refused.type).toBe('policy');
+    expect(refused.policyId).toBe('POL-007');
+    expect(refused.permittedAlternative).toBeDefined();
+
+    // The same two documents the other way round meet the same rule and offer the same alternative: the
+    // position of the classified document decides nothing (AAP 0.6.3, AAP 0.12.3).
+    const reversed = await refusalOf(() =>
+      askAssistant(context, {
+        text: UNSEEDED_QUESTION,
+        modelId: external.id,
+        contextRefs: [confidential.id, firstBenign.id],
+      }),
+    );
+
+    expect(reversed.type).toBe('policy');
+    expect(reversed.policyId).toBe('POL-007');
+    expect(reversed.permittedAlternative).toBe(refused.permittedAlternative);
+
+    // A context naming only documents that carry no blocking condition is answered rather than blocked,
+    // so the gate reads each document's own pair instead of refusing a question for carrying several.
+    const answered = await askAssistant(context, {
+      text: UNSEEDED_QUESTION,
+      modelId: external.id,
+      contextRefs: [firstBenign.id, secondBenign.id],
+    });
+
+    expect(answered.text).toBe(UNSCRIPTED_NOTICE);
+    expect(answered.modelId).toBe(external.id);
   }, CASE_TIMEOUT_MS);
 
   it('refuses a request for an option whose constraint check fails and points at the event it appended', async () => {
@@ -2476,7 +2845,11 @@ describe('the comparison option set', () => {
       'seeded opening persona',
     );
 
-    return { state, actor: personaFor(record), traceId: traceIdFor(state.requestCount + 1) };
+    return {
+      state,
+      actor: personaFor(record),
+      traceId: traceIdFor(state.sessionNonce, state.requestCount + 1),
+    };
   }
 
   it('reports a record defect rather than answering that no option set names the reference', async () => {
@@ -2537,8 +2910,8 @@ describe('the comparison option set', () => {
     expect(payload.upstream).toContain(recommended.exceptionId);
 
     // A reference of the same shape that no set names reaches the remembered defect at the end of its
-    // walk, and it arrives as the failure naming the case to repair rather than as the statement that
-    // the record set holds no such scenario, which the swallowed failure used to produce.
+    // walk: the refusal names the case to repair and must never read as a record set holding no such
+    // scenario, because that answer would hide the broken set behind a missing one.
     const unnamed: ScenarioId = `${recommended.id}-absent`;
     const refused = await refusalOf(() => getEvidence(context, unnamed));
 
@@ -3408,9 +3781,9 @@ describe('the empty trigger', () => {
 /**
  * The media types the two export formats declare.
  *
- * Stated here because they are two of the three members the port now carries beside the document: the
- * adapter keeps no file name and no media type of its own, so an export's descriptive members are
- * asserted against the format they describe rather than against a second copy inside the adapter.
+ * Stated here because they are the export payload's two descriptive members beside its text — the file
+ * name and the media type — and the adapter keeps neither of its own: a case asserts each format
+ * against the media type it declares rather than against a second copy inside the adapter.
  */
 const JSON_MEDIA_TYPE = 'application/json';
 const CSV_MEDIA_TYPE = 'text/csv;charset=utf-8';
@@ -3719,14 +4092,14 @@ describe("the shell's selection", () => {
   it('admits nothing for a plant set naming no plant, and withholds an approval it cannot place', async () => {
     const state = await createMockState();
     const record = firstOf(state.records.users, 'seeded persona');
-    // The adapter hands a handler the call's own correlation identifier, minted from the ticket it takes
-    // at the call's entry. A case that calls the handler directly mints the same value from the ticket
-    // the session would take next, so the context below is the pair a port call would hand over and
-    // nothing in this case depends on the adapter having done it.
+    // The adapter hands a handler the call's own correlation identifier, minted from the session's nonce
+    // and the ticket it takes at the call's entry. A case that calls the handler directly mints the same
+    // value from the same pair, so the context below is what a port call would hand over and nothing in
+    // this case depends on the adapter having done it.
     const context: HandlerContext = {
       state,
       actor: personaFor(record),
-      traceId: traceIdFor(state.requestCount + 1),
+      traceId: traceIdFor(state.sessionNonce, state.requestCount + 1),
     };
     const keysOf = (rows: readonly Approval[]): string[] => rows.map((row) => row.id);
 
@@ -4181,17 +4554,20 @@ describe('the response envelope', () => {
  * @param backend - The session to write to, acting as the platform administrator.
  * @param policyId - The policy the exception is requested against.
  * @param reason - Why the exception is needed, in the requester's own words.
+ * @param expiresAt - The expiry the draft carries, `EXCEPTION_EXPIRY` except where a case probes
+ *   another value to watch one be refused or to watch a second spelling be recorded canonically.
  * @returns The pending request the adapter installed and answered with.
  */
 async function requestException(
   backend: MockBackend,
   policyId: PolicyId,
   reason: string,
+  expiresAt: Timestamp = EXCEPTION_EXPIRY,
 ): Promise<PolicyException> {
   const requested = await backend.requestPolicyException({
     policyId,
     reason,
-    expiresAt: EXCEPTION_EXPIRY,
+    expiresAt,
     secondApproverId: HEAD_OF_SUPPLY_CHAIN,
   });
 
@@ -4288,10 +4664,99 @@ describe('the policy exception request', () => {
     // administrator the reset left in place, which is the persona a policy may be read as.
     expect((await backend.getPolicy(policy.id)).data.pendingExceptions).toEqual([]);
   }, CASE_TIMEOUT_MS);
+
+  /*
+   * A value that names no instant is refused rather than stored, and the three probes are the classes
+   * `Date.parse` accepts and the port does not: a written phrase, a day the calendar omits and an hour
+   * the day does not hold. The typed text is the probe; the year and the offset it is stated in are
+   * read from the constants above, so no business figure enters the case (rule P-6).
+   */
+  it.each([
+    { what: 'a written phrase', value: 'March 5, 2027' },
+    {
+      what: 'a day the calendar omits',
+      value: `${LATER_DATE.slice(0, 5)}02-30T00:00:00${DEMO_CLOCK.slice(-6)}`,
+    },
+    {
+      what: 'an hour the day does not hold',
+      value: `${LATER_DATE}T24:00:00${DEMO_CLOCK.slice(-6)}`,
+    },
+  ] as const)(
+    'refuses $what as draft.expiresAt, and records neither a request nor an event',
+    async ({ value }) => {
+      const backend = await readyBackend();
+
+      await actAs(backend, ADMINISTRATOR);
+
+      const policy = firstOf((await backend.listPolicies({})).data, 'policy');
+      const before = (await backend.getPolicy(policy.id)).data.pendingExceptions;
+      const trailBefore = (await backend.listAuditEvents(WHOLE_TRAIL)).data.length;
+
+      const refusal = await refusalOf(() =>
+        requestException(backend, policy.id, POLICY_EXCEPTION_REASON, value),
+      );
+
+      /*
+       * The refusal states what the field requires and prints the value it was given, so a reader
+       * corrects the draft rather than learning only that the call failed (rule P-8).
+       */
+      expect(refusal.type).toBe('validation');
+      expect(refusal.message).toContain('draft.expiresAt');
+      expect(refusal.message).toContain('ISO 8601 instant with an offset');
+      expect(refusal.message).toContain(value);
+
+      /*
+       * Nothing was recorded: the pending list and the trail are the ones the refusal met, so a refused
+       * value reaches neither the second approver's record nor the chain (AAP 0.2.1).
+       */
+      expect((await backend.getPolicy(policy.id)).data.pendingExceptions).toEqual(before);
+      expect((await backend.listAuditEvents(WHOLE_TRAIL)).data.length).toBe(trailBefore);
+    },
+    CASE_TIMEOUT_MS,
+  );
+
+  it('records the canonical instant, not the spelling the caller sent, in the record and the trail', async () => {
+    const backend = await readyBackend();
+
+    await actAs(backend, ADMINISTRATOR);
+
+    const policy = firstOf((await backend.listPolicies({})).data, 'policy');
+    const before = (await backend.listAuditEvents(WHOLE_TRAIL)).data;
+
+    const stored = await requestException(
+      backend,
+      policy.id,
+      POLICY_EXCEPTION_REASON,
+      EXCEPTION_EXPIRY_IN_ANOTHER_OFFSET,
+    );
+
+    /*
+     * The two texts name one moment, so the adapter answers with the clock's own spelling rather than
+     * the one it was sent: the record carries the instant, not the caller's way of writing it
+     * (contracts §1).
+     */
+    expect(EXCEPTION_EXPIRY_IN_ANOTHER_OFFSET).not.toBe(EXCEPTION_EXPIRY);
+    expect(stored.expiresAt).toBe(EXCEPTION_EXPIRY);
+
+    // The policy answers with that one spelling too, so the pending list a screen reads and the record
+    // the write installed cannot state the instant two ways.
+    expect((await backend.getPolicy(policy.id)).data.pendingExceptions[0]?.expiresAt).toBe(
+      EXCEPTION_EXPIRY,
+    );
+
+    // And the event the write appended carries it: one instant and one spelling in the record and the
+    // trail beside it, which is what keeps a lexical ordering of instants their order in time.
+    const appended = (await backend.listAuditEvents(WHOLE_TRAIL)).data.find(
+      (event) => !before.some((known) => known.id === event.id),
+    );
+
+    expect(appended?.objectRef).toBe(policy.id);
+    expect(appended?.after?.expiresAt).toBe(EXCEPTION_EXPIRY);
+  }, CASE_TIMEOUT_MS);
 });
 
 /* ---------------------------------------------------------------------------------------------
- * 27. The free-text ceiling — the bound on the prose an audited write stores
+ * 27. The free-text ceiling — the bound on the free text one request may carry
  * ------------------------------------------------------------------------------------------- */
 
 describe('the free-text ceiling', () => {
@@ -4307,7 +4772,7 @@ describe('the free-text ceiling', () => {
 
     /*
      * The refusal names the field, the ceiling and the length actually submitted, so a caller learns
-     * what was refused and by how much rather than that the write failed (CR4-F26).
+     * what was refused and by how much rather than that the write failed.
      */
     expect(refusal.type).toBe('validation');
     expect(refusal.message).toContain(`note against ${target.id}`);
@@ -4319,6 +4784,39 @@ describe('the free-text ceiling', () => {
     // A refused note records nothing: no activity for the exception, and no event on the trail that
     // the audit screen and every filter over it scan.
     expect(after.activity).toHaveLength(before.activity.length);
+    expect((await backend.verifyAuditChain()).data.eventsChecked).toBe(chainBefore);
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a question longer than the ceiling, and answers nothing and records nothing', async () => {
+    const backend = await readyBackend();
+    const catalogue = (await backend.getModelCatalogue()).data;
+    const chainBefore = (await backend.verifyAuditChain()).data.eventsChecked;
+
+    const refusal = await refusalOf(() =>
+      backend.askAssistant({
+        question: 'x'.repeat(FREE_TEXT_MAX_LENGTH + 1),
+        modelId: catalogue.defaultModelId,
+        contextRefs: [],
+      }),
+    );
+
+    /*
+     * The question is bounded by the same ceiling the audited writes apply to the prose they store:
+     * the refusal names the field, the ceiling and the length actually submitted, and it carries the
+     * call's correlation identifier as every other refusal does. `refusalOf` above fails a case whose
+     * call resolves, so the refusal is also the proof that no answer came back.
+     */
+    expect(refusal.type).toBe('validation');
+    expect(refusal.message).toContain('question to the evidence assistant');
+    expect(refusal.message).toContain(`at most ${FREE_TEXT_MAX_LENGTH}`);
+    expect(refusal.message).toContain(String(FREE_TEXT_MAX_LENGTH + 1));
+    expect(refusal.traceId).not.toBe('');
+
+    /*
+     * A refused question is never put to the assistant, so the `assistant question` event this family
+     * appends for every question that reaches the policy decision is absent: the trail the audit screen
+     * filters and scans is exactly as long as it stood before the call.
+     */
     expect((await backend.verifyAuditChain()).data.eventsChecked).toBe(chainBefore);
   }, CASE_TIMEOUT_MS);
 
@@ -4414,7 +4912,7 @@ describe('the free-text ceiling', () => {
     /*
      * A corrected value is the evidence family's one free-text member: it becomes the element's own
      * reading and travels in the audit event the review appends, so the ceiling the exceptions,
-     * approvals and governance writes apply to their prose applies to it too (CR4-F26).
+     * approvals and governance writes apply to their prose applies to it too.
      */
     const refusal = await refusalOf(() =>
       backend.reviewElement({
@@ -5947,5 +6445,193 @@ describe("the queue's record filters", () => {
     expect(afterFirst.map((row) => row.id)).toEqual(
       wholeQueue.slice(1).map((row) => row.id),
     );
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 30. The values a caller may name — a union member is tested at run time, contracts §3
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the values a caller may name', () => {
+  /**
+   * A review carries the state the reviewer chose, and `PinState` is the only list of states a pin may
+   * hold. A caller the type system never saw — a console call, a script driving the port — can pass any
+   * string at all, so the adapter tests the value before it writes it: a state a pin cannot hold would
+   * outlive the call in the record and reach every consumer whose switch over `PinState` has no arm for
+   * it, which is where `meaningOf` reads the state into a status.
+   */
+  it('refuses a pin state outside PinState, leaving the pin and the trail as they stood', async () => {
+    const backend = await readyBackend();
+
+    // `evidence.review` is the permission a review requires and the quality engineer is the role the
+    // matrix grants it, so the call reaches the adapter's own validation rather than its permission check.
+    await actAs(backend, SUPPLIER_QUALITY_ENGINEER);
+
+    const pin = firstOf((await backend.listPins({})).data, 'evidence pin');
+    const trailBefore = (await backend.verifyAuditChain()).data.eventsChecked;
+    // The value a JavaScript caller can send and the type cannot describe: the assertion is this case's
+    // stand-in for a caller that never met the union.
+    const outsideTheUnion = 'rejected' as unknown as PinState;
+
+    const refusal = await refusalOf(() => backend.reviewPin(pin.id, outsideTheUnion));
+
+    // The cause the port reports a value the session cannot hold under, carrying the call's identifier
+    // so a reader can quote it (AAP 0.18.1).
+    expect(refusal.type).toBe('validation');
+    expect(refusal.traceId.trim().length).toBeGreaterThan(0);
+    expect(refusal.message).toContain(outsideTheUnion);
+
+    // Nothing was written: the pin stands as it was read and no review reached the trail.
+    const stored = (await backend.listPins({})).data.filter((candidate) => candidate.id === pin.id);
+
+    expect(stored.map((candidate) => candidate.state)).toEqual([pin.state]);
+    expect((await backend.verifyAuditChain()).data.eventsChecked).toBe(trailBefore);
+  }, CASE_TIMEOUT_MS);
+
+  /**
+   * The same guard on the one control that sets a trigger. A flag outside the union would sit in the
+   * session's set and be asked about by every read that consults a trigger, and the tampered-audit flag
+   * edits a seeded event on the way in, so a refused value has to leave every trigger — and that event —
+   * exactly as it was.
+   */
+  it('refuses a simulation flag outside SimulationFlag, leaving every trigger as it stood', async () => {
+    const backend = await readyBackend();
+    const queueBefore = (await backend.listExceptions({}, NO_SCOPE)).data.length;
+    const trailBefore = (await backend.verifyAuditChain()).data.eventsChecked;
+    const outsideTheUnion = 'empty-everything' as unknown as SimulationFlag;
+
+    const refusal = await refusalOf(() => backend.setSimulation(outsideTheUnion, true));
+
+    expect(refusal.type).toBe('validation');
+    expect(refusal.traceId.trim().length).toBeGreaterThan(0);
+    expect(refusal.message).toContain(outsideTheUnion);
+
+    // No trigger is in effect afterwards: the collection the `empty` trigger empties still answers with
+    // the rows it held, and the refusal appended no event.
+    expect((await backend.listExceptions({}, NO_SCOPE)).data.length).toBe(queueBefore);
+    expect((await backend.verifyAuditChain()).data.eventsChecked).toBe(trailBefore);
+
+    // The assertion above has teeth: the trigger that empties every collection, applied to the port
+    // properly, empties this one and lifts again.
+    await backend.setSimulation('empty', true);
+
+    expect((await backend.listExceptions({}, NO_SCOPE)).data).toHaveLength(0);
+
+    await backend.setSimulation('empty', false);
+
+    expect((await backend.listExceptions({}, NO_SCOPE)).data.length).toBe(queueBefore);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 31. The role switch's section — the identity and the event that records it cannot come apart
+ * ------------------------------------------------------------------------------------------- */
+
+describe("the role switch's section", () => {
+  /**
+   * The event a switch appends states the identity before it and the identity after it, and a reader
+   * reconstructs who acted as whom from those two halves. Two switches issued in one turn therefore have
+   * to chain: the second event's `before` is the persona the first switch installed, and not the
+   * identity the second call happened to enter with — a trail whose halves do not meet states a
+   * transition that never happened (contracts §6, AAP 0.12.2).
+   */
+  it('chains two same-turn switches, and leaves the session acting as the second persona', async () => {
+    const backend = await readyBackend();
+    const ordered = { ...WHOLE_TRAIL, sort: 'sequence:asc' };
+    const opening = (await backend.getActiveUser()).data;
+    const trailBefore = (await backend.listAuditEvents(ordered)).data.length;
+
+    // Both personas hold `audit.read`, so the case can read the trail it is asserting on afterwards, and
+    // the persona the session ends as is one whose reads still answer (contracts §7.1).
+    const [first, second] = await Promise.all([
+      backend.switchRole(AUDITOR),
+      backend.switchRole(HEAD_OF_SUPPLY_CHAIN),
+    ]);
+
+    // Each call answers with the persona it installed, so the two halves of the case below read the
+    // identities from the adapter rather than restating a role here (rule P-6).
+    expect(first.data.id).toBe(AUDITOR);
+    expect(second.data.id).toBe(HEAD_OF_SUPPLY_CHAIN);
+
+    // The trail as the two switches left it, from the position the session stood at before them: the
+    // seeded trail carries role switches of its own, so the events under test are the two this case made.
+    const appended = (await backend.listAuditEvents(ordered)).data.slice(trailBefore);
+    const switched = appended.filter((event) => event.action === ROLE_SWITCH_ACTION);
+
+    // Two switches, two events, and nothing else appended: the section the switch takes covers the
+    // mutation and its event together, so one switch cannot leave the other's event behind.
+    expect(appended).toHaveLength(2);
+    expect(switched).toHaveLength(2);
+
+    const firstEvent = firstOf(switched, 'first role switch event');
+    const secondEvent = firstOf(switched.slice(1), 'second role switch event');
+
+    expect(firstEvent.before).toEqual({ id: opening.id, role: opening.role });
+    expect(firstEvent.after).toEqual({ id: first.data.id, role: first.data.role });
+
+    // The chaining the section is for: the second event's `before` is the identity the first installed.
+    expect(secondEvent.before).toEqual({ id: first.data.id, role: first.data.role });
+    expect(secondEvent.after).toEqual({ id: second.data.id, role: second.data.role });
+    expect(secondEvent.objectRef).toBe(second.data.id);
+
+    // And the session ends acting as the persona the last switch named.
+    expect((await backend.getActiveUser()).data.id).toBe(HEAD_OF_SUPPLY_CHAIN);
+  }, CASE_TIMEOUT_MS);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * 32. The trace identifier across sessions — one quoted identifier resolves to one call
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the trace identifier across sessions', () => {
+  /**
+   * The identifier is the demonstration's only diagnostic: a refusal card shows it so a reader can quote
+   * it, and a quoted identifier has to lead back to the call that printed it (AAP 0.18.1). The request
+   * counter alone cannot do that, because it restarts at its initial value in every session and with
+   * every reset, so the session's own segment is what the cases below hold.
+   */
+  it('differs for the same call ordinal in another session, and again after a reset of the same session', async () => {
+    const first = await readyBackend();
+    const second = await readyBackend();
+
+    // The same call at the same ordinal in two independently built sessions: each keeps its own counter
+    // and its own records, so the two answers differ in nothing but the session the call was served by.
+    const here = (await first.getActiveUser()).meta.traceId;
+    const there = (await second.getActiveUser()).meta.traceId;
+
+    expect(here).not.toBe(there);
+
+    // Parsed into the adapter's own segments rather than compared against a typed identifier: the prefix,
+    // the day read from the constant clock and the ticket read from the call ordinal are the same for two
+    // sessions' first calls, so the session's own segment is the whole of the difference between them.
+    const segmentsOf = (traceId: string): readonly string[] => traceId.split('-');
+    const hereSegments = segmentsOf(here);
+    const thereSegments = segmentsOf(there);
+    // The session's segment is the one before the ticket, so the shapes agree and it is located once.
+    const sessionOf = (segments: readonly string[]): string =>
+      lastOf(segments.slice(0, -1), 'session segment');
+
+    expect(hereSegments.length).toBe(thereSegments.length);
+    expect(firstOf(hereSegments, 'trace identifier segment')).toBe(
+      firstOf(thereSegments, 'trace identifier segment'),
+    );
+    expect(lastOf(hereSegments, 'trace identifier segment')).toBe(
+      lastOf(thereSegments, 'trace identifier segment'),
+    );
+    expect(sessionOf(hereSegments).length).toBeGreaterThan(0);
+    expect(sessionOf(hereSegments)).not.toBe(sessionOf(thereSegments));
+
+    // A reset puts the counter back to the value a fresh session starts from, so the session's next call
+    // takes the ticket its first call took. An identifier that repeated here would name two different
+    // calls, which is why the reset draws a fresh session segment with the counter.
+    const restored = await first.resetDemo();
+    const afterReset = (await first.getActiveUser()).meta.traceId;
+
+    expect(restored.data).toBe(true);
+    expect(lastOf(segmentsOf(afterReset), 'trace identifier segment')).toBe(
+      lastOf(segmentsOf(here), 'trace identifier segment'),
+    );
+    expect(sessionOf(segmentsOf(afterReset))).not.toBe(sessionOf(hereSegments));
+    expect(afterReset).not.toBe(here);
   }, CASE_TIMEOUT_MS);
 });

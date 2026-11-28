@@ -159,14 +159,14 @@ const RIBBON_CLASSES = 'grid grid-cols-1 gap-3 @md:grid-cols-2 @2xl:grid-cols-3 
 /**
  * One tile's slot in the row: a single-cell grid whose cell the card fills in both directions.
  *
- * The wrapper is a grid container rather than a flex one, and that is the whole of the fix it carries.
- * `src/components/card.tsx` renders a `<section>` with no width utility of its own, and a flex item is
- * sized by its content unless something stretches it, so as a flex item the card kept its max-content
- * width inside an equal-share slot and the row came out ragged — tiles 174 to 268 px wide in slots of
- * one width. As the only child of a single-cell grid the card is stretched across the cell on both
- * axes, so every slot holds a card exactly as wide as the slot, and the cards on one line share the
- * tallest card's height. `min-w-0` keeps a long caption or figure wrapping inside the tile instead of
- * forcing the row wider than the canvas.
+ * The wrapper is a grid container rather than a flex one, because the card it holds declares no width
+ * of its own: `src/components/card.tsx` renders a `<section>` with no width utility, and a flex item
+ * is sized by its content unless something stretches it, so as a flex item a card keeps its
+ * max-content width inside an equal-share slot and the row comes out ragged. As the only child of a
+ * single-cell grid the card is stretched across the cell on both axes, so every slot holds a card
+ * exactly as wide as the slot, and the cards on one line share the tallest card's height. `min-w-0`
+ * keeps a long caption or figure wrapping inside the tile instead of forcing the row wider than the
+ * canvas.
  */
 const TILE_CLASSES = 'grid min-w-0';
 

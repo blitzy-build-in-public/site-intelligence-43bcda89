@@ -103,8 +103,8 @@ export interface SeriesBandGeometry {
 /**
  * A series' name: the primary text role at the 12-unit step.
  *
- * The order of the two utilities is stated once, here. The two drawings used to state the same two
- * utilities in opposite orders, which is the disagreement this component removes.
+ * The order of the two utilities is stated once, here, so every drawing that composes this band takes
+ * one class order for a series' name, and the drawings cannot disagree about it.
  */
 const NAME_CLASSES = 'text-12 fill-text-primary';
 

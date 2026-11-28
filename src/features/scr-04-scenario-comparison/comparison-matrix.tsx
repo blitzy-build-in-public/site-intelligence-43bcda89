@@ -133,22 +133,22 @@ export { CANNOT_COMPUTE_LABEL };
 /**
  * Every word this matrix states itself, held here so its wording has one owner.
  *
- * WHAT IT STILL OWNS, AND WHAT IT NOW READS FROM THE SHARED VOCABULARY. The caption naming what the
- * table compares and the one cell an empty set renders are the matrix's own and stay here. Everything
- * else — the nine measure labels, the corner cell naming the row axis, the heading over the options the
- * set held back, the two constraint states and the four field labels inside one side effect — reads
+ * WHICH WORDING THIS MODULE OWNS, AND WHICH IT READS FROM THE SHARED VOCABULARY. The caption naming
+ * what the table compares and the one cell an empty set renders are the matrix's own. Everything else
+ * — the nine measure labels, the corner cell naming the row axis, the heading over the options the set
+ * held back, the two constraint states and the four field labels inside one side effect — reads
  * `src/types/comparison-text.ts`, because the comparison CSV states the same words and a service module
  * may not import a feature module (AAP §0.18.1). Each member below keeps the shape and the name its
- * readers already use, so `COMPARISON_MATRIX_TEXT.rows.addedCost` is the same string it always was,
- * and no reader in this feature changes.
+ * readers use, so `COMPARISON_MATRIX_TEXT.rows.addedCost` names that one string and every reader in
+ * this feature reaches it under that name.
  *
  * Eight of the nine measure labels are AAP §0.12.4's SCR-04 row verbatim, in the order that row lists
  * them; the ninth names the run-out reading AAP §0.8 requires that row's screens to render beside them.
- * The three levels a `ConfidenceLevel` reports are the matrix's own words and stay here, beside the
- * caption naming what the table compares and the one cell an empty set renders. None of these words
- * carries a figure, an amount, a date or a record identifier, and no record sentence — a confidence
- * reason, a constraint message, a blocking constraint — is paraphrased here: those arrive with the
- * record and are rendered as the record states them (rule P-6).
+ * The three levels a `ConfidenceLevel` reports are the matrix's own words, beside the caption naming
+ * what the table compares and the one cell an empty set renders. None of these words carries a figure,
+ * an amount, a date or a record identifier, and no record sentence — a confidence reason, a constraint
+ * message, a blocking constraint — is paraphrased here: those arrive with the record and are rendered
+ * as the record states them (rule P-6).
  */
 export const COMPARISON_MATRIX_TEXT = {
   /** The table's accessible name, used when the screen supplies none of its own. */
@@ -696,7 +696,9 @@ export interface ComparisonMatrixProps {
 
 /**
  * Renders the comparison matrix: one column per option, nine measure rows, the recommended column
- * marked, and the options the set held back listed beneath the table.
+ * marked, and the options the set held back listed beneath the table — AAP 0.12.4's "rejected options
+ * with the blocking constraint", stated here and nowhere else on the page, because a second list above
+ * would state each rejected identifier and its constraint twice.
  *
  * @param props The option set, the optional caption and the controlled selection. See
  *   {@link ComparisonMatrixProps}.

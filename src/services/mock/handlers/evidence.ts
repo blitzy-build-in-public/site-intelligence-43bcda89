@@ -6,198 +6,30 @@
  * Scope authority. This module is the "Handlers" row of AAP 0.12.1 at the `handlers/` path AAP 0.13.1
  * fixes, and it serves the two evidence reads AAP 0.12.3 lists — `GET /evidence?ref=` and
  * `GET /documents/{id}` — together with the pin list and the package reads that complete the family.
- * `platform-contracts.md` §3 fixes the records it reads (`Evidence`, `EvidencePin`, `PinState`,
- * `Provenance`, `Classification`, `Residency`, `Freshness`, `PpapElement`, `PpapPackage`), §7.1 fixes
- * who may read them, and §8 fixes the evidence rules a package element's state comes from.
+ * `platform-contracts.md` §3 fixes the records it reads, §7.1 fixes who may read them, and §8 fixes the
+ * evidence rules a package element's state comes from.
  *
- * WHY THIS MODULE EXISTS IN THE SERVICE AND NOT IN A SCREEN — AAP 0.2.1, rule P-2. "Message-level
- * redaction inside the mock backend: USR-04 cannot open the body of a customer-confidential document,
- * and USR-08 sees only its own-vendor pins. A UI-only restriction would fail the services' own
- * enforcement requirement." AAP 0.12.3 states the same duty from the endpoint's side: "Redaction is
- * applied before serialisation, so a customer-confidential body never crosses the boundary for
- * USR-04." Both refusals are therefore made here, before a record leaves this function: a withheld
- * body reaches a screen as a `Problem` and never as a payload, an empty string or a log line, and the
- * pin filter runs over the records the session holds rather than over what a canvas chose to draw. A
- * disabled control is then an explanation of the refusal the reader would have met anyway (rule P-8),
- * not the defence against it. The verdict itself is stated once, by `mayReadDocumentBody`, because the
- * service has two paths that could carry a body — a document read and an answer — and the assistant
- * family calls the same predicate so the two cannot answer differently.
+ * WHAT IT COMPUTES AND WHAT IT ONLY REPORTS — rule P-6. It computes no business figure: every number a
+ * payload states is a field of the record that carries it or a read's own output, quoted as that read
+ * reports it, and the `formula` member names the contracts §4 rule or §5 aggregate that owns the figure
+ * instead of re-deriving it. The two exceptions are the package readiness `wholePercent` produces from
+ * the package's own element count and the text of a figure, which `amountText` states in the
+ * interface's money shape. No currency amount, no record identifier and no expected result is typed
+ * here, and nothing imports `tests/fixtures/`.
  *
- * WHAT IT COMPUTES AND WHAT IT ONLY REPORTS — rule P-6. It computes no business figure. Every number
- * an evidence payload states is a field of the record that carries it or a read's own output — an
- * aggregate's, or the post-approval comparison `getApprovalOutcome` measures — quoted as that read
- * reports it, and the `formula` member names the contracts §4 rule or §5 aggregate that owns the
- * figure instead of re-deriving it. The one exception is the package readiness
- * figure entities §3 defines as a computed value: it is produced by `wholePercent`, the single
- * whole-percent rule the codebase holds, from the package's own element count, and this module never
- * divides by a constant of its own. No currency amount, no record identifier and no expected result is
- * typed here, and nothing imports `tests/fixtures/`. The one thing it does format is the text of a
- * figure: an amount is stated in the interface's one money shape — the currency code, a thousands
- * separator and at most two decimals (contracts §1, AAP §0.8) — because `Evidence.value` and
- * `Evidence.inputs` are display strings the record already carries (contracts §3, AAP §0.12.2) and the
- * drawer prints them unchanged. The shape has one owner in `src/types/figure-text.ts`, which this
- * module imports: a handler may not import `src/components` (AAP §0.18.1, rule P-2), so the rule the
- * drawer's text is written with lives where both tiers reach it rather than in either of them, and
- * `src/services/mock/mock-backend.test.ts` compares an amount this module states with `formatMoney`'s
- * output for the same figure so the two renderings cannot drift apart.
- *
- * THE RESOLUTION ORDER, STATED ONCE — `getEvidence`. A reference selects its family by its own shape:
- * a composed figure by its root, a write-back step by its `write-back:` root, an atlas series by
- * `atlas:`, a record by its identifier prefix. Each family then looks its own records up by exact
- * identifier. The order below is the order the lookup walks, and it is deterministic: the two composed
- * roots first, because they are the screens' own references and match no identifier prefix; then
- * `write-back:` and then `atlas:`, for the same reason; then the record families with the longer
- * prefixes first, so `PPAP-` is tested before `PO-` and `POL-` before the shorter `PO-`; then the four
- * families the atlas's own marks carry, so the evidence behind a crossing, a competitor site or network
- * and a radar reading is exactly as readable as the mark itself; then the seven node families the
- * topology and the impact chain carry; and last the one family with no prefix, the declared outbound
- * endpoint, which is selected by the endpoint string its ledger row states. A reference matching no family, or matching one whose records hold no such identifier, is
- * refused as `'not-found'` naming the reference. There is no fuzzy match, no prefix search over the
- * records and no fall-back to "the first record" — a drawer that silently showed a neighbouring figure
- * would be worse than one that reports the reference it could not resolve. The families, in order:
- * composed aggregate (`overview:`, `canvas:`), write-back step (`write-back:`), atlas series
- * (`atlas:`), package, exception, scenario, approval, audit event, evidence pin, document, customer
- * order, policy, purchase order, shared chokepoint, competitor site and network, radar series reading,
- * plant, supplier, origin, customer, material, production line, product, outbound endpoint.
- *
- * THE WRITE-BACK STEP REFERENCE — principle PR-6, AAP 0.2.2. SCR-05's post-approval tracker and
- * SCR-04's write-back preview draw the steps a plan would write, and each step is a figure of its own —
- * a record in a named system of record, in a state the run reached — so each step opens the evidence
- * behind itself rather than the plan's. Contracts §3 gives `WriteBack` no identifier, so the reference
- * names the record the steps belong to and the step's position within it:
- * `write-back:<ownerId>/<sequence>`, where the owner is an approval or a response option and the
- * sequence is the position the record itself states. The owner is resolved the way its own family
- * resolves it — an approval by its identifier, an option through `scenarioForIdentifier`, so a shipped
- * option and one the adapter measures at call time both answer — and the position is then read against
- * the steps that record holds. A form the grammar does not state is refused as `'validation'`; an owner
- * or a position the records do not hold is refused as `'not-found'`, and the second names the
- * sequences the record does state.
- *
- * THE COMPOSED AGGREGATE REFERENCE — AAP 0.2.1 F12, principle PR-6. A computed figure has no record
- * identifier of its own, so the two surfaces that draw one compose a reference naming the aggregate and
- * the shell selection it was read under: `<root>:<key>` when nothing is selected, and
- * `<root>:<key>?plants=<ids>&products=<ids>` when the top bar's filters name plants or a product, each
- * list present only when it is non-empty, comma-separated and trimmed. The root, `overview` or
- * `canvas`, records which surface composed the reference, and both roots accept every key because the
- * two surfaces draw the same aggregates. The keys are the six ribbon aggregates (`open-exceptions`,
- * `critical-exceptions`, `revenue-at-risk`, `customer-orders-at-risk`,
- * `median-hours-to-approved-plan`, `plants-in-scope`), one plant's two readings
- * (`plant/<plantId>/open-exceptions`, `plant/<plantId>/revenue-at-risk`) and one day of the
- * opened-and-resolved series
- * (`day/<IsoDate>/open`, `day/<IsoDate>/resolved`). The payload is the aggregate read's own output:
- * the selection is read the way the adapter reads a `Scope`, so the one `resolveScope` narrows the
- * drawer's figure exactly as it narrowed the screen's (AAP 0.2.1), and the figure is re-read through
- * `getOverview` — or `getCanvasRibbon` for the ribbon's critical count, which only that read computes —
- * rather than re-derived here. An unknown key, a query parameter this grammar does not carry, and a
- * key whose subject the read does not carry are each refused with a typed `Problem`, and so is a
- * selection that cannot be read: an empty value, a blank entry, a parameter stated twice, a plant or a
- * product the records do not hold, and a second product list are refused rather than trimmed or
- * widened, because a drawer computed over a population the reference did not name would state a figure
- * the screen never drew.
- *
- * THE ATLAS FAMILIES ANSWER THE MARKS SCR-13 DRAWS — AAP 0.2.1 F12, AAP 0.12.4. The competitive atlas
- * draws one mark per radar reading, per site and per shared crossing, and every one of them opens the
- * record behind it, so this read resolves four further families beside the composed `atlas:` series:
- * `CHK-nn`, one crossing of the simulated market-intelligence pack; `CMP-nn-Sn`, a competitor's site,
- * and `CMP-nn`, the network that owns it; `SER-…`, one radar reading, written `<series id>` for the
- * whole series or `<series id>#<axis id>` for the single score a vertex draws; and `PLT-…`, one of the
- * client's own plants, which is the client site the network view places. A `#` naming no axis of the
- * pack, a series the pack does not hold, and a series carrying no score at the axis it was asked for
- * are all refused as `'not-found'` naming the reference, like every other unresolvable identifier.
- * The pack is not plant-scoped and it is not reachable without its own permission (rule P-5, AAP 0.8):
- * a crossing, a competitor's site or network and a radar reading carry no plant subject, so `subjectOf`
- * narrows none of them, and they are refused to a persona that may not read the pack at all, because
- * `getAtlas` withholds the whole read from that persona and a reference must not reach a record the
- * corresponding list read would have withheld. A client plant is a plant-scoped first-party record and
- * is narrowed to the acting persona's plant scope exactly as every other record that names a plant is.
- *
- * THE TWO FAMILIES SCR-07 OPENS ITS FIGURES FROM — principle PR-6, rule P-6. A ledger count and a
- * policy identifier are figures the governance screen prints, so each of them has to open its evidence
- * the way any other figure does (AAP 0.2.1 F12). Neither underlying record carries a reference to
- * hold, and `LedgerRow`, `PolicyDetail` and `Evidence` are not widened from a handler — contracts §3
- * fixes their members — so the reference is one the record already states: a policy is named by its
- * own identifier, and an outbound endpoint by the endpoint string the declared configuration gives it,
- * which is that ledger row's own key. The endpoint family is therefore the one family selected by an
- * exact declared value rather than by a prefix, and it is tested after every prefix branch so that no
- * prefix can shadow it.
- *
- * THE FOUR TOPOLOGY NODE FAMILIES ARE RECORDS — AAP 0.2.1 F12. The FileMap canvas draws nodes that are
- * the seed records themselves: `src/services/mock/handlers/topology.ts` copies each plant, supplier,
- * tier-2 origin and customer into its node, so the node identifier IS the record identifier and the
- * evidence read resolves it like any other reference. A node is placed in no single plant — a supplier
- * reaches every plant its materials and orders serve, an origin every plant of the suppliers it feeds,
- * a customer every plant its orders ship from — so a node's plant scope is decided over the plants the
- * records place it in rather than by one subject, which is what `assertNodeReach` does.
- *
- * THE THREE FAMILIES OF ONE EXCEPTION SHARE ITS PLANTS — AAP 0.2.1's one-scope rule, principle PR-6. An
- * exception, the scenarios that answer it and the approvals of those scenarios all concern one
- * disruption, and a disruption is not confined to the plant its record is laid on: `alsoAffectsPlantIds`
- * names the plants it reaches. That list is what the exception queue admits a row by, so it is what the
- * evidence behind that row is admitted by too — `assertExceptionReach` reads `plantsTouchedBy`, the
- * domain module's own answer to which plants one exception concerns, and admits the record when any of
- * them lies inside the acting persona's plant scope. A drawer narrowed by the recorded plant alone
- * refused a figure the queue had just displayed, which is the one thing "every figure opens its
- * evidence" cannot allow. Nothing else is widened: a record outside every plant the exception touches is
- * still refused, and the refusal names each of them.
- *
- * THE SCENARIO FAMILY ANSWERS TWO KINDS OF OPTION — AAP 0.12.4, rule PR-6. An option a screen shows is
- * either a record the dataset ships or one the adapter measures from an exception's own solver case, and
- * both are figures with a record behind them: the shipped sets are read here and the measured set is
- * read through the sibling `handlers/scenarios.ts`, which is the module that produces it for a screen.
- * Without the second answer every comparison column of the measured exception — the case AAP 0.7 and
- * AAP 0.8 fix, and the option the sandbox duplicates — would open the drawer's failure region instead of
- * its four sections.
- *
- * THE APPROVAL FAMILY ANSWERS A FIGURE INSIDE THE RECORD — AAP 0.12.2's `Evidence.value`, rule P-6.
- * SCR-05 prints two amounts off the approval record, seven measures of the comparison the approval was
- * measured from and one reading per date of that comparison's closing-stock series, and every one of
- * those figures opens its own evidence, so the family reads a fragment after the record's identifier:
- * `<approval id>#<member>` names one of the record's own euro members (`addedCostEur`,
- * `protectedRevenueEur`); `<approval id>#<column>.<member>` names one measure of the post-approval
- * comparison, where the column is `planned` or `resulting` and the member is one of the seven
- * `SolverResult` scalars the outcome card compares; and
- * `<approval id>#<column>.dailyClosingStock/<date>` names the units that column's series leaves at the
- * close of one date. A reference stating no fragment keeps answering exactly as it did, so a caller
- * that never composes one is unaffected. A measure or reading is re-read through `getApprovalOutcome` —
- * the read that produces the card — rather than re-derived here, and a fragment, member or date the
- * read does not answer is refused as `'not-found'` naming the reference and the values the read
- * accepts, so a drawer never states a figure the card did not print.
- *
- * THE RECORD SET ATTRIBUTES A VENDOR TO THE EXTERNAL PERSONA — AAP 0.2.1, read rather than invented.
- * Rule P-6 forbids typing a record and rule P-7 confines the product's parties to the seeded set, so
- * this module does not decide for itself which supplier the external supplier engineer works for. It
- * reads the attribution the records state, in the two places they can state it: the `vendorIds` a
- * persona record declares for itself — `src/seed/users.ts` gives the external engineer the one seal
- * supplier whose records it is there to inspect — and the suppliers of the exceptions a persona owns.
- * `vendorsFor` unions the two, so the external engineer's pin read releases exactly its own vendor's
- * pins and no other party's: the release AAP 0.2.1 requires beside the withholding it requires in the
- * same sentence. A persona the records attribute no vendor to still releases nothing, which is the
- * fail-closed direction, because withholding another party's evidence is recoverable and releasing it
- * is not. The read stays conformance-only in this run (the pin screens belong to stage S4, AAP
- * 0.12.3), so no S1-S3 screen depends on it either way.
- *
- * THE PACKAGE READS ARE CONFORMANCE-ONLY — AAP 0.12.3, AAP 0.14.2. No S1-S3 screen calls `getPackage`
- * or `reviewPackageElement`, and the package routes render the stage notice, because the package map is
- * stage S4's surface. They live here because AAP 0.6.2 lists `extraction review` among the audited
- * writes the adapter must implement, and the packages are the only S4 record set with seeded content,
- * so they sit beside the documents and pins they reference. No other S4 or S5 surface is invented here.
- *
- * RULES IT DOES NOT CLAIM — rule P-4. An evidence payload reports a record and the rule behind it. It
- * states no security property of the workspace and establishes nothing about a store: the audit family
- * carries the chain's `Simulated control` wording, and the labels below are the fixed specification
- * §5.3 strings of rule P-1, quoted verbatim rather than paraphrased.
+ * THE GRAMMARS, THE ORDER AND THE REDACTION RULE ARE STATED WHERE THEY APPLY — `resolveRef` walks the
+ * families, `composedReferenceOf`, `writeBackPartsOf` and `approvalFigureOf` state the three grammars,
+ * and `mayReadDocumentBody` states the one redaction this family applies.
  *
  * Rules this module is built to satisfy:
  * - P-1: every label it returns is one of the seven fixed `SIM_LABELS` members, typed `SimLabel` so a
- *   paraphrase is a compile error.
+ *   paraphrase is a compile error, and specification §5.3's strings are quoted verbatim.
  * - P-2, P-3: the verdicts come from `ctx.actor` and the contracts §7.1 matrix through `hasPermission`,
- *   never from `actor.permissions` and never from a caller's claim, so bypassing the role switcher
- *   changes no outcome; the two redactions are applied here, in the service.
- * - P-5: every payload states the provenance of the one record it reports — `market_intelligence` for a
- *   crossing, a competitor's site or network and a competitor's radar reading, `first_party` for a node,
- *   a client plant and the client's own self-assessment series, `computed` for a composed aggregate and
- *   for an approval's compared measure — and no payload carries a member from the other family, so
- *   nothing here can blend a market figure with a first-party one in a single number.
+ *   never from `actor.permissions` and never from a caller's claim.
+ * - P-4: it states no security property of the workspace and establishes nothing about a store; the
+ *   audit family carries the chain's `Simulated control` wording.
+ * - P-5: every payload states the provenance of the one record it reports and carries no member from
+ *   the other family, so nothing here blends a market figure with a first-party one.
  * - P-6, P-7: it types no figure, amount or record identifier, reads no fixture, and names no company,
  *   person or vendor of its own; every name it returns is a field of a seeded record.
  * - B-1, B-2: it reads memory and nothing else — no address, no fetch, no environment read, no
@@ -308,6 +140,37 @@ const EVIDENCE_REVIEW: Permission = 'evidence.review';
  * document the acting persona may not read (see `mayReadDocumentBody`).
  */
 export const DOCUMENT_CONFIDENTIAL_READ: Permission = 'document.confidential.read';
+
+/**
+ * The permission the audit trail's own read requires, and therefore the one a reference to one event of
+ * it must answer to (contracts §7.1).
+ *
+ * `./audit.ts` gates every read of the trail on this permission, so the evidence behind a recorded
+ * event is exactly as readable as the trail that holds it: a role the matrix leaves out of the trail is
+ * not handed one of its links through a reference (AAP 0.6.2's authority property). Named once here so
+ * the check and the failure's `requiredPermission` cannot disagree.
+ */
+const AUDIT_READ: Permission = 'audit.read';
+
+/**
+ * The permission the policy set's own read requires, and therefore the one a reference to one policy
+ * must answer to (contracts §7.1).
+ *
+ * `./governance.ts` gates `listPolicies` and `getPolicy` on this permission, so a policy record's rule
+ * text, its evaluation status and the decisions citing it stay with the roles the matrix admits to the
+ * policy screen.
+ */
+const POLICY_READ: Permission = 'policy.read';
+
+/**
+ * The permission the declared configuration's own read requires, and therefore the one a reference to
+ * one outbound endpoint must answer to (contracts §7.1).
+ *
+ * `./governance.ts` gates `getSovereignty` and `getOutboundLedger` on this permission, so the ledger row
+ * behind the reference — its purpose, its state and the counts the trail supports for it — is released
+ * to the roles the matrix admits to the deployment record, exactly as the ledger read is.
+ */
+const SOVEREIGNTY_READ: Permission = 'sovereignty.read';
 
 /**
  * The permission the competitive atlas requires, and therefore every market-intelligence record its
@@ -446,7 +309,7 @@ const SERIES_PREFIX = 'SER-';
  * The `#` that separates a record identifier from the fragment naming one figure inside it.
  *
  * Two families carry a fragment: a radar series names the axis a single vertex sits on, and an
- * approval names one of the figures SCR-05 prints off it, in the grammar this module's header states.
+ * approval names one of the figures SCR-05 prints off it, in the grammar `approvalFigureOf` states.
  * Neither family's plain identifier stopped answering when the fragment was added.
  */
 const AXIS_SEPARATOR = '#';
@@ -877,6 +740,31 @@ function isExceptionRef(resolved: ResolvedRef): resolved is ExceptionRef {
 }
 
 /**
+ * Whether a resolved reference is one of the three families whose own read requires a permission of its
+ * own.
+ *
+ * An audit event, a policy and an outbound endpoint name no plant of their own, so no scope check
+ * narrows them; what admits them is the permission the read that publishes the record class requires —
+ * the trail's in `./audit.ts`, the policy set's and the ledger's in `./governance.ts`. Written as a type
+ * guard over the union's own discriminant, so `assertFamilyReadable` can take that three-family member
+ * and nothing else: the compiler then proves no family `evidence.read` alone admits is gated by a rule
+ * about another read's permission.
+ *
+ * @param resolved - The record the reference named.
+ * @returns Whether it is an audit event, a policy or an outbound endpoint.
+ */
+function isFamilyWithOwnRead(resolved: ResolvedRef): resolved is FamilyWithOwnRead {
+  switch (resolved.family) {
+    case 'audit-event':
+    case 'policy':
+    case 'outbound-endpoint':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Refuses the call when a canvas node lies outside the persona's effective plant scope everywhere the
  * records place it.
  *
@@ -1024,13 +912,29 @@ function assertEvidenceReview(ctx: HandlerContext): void {
 
 /**
  * Whether the acting persona may read this document's body — the single owner of the redaction rule
- * AAP 0.2.1 and AAP 0.12.3 require.
+ * AAP 0.2.1 and AAP 0.12.3 require, and the block that states it.
  *
- * A body is withheld only when the record classifies it customer-confidential and the acting role does
- * not hold `document.confidential.read`; every other classification is released to every persona that
- * may read evidence at all, which the callers check first. The verdict comes from the contracts §7.1
- * matrix through `hasPermission` with no subject, because a document carries no plant of its own and
- * the permission is not plant-scoped.
+ * THE ONE WITHHELD CLASSIFICATION IS `customer-confidential`. AAP 0.2.1 states the duty in one
+ * sentence — "USR-04 cannot open the body of a customer-confidential document, and USR-08 sees only its
+ * own-vendor pins" — and AAP 0.12.3 states it again from the endpoint's side: "Redaction is applied
+ * before serialisation, so a customer-confidential body never crosses the boundary for USR-04". No
+ * input gives a `supplier-confidential` body a confidentiality duty, and none could be scoped here if
+ * it did: the record set attributes no owning supplier to a document, and `DocumentBody` (AAP 0.12.2,
+ * seed §7) carries title, classification, residency, attachments and body text and no member naming a
+ * supplier. Every other value, `supplier-confidential` included, is therefore released to any persona
+ * holding `evidence.read` — the permission both callers check first — and this block says so rather
+ * than leaving a reader to take a tier for protected that is not. Withholding it would need a member
+ * AAP 0.12.2 does not define, which AAP 0.1 forbids this module from inventing.
+ *
+ * The verdict comes from the contracts §7.1 matrix through `hasPermission` with no subject, because a
+ * document carries no plant of its own and the permission is not plant-scoped.
+ *
+ * WHY THE RULE IS APPLIED IN THE SERVICE AND NOT IN A SCREEN — rule P-2, AAP 0.2.1. "A UI-only
+ * restriction would fail the services' own enforcement requirement", so both refusals are made here,
+ * before a record leaves this family: a withheld body reaches a screen as a `Problem` and never as a
+ * payload, an empty string or a log line, and `pinVisibleTo` runs over the records the session holds
+ * rather than over what a canvas chose to draw. A disabled control is then an explanation of the
+ * refusal the reader would have met anyway (rule P-8), not the defence against it.
  *
  * Exported so the two paths that could carry a body answer alike: `getDocument` refuses the document
  * outright, and the assistant family refuses a question whose cited document this predicate answers
@@ -1132,6 +1036,137 @@ function assertPackReach(ctx: HandlerContext): void {
       COMPETITIVE_READ,
       `The acting role (${ctx.actor.role}) does not hold the ${COMPETITIVE_READ} permission, so the simulated market-intelligence record behind an atlas mark is not readable here.`,
     );
+  }
+}
+
+/**
+ * Whether the acting persona may read the audit trail — the single owner of the check
+ * {@link assertFamilyReadable} applies to an audit event.
+ *
+ * The trail's own read is `./audit.ts`, whose every read requires `audit.read` (contracts §7.1), and the
+ * matrix is the one authority on who holds it, so the permission is evaluated with no subject: the chain
+ * is not plant-scoped and no plant could narrow it. The demonstration's forbidden trigger is deliberately
+ * not asked here — `assertEvidenceRead` has already refused the whole call while it is in effect, so this
+ * predicate answers a question about the role alone, and the identifier search keeps exactly the family
+ * gate it has today rather than losing the audit family to a state that says nothing about the role.
+ *
+ * Exported for the identifier search, which indexes the trail only where this predicate answers `true`:
+ * the hit a reader is offered for an event and the record behind that hit are then released by one rule
+ * rather than by two that could drift apart (the reasoning {@link mayReadDocumentBody} states for its own
+ * two callers).
+ *
+ * @param ctx - The call's context: the persona the trail would be released to.
+ * @returns `true` when an event of the trail is readable for this call, `false` when it is not.
+ */
+export function mayReadAuditEvents(ctx: HandlerContext): boolean {
+  return hasPermission(ctx.actor.role, AUDIT_READ, null, ctx.actor);
+}
+
+/**
+ * Whether the acting persona may read the policy set — the single owner of the check
+ * {@link assertFamilyReadable} applies to a policy.
+ *
+ * The policy set's own read is `./governance.ts`, whose `listPolicies` and `getPolicy` both require
+ * `policy.read` (contracts §7.1). As for the trail, the permission is evaluated with no subject, because
+ * the policy set is group-wide rather than plant-scoped, the forbidden trigger is left to
+ * `assertEvidenceRead`, and the predicate is exported so the identifier search releases a policy hit and
+ * the record behind it by one rule.
+ *
+ * @param ctx - The call's context: the persona the policy set would be released to.
+ * @returns `true` when a policy is readable for this call, `false` when it is not.
+ */
+export function mayReadPolicies(ctx: HandlerContext): boolean {
+  return hasPermission(ctx.actor.role, POLICY_READ, null, ctx.actor);
+}
+
+/**
+ * Whether the acting persona may read the declared configuration — the single owner of the check
+ * {@link assertFamilyReadable} applies to an outbound endpoint.
+ *
+ * The deployment record and the outbound ledger are `./governance.ts`'s reads, and both require
+ * `sovereignty.read` (contracts §7.1). The permission is evaluated with no subject for the reason
+ * {@link mayReadPolicies} gives, the forbidden trigger is left to `assertEvidenceRead`, and the predicate
+ * is exported so a reader of this module can ask the same question the ledger read asks.
+ *
+ * @param ctx - The call's context: the persona the declared configuration would be released to.
+ * @returns `true` when a row of the ledger is readable for this call, `false` when it is not.
+ */
+export function mayReadOutboundEndpoints(ctx: HandlerContext): boolean {
+  return hasPermission(ctx.actor.role, SOVEREIGNTY_READ, null, ctx.actor);
+}
+
+/**
+ * The permission each of the three families whose own read is a different read requires (contracts
+ * §7.1).
+ *
+ * Keyed by the resolved family rather than by the record, because the permission belongs to the record
+ * class: an event needs the trail's permission, a policy the policy set's, and an outbound endpoint the
+ * declared configuration's. Exhaustive over the family type, so a fourth family added to
+ * `FamilyWithOwnRead` without a permission here does not compile.
+ */
+const FAMILY_READ_PERMISSION: Readonly<Record<FamilyWithOwnRead['family'], Permission>> = {
+  'audit-event': AUDIT_READ,
+  policy: POLICY_READ,
+  'outbound-endpoint': SOVEREIGNTY_READ,
+};
+
+/**
+ * Refuses the call when the acting persona may not read the record class the reference resolved into.
+ *
+ * Three record classes this family answers are records of another read: one event of the audit trail,
+ * one policy of the policy set and one row of the declared outbound ledger. Each of those reads requires
+ * a permission of its own (contracts §7.1), so the evidence behind a record is released to exactly the
+ * roles its own read releases the record to — the rule {@link assertPackReach} states for the atlas and
+ * {@link assertDocumentBodyReadable} states for a withheld body. The verdicts are
+ * {@link mayReadAuditEvents}'s, {@link mayReadPolicies}'s and {@link mayReadOutboundEndpoints}'s, so this
+ * refusal and the identifier search's family gates cannot disagree about who may read them.
+ *
+ * A refusal is stated per family because each names the record the reference resolved to, the acting role
+ * and the read whose permission stands in the way, so a reader learns which record class stood outside
+ * their role rather than only that something was refused (rule P-8). The forbidden trigger is not asked
+ * here: `assertEvidenceRead` has already refused the whole call in that state.
+ *
+ * @param ctx - The call's context: the persona the check is made for.
+ * @param resolved - The audit event, policy or outbound endpoint the reference named.
+ * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
+ */
+function assertFamilyReadable(ctx: HandlerContext, resolved: FamilyWithOwnRead): void {
+  const permission = FAMILY_READ_PERMISSION[resolved.family];
+  const role = ctx.actor.role;
+
+  switch (resolved.family) {
+    case 'audit-event':
+      if (mayReadAuditEvents(ctx)) {
+        return;
+      }
+
+      throw permissionProblem(
+        ctx,
+        permission,
+        `The acting role (${role}) does not hold the ${permission} permission that the audit trail's own read requires, so the evidence behind audit event ${resolved.record.id} is not readable here.`,
+      );
+
+    case 'policy':
+      if (mayReadPolicies(ctx)) {
+        return;
+      }
+
+      throw permissionProblem(
+        ctx,
+        permission,
+        `The acting role (${role}) does not hold the ${permission} permission that the policy set's own read requires, so the evidence behind policy ${resolved.record.id} is not readable here.`,
+      );
+
+    case 'outbound-endpoint':
+      if (mayReadOutboundEndpoints(ctx)) {
+        return;
+      }
+
+      throw permissionProblem(
+        ctx,
+        permission,
+        `The acting role (${role}) does not hold the ${permission} permission that the declared configuration's own read requires, so the evidence behind outbound endpoint ${resolved.record.endpoint} is not readable here.`,
+      );
   }
 }
 
@@ -1281,6 +1316,11 @@ function isAggregateRoot(value: string): value is AggregateRoot {
 /**
  * The root and remainder of a composed reference, or `null` when the reference is not one.
  *
+ * The reference a composing surface emits reads `<root>:<key>`, and reads
+ * `<root>:<key>?plants=<ids>&products=<ids>` when the top bar's filters name plants or a product, each
+ * list present only when it is non-empty, comma-separated and trimmed. Both roots accept every key,
+ * because the two surfaces draw the same aggregates.
+ *
  * The test is the root alone: the two roots are the only words this read treats as more than an
  * identifier prefix, so a reference that opens with something else keeps travelling down the record
  * families unchanged.
@@ -1363,6 +1403,12 @@ const AGGREGATE_FORMULAS: Readonly<Record<OverviewAggregateKey, string>> = {
 /**
  * The text of one amount, as an evidence payload states it: the figure in the interface's one money
  * shape.
+ *
+ * The shape has one owner in `src/types/figure-text.ts`, which this module imports: a handler may not
+ * import `src/components` (AAP §0.18.1, rule P-2), so the rule the drawer's text is written with lives
+ * where both tiers reach it rather than in either of them. `src/services/mock/mock-backend.test.ts`
+ * compares an amount this module states with `formatMoney`'s output for the same figure, so the two
+ * renderings cannot drift apart.
  *
  * `Evidence.value` and `Evidence.inputs` are display strings the record already carries (contracts §3,
  * AAP §0.12.2), so a drawer prints what this function composed and a figure that reached it as a bare
@@ -2229,6 +2275,22 @@ type ExceptionRef = Extract<
 >;
 
 /**
+ * The three arms of {@link ResolvedRef} whose own read is a different read of this adapter.
+ *
+ * An audit event, a policy and an outbound endpoint name no plant of their own — the trail is the
+ * session's whole chain, and the policy set and the declared configuration are group-wide by
+ * construction (see `subjectOf`) — but each record class belongs to a read this module does not own: the
+ * trail is `./audit.ts`'s, and the policies and the ledger are `./governance.ts`'s. Separated from the
+ * union for the reason {@link NodeRef} is: the permission these three are gated on is not the family's
+ * own read permission, which no other family needs, and the compiler then proves that gate is never
+ * applied to a record of another family.
+ */
+type FamilyWithOwnRead = Extract<
+  ResolvedRef,
+  { readonly family: 'audit-event' | 'policy' | 'outbound-endpoint' }
+>;
+
+/**
  * The one arm of {@link ResolvedRef} that stands for a step of a plan's simulated write-back.
  *
  * Separated from the union so the payload builder takes a step and nothing else: a step's evidence is
@@ -2251,6 +2313,12 @@ type WriteBackStepRef = Extract<ResolvedRef, { readonly family: 'write-back' }>;
  * `SCN-` identifier and the owner of a `write-back:` reference — and the option one path answers has to
  * be the option the other answers, or the drawer behind an option and the drawer behind its own steps
  * would describe two different records.
+ *
+ * The second lookup is what makes an option a screen shows answerable at all: an option a screen shows
+ * is either a record the dataset ships or one the adapter measures from an exception's own solver case,
+ * and without the measured answer every comparison column of the measured exception — the case AAP 0.7
+ * and AAP 0.8 fix, and the option the sandbox duplicates — would open the drawer's failure region
+ * instead of its four sections (AAP 0.12.4, principle PR-6).
  *
  * @param ctx - The call's context, whose records state the option sets. The state is not modified.
  * @param scenarioId - The identifier the reference names.
@@ -2309,6 +2377,12 @@ function writeBackOwner(ctx: HandlerContext, ownerId: string): Approval | Scenar
 
 /**
  * The owner identifier and the step position a `write-back:` reference states.
+ *
+ * SCR-05's post-approval tracker and SCR-04's write-back preview draw the steps a plan would write, and
+ * each step is a figure of its own — a record in a named system of record, in a state the run reached —
+ * so each opens the evidence behind itself rather than the plan's (principle PR-6, AAP 0.2.2).
+ * Contracts §3 gives `WriteBack` no identifier, which is why the reference names the record the steps
+ * belong to and the step's position within that record: `write-back:<ownerId>/<sequence>`.
  *
  * The reference is read against the grammar a refusal quotes rather than repaired: an owner has to be
  * named, the reference has to carry exactly one position after it, and that position has to have the
@@ -2391,14 +2465,16 @@ function resolveWriteBackRef(ctx: HandlerContext, ref: string): WriteBackStepRef
 }
 
 /**
- * Resolves one reference to the record that answers it, in the module's documented order.
+ * Resolves one reference to the record that answers it, in the order the walk below states.
  *
  * The root or the prefix selects the family and that family's own records are then searched for the
- * exact identifier, so a reference either names a record the session holds or is refused. The order is
- * the one this module's header states — composed aggregate, write-back step, atlas series, package,
- * exception, scenario, approval, audit event, pin, document, customer order, policy, purchase order,
- * shared chokepoint, competitor site and network, radar series reading, then the seven node families and
- * the declared outbound endpoint — and it is written out here rather than derived from a table so a
+ * exact identifier, so a reference either names a record the session holds or is refused. There is no
+ * fuzzy match, no prefix search over the records and no fall-back to "the first record": a drawer that
+ * silently showed a neighbouring figure would be worse than one that reports the reference it could
+ * not resolve. The order is — composed aggregate, write-back step, atlas series, package, exception,
+ * scenario, approval, audit event, pin, document, customer order, policy, purchase order, shared
+ * chokepoint, competitor site and network, radar series reading, then the seven node families and the
+ * declared outbound endpoint — and it is written out here rather than derived from a table so a
  * reader can see it. `PPAP-` is tested first among the record families because a package identifier
  * begins with the two letters a purchase order's begins with, and a shorter prefix tested first would
  * shadow it; `POL-` is tested before the shorter `PO-` for the same longer-prefix-first reason, and the
@@ -2407,6 +2483,13 @@ function resolveWriteBackRef(ctx: HandlerContext, ref: string): WriteBackStepRef
  * prefix because `overview:`, `canvas:` and `write-back:` match none of them, and the endpoint family is
  * tested once every prefix branch has declined the reference, so no prefix can shadow an endpoint and no
  * endpoint can be read as an identifier.
+ *
+ * THE TWO FAMILIES SCR-07 OPENS ITS FIGURES FROM NAME THEMSELVES. A policy is named by its own `POL-`
+ * identifier, and an outbound endpoint by the exact endpoint string the declared configuration gives
+ * it, which is that ledger row's own key. Neither `LedgerRow` nor `Evidence` is widened from a handler
+ * to carry a reference, because contracts §3 fixes their members, so these are the two families
+ * selected by a value the record already states — and the endpoint family is the one of them with no
+ * prefix at all.
  *
  * Two families resolve more than one record. A `CMP-` reference is looked up as a site across the
  * pack's networks first and as a network second, so a site identifier answers with the network that
@@ -2434,9 +2517,8 @@ function resolveWriteBackRef(ctx: HandlerContext, ref: string): WriteBackStepRef
  *
  * The approval family is the one family whose reference may carry a fragment. `<approval id>` alone is
  * the record's own payload, and `<approval id>#<fragment>` names one figure inside it, which
- * `approvalFigureOf` parses in the grammar this module's header states. The approval is resolved
- * either way, so the plant scope and the permission check `getEvidence` applies to a figure are the
- * ones its record gets.
+ * `approvalFigureOf` parses and documents the grammar of. The approval is resolved either way, so the
+ * plant scope and the permission check `getEvidence` applies to a figure are the ones its record gets.
  *
  * The function is asynchronous because a composed aggregate reference and an approval's compared
  * figure are answered by re-reading the read that computes them; every other family resolves from the
@@ -2526,12 +2608,13 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
       );
     }
 
-    // No fragment is the reference this family has always answered: the record's own payload.
+    // No fragment means no figure inside the record is named, so the reference resolves over the
+    // role's whole scope and answers the record's own payload.
     if (fragment === null) {
       return { family: 'approval', record: found };
     }
 
-    // A fragment names one figure inside the record, in the grammar this module's header states, and
+    // A fragment names one figure inside the record, in the grammar `approvalFigureOf` states, and
     // the record stays the resolved record so the plant scope and the permission check are unchanged.
     return {
       family: 'approval-figure',
@@ -2617,6 +2700,22 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
       `The order book holds no purchase order with the identifier ${ref}, so the evidence behind it cannot be resolved.`,
     );
   }
+
+  /*
+   * The atlas families the SCR-13 marks carry — AAP 0.2.1 F12, AAP 0.12.4. The competitive atlas
+   * draws one mark per radar reading, per site and per shared crossing, and every one of them opens the
+   * record behind it, so this walk resolves four further families beside the composed `atlas:` series:
+   * `CHK-nn`, one crossing of the simulated market-intelligence pack; `CMP-nn-Sn`, a competitor's
+   * site, and `CMP-nn`, the network that owns it; `SER-…`, one radar reading, written `<series id>` for
+   * the whole series or `<series id>#<axis id>` for the single score a vertex draws; and `PLT-…`, one
+   * of the client's own plants, which the plant family below resolves because it is an ordinary plant
+   * record. The pack is not plant-scoped and is not reachable without its own permission (rule P-5,
+   * AAP 0.8): a crossing, a competitor's site or network and a radar reading carry no plant subject,
+   * so `subjectOf` narrows none of them and `assertPackReach` decides them, because a reference must
+   * not reach a record the corresponding list read would have withheld. A `#` naming no axis of the
+   * pack, a series the pack does not hold and a series carrying no score at the axis it was asked for
+   * are all refused as `'not-found'` naming the reference.
+   */
 
   if (ref.startsWith(CHOKEPOINT_PREFIX)) {
     const found = records.marketIntelligence.chokepoints.find((candidate) => candidate.id === ref);
@@ -2849,14 +2948,27 @@ function isMoneyMeasure(member: OutcomeMeasureKey): boolean {
 }
 
 /**
- * Reads the one figure an approval reference's fragment names.
+ * Reads the one figure an approval reference's fragment names, and states the fragment grammar.
  *
- * The grammar is the one this module's header states: a record member is quoted from the approval's
- * own field, and a compared measure is read from `getApprovalOutcome` — the read the outcome card is
- * built from — so the drawer states the figure the card printed rather than a second computation of
- * it (AAP 0.12.2's `Evidence.value`, rule P-6). The measure is taken by its member name from the
- * column's own `SolverResult`, and the levers that solve ran at travel with it so the payload can say
- * which measurement it reports.
+ * SCR-05 prints two amounts off the approval record, seven measures of the comparison the approval was
+ * measured from and one reading per date of that comparison's closing-stock series, and every one of
+ * those figures opens its own evidence, so the family reads a fragment after the record's identifier:
+ * `<approval id>#<member>` names one of the record's own euro members (`addedCostEur`,
+ * `protectedRevenueEur`); `<approval id>#<column>.<member>` names one measure of the post-approval
+ * comparison, where the column is `planned` or `resulting` and the member is one of the seven
+ * `SolverResult` scalars the outcome card compares; and
+ * `<approval id>#<column>.dailyClosingStock/<date>` names the units that column's series leaves at the
+ * close of one date. A reference with no fragment resolves over the role's whole scope: it names the
+ * approval record and nothing inside it, so no fragment narrows what the role receives.
+ *
+ * A record member is quoted from the approval's own field, and a compared measure is re-read through
+ * `getApprovalOutcome` — the read the outcome card is built from — rather than re-derived here, so the
+ * drawer states the figure the card printed rather than a second computation of it (AAP 0.12.2's
+ * `Evidence.value`, rule P-6). The measure is taken by its member name from the column's own
+ * `SolverResult`, and the levers that solve ran at travel with it so the payload can say which
+ * measurement it reports. A fragment, member or date the read does not answer is refused as
+ * `'not-found'` naming the reference and the values the read accepts, so a drawer never states a
+ * figure the card did not print.
  *
  * @param ctx - The call's context, whose persona and records the comparison read is made for.
  * @param approval - The approval the reference named.
@@ -4757,8 +4869,11 @@ function outboundEndpointEvidence(
  * it in, by `assertNodeReach`; an exception, a scenario or an approval is narrowed over every plant the
  * exception it belongs to touches, by `assertExceptionReach`, which is the set the exception queue admits
  * the record by; a pin is refused when `listVisiblePins` would not have released it, so a reference
- * cannot reach a pin the read filter withholds; and a customer-confidential document is withheld from a
- * persona that may not read its body, exactly as `getDocument` withholds it.
+ * cannot reach a pin the read filter withholds; a customer-confidential document is withheld from a
+ * persona that may not read its body, exactly as `getDocument` withholds it; and a record of another
+ * read — one event of the audit trail, one policy, one row of the declared outbound ledger — is refused
+ * to a persona that read would refuse, by `assertFamilyReadable`, so the evidence behind a record is
+ * exactly as readable as the record itself.
  *
  * A composed aggregate reference is answered from the aggregate read's own output (AAP 0.2.1 F12), so
  * the drawer states the figure the composing screen showed rather than a second computation of it, and
@@ -4772,8 +4887,9 @@ function outboundEndpointEvidence(
  * @returns The evidence payload the drawer renders.
  * @throws Problem - `'permission'` when the persona may not read evidence, when the record lies outside
  *   every plant of the scope its family is admitted by, when a pin is outside what the persona may see,
- *   when a customer-confidential document's body is withheld from it, or when it may not read the family
- *   an aggregate belongs to; `'not-found'` when no record or aggregate answers the reference;
+ *   when a customer-confidential document's body is withheld from it, when it may not read the audit
+ *   trail, the policy set or the declared configuration the record is one of, or when it may not read
+ *   the family an aggregate belongs to; `'not-found'` when no record or aggregate answers the reference;
  *   `'validation'` when a composed reference carries a query parameter the grammar does not answer.
  */
 export async function getEvidence(ctx: HandlerContext, ref: string): Promise<Evidence> {
@@ -4810,6 +4926,10 @@ export async function getEvidence(ctx: HandlerContext, ref: string): Promise<Evi
 
   if (resolved.family === 'document') {
     assertDocumentBodyReadable(ctx, resolved.record);
+  }
+
+  if (isFamilyWithOwnRead(resolved)) {
+    assertFamilyReadable(ctx, resolved);
   }
 
   return evidenceFor(ctx, resolved);
@@ -5150,6 +5270,10 @@ export function plantsOfNode(records: SeedRecordSet, nodeRef: string): PlantId[]
 /**
  * The suppliers the session's records attribute to the acting persona.
  *
+ * Nothing here decides for itself which supplier a persona works for: rule P-6 forbids typing a record
+ * and rule P-7 confines the product's parties to the seeded set, so the attribution is read rather than
+ * invented.
+ *
  * Two relations place a persona beside a supplier, and the records state both. A persona that stands
  * outside the company declares the suppliers it represents in its own record's `vendorIds`, which is
  * where AAP 0.2.1's "USR-08 sees only its own-vendor pins" finds the attribution it needs: the
@@ -5212,6 +5336,9 @@ export interface PinAudience {
  * Nothing about the audience is retained between calls: a role switch must never be served another
  * persona's audience, so the reach is re-derived for the persona the call acts as, which is what keeps
  * the adapter's enforcement (rule P-3) a decision about this caller rather than about the previous one.
+ *
+ * The pin reads are conformance-only in this run: the pin screens belong to stage S4 (AAP 0.12.3), so
+ * no S1-S3 screen depends on the filter either way.
  *
  * @param ctx - The call's context: the persona the audience is resolved for and the records it is read from.
  * @returns The audience for this call, with no node resolved yet.
@@ -5406,6 +5533,48 @@ function elementsAboveAreComplete(packageRecord: PpapPackage, element: PpapEleme
 }
 
 /**
+ * The two decisions an element review answers, spelled from the contracts §8 act they describe.
+ *
+ * `ElementReviewDecision` is a compile-time union, which the build erases: a caller that reaches this
+ * family without the type — a browser console can — sends any other string, and nothing in the runtime
+ * would refuse it. This tuple is the membership the write tests against, so the two members are stated
+ * once and {@link reviewedDecision} and the refusal it throws cannot disagree about them.
+ */
+const ELEMENT_REVIEW_DECISIONS = ['accept', 'correct'] as const satisfies readonly ElementReviewDecision[];
+
+/**
+ * The decision the review stated, once it is known to be one an element review answers.
+ *
+ * The extracted value is either accepted as the extraction produced it or corrected to the value the
+ * reviewer supplies (contracts §8), and both dispositions are decided from this member: `stateAfterReview`
+ * reads it as an acceptance whenever it is not a correction, and the audit event's payload records it
+ * verbatim. A value outside the two members is therefore refused here, before either happens, so an
+ * out-of-union decision cannot set an element's state, mark it reviewed, or be written into the trail —
+ * the refusal `./approvals.ts`'s `statusForDecision` states for an approval decision, for the same reason.
+ *
+ * @param ctx - The call's context, whose trace the failure carries.
+ * @param decision - The decision the review stated.
+ * @returns The same member, known to be one of the two an element review answers.
+ * @throws Problem - A `'validation'` failure naming the value the review stated and the two members,
+ *   which a typed caller cannot produce and a browser console can.
+ */
+function reviewedDecision(
+  ctx: HandlerContext,
+  decision: ElementReviewDecision,
+): ElementReviewDecision {
+  const stated = String(decision);
+
+  if (ELEMENT_REVIEW_DECISIONS.some((member) => member === stated)) {
+    return decision;
+  }
+
+  throw validationProblem(
+    ctx,
+    `The review states the decision "${stated}", which is not one an element review answers: an extracted value is accepted ("accept") as the extraction produced it, or corrected ("correct") to the value the reviewer supplies.`,
+  );
+}
+
+/**
  * The state the evidence rules produce for one element once a reviewer has acted on it.
  *
  * Six of the seven contracts §8 rules compare a reading the record holds as prose with a limit it also
@@ -5423,7 +5592,8 @@ function elementsAboveAreComplete(packageRecord: PpapPackage, element: PpapEleme
  *
  * @param packageRecord - The package the element belongs to.
  * @param element - The element under review.
- * @param decision - Whether the extracted value was accepted or corrected.
+ * @param decision - The decision the review stated, which `reviewedDecision` narrowed to one of the two
+ *   members an element review answers.
  * @returns The state the element holds after the review.
  */
 function stateAfterReview(
@@ -5534,7 +5704,9 @@ export async function listPackages(
  * so the element's state is the one they now produce (`stateAfterReview`), the package's readiness is
  * recomputed from the states the elements carry, and one `extraction review` event joins the chain
  * through `appendAuditEvent`, which owns the instant, the sequence, the identifier and every hash.
- * The reviewer is the acting persona, and the permission the write requires is `evidence.review`.
+ * The reviewer is the acting persona, and the permission the write requires is `evidence.review`. The
+ * decision the review states is read through `reviewedDecision` first, so a value that is neither of
+ * the two members is refused before the record is read and before the event is appended.
  *
  * The reading the reviewer replaced is not lost: the element's `actual` member carries the value the
  * review leaves in place, and the extraction's own reading travels in the audit event's `before` half,
@@ -5552,8 +5724,9 @@ export async function listPackages(
  * @returns The package as it stands after the rules were re-run, copied.
  * @throws Problem - `'permission'` when the persona may not review extracted values or the forbidden
  *   trigger is in effect; `'not-found'` when no package or element answers the request; `'validation'`
- *   when the review contradicts the arguments it arrived with, carries no corrected value, or carries
- *   one longer than `FREE_TEXT_MAX_LENGTH`.
+ *   when the review states a decision outside the two an element review answers — `accept` and
+ *   `correct` — when it contradicts the arguments it arrived with, when it carries no corrected value,
+ *   or when it carries one longer than `FREE_TEXT_MAX_LENGTH`.
  */
 export async function reviewPackageElement(
   ctx: HandlerContext,
@@ -5577,6 +5750,7 @@ export async function reviewPackageElement(
     );
   }
 
+  const decision = reviewedDecision(ctx, review.decision);
   const packageRecord = findPackage(ctx, packageId);
   const element = packageRecord.elements.find((candidate) => candidate.number === elementNumber);
 
@@ -5589,14 +5763,14 @@ export async function reviewPackageElement(
 
   const correctedValue = review.correctedValue.trim();
 
-  if (review.decision === 'correct' && correctedValue === '') {
+  if (decision === 'correct' && correctedValue === '') {
     throw validationProblem(
       ctx,
       `A correction of element ${elementNumber} of package ${packageId} has to carry the value the reviewer supplies; this review supplies none.`,
     );
   }
 
-  if (review.decision === 'correct') {
+  if (decision === 'correct') {
     /*
      * The corrected value is the one free-text member this family stores: it becomes the element's own
      * reading and travels in the audit event's payload, so the same ceiling the exceptions, approvals
@@ -5610,15 +5784,15 @@ export async function reviewPackageElement(
   }
 
   const previousState = element.state;
-  const nextState = stateAfterReview(packageRecord, element, review.decision);
-  const nextActual = review.decision === 'correct' ? correctedValue : element.actual;
+  const nextState = stateAfterReview(packageRecord, element, decision);
+  const nextActual = decision === 'correct' ? correctedValue : element.actual;
 
   await appendAuditEvent(ctx, {
     action: 'extraction review',
     objectRef: packageRecord.id,
     result: 'succeeded',
     before: { element: element.number, state: previousState, actual: element.actual },
-    after: { element: element.number, state: nextState, actual: nextActual, decision: review.decision },
+    after: { element: element.number, state: nextState, actual: nextActual, decision },
   });
 
   element.actual = nextActual;

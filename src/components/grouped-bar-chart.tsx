@@ -280,15 +280,18 @@ const PLOT_HEIGHT = PLOT_BOTTOM - PLOT_TOP;
 /** How much of a cluster's width is left as space between clusters, split evenly on both sides. */
 const CLUSTER_INSET_RATIO = 0.15;
 
-/** How much of a bar's slot is left as space between the bars of one cluster. */
+/**
+ * How much of a bar's slot is left as space between the bars of one cluster.
+ *
+ * WHY THE TARGET STOPS AT THE SLOT (WCAG 2.2 SC 2.5.8 Equivalent exception). A bar's target is its own
+ * slot — the column between two neighbouring slots — and a group label's target is the band reserved
+ * for that label. Both are already as large as their allocation and cannot be grown without answering
+ * for a neighbour's slot: a bar widened into the next column would take a reader aiming at one value to
+ * the other. At a narrow panel one cluster's share of the plot is fewer than 24 CSS px, which is the
+ * case the exception covers, and the equivalent control it asks for is the "View as table" view of
+ * `./chart-frame.tsx`, which reaches the same values at full size.
+ */
 const BAR_GAP_RATIO = 0.14;
-
-/* BLITZY [A11Y] WCAG 2.2 SC 2.5.8 Equivalent exception: a bar's target is its own slot — the column
-   between two neighbouring slots — and a cluster label's target is the band reserved for that label.
-   Both are already as large as their allocation and cannot be grown without answering for a
-   neighbour's slot, and at a narrow panel one cluster's share of the plot is fewer than 24 CSS px.
-   The chart is composed inside `./chart-frame.tsx`, whose "View as table" view reaches the same values
-   at full size, which is the equivalent control the exception asks for. */
 
 /** The distance a value label sits above its bar, and a tick label to the start of the plot. */
 const VALUE_LABEL_OFFSET = 6;

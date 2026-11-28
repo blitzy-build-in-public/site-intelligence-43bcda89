@@ -21,7 +21,10 @@
  * policy, a validation refusal or a cause the service names, printed with its own sentence and its
  * trace identifier, with one retry that repeats the call and nothing else. A permission refusal
  * offers no retry, because repeating a call the acting role may not make would be a control that
- * cannot act (rule P-8).
+ * cannot act (rule P-8). For the same reason the control is disabled before the reader presses when
+ * the acting persona may never measure an option: the sentence naming the permission and the roles
+ * that hold it is composed by the screen that reads the persona and the roster, and reaches this
+ * panel as a fact of its own (see {@link ScenarioSandboxProps.permissionBlocker}).
  *
  * ONE REQUEST PER BURST. A lever edit schedules one request {@link SANDBOX_RECOMPUTE_DELAY_MS}
  * later, so a burst of edits inside that window collapses into a single call and a further edit
@@ -649,21 +652,32 @@ const MEASURE_ROWS: readonly MeasureRow[] = [
 /**
  * Why the recompute control cannot act, or `null` when it can.
  *
- * The four causes are ordered by what the reader can do about them: nothing to duplicate is the
- * record's state, a running request is a wait, a field that is not a number is theirs to fix, and a
- * failed constraint check is the record's own messages — stated verbatim rather than paraphrased,
- * because they are the reason that option cannot be recommended (rule P-8, AAP §0.8).
+ * The five causes are ordered by what the reader can do about them: nothing to duplicate is the
+ * record's state; a persona the matrix does not let measure an option cannot act in any state, so its
+ * sentence comes before every condition a reader or a settling request could clear; a running request
+ * is a wait; a field that is not a number is theirs to fix; and a failed constraint check is the
+ * record's own messages — stated verbatim rather than paraphrased, because they are the reason that
+ * option cannot be recommended (rule P-8, AAP §0.8).
+ *
+ * `permissionBlocker` is `null` when the acting persona holds the permission the call requires, and
+ * also when the persona or the roster has not reported yet: a control disabled on a fact nobody knows
+ * would state a condition that may not hold (rule P-8).
  *
  * Exported so the component and its suite name the same sentences instead of each spelling them out.
  */
 export function sandboxDisabledReason(input: {
   readonly hasOption: boolean;
+  readonly permissionBlocker: string | null;
   readonly isPending: boolean;
   readonly invalidField: keyof Levers | null;
   readonly constraintMessages: readonly string[];
 }): string | null {
   if (!input.hasOption) {
     return SCENARIO_SANDBOX_TEXT.noOption;
+  }
+
+  if (input.permissionBlocker !== null) {
+    return input.permissionBlocker;
   }
 
   if (input.isPending) {
@@ -926,6 +940,19 @@ export interface ScenarioSandboxProps {
   readonly caseBoundStatements?: readonly string[] | undefined;
 
   /**
+   * Why the acting persona may not measure an option, in the sentence the caller composed from the
+   * persona and the roster, or `null` or absent when it may measure or when neither fact is known yet.
+   *
+   * The sandbox holds no permission and reads no roster (rule P-2), so a sentence that names the
+   * permission the call requires and the roles that hold it can only come from the screen that reads
+   * them. It is rendered verbatim, exactly as `caseBoundStatements` is, and it disables the recompute
+   * control before the reader presses rather than letting the service refuse the call afterwards
+   * (rule P-8). An absent value states the fact nobody has reported yet, which blocks nothing: the
+   * control stays able to act and the service keeps its own refusal.
+   */
+  readonly permissionBlocker?: string | null | undefined;
+
+  /**
    * Called with the scenario the service measured, once a recomputation settles with one.
    *
    * It is called for a passing option and for one whose constraint check failed: a refused
@@ -951,13 +978,14 @@ export interface ScenarioSandboxProps {
  * before typing rather than only in a refusal (rule B-3).
  *
  * @param props The option to duplicate, the case's own bound statements as the option set records
- *   them, the callback a measurement is reported through, and the panel's layout classes. See
- *   {@link ScenarioSandboxProps}.
+ *   them, the sentence a persona that may not measure an option is given, the callback a measurement
+ *   is reported through, and the panel's layout classes. See {@link ScenarioSandboxProps}.
  * @returns The panel holding the fields, the control and the outcome of the last recomputation.
  */
 export function ScenarioSandbox({
   scenario,
   caseBoundStatements,
+  permissionBlocker,
   onRecomputed,
   className,
 }: ScenarioSandboxProps): ReactElement {
@@ -1027,6 +1055,7 @@ export function ScenarioSandbox({
 
   const blocker = sandboxDisabledReason({
     hasOption,
+    permissionBlocker: permissionBlocker ?? null,
     isPending,
     invalidField,
     constraintMessages,

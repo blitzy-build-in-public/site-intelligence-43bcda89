@@ -1,32 +1,16 @@
 /**
- * The dialog heading: the single owner of the second-level heading a dialog, drawer or popover body
- * needs.
+ * The dialog heading: the single owner of the second-level heading a dialog, drawer or popover
+ * body opens with.
  *
- * AAP §0.5.2 fixes that "a raw `<input>`/`<select>`/`<textarea>`/`<button>`/heading is permitted only
- * inside the component that owns it; no screen or feature file may use one directly", and §0.18.1
- * restates the same requirement as "interactive elements are components, never raw elements in a
- * screen". A screen's one `<h1>` has an owner — `PageHeader` in `./page-header` — but the second level
- * a dialog's body opens with had none, so the queue's dismiss dialog, the audit detail drawer, the
- * grant dialog and the shell's simulation popover each wrote their own `<h2>`. This module is that
- * owner.
+ * AAP §0.5.2 fixes that a raw heading is permitted only inside the component that owns it, and
+ * §0.18.1 restates it; a screen's one `<h1>` belongs to `PageHeader` in `./page-header`, and
+ * this module owns the second level.
  *
- * WHAT IT OWNS, AND WHAT THE CALLER OWNS. The primitive owns the element and its level: exactly one
- * `<h2>`, at the second level, so a dialog's outline sits under the screen's `<h1>` and never competes
- * with it. The caller owns the visible label — the `children` this component renders character for
- * character — and the `id` it names in the container's `aria-labelledby`, which is how the dialog, the
- * drawer or the popover takes its accessible name from the heading a reader can see. The supporting
- * sentence a dialog offers is wired with `aria-describedby` on that same container, whose id the caller
- * also owns: a heading that described its own dialog would put one element in two roles, and the
- * sentence a dialog carries belongs to the copy the screen owns.
- *
- * The heading is not interactive and adds no focus stop: a dialog moves focus to its first control or
- * to its own container, and a heading in the tab order would put a stop between a reader and the
- * decision the dialog exists for.
- *
- * The appearance is the product's one section-title style, the same `text-16 font-semibold` list the
- * card and the timeline dock give their own headings, so the second level reads the same wherever it
- * appears. It is role tokens only — the primary text role on whatever surface the dialog paints — so
- * the heading keeps the contrast the theme measured, whichever theme resolves it.
+ * It owns exactly one `<h2>`, so a dialog's outline sits under the screen's `<h1>`. The caller
+ * owns the visible label, the `id` its container names in `aria-labelledby`, and the `id`
+ * `aria-describedby` names for the supporting sentence. It is not interactive and adds no focus
+ * stop — a heading in the tab order would stand between a reader and the decision the dialog
+ * exists for — and wears the product's section-title style from role tokens.
  */
 import type { ReactElement, ReactNode } from 'react';
 

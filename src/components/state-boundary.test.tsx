@@ -10,7 +10,6 @@
  * `emptyContent`, and the boundary replaces the content with it inside the same single `role="status"`
  * region rather than withdrawing the structure along with the rows.
  *
-
  * The stale banner names the source it was handed and the instant that source last answered, in the
  * tabular mono face, which is the visible half of the freshness rule the service's own refusal is the
  * other half of (AAP §0.2.1, T-13): the instant is compared character for character, offset included,
@@ -24,8 +23,8 @@
  * banner that resolved a colour itself would fail here rather than in one theme only. Every control
  * the boundary can render exists only when a handler was supplied (rule P-8), and the retry and reload
  * controls keep their own width inside the column that holds them rather than stretching to it, because
- * that column is also what the loading region's skeleton bars fill (QA finding QA2-18). No state spells a
- * simulation label of its own, because `Simulated data` belongs to the shell's badge (rule P-1).
+ * that column is also what the loading region's skeleton bars fill. No state spells a simulation label
+ * of its own, because `Simulated data` belongs to the shell's badge (rule P-1).
  *
  * The permission, the roles, the refusal's own sentence and the instant below are this suite's own
  * caller-level input, standing for values a service `Problem` and a `Result.meta` supply at run time:
@@ -328,8 +327,7 @@ describe('StateBoundary', () => {
     const control = screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel });
     /* The control keeps its own width inside the column that holds it, because that column stretches its
        children and the loading region reuses it for the skeleton bars that are meant to fill it: a retry
-       stretched to the content width reads as a broken bar rather than as an action (QA finding
-       QA2-18). */
+       stretched to the content width reads as a broken bar rather than as an action. */
     expect(control).toHaveClass('self-start');
     /* Reached and operated by the keyboard alone: no pointer is involved, and the focus lands on the
        control by tabbing, which is what rule B-3 requires of every interactive element. */

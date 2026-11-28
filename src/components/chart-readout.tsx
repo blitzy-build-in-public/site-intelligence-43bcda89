@@ -117,9 +117,11 @@ export function useChartScale(viewBoxWidth: number): ChartScale {
  *
  * WHERE THE SPACING DECIDES, AND WHY THE TARGET STOPS THERE. Growing a target past the room its mark
  * has between its neighbours would hand one mark's share of the drawing to another: two adjacent
- * points would answer for each other's x, and a reader aiming at one would open the other. The target
- * is therefore held at the mark's own slot whenever 24 CSS px does not fit in it, and the chart relies
- * on the Equivalent exception SC 2.5.8 provides for exactly that case (see the note below this block).
+ * points would then answer for each other's x, and a reader aiming at one would open the other. The
+ * target is therefore held at the mark's own slot wherever 24 CSS px does not fit in it, and the chart
+ * relies on the Equivalent exception SC 2.5.8 provides for exactly that case. The equivalent control
+ * that exception asks for is the "View as table" view `./chart-frame.tsx` carries, which reaches the
+ * same values at full size; wherever the slot has the room, the target is enlarged to 24 CSS px.
  *
  * @param scale CSS pixels per user unit from {@link useChartScale}, or `null` where unmeasured.
  * @param baseRadius The radius the drawing uses when nothing has been measured.
@@ -128,11 +130,6 @@ export function useChartScale(viewBoxWidth: number): ChartScale {
  *   overlap cannot make a target ambiguous and there is no slot to stay inside.
  * @returns The radius to draw the target at, in the drawing's own units, never below `baseRadius`.
  */
-/* BLITZY [A11Y] WCAG 2.2 SC 2.5.8 Equivalent exception: where a mark's own slot cannot hold a 24 by
-   24 CSS pixel target, the target is held at the slot rather than grown over a neighbour, and the
-   chart relies on the equivalent control every chart frame carries — the "View as table" view of
-   `./chart-frame.tsx`, which reaches the same values at full size. The target is still enlarged to
-   24 px wherever the slot has the room, which is what this function computes. */
 export function chartTargetRadius(
   scale: number | null,
   baseRadius: number,

@@ -1,3 +1,9 @@
+/**
+ * The screen title primitive, and the only owner of a screen's `<h1>`.
+ *
+ * AAP §0.5.2's component-mapping table places `PageHeader` in its token-driven row with `Card`,
+ * `Panel` and `Legend`, and permits a raw heading only inside the component that owns it.
+ */
 import type { ReactNode } from 'react';
 
 /**

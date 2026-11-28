@@ -3,7 +3,7 @@
  * it, for the two presentational modules it composes, `./comparison-matrix.tsx` and
  * `./write-back-preview.tsx`, neither of which owns a suite of its own.
  *
- * WHAT IT PROVES. Twelve contracts the screen is relied on for, each stated as a case that fails on one
+ * WHAT IT PROVES. Thirteen contracts the screen is relied on for, each stated as a case that fails on one
  * specific regression rather than as a description of the markup:
  *
  * 1. EVERY MEASURE ROW PER OPTION. The matrix draws the eight measures AAP §0.12.4 fixes, in that
@@ -56,6 +56,11 @@
  *    account of the case's lever maximum and step a screen can reach, so the screen hands them to the
  *    sandbox — which states them above its lever fields and describes both of them with them — and the
  *    set's own list of what it set aside is not one of them (rule B-3, rule P-6).
+ * 13. THE SANDBOX'S PERMISSION. A persona the matrix does not let measure an option finds the sandbox's
+ *    recompute control already disabled, explained by the sentence the screen composes from that
+ *    persona's role, the route's exception, the permission the measurement needs and the roles the
+ *    roster reports as holding it — and a persona that holds it finds the control able to act
+ *    (rule P-8, rule P-6).
  *
  * WHERE THE DATA COMES FROM. The service is mocked at `service-provider.tsx`, the one boundary a screen
  * may read through (rule P-2), so no seed module, adapter, API client, domain module or shell is
@@ -177,12 +182,13 @@ const stub = vi.hoisted(() => ({
     solveScenario: vi.fn(),
     getEvidence: vi.fn(),
   },
-  /* The three facts the request gate reads besides the reads above: the persona the session acts as, the
-     roles the roster reports as holding the permission the request needs, and the roster itself. Each is
-     `null` by default, which is the "not known yet" the gate declines to block on. */
+  /* The facts the request gate and the sandbox's permission gate read besides the reads above: the persona
+     the session acts as, the roles the roster reports as holding each permission a gate explains, and the
+     roster itself. Each is `null` by default, which is the "not known yet" the gates decline to block on. */
   session: {
     activeUser: null as ActiveUser | null,
     rolesThatMayRequest: null as Role[] | null,
+    rolesThatMayMeasure: null as Role[] | null,
     roster: null as readonly ActiveUser[] | null,
   },
 }));
@@ -190,7 +196,12 @@ const stub = vi.hoisted(() => ({
 vi.mock('../../services/service-provider', () => ({
   useService: () => stub.service,
   useActiveUser: (): ActiveUser | null => stub.session.activeUser,
-  useRolesHolding: (): Role[] | null => stub.session.rolesThatMayRequest,
+  /* The screen asks this hook about two permissions — the one the request needs and the one the
+     measurement needs — so the double answers each by name rather than handing back one list for both. */
+  useRolesHolding: (permission: Permission): Role[] | null =>
+    permission === MEASURE_PERMISSION
+      ? stub.session.rolesThatMayMeasure
+      : stub.session.rolesThatMayRequest,
   usePersonaRoster: (): readonly ActiveUser[] | null => stub.session.roster,
 }));
 
@@ -721,9 +732,10 @@ const OTHER_PLANT_ID: PlantId = 'plant-beta';
 /**
  * The permissions each fixture persona carries.
  *
- * Only two of them are read: `approval.request`, which the request itself needs, and `approval.decide`,
- * which is what makes a persona a potential decider. The rest are the read permissions the screen's own
- * reads imply, so a fixture persona is not a role that could not have reached this page.
+ * Only three of them are read: `approval.request`, which the request itself needs; `approval.decide`,
+ * which is what makes a persona a potential decider; and `scenario.create`, which is what lets a persona
+ * measure an option in the sandbox. The rest are the read permissions the screen's own reads imply, so a
+ * fixture persona is not a role that could not have reached this page.
  */
 const REQUESTING_PERMISSIONS: readonly Permission[] = [
   'exception.read',
@@ -740,11 +752,28 @@ const REQUESTING_AND_DECIDING_PERMISSIONS: readonly Permission[] = [
 const READING_ONLY_PERMISSIONS: readonly Permission[] = ['exception.read', 'audit.read'];
 
 /**
+ * The permission the sandbox's measurement needs, which the screen asks the roster about beside the one
+ * the request needs.
+ *
+ * Named once, typed `Permission`, so the double below answers the two permission reads by name rather
+ * than handing back one list for both, and so a case composes the sentence the screen composes instead of
+ * spelling the permission itself (rule P-6).
+ */
+const MEASURE_PERMISSION: Permission = 'scenario.create';
+
+/**
  * The roles the roster reports as holding `approval.request` in the default session, which is the list a
  * case asserting the disabled sentence names. It is the fixture's answer to `useRolesHolding`, not a
  * second copy of the matrix: the matrix itself is the adapter's and the suite never reads it.
  */
 const ROLES_THAT_MAY_REQUEST: readonly Role[] = [
+  'material-planner',
+  'head-of-supply-chain',
+  'production-planner',
+];
+
+/** The roles the same roster reports as holding the permission a measurement needs. */
+const ROLES_THAT_MAY_MEASURE: readonly Role[] = [
   'material-planner',
   'head-of-supply-chain',
   'production-planner',
@@ -1180,6 +1209,7 @@ describe('ScenarioComparisonScreen', () => {
     stub.service.getExceptionDetail.mockResolvedValue(ok(detailOf(PLANT_ID)));
     stub.session.activeUser = personaOf('material-planner', REQUESTING_PERMISSIONS, [PLANT_ID]);
     stub.session.rolesThatMayRequest = [...ROLES_THAT_MAY_REQUEST];
+    stub.session.rolesThatMayMeasure = [...ROLES_THAT_MAY_MEASURE];
     stub.session.roster = [
       personaOf('material-planner', REQUESTING_PERMISSIONS, [PLANT_ID]),
       personaOf('plant-manager', DECIDING_PERMISSIONS, [PLANT_ID]),
@@ -2263,6 +2293,45 @@ describe('ScenarioComparisonScreen', () => {
     await awaitMatrix();
 
     expect(control(REQUEST_APPROVAL_LABEL)).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('disables the sandbox for a role that may not measure an option, naming the permission and its holders', async () => {
+    /* The auditor reads exceptions and holds no `scenario.create`, so every measurement this persona asked
+       for would be refused: the sandbox's control says so before it is pressed, exactly as the request
+       control does (AAP 0.2.1, rule P-8). */
+    const auditor = personaOf('auditor', READING_ONLY_PERMISSIONS, [PLANT_ID]);
+
+    stub.session.activeUser = auditor;
+
+    renderScreen();
+    await awaitMatrix();
+
+    const recompute = control(SCENARIO_SANDBOX_TEXT.recomputeLabel);
+
+    /* The sentence is asserted whole, in the words the adapter's own refusal composes, with the role, the
+       exception, the permission and the role list filled in from the fixtures (rule P-6). Composing it
+       from the module's own parts would pass even if one of them lost a word, which is the one thing this
+       case exists to catch. */
+    expect(recompute).toHaveAttribute('aria-disabled', 'true');
+    expect(recompute).toHaveAccessibleDescription(
+      `The acting role (${auditor.role}) may not measure an option of ${EXCEPTION_ID}. ` +
+        `That needs the ${MEASURE_PERMISSION} permission, which the roles ` +
+        `${ROLES_THAT_MAY_MEASURE.join(', ')} hold.`,
+    );
+  });
+
+  it('leaves the sandbox able to act for a role that holds the permission a measurement needs', async () => {
+    /* The positive half of the same rule: the acting planner may measure an option, so the control states
+       no reason of its own and the sandbox keeps the lever fields it exists for. */
+    stub.session.activeUser = personaOf('material-planner', REQUESTING_PERMISSIONS, [PLANT_ID]);
+
+    renderScreen();
+    await awaitMatrix();
+
+    const recompute = control(SCENARIO_SANDBOX_TEXT.recomputeLabel);
+
+    expect(recompute).not.toHaveAttribute('aria-disabled');
+    expect(recompute).toHaveAccessibleDescription('');
   });
 
   it('disables the request when only the requesting role may decide a plan at the plant, citing the policy', async () => {
