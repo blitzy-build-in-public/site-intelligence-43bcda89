@@ -101,8 +101,9 @@
  * instead of the screen. Every fixed string the screen shows is imported from the
  * module that owns it (`ATLAS_PACK_BANNER`, `COMPETITOR_NAME_TAG`, `CLIENT_SELF_ASSESSMENT_LABEL`,
  * `SIM_LABELS`, `SOURCE_LABELS`, `COMPETITIVE_ATLAS_TEXT`, `STATE_BOUNDARY_TEXT`,
- * `COMPETITOR_NETWORK_TEXT`, `RADAR_CHART_TEXT`, `VIEW_AS_TABLE_LABELS`), so a reworded label reaches
- * one place and this suite fails rather than silently asserting wording the interface no longer shows.
+ * `COMPETITOR_NETWORK_TEXT`, `RADAR_CHART_TEXT`, `VIEW_AS_TABLE_LABELS`, `CHOKEPOINT_COLUMNS`), so a
+ * reworded label reaches one place and this suite fails rather than silently asserting wording the
+ * interface no longer shows.
  *
  * The competitor tag and the pack banner are imported, and exactly one case pins their wording.
  * Rule P-5 fixes the tag with one company word, while AAP §0.10's companion-string row pairs the
@@ -113,9 +114,10 @@
  * follows the resolution wherever it moves but cannot tell whether the constant still says what the
  * rule and the plan fix; the case that pins both strings as literals closes that gap.
  *
- * `chokepoint-table.tsx` keeps its seven column headers in a module-private constant and exports no
- * accessor, so {@link CHOKEPOINT_COLUMNS} restates them once here: they are structural names rather
- * than specification strings, and a reworded header reaches exactly one place.
+ * `chokepoint-table.tsx` owns the chokepoint table's seven column headings and exports them as
+ * `CHOKEPOINT_COLUMNS`, so this suite imports that object rather than copying its wording: a reworded
+ * heading reaches the one module that prints it, and the case comparing the headings the table drew
+ * fails here instead of quietly asserting wording the table no longer shows.
  *
  * jsdom offers no download of its own, and the export cases are the whole of what the download path is
  * asserted through, so those cases replace the object-URL members with spies and stub
@@ -195,6 +197,7 @@ import type {
   Scope,
   SourceId,
 } from '../../types';
+import { CHOKEPOINT_COLUMNS } from './chokepoint-table';
 import {
   COMPETITIVE_ATLAS_TEXT,
   CompetitiveAtlasScreen,
@@ -244,28 +247,6 @@ vi.mock('../../services/service-provider', () => ({
   useDemonstration: () => null,
   useActiveUser: () => null,
 }));
-
-/* ---------------------------------------------------------------------------------------------
- * The one piece of wording this suite cannot import
- * ------------------------------------------------------------------------------------------- */
-
-/**
- * The chokepoint table's seven column headers, in the order the table renders them.
- *
- * `./chokepoint-table.tsx` keeps them in a module-private constant and exports no accessor, so they
- * are restated here once. They are structural column names, not specification strings, and their
- * order is what AAP §0.12.4's SCR-13 row fixes: the crossing's identity, its name, the competitors
- * that use it, the overlap, the competitor buffer days, the contention note and the row's provenance.
- */
-const CHOKEPOINT_COLUMNS = [
-  'Chokepoint',
-  'Crossing',
-  'Competitors',
-  'Overlap',
-  'Competitor buffer days',
-  'Contention note',
-  'Provenance',
-] as const;
 
 /* ---------------------------------------------------------------------------------------------
  * Both themes, the demonstration clock and the selection a shell hands in
@@ -617,6 +598,38 @@ const EMPTY_PACK: Atlas = {
 };
 
 /* ---------------------------------------------------------------------------------------------
+ * The packs that hold one half of what the atlas compares
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Two packs that each hold one half of what the atlas compares, and the card that half still draws.
+ *
+ * Both are legitimate answers rather than degenerate ones: `Atlas.chokepoints` may be empty while the
+ * radar series are present, and a pack may record crossings for a network whose series it does not
+ * score. Each payload is the fixture above with one half withheld, so a case built from it states what
+ * the half it does hold still draws and what the boundary may not claim about it.
+ */
+const HALF_PACKS: readonly {
+  /** The payload, named by the half it holds, which is what the case title reads. */
+  readonly condition: string;
+  /** The pack the stubbed read answers with. */
+  readonly payload: Atlas;
+  /** The card the half this pack holds must still draw. */
+  readonly drawn: () => Promise<HTMLElement>;
+}[] = [
+  {
+    condition: 'a pack that holds competitor series and no shared crossing',
+    payload: { ...ATLAS, chokepoints: [] },
+    drawn: radarCard,
+  },
+  {
+    condition: 'a pack that holds a shared crossing and no competitor series',
+    payload: { ...ATLAS, radarSeries: [] },
+    drawn: chokepointCard,
+  },
+];
+
+/* ---------------------------------------------------------------------------------------------
  * The payload the press cases draw: two marks close enough that one target covers the other's dot
  * ------------------------------------------------------------------------------------------- */
 
@@ -640,9 +653,9 @@ const PRESS_SITE: AtlasSite = {
  * The atlas the press cases draw: the client's own site and one competitor's site, and no lane, so
  * nothing but those two marks stands on the drawing.
  *
- * A crossing record stays in the payload because a pack with no crossing is the screen's empty state;
- * with no lane naming it the frame has nowhere to place it, so it draws no halo and the two marks are
- * all a press can reach.
+ * A crossing record stays in the payload because the pack's record of a crossing is not the drawing
+ * of one: the frame places a crossing only where a lane naming it runs, and this pack holds no lane
+ * at all, so the record is drawn nowhere and the two marks remain all a press can reach.
  */
 const PRESS_ATLAS: Atlas = {
   ...ATLAS,
@@ -2185,7 +2198,12 @@ describe('CompetitiveAtlasScreen', () => {
     const table = screen.getByRole('table', { name: COMPETITIVE_ATLAS_TEXT.chokepointTableCaption });
     const headers = within(table).getAllByRole('columnheader');
 
-    expect(headers.map((header) => collapsedTextOf(header))).toStrictEqual([...CHOKEPOINT_COLUMNS]);
+    /* The headings are the table module's own, read in the order it lists them, so this case compares
+       what the table drew against the wording's one owner rather than against a copy of it
+       (AAP §0.12.4's SCR-13 row). */
+    const expectedHeaders = Object.values(CHOKEPOINT_COLUMNS);
+
+    expect(headers.map((header) => collapsedTextOf(header))).toStrictEqual(expectedHeaders);
 
     const rows = within(table).getAllByRole('row').slice(1);
 
@@ -2194,7 +2212,7 @@ describe('CompetitiveAtlasScreen', () => {
     CHOKEPOINTS.forEach((crossing, index) => {
       const cells = within(at(rows, index, 'crossing row')).getAllByRole('cell');
 
-      expect(cells).toHaveLength(CHOKEPOINT_COLUMNS.length);
+      expect(cells).toHaveLength(expectedHeaders.length);
       expect(collapsedTextOf(at(cells, 0, 'identity cell'))).toBe(crossing.id);
       expect(collapsedTextOf(at(cells, 1, 'name cell'))).toBe(crossing.label);
 
@@ -3023,6 +3041,25 @@ describe('CompetitiveAtlasScreen', () => {
     expect(screen.queryByRole('region', { name: COMPETITIVE_ATLAS_TEXT.radarCardTitle })).toBeNull();
     expect(packBanner().textContent).toBe(ATLAS_PACK_BANNER);
   });
+
+  it.each(HALF_PACKS)(
+    'draws the half of the pack it holds and withholds the empty sentence for $condition',
+    async ({ payload, drawn }) => {
+      port.getAtlas.mockResolvedValue(envelope(payload));
+
+      renderScreen();
+
+      /* The half the read reported is drawn: the radar compares its series with or without a crossing
+         beside them, and the chokepoint table lists crossings with or without a series to score
+         (AAP §0.12.4's SCR-13 row). */
+      expect(await drawn()).toBeVisible();
+
+      /* The empty sentence is withheld, because it denies both halves at once and this pack holds one
+         of them, so printing it would deny the content AAP §0.12.4's SCR-13 row fixes for the half the
+         page draws below it. */
+      expect(screen.queryByText(COMPETITIVE_ATLAS_TEXT.empty)).toBeNull();
+    },
+  );
 
   it('names the stale source and its as-of time above the figures that are still drawn', async () => {
     port.getAtlas.mockResolvedValue(envelope(ATLAS, 'stale'));

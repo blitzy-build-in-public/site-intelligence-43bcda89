@@ -169,6 +169,54 @@ const DEFAULT_EMPTY_MESSAGE =
   'No shared chokepoint is recorded in this market-intelligence pack.';
 
 /**
+ * The identifiers of the table's seven columns.
+ *
+ * The set is exhaustive over the content AAP 0.12.4's SCR-13 row fixes for this table — the crossing's
+ * identity, its name, the competitors that use it, the overlap, the competitor buffer days, the
+ * contention note and the row's provenance — and it is the set {@link CHOKEPOINT_COLUMNS} is keyed by,
+ * so a heading cannot be left undecided for an identifier the columns are named by.
+ */
+type ChokepointColumnId =
+  | 'chokepoint'
+  | 'crossing'
+  | 'competitors'
+  | 'overlap'
+  | 'buffer-days'
+  | 'contention'
+  | 'provenance';
+
+/**
+ * The heading each of the table's columns carries, keyed by the column's own identifier.
+ *
+ * WHY THE HEADINGS LIVE HERE. A heading typed inside the column factory is wound into the render and
+ * cannot be named by anything outside it: a wording change to the atlas tables would then have two
+ * owners — the calling screen's `COMPETITIVE_ATLAS_TEXT` and this module's factory — and the factory's
+ * copy would be invisible to the screen that renders it. This object is that one owner, standing beside
+ * {@link DEFAULT_CAPTION} and {@link DEFAULT_EMPTY_MESSAGE}, which own the table's other two strings,
+ * and it is exported so a caller or a suite names the wording rather than restating it.
+ *
+ * WHAT FIXES IT. AAP 0.12.4's SCR-13 row fixes the table's content and the order it is read in — the
+ * crossing's identifier and its name, the competitors that use it, the overlap, the competitor buffer
+ * days, the contention note and the row's provenance — and the headings below state that content in
+ * that order. They are listed here in the order the table renders them, so `Object.values` of this
+ * object is the sequence the table's header row carries; the atlas screen's suite compares the two, so
+ * a heading reordered in one place and not the other fails a case rather than reaching a reader.
+ *
+ * `satisfies` makes the object exhaustive over {@link ChokepointColumnId}, the way
+ * {@link PROVENANCE_LABELS} is exhaustive over `Provenance`: an identifier added to that union, or
+ * renamed in it, fails compilation here until its heading is decided in this object.
+ */
+export const CHOKEPOINT_COLUMNS = {
+  chokepoint: 'Chokepoint',
+  crossing: 'Crossing',
+  competitors: 'Competitors',
+  overlap: 'Overlap',
+  'buffer-days': 'Competitor buffer days',
+  contention: 'Contention note',
+  provenance: 'Provenance',
+} as const satisfies Record<ChokepointColumnId, string>;
+
+/**
  * What a competitor column shows for a crossing that no competitor routes through.
  *
  * `Chokepoint.competitorBufferDays` holds one entry per competitor that uses the crossing, so an
@@ -441,6 +489,10 @@ function BufferDaysCell({
  * caller resolves, and that resolver is a prop. The column set, its order and every other cell are
  * the same for every caller (rules P-1, P-5).
  *
+ * The headings are not typed here: every column reads its `header` from {@link CHOKEPOINT_COLUMNS},
+ * which owns the wording and lists it in this same order, so re-wording a heading is one edit in that
+ * object and none in the cells beside it.
+ *
  * @param competitorNameOf - The resolver that answers a competitor's company name, when the caller
  *   holds one; absent leaves each competitor line with its identifier alone (rule P-7).
  * @returns The columns the table renders, in the order above.
@@ -451,17 +503,17 @@ function chokepointColumnsOf(
   return [
     {
       id: 'chokepoint',
-      header: 'Chokepoint',
+      header: CHOKEPOINT_COLUMNS.chokepoint,
       render: (row) => <MonoValue value={row.id} kind="id" />,
     },
     {
       id: 'crossing',
-      header: 'Crossing',
+      header: CHOKEPOINT_COLUMNS.crossing,
       render: (row) => row.label,
     },
     {
       id: 'competitors',
-      header: 'Competitors',
+      header: CHOKEPOINT_COLUMNS.competitors,
       render: (row) => (
         <CompetitorCell
           buffers={competitorBuffersOf(row)}
@@ -471,13 +523,13 @@ function chokepointColumnsOf(
     },
     {
       id: 'overlap',
-      header: 'Overlap',
+      header: CHOKEPOINT_COLUMNS.overlap,
       align: 'end',
       render: (row) => <EvidenceRef ref={row.id}>{row.overlap}</EvidenceRef>,
     },
     {
       id: 'buffer-days',
-      header: 'Competitor buffer days',
+      header: CHOKEPOINT_COLUMNS['buffer-days'],
       align: 'end',
       render: (row) => (
         <BufferDaysCell
@@ -489,12 +541,12 @@ function chokepointColumnsOf(
     },
     {
       id: 'contention',
-      header: 'Contention note',
+      header: CHOKEPOINT_COLUMNS.contention,
       render: (row) => <span className={NOTE_CLASSES}>{row.contentionNote}</span>,
     },
     {
       id: 'provenance',
-      header: 'Provenance',
+      header: CHOKEPOINT_COLUMNS.provenance,
       render: (row) => (
         <StatusIndicator meaning="simulated" label={PROVENANCE_LABELS[row.provenance]} />
       ),

@@ -1555,13 +1555,22 @@ export function CompetitiveAtlasScreen(props: CompetitiveAtlasScreenProps): Reac
    * view on purpose: the selector sits inside the state boundary below, and the empty state replaces
    * the boundary's content, so a class that left nothing to draw would take away the "All product
    * classes" control a reader needs to return to the whole pack (rule P-8).
+   *
+   * The content itself is read from either half of the pack, because the empty sentence the boundary
+   * prints denies both halves at once: a pack that carries competitor series but no shared crossing
+   * still has a radar to compare series on, and a pack that carries a crossing but no series still has
+   * a table to fill, so `hasContent` holds while either half is present and the empty state renders
+   * exactly when that sentence — no competitor series and no shared crossing in view — is true of the
+   * pack, because AAP §0.12.4's SCR-13 row fixes the radar and the chokepoint table as content this
+   * surface may not deny. The canvas in `src/features/scr-12-filemap-canvas` reads its own payload the
+   * same way for the same reason.
    */
-  const hasContent = series.length > 0 && chokepoints.length > 0;
+  const hasContent = series.length > 0 || chokepoints.length > 0;
 
   /*
    * The read's own facts, plus this screen's reading of the pack: the figures all arrive from the
-   * market pack, so the stale notice names it first, and the surface has something to draw only once
-   * both the competitor series and the chokepoints have arrived.
+   * market pack, so the stale notice names it first, and the surface has something to draw once either
+   * the competitor series or the chokepoints have arrived.
    */
   const state = deriveScreenState({
     isPending: atlasQuery.isPending,

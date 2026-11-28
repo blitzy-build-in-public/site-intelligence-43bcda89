@@ -110,8 +110,8 @@ export interface ChokepointAlertStripProps {
  * The heading the band carries when the calling screen supplies none.
  *
  * Exported so a suite names the region through the same constant the component renders rather than
- * retyping the wording, as `chokepoint-table.tsx` exports neither of its defaults and leaves its suite
- * to restate them.
+ * retyping the wording — the route `chokepoint-table.tsx` takes for the column headings it owns by
+ * exporting `CHOKEPOINT_COLUMNS`.
  */
 export const DEFAULT_TITLE = 'Chokepoint alerts';
 
