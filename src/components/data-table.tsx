@@ -27,10 +27,13 @@
  * columns for counts as nothing to show and takes the same cell, because a row of no cells is not a
  * row: it states nothing on screen and reaches no assistive technology.
  *
- * Row height comes from the density token (`--row-height`, bound to `--row-compact` at 32px and
- * `--row-comfortable` at 44px by `src/theme/tokens.css`) rather than from a pixel value here, so the
- * global density switch resizes every table in the application at once. This component only reads
- * that token; `src/theme/theme-provider.tsx` sets `data-density` on `<html>`.
+ * Row height comes from density tokens rather than from a pixel value here: `--row-height`, bound to
+ * `--row-compact` at 32px and `--row-comfortable` at 44px by `src/theme/tokens.css`, and
+ * `--row-padding`, bound to the same attribute at 0px and 6px. A row's `height` is only a minimum, so
+ * a cell that stacks or wraps overruns the row token and the switch would then change nothing on that
+ * table; the cell padding is what carries the density past that floor, and a single-line cell is where
+ * the row lands exactly on the row token. This component reads those two tokens only;
+ * `src/theme/theme-provider.tsx` sets `data-density` on `<html>`.
  */
 import { CaretDown } from '@phosphor-icons/react';
 import { useRef, useState } from 'react';
@@ -57,11 +60,12 @@ export interface TableColumn<Row> {
   /**
    * Whether the column's cells hold one line, which they do when the caller sets it.
    *
-   * A row's height is `--row-height`, the density token, and a row's `height` is only a minimum: a
-   * cell that wraps or stacks deeper than the token grows the row, and the density switch then
-   * changes nothing on that table. A single-line cell also takes its value's own width, so an
-   * identifier is never broken mid-token, and what the wider table needs it takes from the scroll
-   * container instead of from the row.
+   * A row's `height` is `--row-height`, the density token, and a row's `height` is only a minimum: a
+   * cell that wraps or stacks deeper than the token grows the row past it, and the density switch then
+   * reaches that row through the cell's `--row-padding` alone. A single-line cell is the case where the
+   * two mechanisms agree — the row lands exactly on the token, at 32px compact and 44px comfortable —
+   * and it also takes its value's own width, so an identifier is never broken mid-token, and what the
+   * wider table needs it takes from the scroll container instead of from the row.
    */
   readonly singleLine?: boolean;
   /**
@@ -155,7 +159,8 @@ const CONTROL_TARGET_SELECTOR =
 
 /**
  * The density token, read as a CSS value rather than a pixel height, so `data-density` drives it.
- * Written as an arbitrary utility because the height is a custom property, not a scale step.
+ * Written as an arbitrary utility because the height is a custom property, not a scale step. On a
+ * `<tr>` this is a minimum, so `CELL_CLASS` carries the other half of the density choice.
  */
 const ROW_HEIGHT_CLASS = 'h-[var(--row-height)]';
 
@@ -169,7 +174,18 @@ const TABLE_CLASS = 'w-full border-separate border-spacing-0 text-13 text-text-p
 const HEADER_CELL_CLASS =
   'border-b border-hairline px-3 py-2 font-mono text-12 font-medium text-text-caption';
 
-const CELL_CLASS = 'border-b border-hairline px-3 align-middle';
+/**
+ * A body cell: the hairline under it, the horizontal step beside it, and the density's own vertical
+ * padding above and below it.
+ *
+ * The padding is what keeps the density choice visible on a table whose cells stack. `ROW_HEIGHT_CLASS`
+ * sets the row's height, and a row's `height` is only a minimum, so a cell holding two lines measures
+ * taller than the token whatever the row states and the switch would then change nothing there. The
+ * padding takes half of the difference between the two row heights on each side, so such a row grows
+ * by exactly the 12 px the token names. The value lives in `src/theme/tokens.css` as `--row-padding`,
+ * so no pixel length is written here.
+ */
+const CELL_CLASS = 'border-b border-hairline px-3 py-[var(--row-padding)] align-middle';
 
 /**
  * A pinned column's cell: held at the scroll container's inline end, above the cells that scroll

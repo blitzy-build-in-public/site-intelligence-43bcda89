@@ -1662,8 +1662,8 @@ interface RowActionHandlers {
  * The queue's columns: AAP 0.12.4's twelve members in its own order, then the actions cell.
  *
  * Every cell renders the member it is named for, and the plant cell adds the row's own reach disclosure
- * beneath the plant it is recorded at, so the table shows the record the service returned rather than a
- * re-projection of it. The sortable columns' ids are the row's own member
+ * beside the plant it is recorded at, on the same line, so the table shows the record the service
+ * returned rather than a re-projection of it. The sortable columns' ids are the row's own member
  * names, which is what makes the `sort=field:dir` parameter the screen sends name a member the port's list
  * read orders by; the products, freshness and actions columns are not sortable and carry no id the port
  * would accept. Money, identifiers and timestamps go through `MonoValue` — the one presentation formatter

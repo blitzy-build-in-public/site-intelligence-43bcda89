@@ -11,7 +11,8 @@
  * key that keeps each row on its own DOM node across a re-sort, `Enter` and click activation,
  * the keys the cursor must leave to the fields and controls it passes through and to a held modifier
  * or an event another handler already consumed, the alignment a column states in its header cell and
- * in its cells, row heights that resolve through `--row-height` rather than a pixel value, the same
+ * in its cells, row heights and cell padding that resolve through the `--row-height` and
+ * `--row-padding` tokens rather than a pixel value, the same
  * table under both themes, the optional page size and the window it paints — its own controls, the
  * reason a control at either end carries, the whole-set row count a windowed table keeps announcing,
  * and the cursor confined to the rows on screen — and the empty sentence in both shapes that have
@@ -184,13 +185,15 @@ function renderTable(options: TableOptions = {}): RenderResult {
 /** The two themes the switch offers, named as `src/theme/theme-provider.tsx` writes them. */
 const THEMES = ['command', 'paper'] as const;
 
-/** The two row densities, which reach a table only through the `--row-height` token. */
+/**
+ * The two row densities, which reach a table through the `--row-height` and `--row-padding` tokens.
+ */
 const DENSITIES = ['compact', 'comfortable'] as const;
 
 /**
  * Sets a root-scoped attribute for one case, which is where the theme provider puts the theme and
- * the density. `tokens.css` binds `[data-density]` to `--row-height`, so rendering "under a density"
- * means exactly this attribute and nothing the table itself has to know about.
+ * the density. `tokens.css` binds `[data-density]` to `--row-height` and `--row-padding`, so rendering
+ * "under a density" means exactly this attribute and nothing the table itself has to know about.
  */
 function setRootAttribute(
   name: 'data-theme' | 'data-density',
@@ -1133,6 +1136,23 @@ describe('DataTable', () => {
         // A pixel height here would ignore the switch entirely.
         expect(row.className).not.toMatch(/\d+px/);
         expect(row.getAttribute('style')).toBeNull();
+      }
+    });
+  }
+
+  for (const density of DENSITIES) {
+    it(`pads every body cell from the --row-padding token under ${density} density`, () => {
+      setRootAttribute('data-density', density);
+      renderTable();
+
+      for (const row of bodyRows()) {
+        for (const cell of within(row).getAllByRole('cell')) {
+          // A row's `height` is only a minimum, so a cell that stacks or wraps grows the row past
+          // `--row-height`, and the padding token is the half of the choice that still reaches it.
+          expect(cell).toHaveClass('py-[var(--row-padding)]');
+          // A pixel padding would ignore the switch on exactly those tables.
+          expect(cell.className).not.toMatch(/\d+px/);
+        }
       }
     });
   }

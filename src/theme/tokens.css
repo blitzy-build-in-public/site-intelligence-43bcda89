@@ -84,9 +84,21 @@
   --text-20: 20px;
   --text-28: 28px;
 
-  /* Radii, specification §4.3. The default radius namespace stays available
-     because a circular mark legitimately needs the full radius; these three
-     are additions, not replacements. */
+  /* Radii, specification §4.3. It fixes three steps and no others — 2, 4 and
+     8 px — which AAP §0.5.3 maps to the three names below with an exact match.
+     Clearing the namespace first closes the scale at those three, as the colour,
+     shadow and type namespaces above are closed for their own scales, so the
+     theme scale then offers no fourth step to select as a radius utility. What
+     closing it does not do is remove every radius utility: `rounded-full` and
+     `rounded-none` are static utilities, an arbitrary value is general purpose,
+     and all three sit outside `--radius-*`, so they keep working whatever this
+     block declares. These three are the only radii the product uses, and a
+     circle therefore needs no step here: every circle it draws today is SVG
+     geometry, an SVG `<circle>` or a bundled Phosphor icon, never a CSS radius,
+     so nothing was lost by closing the scale. A surface that ever needs a fourth
+     step of the scale records that decision here first, as a named step in this
+     block. */
+  --radius-*: initial;
   --radius-control: 2px;
   --radius-card: 4px;
   --radius-panel: 8px;
@@ -101,19 +113,36 @@
    material planner, starts on — compact (AAP §0.12.4). A persisted preference
    still wins at module initialisation, exactly as a persisted Paper theme does.
    The two [data-density] rules below carry the same specificity and follow this
-   rule, so the attribute still chooses 32 px or 44 px once it is present. */
+   rule, so the attribute still chooses 32 px or 44 px once it is present.
+
+   --row-padding carries that same choice past the row and into the cell, because
+   a row's height is only a minimum (specification §4.3, AAP §0.12.4). A cell
+   holding two stacked lines measures taller than the token whatever height the
+   row states, and on such a table the attribute would otherwise change nothing a
+   reader can see. Each side of the cell takes half of the 12 px between the two
+   row heights, so a stacking cell gains exactly the difference the token names:
+   compact adds nothing at all, and comfortable's 12 px still leaves the tallest
+   in-row control — the queue's actions cell, 29.5 px — inside the 44 px minimum.
+   A cell whose content already fits one line is unmoved either way, because the
+   row it sits in is at least the token. */
 :root {
   --row-compact: 32px;
   --row-comfortable: 44px;
   --row-height: var(--row-compact);
+  --row-pad-compact: 0px;
+  --row-pad-comfortable: 6px;
+  --row-padding: var(--row-pad-compact);
 }
 
 /* theme-provider.tsx writes data-density on <html> before any component renders,
-   and the data table sizes its rows from --row-height. */
+   and the data table sizes its rows from --row-height and pads its cells from
+   --row-padding. */
 [data-density="compact"] {
   --row-height: var(--row-compact);
+  --row-padding: var(--row-pad-compact);
 }
 
 [data-density="comfortable"] {
   --row-height: var(--row-comfortable);
+  --row-padding: var(--row-pad-comfortable);
 }
