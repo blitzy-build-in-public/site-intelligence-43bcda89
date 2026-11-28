@@ -1,0 +1,65 @@
+/*
+ * Command theme: the default theme. Its palette is declared on :root as well as
+ * on [data-theme="command"], so a frame painted before theme-provider.tsx's
+ * module code has run — a deferred module script waits for its bundle to be
+ * fetched and parsed — already carries the Command colours and no screen
+ * renders unthemed; the attribute half of that selector keeps the same palette
+ * applying once the provider writes the attribute. src/styles/index.css imports
+ * this file before paper.css, whose [data-theme="paper"] rule carries the same
+ * specificity, so Paper overrides these values whenever the attribute reads
+ * paper.
+ *
+ * Every value below is the raw palette of the specification's colour tables,
+ * copied verbatim: the contrast of these roles is measured against these exact
+ * values and is never recomputed here. Tailwind inlines the value of a theme
+ * variable where that variable is declared, so a theme variable cannot
+ * reference itself; the per-theme files therefore hold the runtime variables
+ * under palette-scoped names, and the sibling mapping stylesheet in this folder
+ * exposes them as role variables. Raw palette values stay unexposed as
+ * utilities, so a component cannot pick a value that must not appear on this
+ * theme's surface.
+ */
+
+:root, [data-theme="command"] {
+  color-scheme: dark; /* native scrollbars and form controls follow the dark ground */
+
+  /* Surfaces */
+  --palette-ground: #1D0E03; /* Chocolate: page ground */
+  --palette-surface-1: #2A1A0F; /* first raised surface */
+  --palette-surface-2: #36251A; /* second raised surface */
+
+  /* Text */
+  --palette-text-primary: #FFF2E4; /* Cream: primary text on the dark ground */
+  --palette-text-secondary: #A8998A; /* Khaki: secondary text */
+  --palette-text-caption: #A8998A; /* Khaki: captions */
+
+  /* Boundaries */
+  --palette-control-boundary: #A8998A; /* Khaki: control outline */
+  --palette-hairline: #4A3E34; /* Taupe: decorative hairline in this theme */
+
+  /* Accent */
+  --palette-accent: #C8864A; /* Golden Chestnut: accent and first-party flows */
+
+  /* Primary action */
+  --palette-action-primary-bg: #FFF2E4; /* Cream fill */
+  --palette-action-primary-fg: #1D0E03; /* Chocolate label */
+
+  /* Focus */
+  --palette-focus-ring: #FFF2E4; /* Cream: focus ring colour for this theme */
+
+  /* Map */
+  --palette-map-land: #3A2A1E; /* land fill on the dark ground */
+
+  /* Status */
+  --palette-status-pass: #9AD6A6; /* pass */
+  --palette-status-fail: #FFA89C; /* fail */
+  --palette-status-warning: #F2C078; /* warning */
+  --palette-status-review: #A9CBF5; /* review */
+  --palette-status-simulated: #CDB8F5; /* simulated */
+  --palette-status-empty: #A8998A; /* Khaki: empty state */
+
+  /* Competitor series */
+  --palette-competitor-1: #D8A8F0; /* CMP-01 */
+  --palette-competitor-2: #F5A6C4; /* CMP-02 */
+  --palette-competitor-3: #8ED8CE; /* CMP-03 */
+}

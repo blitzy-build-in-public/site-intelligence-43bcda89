@@ -1,0 +1,63 @@
+/*
+ * Paper theme: the light theme, applied once theme-provider.tsx has set
+ * data-theme="paper" on <html>. Command stays the default, so nothing here
+ * takes effect until a reader chooses Paper through the theme switch. Paper
+ * matches the public website and is the theme screenshots and print use.
+ *
+ * Every value below is the raw palette of the specification's colour tables,
+ * copied verbatim: the contrast of these roles is measured against these exact
+ * values and is never recomputed here. Tailwind inlines the value of a theme
+ * variable where that variable is declared, so a theme variable cannot
+ * reference itself; the per-theme files therefore hold the runtime variables
+ * under palette-scoped names, and the sibling mapping stylesheet in this folder
+ * exposes them as role variables. Raw palette values stay unexposed as
+ * utilities, so a component cannot pick a value that must not appear on this
+ * theme's surface.
+ *
+ * The status and competitor values are the second value of each colour pair,
+ * the dark hue that reads on the Cream ground.
+ */
+
+[data-theme="paper"] {
+  color-scheme: light; /* native scrollbars and form controls follow the light ground */
+
+  /* Surfaces */
+  --palette-ground: #FFF2E4; /* Cream: page ground */
+  --palette-surface-1: #FFF9F1; /* first raised surface */
+  --palette-surface-2: #F4E4D2; /* second raised surface */
+
+  /* Text */
+  --palette-text-primary: #1D0E03; /* Chocolate: primary text on the Cream ground */
+  --palette-text-secondary: #4A3E34; /* Taupe: secondary text */
+  --palette-text-caption: #664B39; /* Coffee Bean: captions. The one brand colour the design file does not carry; the specification's colour table supplies it, so it is not a gap in the palette. */
+
+  /* Boundaries */
+  --palette-control-boundary: #4A3E34; /* Taupe: control outline */
+  --palette-hairline: #A8998A; /* Khaki: decorative hairline in this theme; never text and never a control outline */
+
+  /* Accent */
+  --palette-accent: #1D0E03; /* Chocolate: the accent role resolves to Chocolate in Paper. That is how the specification assigns the role, not a second palette entry, so Golden Chestnut has no place in this theme. */
+
+  /* Primary action */
+  --palette-action-primary-bg: #1D0E03; /* Chocolate fill */
+  --palette-action-primary-fg: #FFF2E4; /* Cream label */
+
+  /* Focus */
+  --palette-focus-ring: #1D0E03; /* Chocolate: a Cream ring would be invisible on the Cream ground, and the accent role already resolves to Chocolate here. The specification's colour table, which is not part of this checkout, governs this value if it ever names another. */
+
+  /* Map */
+  --palette-map-land: #EBD8C3; /* land fill on the light ground */
+
+  /* Status */
+  --palette-status-pass: #1F6B3A; /* pass */
+  --palette-status-fail: #9B1C1C; /* fail */
+  --palette-status-warning: #8A4B00; /* warning */
+  --palette-status-review: #1D4E89; /* review */
+  --palette-status-simulated: #5B3A9B; /* simulated */
+  --palette-status-empty: #664B39; /* Coffee Bean: empty state, the same colour the captions use */
+
+  /* Competitor series */
+  --palette-competitor-1: #6B2FA0; /* CMP-01 */
+  --palette-competitor-2: #A3264F; /* CMP-02 */
+  --palette-competitor-3: #0F6B63; /* CMP-03 */
+}

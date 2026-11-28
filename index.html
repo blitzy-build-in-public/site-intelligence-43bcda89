@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  The single entry document. Vite builds from this file, and every route is client-side, so there is
+  no second HTML page. It references exactly one script, and the stylesheet, the fonts and the icons
+  are all produced from that module graph, so the built page requests nothing outside its own origin.
+  The theme and density attributes are deliberately absent from the html element: the theme provider
+  in src/theme is their only writer, so the document is not a second source of truth for them. Because
+  that provider arrives in a deferred module script, the stylesheet is what themes the frame painted
+  before it runs: it carries the Command palette and the compact row as the document default. The
+  body holds the mount node alone, because the shell, the navigation, the skip link and the
+  simulated-data badge are React components: static markup here would duplicate them outside the shell
+  that has to own them.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Site Intelligence</title>
+    <meta
+      name="description"
+      content="Site Intelligence is a browser-only demonstration of a customer-controlled decision workspace for manufacturers, centred on the FileMap canvas and working entirely on synthetic data with no backend."
+    />
+    <!-- A data URI, so the browser issues no favicon request at all; the demonstration ships no icon file. -->
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,54 @@
+Bundled map data licence notice
+===============================
+
+File covered: src/assets/geo/countries-110m.json
+
+1. What the file is
+
+countries-110m.json holds the Natural Earth 1:110m admin-0 country boundaries as
+TopoJSON, roughly 105 KB (107,761 bytes). It is committed in the repository and
+compiled into the application bundle, where it supplies the geometry drawn by the
+FileMap canvas map lens. The TopoJSON topology carries two objects, "countries"
+and "land".
+
+2. The data: Natural Earth 4.1.0, public domain
+
+The geometry is Natural Earth 4.1.0 at the 1:110m scale. Natural Earth data is in
+the public domain: no permission is needed to use it, and no credit is required
+for the data itself, although crediting "Natural Earth" is customary. The
+upstream terms of use are published at
+https://www.naturalearthdata.com/about/terms-of-use/
+
+3. The packaging: the world-atlas 2.x distribution, ISC licence
+
+The file was taken unchanged from the world-atlas 2.0.2 distribution, which
+repackages Natural Earth as ready-built TopoJSON. The copy committed here is
+byte-identical to that distribution's own countries-110m.json, so no conversion
+or re-projection was applied. That distribution is a separate work licensed under
+the ISC licence, which is reproduced in full below for the packaging this file
+came with. Project home: https://github.com/topojson/world-atlas
+
+ISC licence, as the world-atlas 2.0.2 distribution states it:
+
+Copyright 2013-2019 Michael Bostock
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
+
+4. Not a dependency of this project
+
+world-atlas is not declared in package.json and does not appear in
+package-lock.json. The geometry is committed into the repository beside this
+notice, so it travels with the application bundle and neither a build step, a
+test step nor the running application reaches any host for it. Nothing imports
+this notice: it is inert text that keeps the required attribution in the folder
+that holds the data.

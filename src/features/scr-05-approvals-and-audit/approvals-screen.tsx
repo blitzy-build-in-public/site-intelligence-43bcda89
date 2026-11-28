@@ -1,0 +1,724 @@
+/**
+ * The approval inbox of SCR-05: every plan put to an approver, with the cost it adds, the revenue it
+ * protects, where it stands and how current the record behind it is.
+ *
+ * WHAT THIS FILE IMPLEMENTS. The SCR-05 inbox row of AAP 0.12.4 — "Inbox and detail with plan
+ * summary, cost against protected revenue, missing inputs, write-back preview" — at the `/approvals`
+ * route AAP 0.7 and 0.13.1 assign to stage S1, and the `DataTable` of approvals with "plan summary,
+ * cost against protected revenue, status and freshness, every figure through `EvidenceRef`, with the
+ * body inside `StateBoundary`" that the file plan states for this folder. It serves functional
+ * requirement F9 and success criterion 7, and it is the surface T-07's journey opens before it walks
+ * to a decision.
+ *
+ * THE INBOX ONLY. The approval's detail, its write-back tracker, its outcome card and the audit trail
+ * are sibling modules of this folder and are rendered by their own routes (`/approvals/:approvalId`,
+ * `/audit`). This screen opens a record and never decides one: no row action exists here, because
+ * assign and dismiss belong to the exception queue and every decision belongs to the detail. A row
+ * therefore carries exactly one behaviour — open the approval it names — which is what
+ * `DataTable`'s `onRowActivate` reports.
+ *
+ * WHERE THE ROWS COME FROM — rules P-2 and P-6. One `useQuery` calls the port's `listApprovals`, the
+ * member `src/services/site-intelligence-service.ts` declares for this read, with the shell's
+ * `Scope`. The list arrives already narrowed twice: the query's status filter lives at the service,
+ * and the shell's plant and product selection is intersected with the acting role's plant scope by
+ * `src/domain/aggregation/scope.ts` before the records are selected. This screen therefore filters
+ * nothing, sorts nothing on load and computes nothing: the row order is the service's, and the only
+ * ordering this file can apply is the presentation sort a reader asks for by activating a column
+ * header, over the rows it was handed.
+ *
+ * WHERE THE FIGURES COME FROM. The two euro members are the approval record's own `addedCostEur` and
+ * `protectedRevenueEur`, formatted by `MonoValue` and reachable through `EvidenceRef`, whose drawer
+ * resolves a reference of the form `<APR- identifier>#<member>` to the one figure the cell printed,
+ * so two amounts of one approval open two drawers that each state what was clicked (PR-6: every
+ * figure opens its source, record, time, freshness and formula). No amount is typed here, and
+ * `tests/source-checks/no-typed-figures.test.ts` scans this folder for exactly that (rule P-6).
+ *
+ * LABELLING — rule P-1. Each of the two computed columns names the `Simulated calculation` label in
+ * its own header, so a reader of the column sees that its figures were computed rather than typed;
+ * the persistent `Simulated data` badge belongs to the shell and is mounted above every route, and a
+ * page-level badge does not stand in for a column's own label. The label is read from `SIM_LABELS`
+ * rather than retyped, so a reworded label reaches every surface at once.
+ *
+ * THE SEVEN STATES — AAP 0.12.4, `platform-specification.md` §8. `src/components/screen-state.ts` is
+ * the one place any screen decides which state its records are in, and this screen hands it the
+ * query's own settled facts: a permission refusal is `forbidden`, a validation refusal is `conflict`,
+ * an identifier no record answers is `empty`, a `policy` or `simulated-write-back` refusal and any
+ * rejection that is not the port's `Problem` are `offline`, a pending read is `loading`, an aged order
+ * book is `stale`, an incomplete one or a record missing a member the inbox shows is `partial`, and a
+ * resolved empty list is `empty`. `StateBoundary` owns what each state looks like, so this file
+ * composes no banner, no skeleton and no denial card of its own. An empty answer is the same answer
+ * whichever emptied it, so the one sentence that state prints is chosen from the selection the read
+ * was built from rather than from the answer (see {@link narrowsRead} and {@link SCREEN_TEXT}'s two
+ * empty members).
+ *
+ * Rules this file is built to satisfy:
+ * - P-1: the two computed columns carry `Simulated calculation` from `SIM_LABELS`; nothing presents a
+ *   synthetic approval as a real production record.
+ * - P-2: the only data path is `useService()`. No seed module, adapter, domain module or HTTP client
+ *   is reachable from here, and no arithmetic is performed on a record.
+ * - P-3: nothing here states that a check this browser performs stands in for the authorisation a
+ *   deployment would make. The inbox either renders the records the adapter released or explains its
+ *   refusal; the demonstration's own statement about that belongs to the role switcher.
+ * - P-4: no sentence here states a property of the deployment. The statuses this screen shows are
+ *   record values, it carries no control panel, and nothing on it is presented as an established fact
+ *   about the environment the application runs in.
+ * - P-6: no figure, amount, date or record identifier is typed. Every displayed value is a member of
+ *   the record the service returned, or the label the column header states.
+ * - P-7: the only names on screen are the records' own synthetic ones, and the screen adds no company,
+ *   vendor or product of its own.
+ * - P-8: every control either acts or is disabled with a reason. The screen offers two kinds — the
+ *   sort controls `DataTable` owns and the retry control `StateBoundary` renders only when a read can
+ *   be repeated — and the evidence triggers of the two figure columns.
+ * - B-1, B-2: nothing here contacts an address, reads an environment value or carries a credential.
+ * - B-3: the table is a real `<table>` with a caption and scoped headers supplied by `DataTable`, its
+ *   sortable headers are real buttons carrying `aria-sort` on the cell, the `J`/`K` row cursor and
+ *   `Enter` activation come from the same component, every status carries an icon, a label and a
+ *   colour together, and every colour is a role token of `src/theme/tokens.css`, so both themes keep
+ *   the contrast the specification measured.
+ *
+ * THE RETURN TYPE IS `ReactElement`. The plan writes the signature as `JSX.Element`; this file states
+ * `ReactElement`, the form the sibling audit screen and the shared components use, because the two are
+ * the same type under this repository's `react-jsx` configuration.
+ *
+ * THE FRESHNESS COLUMN NAMES ONE SOURCE. `Approval` carries no freshness member of its own (contracts §3
+ * gives it none), so the column reports the entry for `APPROVAL_GATE_SOURCE` — the one source that gates
+ * `requestApproval` and `decideApproval` — and the cell, the stale banner and the service's own refusal
+ * describe one source (AAP 0.2.1). `FreshnessPill` is not composed because its prop is `SourceHealth`,
+ * the catalogue shape carrying a printable `label`, while `Meta.freshness` carries `Freshness`, so the
+ * cell composes `StatusIndicator` and `MonoValue`, the primitives that pill itself uses.
+ *
+ * REFRESHING AFTER A DECISION. This screen's query re-reads on mount and relies on the
+ * invalidation the detail screen performs after a decision (AAP 0.6.2): the detail screen invalidates
+ * the reads its decision moved, which matches every cached `listApprovals` entry by key prefix.
+ * Window-focus refetching is off for the whole application by `src/app/providers.tsx`'s deliberate
+ * choice — the demonstration is deterministic, so a background refetch could replace a figure a reader
+ * is midway through comparing — and this screen does not overturn that default or mutate a record
+ * locally to fake the new status.
+ */
+import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
+import { useNavigate } from 'react-router';
+
+import { DataTable } from '../../components/data-table';
+import type { TableColumn, TableSort } from '../../components/data-table';
+import { EvidenceRef } from '../../components/evidence-drawer';
+import { freshnessMeaning } from '../../components/freshness-pill';
+import { MonoValue } from '../../components/mono-value';
+import { PageHeader } from '../../components/page-header';
+import { deriveScreenState, forbiddenOf, staleSourceOf } from '../../components/screen-state';
+import { StateBoundary } from '../../components/state-boundary';
+import { StatusIndicator } from '../../components/status-indicator';
+import type { StatusMeaning } from '../../components/status-indicator';
+import { useService } from '../../services/service-provider';
+import { APPROVAL_GATE_SOURCE, SIM_LABELS, SOURCE_LABELS } from '../../types';
+import type {
+  Approval,
+  ApprovalStatus,
+  Freshness,
+  ListQuery,
+  Result,
+  Scope,
+  SimLabel,
+} from '../../types';
+
+/* ---------------------------------------------------------------------------------------------
+ * The fixed label, held once
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The `Simulated calculation` label of specification §5.3, read from `SIM_LABELS` at the index §5.3
+ * gives it.
+ *
+ * The tuple holds the seven fixed strings once (AAP 0.10), so this screen carries the label rather than
+ * a copy of it: the string the two figure columns print is the same one the overview tiles and the
+ * comparison matrix print, and a reworded label reaches every surface at once. Typed `SimLabel`, so a
+ * member the union gains or loses fails this file's compilation (rule P-1).
+ */
+const CALCULATION_LABEL: SimLabel = SIM_LABELS[1];
+
+/* ---------------------------------------------------------------------------------------------
+ * The screen's own wording — no input fixes these sentences
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Every sentence this screen states in its own voice, held here so the wording has one owner and the
+ * fixed label above is never confused with it.
+ *
+ * A displayed string no input fixes is the screen author's own plain wording, the arrangement
+ * `STATE_BOUNDARY_TEXT` and the sibling audit screen use, and the scope words are the filter labels
+ * AAP 0.12.2 fixes for the empty selection ("All plants", "All products"). No sentence below carries a
+ * figure, an amount, a date or a record identifier (rule P-6), and none states a deployment property
+ * (rule P-4).
+ */
+const SCREEN_TEXT = {
+  /** The screen's title, in the one `<h1>` it renders. */
+  title: 'Approvals',
+
+  /** What the inbox holds, under the title. */
+  description: 'Every plan put to an approver, with the cost it adds and the revenue it protects.',
+
+  /** Introduces the scope the inbox is filtered to, so a filtered list says what it is filtered to. */
+  scopeLabel: 'Scope',
+
+  /** The plant selection that means "all plants" — the empty selection of AAP 0.12.2. */
+  allPlants: 'All plants',
+
+  /** The product selection that means "all products" — the empty selection of AAP 0.12.2. */
+  allProducts: 'All products',
+
+  /** Separates the plant half of the scope from the product half in the description line. */
+  scopeSeparator: ' · ',
+
+  /** The identifier column: the approval's own `APR-` reference. */
+  approvalColumn: 'Approval',
+
+  /** The plan column: the option under approval and the exception it answers. */
+  planColumn: 'Plan',
+
+  /** The cost column, before its simulation label is appended below. */
+  costColumn: 'Cost',
+
+  /** The protected-revenue column, before its simulation label is appended below. */
+  protectedRevenueColumn: 'Protected revenue',
+
+  /**
+   * The status column: the record's own `ApprovalStatus` token, printed verbatim through the status
+   * indicator, with no label appended below it.
+   */
+  statusColumn: 'Status',
+
+  /** The freshness column, before the gating source's own display name is appended below. */
+  freshnessColumn: 'Freshness',
+
+  /** The table's accessible name, rendered as its caption and never shown twice on screen. */
+  tableCaption:
+    'Approvals in scope, with the plan each one puts forward, the cost it adds, the revenue it protects, its status and the freshness of the order book behind it.',
+
+  /**
+   * The sentence shown when a narrowed read holds no approval: the shell's scope selection emptied the
+   * list, so the wording states the scope the reader set (see {@link narrowsRead}).
+   */
+  empty: 'No approvals in the current scope.',
+
+  /**
+   * The sentence shown when the inbox holds no approval and nothing narrowed the read.
+   *
+   * The demonstration control that empties the list empties the collection this read is served from, so
+   * no scope narrowed the read and the scope wording above would name a selection no control on this
+   * page set. This sentence claims no scope and no other cause either, because the read's empty answer
+   * is the only fact this screen has (rule P-4).
+   */
+  emptyUnnarrowed: 'No approvals to show.',
+
+  /** Why a value on this screen is shown as the record holds it rather than as a complete reading. */
+  partial:
+    'The read did not report every member this inbox shows, so the values are shown as the records hold them.',
+
+  /** What a validation refusal means here, and the one action that re-reads the record. */
+  conflict: 'One of these approvals changed while you were reading it. Reload to read it as it now stands.',
+} as const;
+
+/** The cost column's header, carrying the label its figures are computed under (rule P-1). */
+const COST_HEADER = `${SCREEN_TEXT.costColumn} (${CALCULATION_LABEL})`;
+
+/** The protected-revenue column's header, carrying the same label for the same reason. */
+const PROTECTED_REVENUE_HEADER = `${SCREEN_TEXT.protectedRevenueColumn} (${CALCULATION_LABEL})`;
+
+/**
+ * The freshness column's header, naming the source whose state the cells report.
+ *
+ * The name comes from `SOURCE_LABELS`, the one map that pairs a `SourceId` with the display name the
+ * freshness strip prints, so the column, the top bar's pill and the stale banner say the same word
+ * about the same source.
+ */
+const FRESHNESS_HEADER = `${SCREEN_TEXT.freshnessColumn} (${SOURCE_LABELS[APPROVAL_GATE_SOURCE]})`;
+
+/* ---------------------------------------------------------------------------------------------
+ * The route this screen opens, and the class lists it applies
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The base of the approval detail route, as `src/app/router.tsx` declares it.
+ *
+ * Held as a constant because the identifier is appended to it on activation, and a route spelling
+ * repeated at a second call site is the kind of pair that drifts apart.
+ */
+const APPROVAL_ROUTE_BASE = '/approvals';
+
+/** The page column: the header, then the table, separated by the 4 px grid rather than by margins. */
+const SCREEN_CLASSES = 'flex min-w-0 flex-col gap-6';
+
+/**
+ * The plan cell's row, so the option and the exception it answers sit side by side on one line: two
+ * record values, each rendered by the component that owns an identifier, never one joined string.
+ *
+ * Side by side rather than stacked because a row's `height` is only a minimum: a cell holding two
+ * lines measures taller than the density token whatever height the row states, so one line per cell is
+ * what keeps every row here at 32 px compact and 44 px comfortable (specification §4.3, AAP §0.12.4).
+ */
+const PLAN_CELL_CLASSES = 'flex min-w-0 items-center gap-2';
+
+/**
+ * The freshness cell's row: the state's status indicator beside the instant it last answered.
+ *
+ * Side by side on one line rather than allowed to wrap, for the reason the plan cell states: a row's
+ * `height` is only a minimum, so a cell whose two parts fell onto separate lines would measure taller
+ * than the density token whatever height the row states. One line per cell is what keeps every row
+ * here at 32 px compact and 44 px comfortable (specification §4.3, AAP §0.12.4).
+ */
+const FRESHNESS_CELL_CLASSES = 'inline-flex min-w-0 items-center gap-2';
+
+/** The secondary text role for the freshness cell's instant, one step down the type scale. */
+const SECONDARY_TEXT_CLASSES = 'text-12 text-text-secondary';
+
+/* ---------------------------------------------------------------------------------------------
+ * The scope, described from the value the shell supplies
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Describes the selection the inbox is filtered to, in the reader's words.
+ *
+ * Each half is the selection the shell holds: the chosen identifiers as the records state them, or the
+ * "all plants" / "all products" wording of AAP 0.12.2 when the selection is empty. Nothing is resolved
+ * here beyond that fallback — the identifiers are the filter's own values, and this screen neither
+ * widens nor narrows what the service was asked for.
+ */
+function describeScope(scope: Scope): string {
+  const plants =
+    scope.plants.length === 0 ? SCREEN_TEXT.allPlants : scope.plants.join(', ');
+  const products =
+    scope.products.length === 0 ? SCREEN_TEXT.allProducts : scope.products.join(', ');
+
+  return `${SCREEN_TEXT.description} ${SCREEN_TEXT.scopeLabel}: ${plants}${SCREEN_TEXT.scopeSeparator}${products}.`;
+}
+
+/**
+ * Whether the shell's selection narrowed the read: a plant or a product is set.
+ *
+ * It is answered from the selection the read was built from rather than from the answer, because an
+ * empty answer is the same whether the scope emptied it or nothing was selected at all. Only the
+ * sentence the empty state states depends on it (see {@link SCREEN_TEXT}'s two empty members).
+ */
+function narrowsRead(scope: Scope): boolean {
+  return scope.plants.length > 0 || scope.products.length > 0;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The status vocabulary and the presentation ordering
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * What one approval status amounts to in the shared status vocabulary.
+ *
+ * No input fixes this mapping, so it is this screen's decision and it is made once: an approval the
+ * records mark `approved` reads as a pass, one they mark `rejected` reads as a failure, one awaiting a
+ * decision reads as the review meaning — the eye that stands for a record a reader still has to look at
+ * — and one whose reader asked for changes reads as the warning meaning, because the plan came back to
+ * be reworked. The label beside the icon is always the record's own status token, so the meaning never
+ * replaces what the record says and the status never rests on colour alone (rule B-3).
+ *
+ * The map is exhaustive by type, so a status added to `ApprovalStatus` fails this file's compilation
+ * rather than rendering with whichever meaning happened to be last.
+ */
+const STATUS_MEANINGS = {
+  pending: 'review',
+  approved: 'pass',
+  rejected: 'fail',
+  'changes-requested': 'warning',
+} as const satisfies Record<ApprovalStatus, StatusMeaning>;
+
+/**
+ * The value a column orders its rows by, or `undefined` for a column that is not sortable.
+ *
+ * Ordering reads the record's own members and nothing else: an identifier, an amount or a status token.
+ * A column the inbox does not order — the freshness report, which describes the read rather than the
+ * record — returns `undefined`, and its header renders no sort control for that reason.
+ */
+function sortValueOf(approval: Approval, columnId: string): string | number | undefined {
+  switch (columnId) {
+    case 'approval':
+      return approval.id;
+    case 'plan':
+      return approval.scenarioId;
+    case 'cost':
+      return approval.addedCostEur;
+    case 'protectedRevenue':
+      return approval.protectedRevenueEur;
+    case 'status':
+      return approval.status;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Compares two values of the same column.
+ *
+ * Two numbers compare numerically and two strings compare by code unit, which is a total order that
+ * does not depend on a locale, a collator or the platform's default language: the demonstration is
+ * deterministic (AAP 0.18.2), so the order a reader sees must not vary with the machine it runs on.
+ */
+function compareValues(left: string | number, right: string | number): number {
+  if (typeof left === 'number' && typeof right === 'number') {
+    return left - right;
+  }
+
+  const leftText = String(left);
+  const rightText = String(right);
+
+  if (leftText === rightText) {
+    return 0;
+  }
+
+  return leftText < rightText ? -1 : 1;
+}
+
+/**
+ * The rows in the order the reader asked for, or exactly as the service returned them.
+ *
+ * Sorting is presentation only over the rows already supplied (AAP 0.12.1's `TableSort` contract): no
+ * read is repeated, no record is changed, and a `null` sort returns the array untouched, which is how
+ * the service's own order — identifier ascending — survives a fresh render. Two equal values keep the
+ * order they arrived in, so a re-sort never reshuffles rows that the reader cannot tell apart.
+ */
+function orderRows(rows: readonly Approval[], sort: TableSort | null): readonly Approval[] {
+  if (sort === null) {
+    return rows;
+  }
+
+  const ordered = [...rows].sort((left, right) => {
+    const leftValue = sortValueOf(left, sort.columnId);
+    const rightValue = sortValueOf(right, sort.columnId);
+
+    if (leftValue === undefined || rightValue === undefined) {
+      return 0;
+    }
+
+    const comparison = compareValues(leftValue, rightValue);
+
+    return sort.direction === 'asc' ? comparison : -comparison;
+  });
+
+  return ordered;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The freshness report, and the members a row needs
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The read's report on the one source whose currency decides whether an approval can be acted on.
+ *
+ * `Result.meta.freshness` carries the six sources' state at the moment of the call. The entry returned
+ * here is `APPROVAL_GATE_SOURCE` — the source `requestApproval` and `decideApproval` refuse on when it
+ * is stale or unavailable — so the freshness column, the stale banner and the service's own refusal
+ * describe one source rather than three literals that agree only until the gate moves. `undefined`
+ * means the read reported nothing for it, which is a member this screen needs and does not have.
+ */
+function gateFreshnessOf(freshness: readonly Freshness[]): Freshness | undefined {
+  return freshness.find((entry) => entry.source === APPROVAL_GATE_SOURCE);
+}
+
+/**
+ * Whether one approval holds every member this inbox shows.
+ *
+ * The check is the resolved payload's own: an identifier the column would render, the two euro members
+ * the figure columns format, and the option and exception the plan cell names. A record that arrived
+ * without one of them is shown as the record holds it — `MonoValue` prints an unformattable value as it
+ * stands rather than as a plausible zero — while the boundary says above the table that the read was
+ * incomplete, which is the `partial` state of specification §8 rather than a silent blank cell.
+ */
+function isMeasurable(approval: Approval): boolean {
+  return (
+    approval.id !== '' &&
+    approval.scenarioId !== '' &&
+    approval.exceptionId !== '' &&
+    Number.isFinite(approval.addedCostEur) &&
+    Number.isFinite(approval.protectedRevenueEur)
+  );
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The columns
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * One row's freshness: the gating source's state as icon, label and colour together, and the instant it
+ * last answered.
+ *
+ * The cell composes the primitives `freshnessMeaning` maps a state onto, exactly as `FreshnessPill`
+ * does, because a table cell cannot hand that component its `SourceHealth` prop: `Meta.freshness`
+ * carries `Freshness`, which has no display name of its own, and the source's name is stated once in
+ * the column header instead of once per row. The state token is the record's own value and is the
+ * indicator's label, so a reader hears the state rather than a phrase this screen wrote, and its colour
+ * is never the only thing that distinguishes it (rule B-3).
+ *
+ * A read that reported nothing for the source renders an empty cell rather than an invented state; the
+ * boundary's `partial` notice above the table is what explains the gap.
+ */
+function freshnessCell(gate: Freshness | undefined): ReactNode {
+  if (gate === undefined) {
+    return '';
+  }
+
+  return (
+    <span className={FRESHNESS_CELL_CLASSES}>
+      <StatusIndicator meaning={freshnessMeaning(gate.state)} label={gate.state} />
+      <span className={SECONDARY_TEXT_CLASSES}>
+        <MonoValue value={gate.asOf} kind="timestamp" />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The order the inbox's rows arrive in, which the table announces and never applies.
+ *
+ * The screen sends no `sort` and the service answers in its own default order —
+ * `src/services/mock/handlers/approvals.ts`'s `DEFAULT_SORT_ORDER`, the approval identifier ascending —
+ * so the approval column is the column the rows are already ordered by, in the ascending direction.
+ * Announcing it is what lets a reader hear that order before touching a header; it applies nothing,
+ * reorders nothing and reaches no `onSort`.
+ */
+const INBOX_DEFAULT_ORDER: TableSort = { columnId: 'approval', direction: 'asc' };
+
+/**
+ * The inbox's columns, in the order AAP 0.12.4 states them: the identifier, the plan, the cost, the
+ * protected revenue, the status and the freshness.
+ *
+ * Built per read because the freshness column reports the report the read carried; every other cell is
+ * a member of the row's own record, formed by the component that owns that kind of value — an
+ * identifier and an amount through `MonoValue`, an amount behind `EvidenceRef` so its evidence opens
+ * with the member the cell formatted named beside the record's identifier, and a status through
+ * `StatusIndicator` so icon, label and colour are always present together.
+ *
+ * The plan cell states the record's two references — the option under approval and the exception it
+ * answers — as the two identifier values they are, each rendered by `MonoValue`. They are never joined
+ * into one string: an identifier is a record value, and a string assembled from two of them would be a
+ * value no record holds.
+ *
+ * EVERY COLUMN DECLARES `singleLine`, so no cell here holds a second line. A row's `height` is only a
+ * minimum, so a cell that wrapped would measure taller than the density token whatever height the row
+ * states, and the row would leave the 32 px compact and 44 px comfortable the tokens fix (specification
+ * §4.3, AAP §0.12.4). A container too narrow for the six columns therefore scrolls the table inside
+ * `DataTable`'s own scroll container, rather than wrapping a cell and growing the row past the density
+ * in effect.
+ */
+function buildColumns(gate: Freshness | undefined): readonly TableColumn<Approval>[] {
+  return [
+    {
+      id: 'approval',
+      header: SCREEN_TEXT.approvalColumn,
+      sortable: true,
+      singleLine: true,
+      render: (approval) => <MonoValue value={approval.id} kind="id" />,
+    },
+    {
+      id: 'plan',
+      header: SCREEN_TEXT.planColumn,
+      sortable: true,
+      singleLine: true,
+      render: (approval) => (
+        <span className={PLAN_CELL_CLASSES}>
+          <MonoValue value={approval.scenarioId} kind="id" />
+          <MonoValue value={approval.exceptionId} kind="id" />
+        </span>
+      ),
+    },
+    {
+      id: 'cost',
+      header: COST_HEADER,
+      sortable: true,
+      singleLine: true,
+      align: 'end',
+      render: (approval) => (
+        <EvidenceRef ref={`${approval.id}#addedCostEur`}>
+          <MonoValue value={approval.addedCostEur} kind="money" />
+        </EvidenceRef>
+      ),
+    },
+    {
+      id: 'protectedRevenue',
+      header: PROTECTED_REVENUE_HEADER,
+      sortable: true,
+      singleLine: true,
+      align: 'end',
+      render: (approval) => (
+        <EvidenceRef ref={`${approval.id}#protectedRevenueEur`}>
+          <MonoValue value={approval.protectedRevenueEur} kind="money" />
+        </EvidenceRef>
+      ),
+    },
+    {
+      id: 'status',
+      header: SCREEN_TEXT.statusColumn,
+      sortable: true,
+      singleLine: true,
+      render: (approval) => (
+        <StatusIndicator meaning={STATUS_MEANINGS[approval.status]} label={approval.status} />
+      ),
+    },
+    {
+      id: 'freshness',
+      header: FRESHNESS_HEADER,
+      singleLine: true,
+      render: () => freshnessCell(gate),
+    },
+  ];
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The screen
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The query the inbox sends: no status filter.
+ *
+ * The inbox shows every approval in the scope — the pending ones it exists to surface and the decided
+ * ones whose status column a reader compares against them — so the port's optional `status` narrowing
+ * is left out rather than defaulted to one member. The plant narrowing is not here either: it arrives
+ * with the scope, and the service applies it.
+ */
+const INBOX_QUERY: ListQuery = {};
+
+/**
+ * What the shell hands the inbox is only its plant and product selection, because the query the screen
+ * sends is fixed — it asks for every status — so the selection reaches the port as the read's scope and
+ * the rows are the service's answer rather than a filter applied here.
+ */
+export interface ApprovalsScreenProps {
+  /**
+   * The shell's plant and product selection.
+   *
+   * Passed to the port as the read's scope and nothing else: the service intersects it with the acting
+   * role's plant scope before it selects records, so this screen never narrows the list itself and a
+   * filtered inbox and a filtered overview cannot disagree about what is in scope. It is also part of
+   * the query key, so changing the selection is a new read rather than a re-filter in the browser.
+   */
+  readonly scope: Scope;
+}
+
+/**
+ * The approval inbox.
+ *
+ * One read through `useService()` (rule P-2), one table of the records it returned, and the state its
+ * records are in decided in one place. A row opens the approval it names; nothing on this screen
+ * decides one, so the only controls it offers are the header's sort buttons, the evidence triggers of
+ * the two figure columns, and the retry control the boundary renders when a read can be repeated.
+ *
+ * @param props - The shell's plant and product selection.
+ * @returns The page header, and the inbox inside the state boundary.
+ */
+export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
+  const service = useService();
+  const navigate = useNavigate();
+
+  const [sort, setSort] = useState<TableSort | null>(null);
+
+  /*
+   * The inbox read. Its key is the port member's name followed by every argument the call receives — the
+   * query held above and the two halves of the scope — so a selection change is a new entry rather than
+   * a cached page re-filtered, and a second reader that sends the same query and scope (SCR-04's
+   * approval read) shares this entry instead of fetching one list twice. The invalidation a decision
+   * performs (`['listApprovals']`, matched by key prefix) reaches every scope's entry at once. Retries
+   * follow the shell's client, which turns them off and leaves the repeating to the boundary's own
+   * control.
+   */
+  const approvalsQuery = useQuery<Result<Approval[]>, unknown>({
+    queryKey: ['listApprovals', INBOX_QUERY, scope.plants, scope.products],
+    queryFn: () => service.listApprovals(INBOX_QUERY, scope),
+  });
+
+  const result = approvalsQuery.data;
+  const gate = result === undefined ? undefined : gateFreshnessOf(result.meta.freshness);
+  const rows = useMemo(() => orderRows(result?.data ?? [], sort), [result, sort]);
+  const columns = useMemo(() => buildColumns(gate), [gate]);
+
+  /**
+   * The sentence the inbox states when the read answered with no approval: the scope wording for a
+   * read the shell's selection narrowed, the trigger-neutral sentence for one nothing narrowed (see
+   * {@link narrowsRead}).
+   */
+  const emptySentence = narrowsRead(scope) ? SCREEN_TEXT.empty : SCREEN_TEXT.emptyUnnarrowed;
+
+  /*
+   * The read's own facts, plus this screen's facts about itself. The approval-gate source is the one
+   * `requestApproval` and `decideApproval` refuse on when it is stale or unavailable, so the stale
+   * notice names it first (AAP 0.2.1, T-13). A report carrying no entry for that source is a member
+   * this screen needs and did not receive, and a list holding a record without a member the inbox shows
+   * is a record the columns render as it arrived — either way the payload reports itself incomplete,
+   * which the boundary states above the table rather than leaving a silent blank cell.
+   */
+  const payloadIncomplete =
+    result !== undefined &&
+    (gate === undefined || result.data.some((approval) => !isMeasurable(approval)));
+
+  const state = deriveScreenState({
+    isPending: approvalsQuery.isPending,
+    error: approvalsQuery.error,
+    freshness: result?.meta.freshness,
+    staleSourcePreference: APPROVAL_GATE_SOURCE,
+    payloadReportsPartial: payloadIncomplete,
+    hasContent: (result?.data.length ?? 0) > 0,
+  });
+  const staleRecord =
+    result === undefined ? undefined : staleSourceOf(result.meta.freshness, APPROVAL_GATE_SOURCE);
+  const forbiddenRecord = forbiddenOf(approvalsQuery.error);
+
+  const retryRead = (): void => {
+    void approvalsQuery.refetch();
+  };
+
+  /**
+   * Moves the inbox's ordering to the column the reader activated, or reverses the column in effect.
+   *
+   * The order in effect is the controlled `sort` once a reader has sorted, and {@link INBOX_DEFAULT_ORDER}
+   * — the order the read answered in, which the table announces — before that. Starting from the declared
+   * order is what makes the first activation of the Approval header reverse the rows instead of asking for
+   * the ascending order they are already in, which would change nothing on screen (rule P-8).
+   */
+  const handleSort = (columnId: string): void => {
+    setSort((current) => {
+      const inEffect = current ?? INBOX_DEFAULT_ORDER;
+
+      return inEffect.columnId === columnId
+        ? { columnId, direction: inEffect.direction === 'asc' ? 'desc' : 'asc' }
+        : { columnId, direction: 'asc' };
+    });
+  };
+
+  /* The row's one behaviour: open the approval it names, at the route the detail screen answers on. */
+  const openApproval = (approval: Approval): void => {
+    void navigate(`${APPROVAL_ROUTE_BASE}/${approval.id}`);
+  };
+
+  return (
+    <div className={SCREEN_CLASSES}>
+      <PageHeader title={SCREEN_TEXT.title} description={describeScope(scope)} />
+
+      <StateBoundary
+        state={state}
+        stale={staleRecord}
+        onRetry={retryRead}
+        emptyMessage={emptySentence}
+        partialMessage={SCREEN_TEXT.partial}
+        conflictMessage={SCREEN_TEXT.conflict}
+        forbidden={forbiddenRecord}
+      >
+        <DataTable
+          columns={columns}
+          rows={rows}
+          getRowKey={(approval) => approval.id}
+          caption={SCREEN_TEXT.tableCaption}
+          sort={sort}
+          onSort={handleSort}
+          defaultOrder={INBOX_DEFAULT_ORDER}
+          onRowActivate={openApproval}
+          emptyMessage={emptySentence}
+        />
+      </StateBoundary>
+    </div>
+  );
+}
+
