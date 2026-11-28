@@ -1,5 +1,5 @@
 /**
- * Acceptance test T-19 and the three descriptive browser tests of the FileMap canvas (SCR-12, stage S2)
+ * Acceptance test T-19 and the four descriptive browser tests of the FileMap canvas (SCR-12, stage S2)
  * at `/canvas`: one surface, two lenses, one selection.
  *
  * WHAT THIS FILE DRIVES, AND WHY EACH TEST STARTS WHERE THE APPLICATION LEAVES THE READER. AAP 0.7
@@ -128,6 +128,17 @@ const INVESTIGATE = 'Investigate selected exception';
  */
 const INVESTIGATE_BLOCKED_REASON =
   'Select a plant node on the canvas: an exception names the plant the disruption lands on, so a plant is the node this action can investigate.';
+
+/**
+ * The sentence the dock printed for a selection it could not resolve, quoted character for character
+ * from `FILEMAP_CANVAS_TEXT.dockEmpty`.
+ *
+ * A browser spec compares rendered text rather than importing the screen's wording, so the sentence is
+ * restated here; the case that uses it asserts it is ABSENT for a plant that answers an exception,
+ * which is the defect the resolution's second source exists to prevent.
+ */
+const DOCK_EMPTY_SENTENCE =
+  'No open exception in this selection is answered by the node selected on the canvas.';
 
 /** The disabled control the graph lens carries for the stage that owns a part's own screen. */
 const OPEN_PART = 'Open part';
@@ -778,6 +789,76 @@ test('the ribbon, the right stack and the dock report one selection', async ({ p
     expect(current).toBeDefined();
     expect(current ?? 0).toBeLessThan(previous ?? 0);
   }
+});
+
+
+/* ---------------------------------------------------------------------------------------------
+ * The dock's resolution: the exception a selected plant answers, wherever it ranks
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Every plant the map draws, selected in turn, resolves to the exception it answers.
+ *
+ * The screen asks the queue for the four most urgent exceptions, which is the right stack's window
+ * (AAP 0.12.4), so a plant whose exception ranks below those four resolved to nothing until the
+ * resolution was given a second source: one read narrowed to the selected plant. The assertion is
+ * therefore made over EVERY plant node the map draws rather than over one name this file would have to
+ * type (rule P-6) — the set holds plants the window reaches and plants it does not, so the case fails on
+ * whichever one the resolution cannot answer. For each of them the dock must stand, name the exception
+ * through the evidence control its header carries, stop claiming the selection answers none, and leave
+ * the primary action able to act (rule P-8).
+ */
+test('the dock projects the exception every selected plant answers, wherever it ranks', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+
+  await landAs(page, CANVAS_PERSONA, /\/canvas$/);
+  await expect(lensCaption(page, MAP_LENS)).toBeVisible({ timeout: 30_000 });
+
+  const dock = page.getByRole('region', { name: DOCK_REGION });
+  const plants = mapDrawing(page)
+    .getByRole('group', { name: 'Network nodes' })
+    .getByRole('button', { name: /, Plant\./u });
+  const plantCount = await plants.count();
+
+  expect(plantCount, 'the map drew no plant node, so no selection could resolve').toBeGreaterThan(0);
+
+  for (let index = 0; index < plantCount; index += 1) {
+    const plant = plants.nth(index);
+    const named = (await plant.getAttribute('aria-label')) ?? '';
+
+    /* Activated from the keyboard, which is how a node is selected without a pointer (rule B-3); the
+       drawer the activation also opens is dismissed, and the selection stays. */
+    await plant.focus();
+    await expect(plant).toBeFocused();
+    await page.keyboard.press('Enter');
+    await dismissNodeEvidence(page);
+
+    /* The dock projects the exception this plant answers: it names its own selected-exception half and
+       carries the record's own identifier as the control that opens that record's evidence. */
+    await expect(
+      dock,
+      `${named} answers an exception, so the dock must project it rather than stand down`,
+    ).toBeVisible();
+    await expect(dock.getByText(INSIGHTS_SELECTED, { exact: true })).toBeVisible();
+    await expect(dock.getByRole('button', { name: /open evidence/u }).first()).toBeVisible();
+
+    /* The sentence asserting the selection answers nothing is false for this plant, and the action the
+       surface exists to take acts for it (rule P-8). */
+    await expect(page.getByText(DOCK_EMPTY_SENTENCE)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: INVESTIGATE })).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+  }
+
+  /* The action reaches the exception the last selection resolved to, so a plant the stack's window
+     never lists is investigable like any other (AAP 0.2.1 F12, rule P-8). */
+  await page.getByRole('button', { name: INVESTIGATE, exact: true }).click();
+
+  await expect(page).toHaveURL(/\/exceptions\/[^/]+$/);
+  await expect(page.getByRole('region', { name: DOCK_REGION })).toHaveCount(0);
 });
 
 /* ---------------------------------------------------------------------------------------------

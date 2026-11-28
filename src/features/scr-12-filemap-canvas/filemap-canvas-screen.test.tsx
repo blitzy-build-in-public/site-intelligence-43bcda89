@@ -13,7 +13,11 @@
  * the exception's own baseline together with the option in view on one scale, each series carrying its
  * own §5.3 label in its own row, the frame stating the one label true of both, its table view
  * reproducing those marks column by column, and an exception whose records project nothing stating that
- * (rule P-1, rule B-3); each of the seven states specification §8 fixes renders for the
+ * (rule P-1, rule B-3); a plant whose exception ranks below the four-row window is resolved by the one
+ * read narrowed to that plant, a plant the covering read answers nothing for keeps the dock's empty
+ * sentence, and each of the dock's two reads states its own pending and failed condition where the dock
+ * stands rather than emptying the canvas around it (rules P-6, P-8); each of the seven states
+ * specification §8 fixes renders for the
  * outcome the screen derives it from, driven only by what the stubbed reads and their `Result.meta`
  * report and never by a flag name (AAP §0.8, §0.12.1); the primary action exists only while the
  * selection reaches an exception, and it navigates to that exception's own route; a product card's
@@ -72,7 +76,7 @@
  * the system clock, touches the network or reaches outside the service boundary.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router';
@@ -396,6 +400,16 @@ const EMPTY_TOPOLOGY: Topology = {
  * when the shell holds no selection.
  */
 const OPENING_PLANT_ID = 'node-plant';
+
+/**
+ * The payload's second plant, and the label it is drawn under.
+ *
+ * The cases below supply urgent rows that reach the opening plant only, so selecting this plant is the
+ * case the four-row window cannot answer for — whether the plant read then returns an exception, none
+ * or a failure is what each of them varies.
+ */
+const SECOND_PLANT = 'node-plant-second';
+const SECOND_PLANT_LABEL = 'Vltava plant';
 
 /** The identifier of the first urgent row: the exception the canvas opens on. */
 const PRIMARY_EXCEPTION_ID = 'exception-gamma';
@@ -1047,6 +1061,19 @@ function escapeRegExp(value: string): string {
  */
 function nodeControl(label: string): HTMLElement {
   return screen.getByRole('button', { name: new RegExp(`^${escapeRegExp(label)},`, 'u') });
+}
+
+/**
+ * Selects a canvas node from the keyboard, as a reader who reached it by tabbing would.
+ *
+ * @param user - The user-event harness.
+ * @param label - The node's label, as the payload states it.
+ */
+async function selectNode(user: User, label: string): Promise<void> {
+  const node = nodeControl(label);
+
+  node.focus();
+  await user.keyboard('{Enter}');
 }
 
 /**
@@ -1765,6 +1792,256 @@ describe('FilemapCanvasScreen', () => {
     ).toBeInTheDocument();
     expect(ribbonGroup()).toBeInTheDocument();
     expect(screen.queryByText(FILEMAP_CANVAS_TEXT.empty)).not.toBeInTheDocument();
+  });
+
+  it('projects the exception a selected plant answers when the urgent window does not reach it', async () => {
+    const user = userEvent.setup();
+
+    /* The exception that ranks below the window: it lands on the second plant, and the window this
+       case supplies answers for the opening plant alone, so only the read narrowed to that plant can
+       return it. */
+    const belowWindow = urgentRow(
+      'exception-epsilon',
+      SECOND_PLANT,
+      'product-two',
+      'high',
+      32000,
+      4,
+      9,
+    );
+
+    port.listExceptions.mockImplementation((query) =>
+      Promise.resolve(
+        envelope(
+          query.plantId === undefined
+            ? URGENT_ROWS.filter((row) => row.plantId === OPENING_PLANT_ID)
+            : [belowWindow].filter((row) => row.plantId === query.plantId),
+        ),
+      ),
+    );
+    /* The detail the port answers, mirroring the row the covering read returned for its own
+       identifier: the dock prints the detail record's title, so this is what makes the record the
+       dock names the one the plant answers (rule P-6). */
+    port.getExceptionDetail.mockImplementation((exceptionId) =>
+      Promise.resolve(
+        envelope(
+          exceptionId === belowWindow.id
+            ? {
+                ...EXCEPTION_DETAIL,
+                exception: {
+                  ...EXCEPTION_DETAIL.exception,
+                  id: belowWindow.id,
+                  title: belowWindow.title,
+                  plantId: belowWindow.plantId,
+                },
+              }
+            : EXCEPTION_DETAIL,
+        ),
+      ),
+    );
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    await selectNode(user, SECOND_PLANT_LABEL);
+
+    const dock = await screen.findByRole('region', { name: TIMELINE_DOCK_TEXT.title });
+
+    /* The dock projects the exception the plant answers, named by its own identifier and its own
+       title, and the detail read was made for that record. */
+    expect(within(dock).getByText(belowWindow.id)).toBeInTheDocument();
+    expect(within(dock).getByText(belowWindow.title)).toBeInTheDocument();
+    expect(port.getExceptionDetail).toHaveBeenCalledWith(belowWindow.id);
+
+    /* One read narrowed to that plant and to nothing else: no status, because the window beside it is
+       drawn from the same population, and no limit, because the query has already picked the
+       population a limit would page. */
+    expect(port.listExceptions).toHaveBeenCalledWith({ plantId: belowWindow.plantId }, NO_SCOPE);
+
+    /* The action investigates that exception rather than reporting that the plant answers none. */
+    const action = screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction });
+
+    expect(action).not.toHaveAttribute('aria-disabled');
+
+    action.focus();
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByRole('heading', { level: 1, name: belowWindow.id })).toBeInTheDocument();
+  });
+
+  it('states the dock’s empty sentence when the covering read answers the plant with nothing', async () => {
+    const user = userEvent.setup();
+
+    /* The window answers for the opening plant alone and the plant-narrowed read answers nothing, so
+       both sources agree that the second plant answers no open exception and the sentence asserting
+       that absence is true. */
+    port.listExceptions.mockImplementation((query) =>
+      Promise.resolve(
+        envelope(
+          query.plantId === undefined
+            ? URGENT_ROWS.filter((row) => row.plantId === OPENING_PLANT_ID)
+            : [],
+        ),
+      ),
+    );
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    await selectNode(user, SECOND_PLANT_LABEL);
+
+    expect(await screen.findByText(FILEMAP_CANVAS_TEXT.dockEmpty)).toBeInTheDocument();
+
+    /* The four-row window is still the first source and still asked for as a list parameter, and the
+       read narrowed to the plant was the only other question the queue was asked. */
+    expect(port.listExceptions).toHaveBeenCalledWith({ limit: URGENT_WINDOW }, NO_SCOPE);
+    expect(port.listExceptions).toHaveBeenCalledWith({ plantId: SECOND_PLANT }, NO_SCOPE);
+    expect(screen.queryByRole('region', { name: TIMELINE_DOCK_TEXT.title })).not.toBeInTheDocument();
+  });
+
+  it('states that the selected plant’s read did not answer, with a retry and the action’s own reason', async () => {
+    const user = userEvent.setup();
+
+    /* The window answers for the opening plant and the plant-narrowed read fails: the dock has no
+       evidence that the plant answers nothing, so it states the read that did not answer. */
+    port.listExceptions.mockImplementation((query) =>
+      query.plantId === undefined
+        ? Promise.resolve(envelope(URGENT_ROWS.filter((row) => row.plantId === OPENING_PLANT_ID)))
+        : Promise.reject(FAILURE),
+    );
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    await selectNode(user, SECOND_PLANT_LABEL);
+
+    const stated = await screen.findByText(FILEMAP_CANVAS_TEXT.selectionUnread);
+
+    /* The sentence stands in a status region, so the change is announced rather than only painted,
+       and the retry beside it repeats that one read (rules B-3, P-8). */
+    expect(stated.closest('[role="status"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel })).toBeInTheDocument();
+    /* The absence the window could not establish is not asserted on the failed read's behalf. */
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.dockEmpty)).not.toBeInTheDocument();
+
+    /* The action's reason names the read that failed, not the node advice this selection has already
+       followed. */
+    const action = screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction });
+
+    action.focus();
+
+    expect(action).toHaveAccessibleDescription(FILEMAP_CANVAS_TEXT.primaryActionUnread);
+  });
+
+  it('keeps the dock’s projection when the covering read it had waited on no longer answers for it', async () => {
+    const user = userEvent.setup();
+
+    /* The canvas goes down with its window read and the covering read fails beside it. The reader
+       retries, and the window's next answer carries the row that lands on the selected plant — so the
+       covering read is no longer needed, while the failure it left stays cached under its own key
+       (AAP §0.6.2 keys every read by its method and the arguments it was made with). The dock reads
+       that failure only while that read is the one its selection is still waiting on. */
+    const answered = urgentRow('exception-epsilon', SECOND_PLANT, 'product-two', 'high', 32000, 4, 9);
+    let answers = 0;
+
+    port.listExceptions.mockImplementation((query) => {
+      if (query.plantId !== undefined) {
+        return Promise.reject(FAILURE);
+      }
+
+      answers += 1;
+
+      return answers === 1 ? Promise.reject(FAILURE) : Promise.resolve(envelope([answered]));
+    });
+
+    renderScreen({ selectedNodeId: SECOND_PLANT });
+
+    await screen.findByText(STATE_BOUNDARY_TEXT.offlineHeadline);
+
+    /* Every read the canvas needs has settled, and the covering read was asked and failed while the
+       canvas was down: that is the state the case carries into the window's second answer. */
+    await waitFor(() => {
+      expect(
+        port.listExceptions.mock.calls.filter(([query]) => query.plantId !== undefined),
+      ).toHaveLength(1);
+    });
+
+    await activate(user, STATE_BOUNDARY_TEXT.retryLabel);
+
+    /* The window answers for that plant now, so the dock projects the row the port returned and
+       states neither an absence nor the failure of a read the selection no longer asks. */
+    const dock = await screen.findByRole('region', { name: TIMELINE_DOCK_TEXT.title });
+
+    expect(within(dock).getByText(answered.id)).toBeInTheDocument();
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.selectionUnread)).not.toBeInTheDocument();
+    expect(screen.queryByText(FILEMAP_CANVAS_TEXT.dockEmpty)).not.toBeInTheDocument();
+
+    /* Both sources still asked their own question, and the covering read was asked once: the window's
+       own answer is what the dock is projecting. */
+    expect(port.listExceptions).toHaveBeenCalledWith({ limit: URGENT_WINDOW }, NO_SCOPE);
+    expect(port.listExceptions).toHaveBeenCalledWith({ plantId: SECOND_PLANT }, NO_SCOPE);
+    expect(
+      port.listExceptions.mock.calls.filter(([query]) => query.plantId !== undefined),
+    ).toHaveLength(1);
+  });
+
+  it('states that the exception detail read did not answer, keeps the canvas drawn and re-reads it from the retry', async () => {
+    const user = userEvent.setup();
+
+    port.getExceptionDetail.mockRejectedValue(FAILURE);
+
+    renderScreen();
+
+    const canvas = await screen.findByRole('region', {
+      name: FILEMAP_CANVAS_TEXT.canvasRegionLabel,
+    });
+
+    expect(await screen.findByText(FILEMAP_CANVAS_TEXT.dockDetailUnavailable)).toBeInTheDocument();
+
+    /* The failure is the dock's alone: the ribbon, the lenses and the stack the reader came for are
+       still drawn, and the dock's own region is the only thing the sentence stands in for. */
+    expect(canvas).toBeInTheDocument();
+    expect(ribbonGroup()).toBeInTheDocument();
+    expect(stackRegion()).not.toBeNull();
+    expect(screen.queryByRole('region', { name: TIMELINE_DOCK_TEXT.title })).not.toBeInTheDocument();
+
+    const asked = port.getExceptionDetail.mock.calls.length;
+
+    await activate(user, STATE_BOUNDARY_TEXT.retryLabel);
+
+    /* The retry repeats the detail read rather than reloading the canvas around it. */
+    await waitFor(() => {
+      expect(port.getExceptionDetail.mock.calls.length).toBeGreaterThan(asked);
+    });
+    expect(port.getTopology).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the dock’s slot in the busy state while the covering read is answering', async () => {
+    const user = userEvent.setup();
+
+    /* A read that never settles: the dock has nothing to project and says it is still reading. */
+    port.listExceptions.mockImplementation((query) =>
+      query.plantId === undefined
+        ? Promise.resolve(envelope(URGENT_ROWS.filter((row) => row.plantId === OPENING_PLANT_ID)))
+        : new Promise<Result<ExceptionRow[]>>(() => undefined),
+    );
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    await selectNode(user, SECOND_PLANT_LABEL);
+
+    const busy = await screen.findByRole('status', { name: STATE_BOUNDARY_TEXT.loading });
+
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByRole('region', { name: TIMELINE_DOCK_TEXT.title })).not.toBeInTheDocument();
+
+    /* The action says which read it is waiting for rather than that the plant answers nothing. */
+    const action = screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction });
+
+    action.focus();
+
+    expect(action).toHaveAccessibleDescription(FILEMAP_CANVAS_TEXT.primaryActionReading);
   });
 
   it('names the stale source and its as-of time above the figures that are still drawn', async () => {

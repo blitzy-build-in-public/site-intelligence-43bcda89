@@ -141,9 +141,9 @@ export interface StateBoundaryForbidden {
  * None of these is a specification string. The fixed strings — the seven §5.3 simulation labels, the
  * SCR-04 empty and disabled sentences, the stage tooltips — belong to the components that own them
  * and are not repeated here; a caller supplies a screen-specific message through `emptyMessage`,
- * `partialMessage` or `conflictMessage` and it is rendered instead of the neutral caption below. The
- * wording states what happened to the data and claims nothing further (rule P-4), and it types no
- * figure (rule P-6).
+ * `partialMessage`, `offlineMessage` or `conflictMessage` and it is rendered instead of the neutral
+ * caption below. The wording states what happened to the data and claims nothing further (rule P-4),
+ * and it types no figure (rule P-6).
  */
 export const STATE_BOUNDARY_TEXT = {
   /** The visible caption of the loading region, and the region's accessible name. */
@@ -352,6 +352,18 @@ export interface StateBoundaryProps {
   readonly partialMessage?: string | undefined;
 
   /**
+   * The screen's sentence for the offline state, naming the read that did not answer.
+   *
+   * Rendered beneath the notice's headline, in the same detail role `partialMessage` takes, and in
+   * place of the neutral detail of {@link STATE_BOUNDARY_TEXT}: only the caller knows which read it
+   * made, so only the caller can say which one went unanswered. Absent, the neutral detail stands,
+   * which is what a screen whose whole surface failed hands in — it has no narrower read to name. A
+   * screen whose one accessory read failed hands its own words here instead, so that failure is
+   * stated rather than silent (rule P-8's spirit: a surface that cannot show a figure says why).
+   */
+  readonly offlineMessage?: string | undefined;
+
+  /**
    * The screen's sentence for the conflict state, saying what changed and what the reader can do.
    *
    * Rendered instead of the neutral detail of {@link STATE_BOUNDARY_TEXT}.
@@ -433,6 +445,7 @@ export function StateBoundary({
   onRetry,
   emptyMessage,
   partialMessage,
+  offlineMessage,
   conflictMessage,
   forbidden,
 }: StateBoundaryProps): ReactElement {
@@ -555,13 +568,18 @@ export function StateBoundary({
       );
 
     /* Nothing answered at all, so there is no figure to show: the notice replaces the content, and
-       the retry exists only when the screen can repeat the call. */
+       the retry exists only when the screen can repeat the call. A caller that knows which of its
+       reads went unanswered supplies that sentence, and it stands in the detail role the neutral one
+       would otherwise fill; a caller that does not leaves the neutral detail in place, because this
+       component cannot name a read it never made. */
     case 'offline':
       return (
         <div className={NOTICE_STACK_CLASSES}>
           <div role="status" className={NOTICE_CLASSES}>
             <StatusIndicator meaning="fail" label={STATE_BOUNDARY_TEXT.offlineHeadline} />
-            <p className={DETAIL_CLASSES}>{STATE_BOUNDARY_TEXT.offlineDetail}</p>
+            <p className={DETAIL_CLASSES}>
+              {hasText(offlineMessage) ? offlineMessage : STATE_BOUNDARY_TEXT.offlineDetail}
+            </p>
           </div>
           {retryControl(STATE_BOUNDARY_TEXT.retryLabel, onRetry)}
         </div>

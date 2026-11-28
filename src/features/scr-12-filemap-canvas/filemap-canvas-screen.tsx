@@ -20,14 +20,16 @@
  *
  * NOTHING HERE IS COMPUTED — rules P-6 and P-2. Every figure on this surface arrives from a port
  * member: the ribbon's six tiles from `getCanvasRibbon`, each exception's revenue at risk and the
- * urgency order from `listExceptions` asked with its own list parameters, the baseline projection and
- * the selected exception's title from `getExceptionDetail`, the option the dock plots over that
- * baseline from `getScenarioSet`, the events from `listAuditEvents`. This
- * module sorts nothing, slices nothing, sums nothing, rounds nothing, formats nothing and reads no
- * clock; the two windows it asks for (four urgent rows, five events) are handed to the service so
- * the service's own ordering and limit apply rather than a screen-side truncation. The one selection
- * it derives is derived from service data, never from a typed identifier, because a node identifier
- * written here would be a record value the file invents (rule P-6).
+ * urgency order from `listExceptions` asked with its own list parameters — the four-row window the
+ * stack shows, and then, only for a selected plant that window does not answer for, that plant's own
+ * rows — the baseline projection and the selected exception's title from `getExceptionDetail`, the
+ * option the dock plots over that baseline from `getScenarioSet`, the events from `listAuditEvents`.
+ * This module sorts nothing, slices nothing, sums nothing, rounds nothing, formats nothing and reads
+ * no clock; the two windows it asks for (four urgent rows, five events) are handed to the service so
+ * the service's own ordering and limit apply rather than a screen-side truncation, and the plant read
+ * states no window at all for the reason its own declaration gives. The one selection it derives is
+ * derived from service data, never from a typed identifier, because a node identifier written here
+ * would be a record value the file invents (rule P-6).
  *
  * THE SEVEN STATES COME FROM THE READS, NEVER FROM A FLAG — AAP §0.8, §0.12.1. The body is wrapped in
  * `StateBoundary`, and `deriveScreenState` below reads only what the query set settled to: a
@@ -36,9 +38,14 @@
  * rejection is offline with a retry that re-runs the reads; a pending read is the loading state; the
  * freshness report the adapter attaches to every `Result.meta` raises the stale banner (naming the
  * source and its as-of instant) or the partial notice above content that still renders; and a scope
- * with no node and no open exception is the empty state. No member of `SimulationFlag` is named here,
- * so the single popover reaches this screen by changing what the adapter answers rather than by a
- * branch in the view.
+ * with no node and no open exception is the empty state. That derivation is still read from the three
+ * loads the surface needs and from the trail, and the canvas's two accessory reads stay out of it: the
+ * plant read that covers a selection the four-row window misses, and the selected exception's detail,
+ * each stating its own pending and failed condition inside the dock's own slot through this same
+ * boundary with the caller's own sentence, so an accessory failure is stated where it bites instead of
+ * replacing the lenses, the ribbon and the stack that still work (rule P-8). No member of
+ * `SimulationFlag` is named here, so the single popover reaches this screen by changing what the
+ * adapter answers rather than by a branch in the view.
  *
  * THE ATLAS IS AN OVERLAY, NOT A DEPENDENCY — rules P-4 and P-5. `getAtlas` is refused for the
  * external supplier engineer, so its refusal degrades the map lens to the first-party network and
@@ -60,10 +67,15 @@
  * carrying {@link FILEMAP_CANVAS_TEXT.primaryActionUnavailable}, the sentence that names the node to
  * select and the reason a plant is the node that can be investigated — so a reader who selected a
  * supplier, a material, an origin or a customer is told what to do rather than left without the
- * control (rule P-8). An exception whose set offers no option leaves the preview switch visibly
- * disabled carrying the drawing's own reason, which this file neither restates nor replaces. The only
- * fixed disabled string in this area — `Arrives in stage S4` on **Open part** — belongs to the graph
- * lens and is untouched here.
+ * control (rule P-8). A selected plant whose exceptions the four-row window does not reach puts the
+ * action in two further states, and each names the read rather than repeating that advice: while the
+ * read that covers that plant is in flight the reason is
+ * {@link FILEMAP_CANVAS_TEXT.primaryActionReading}, and when that read did not answer it is
+ * {@link FILEMAP_CANVAS_TEXT.primaryActionUnread}, because the action does have an exception to
+ * investigate and cannot reach it yet. An exception whose set offers no option leaves the preview
+ * switch visibly disabled carrying the drawing's own reason, which this file neither restates nor
+ * replaces. The only fixed disabled string in this area — `Arrives in stage S4` on **Open part** —
+ * belongs to the graph lens and is untouched here.
  * "View as table" on both lenses is the same story: each lens composes `ChartFrame`, which owns the
  * toggle and the table view, so this file adds no second toggle and no chart of its own.
  *
@@ -146,7 +158,9 @@ import type {
   AuditEvent,
   ExceptionDetail,
   ExceptionId,
+  ExceptionQuery,
   ExceptionRow,
+  PlantId,
   Result,
   RibbonTile,
   ScenarioSet,
@@ -206,6 +220,30 @@ export const FILEMAP_CANVAS_TEXT = {
   primaryActionUnavailable:
     'Select a plant node on the canvas: an exception names the plant the disruption lands on, so a plant is the node this action can investigate.',
 
+  /**
+   * Why the primary action cannot act yet, while the read that covers the selected plant is in flight.
+   *
+   * The four-row window resolves most selections the moment the canvas draws, and a plant it does not
+   * answer for is covered by one read narrowed to that plant. Rule P-8 asks the control to state what
+   * it is waiting for rather than to claim the selection answers no exception: an exception does exist
+   * for this plant, so the sentence names the read that is answering and says what the action will
+   * investigate once it has. It types no identifier, no figure and no record name (rule P-6).
+   */
+  primaryActionReading:
+    'Reading the exceptions this plant answers: the action investigates the one that comes first as soon as the read answers.',
+
+  /**
+   * Why the primary action cannot act when the read that covers the selected plant did not answer.
+   *
+   * A failed read is not an absence of exceptions, so the reason states what happened to the read
+   * instead of repeating {@link FILEMAP_CANVAS_TEXT.primaryActionUnavailable}'s advice, which the
+   * reader has already followed by selecting the plant. It describes the cause the screen observed and
+   * claims nothing about why the read failed (rule P-4), and it types no identifier and no figure
+   * (rule P-6).
+   */
+  primaryActionUnread:
+    'The read of the exceptions recorded at the selected plant did not answer, so this action has nothing to investigate.',
+
   /** The accessible name of the group holding the two lens controls. */
   lensGroupLabel: 'Canvas lens',
 
@@ -240,8 +278,42 @@ export const FILEMAP_CANVAS_TEXT = {
   /** The accessible name of the region holding the urgent exceptions and the product cards. */
   stackRegionLabel: 'Urgent exceptions and product health',
 
-  /** What stands where the dock would be when the selection reaches no exception. */
+  /**
+   * What stands where the dock would be when the selection reaches no exception.
+   *
+   * The sentence asserts an absence, so it prints only once both sources agree on it: the four-row
+   * window answered the selection with nothing AND the read narrowed to the selected plant answered
+   * with nothing. A failed plant read is not agreement — it is no answer at all — and states itself
+   * through {@link FILEMAP_CANVAS_TEXT.selectionUnread} instead.
+   */
   dockEmpty: 'No open exception in this selection is answered by the node selected on the canvas.',
+
+  /**
+   * What the dock states when the read that covers the selected plant did not answer.
+   *
+   * The four-row window missed this plant, so the dock's only source for it is the read narrowed to
+   * that plant, and that read failed. The dock therefore has no exception to project and no evidence
+   * that none exists, which is why it prints this instead of {@link FILEMAP_CANVAS_TEXT.dockEmpty}:
+   * the absence is unproven, and a sentence asserting one would be false for a plant whose exception
+   * the failed read would have returned (rule P-8). The boundary renders it beside the retry that
+   * repeats that one read, so the reader can recover without reloading the canvas. It types no
+   * identifier, figure or record name (rule P-6).
+   */
+  selectionUnread:
+    'The read of the exceptions recorded at the selected plant did not answer, so the canvas has no exception to project for it.',
+
+  /**
+   * What the dock states when the selected exception's detail read did not answer.
+   *
+   * The detail is the dock's other accessory read: the projection it draws and the title it prints
+   * both come from it, and the exception itself did resolve, so the dock states the read that failed
+   * rather than disappearing with no sentence at all — the same treatment the trail, the overlay and
+   * the option set receive when their own reads fail (rule P-8, applied consistently). The sentence
+   * names no identifier and no figure (rule P-6) and claims nothing about why the read failed
+   * (rule P-4); the boundary renders it beside the retry that repeats that one read.
+   */
+  dockDetailUnavailable:
+    'The exception detail read did not answer, so the dock has nothing to plot for the selected exception.',
 
   /** The caption of the first tile: the count of open exceptions in scope. */
   tileOpenExceptions: 'Open exceptions',
@@ -355,6 +427,33 @@ const DATA_LABEL: SimLabel = SIM_LABELS[0];
  * P-6). It is a window, not a figure: nothing displays it.
  */
 const URGENT_EXCEPTION_LIMIT = 4;
+
+/**
+ * The one narrowing the plant read is made with, and the two it deliberately states nothing about.
+ *
+ * The read that covers a plant the urgent window misses asks `listExceptions` for that plant and
+ * nothing else. `status` is left out because the four-row window beside it is drawn from the same
+ * population: a status filter here would let the two sources disagree about which exception a plant
+ * answers, and the window could then print a record this read had filtered away. `limit` is left out
+ * because the question this read answers is the dock's — does the selected plant answer any exception
+ * at all — and a window could cut that answer short after the query had already narrowed the
+ * population to one plant. It is a narrowing, not a figure: nothing displays it.
+ *
+ * `ExceptionQuery.plantId` is the wider reading of "at this plant": the adapter keeps a row the plant
+ * lands on **or** one it also affects (`src/services/mock/handlers/exceptions.ts`, reading
+ * `src/types/service.ts`). The dock projects one exception, and the join both sources make is the
+ * landing plant, so the row is picked by its own `plantId` in {@link exceptionLandedOn}.
+ *
+ * The plant arrives as an argument rather than as a typed constant, because the identifier is the
+ * selected node's own record value and writing one here would be an identifier this file invents
+ * (rule P-6).
+ *
+ * @param plantId - The selected plant's own identifier, as the topology spells it.
+ * @returns The query, stating that plant and nothing else.
+ */
+function plantExceptionQuery(plantId: PlantId): ExceptionQuery {
+  return { plantId };
+}
 
 /**
  * The order the dock's five latest events are asked for in, stated at the call site that needs it.
@@ -617,12 +716,16 @@ function resolveInitialSelection(
 }
 
 /**
- * The exception a selected node answers, or `undefined` when the node answers none.
+ * The exception a selected node answers within the urgent window, or `undefined` when it answers none.
  *
  * An exception row names the plant the disruption lands on, so a plant node resolves to the first
  * exception on that plant as the service ordered them — the most urgent of them, because the ordering
  * is the service's. Any other node kind resolves to nothing: a supplier, a material, an origin and a
  * customer carry no field on `ExceptionRow` to join on, and this module invents none (rule P-6).
+ *
+ * This is the first of the screen's two sources and the one that answers most selections with no read
+ * of its own: a plant whose exception ranks outside the four-row window yields `undefined` here, and
+ * {@link exceptionLandedOn} resolves it from the read narrowed to that plant instead.
  *
  * @param urgentRows - The urgent exceptions, in the service's own order.
  * @param node - The node the canvas holds as selected, if one is.
@@ -637,6 +740,34 @@ function resolveSelectedException(
   }
 
   return urgentRows.find((row) => row.plantId === node.id);
+}
+
+/**
+ * The exception that landed on a selected plant, read from the rows narrowed to that plant.
+ *
+ * The join is the plant the disruption lands on — `row.plantId === node.id`, the same predicate the
+ * window resolution makes — because the plant read's own filter is wider: `ExceptionQuery.plantId`
+ * keeps a row the plant lands on **or** one it also affects, while the dock projects the exception
+ * this plant answers. Picking the row by its own `plantId` is therefore what keeps the two sources
+ * describing the same relationship, and the first row is the service's own most urgent for that
+ * plant because the query states no order of its own.
+ *
+ * A node of any other kind resolves to nothing, for the reason {@link resolveSelectedException}
+ * gives: no other family carries a field on `ExceptionRow` to join on.
+ *
+ * @param plantRows - The rows the read narrowed to the selected plant returned, in the service's order.
+ * @param node - The node the canvas holds as selected, if one is.
+ * @returns The exception that landed on the plant, or `undefined`.
+ */
+function exceptionLandedOn(
+  plantRows: readonly ExceptionRow[],
+  node: TopologyNode | undefined,
+): ExceptionRow | undefined {
+  if (node === undefined || node.kind !== 'plant') {
+    return undefined;
+  }
+
+  return plantRows.find((row) => row.plantId === node.id);
 }
 
 /**
@@ -816,7 +947,7 @@ export function resetCanvasViewState(): void {
 /**
  * SCR-12 FileMap canvas: the ribbon, the two lenses, the right stack and the dock.
  *
- * Seven reads go through the port, each keyed by its method's own name and the arguments it was made
+ * Eight reads go through the port, each keyed by its method's own name and the arguments it was made
  * with (AAP §0.6.2), so a scope change re-reads the topology, the ribbon and the queue together and a
  * write that invalidates one of those reads reaches this screen:
  *
@@ -824,6 +955,9 @@ export function resetCanvasViewState(): void {
  * - `getCanvasRibbon(scope)` — the six computed tiles above the canvas;
  * - `listExceptions({ limit }, scope)` — the four most urgent exceptions, in the service's order and
  *   within the service's window, for the right stack;
+ * - `listExceptions({ plantId }, scope)` — the same read narrowed to the selected plant, made only
+ *   when the window answers nothing for it, so the dock projects the exception that plant answers
+ *   instead of reporting an absence the four-row window cannot see ({@link plantExceptionQuery});
  * - `listAuditEvents({ limit })` — the five latest events the dock prints;
  * - `getExceptionDetail(id)` — the selected exception's own title and the baseline its records project,
  *   read only once a selection resolves to an exception;
@@ -831,7 +965,7 @@ export function resetCanvasViewState(): void {
  *   resolves to an exception, because the option in view is drawn over that baseline in the dock and is
  *   the one the graph lens's preview switch offers.
  *
- * `getAtlas()` is the seventh read and the only optional one: its refusal degrades the map lens to
+ * `getAtlas()` is the eighth and the only optional one: its refusal degrades the map lens to
  * the first-party network, so its failure is never the screen's failure.
  *
  * Nothing here writes, so a re-render can move no record; the state the component owns is the reader's
@@ -964,9 +1098,69 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
     [nodes, selectedNodeId],
   );
 
-  const selectedException = useMemo(
+  /*
+   * The window's answer, and the one read that covers a plant the window does not answer for.
+   *
+   * The four-row window is tried first and costs nothing: when it answers the selection, the dock
+   * projects that exception straight away and no further read is made. A plant whose exception ranks
+   * outside that window resolves to nothing there, so the queue is asked for that plant alone — the
+   * only way to tell a plant that answers no open exception from one whose exception the window
+   * cannot see, which is the difference between the dock's empty sentence and a projection (F01,
+   * AAP §0.12.4's dock and primary action).
+   */
+  const windowException = useMemo(
     () => resolveSelectedException(urgentRows, selectedNode),
     [urgentRows, selectedNode],
+  );
+  const selectedPlantId =
+    selectedNode === undefined || selectedNode.kind !== 'plant' ? null : selectedNode.id;
+  const plantReadNeeded = selectedPlantId !== null && windowException === undefined;
+
+  /*
+   * The covering read itself: one port call narrowed to the selected plant
+   * ({@link plantExceptionQuery}), skipped whenever the window already answered so the common case
+   * keeps today's immediate behaviour and adds neither latency nor a request.
+   *
+   * Its key names the plant by the node's own identifier rather than by the node the screen holds, so
+   * a change of selection is a different cache entry and one plant's rows are never read under
+   * another's question. The key is stated from the same nullable value the query is skipped on, so it
+   * is expressible whether or not the read was started (AAP §0.6.2 keys every read by its method and
+   * the arguments it was made with).
+   */
+  const plantQuery = useQuery<Result<ExceptionRow[]>, unknown>({
+    queryKey: ['listExceptions', { plantId: selectedPlantId }, scope],
+    queryFn:
+      plantReadNeeded && selectedPlantId !== null
+        ? () => service.listExceptions(plantExceptionQuery(selectedPlantId), scope)
+        : skipToken,
+    retry: false,
+  });
+
+  const plantRows = plantQuery.data?.data ?? NO_ROWS;
+
+  /*
+   * Whether that read is still answering, and whether it failed: both flags are qualified by the
+   * condition that started the read, because a query skipped under this key keeps what it left there
+   * (AAP §0.6.2 memoises each read under its method and the arguments it was made with). It reports
+   * itself pending for as long as it is skipped, and it keeps the error it failed with even once the
+   * window starts answering for the same plant — so a read the selection no longer asks reports
+   * neither a pending state nor a failure, and the dock projects the exception the window resolved
+   * instead of standing that projection down over a failure nothing is waiting on.
+   */
+  const plantFailure = plantQuery.error;
+  const plantReadPending = plantReadNeeded && plantQuery.isPending;
+  const plantReadFailed = plantReadNeeded && plantFailure !== null && plantFailure !== undefined;
+
+  /*
+   * The exception the selection reaches, from the two sources in that order: the four-row window's
+   * own answer, and — only where the window answered nothing — the row that landed on the selected
+   * plant in the read narrowed to it. Everything downstream reads this one value: the dock's bed, the
+   * primary action, the option set and the option the graph lens previews, so no two of them can
+   * resolve the same selection to different exceptions.
+   */
+  const selectedException = useMemo(
+    () => windowException ?? exceptionLandedOn(plantRows, selectedNode),
+    [windowException, plantRows, selectedNode],
   );
 
   /*
@@ -984,6 +1178,18 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
   });
 
   const detail = detailQuery.data?.data;
+
+  /*
+   * The detail read's own pending and failed conditions, for the dock's bed and for its retry. Both
+   * flags are qualified by the condition that started the read, exactly as the plant read's are: the
+   * query is skipped while no exception resolves, a skipped query is pending by definition, and an
+   * exception that no longer resolves cannot have a failed detail read to report.
+   */
+  const detailFailure = detailQuery.error;
+  const detailReadPending = selectedException !== undefined && detailQuery.isPending;
+  const detailReadFailed =
+    selectedException !== undefined && detailFailure !== null && detailFailure !== undefined;
+
   const productHealth = useMemo(() => productHealthOf(urgentRows), [urgentRows]);
 
   /*
@@ -1086,6 +1292,21 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
     void auditQuery.refetch();
   }
 
+  /**
+   * Asks the port for the plant read again, which is what the dock's own retry control does.
+   *
+   * Only that one read is repeated: the canvas around it answered, so re-reading the topology, the
+   * ribbon and the queue would ask for what the screen already holds.
+   */
+  function retryPlantRead(): void {
+    void plantQuery.refetch();
+  }
+
+  /** Asks the port for the selected exception's detail again, for the dock's detail retry control. */
+  function retryDetailRead(): void {
+    void detailQuery.refetch();
+  }
+
   /*
    * Takes a node a lens reports as the selection, in this screen and — if the shell wants it — there.
    *
@@ -1119,21 +1340,28 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
    * The primary action is always on screen, because rule P-8 asks a control that cannot act to say why
    * rather than to disappear: a reader who selected a supplier, a material, an origin or a customer
    * would otherwise be left with no control and no way forward. While the selection resolves to an
-   * exception the control investigates it, and otherwise it is disabled carrying the words that name
-   * the node to select — `ActionButton`'s prop union makes the reason as structural as the disabled
+   * exception the control investigates it, and otherwise it is disabled carrying the reason true of
+   * that state — the node to select when the selection answers none, the covering read that is still
+   * answering while one is in flight, and that read's failure when it did not answer — rather than
+   * always the first of them, which a selected plant whose exception ranks outside the window has
+   * already followed. `ActionButton`'s prop union makes the reason as structural as the disabled
    * state, and its `aria-disabled` keeps the control focusable so the reason reaches a keyboard reader
    * too (rule B-3).
    */
   const headerActions: ReactNode = (
     <ActionButton
       variant="primary"
-      {...(selectedException === undefined
-        ? { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionUnavailable }
-        : {
+      {...(selectedException !== undefined
+        ? {
             onClick: () => {
               investigate(selectedException.id);
             },
-          })}
+          }
+        : plantReadPending
+          ? { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionReading }
+          : plantReadFailed
+            ? { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionUnread }
+            : { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionUnavailable })}
     >
       {FILEMAP_CANVAS_TEXT.primaryAction}
     </ActionButton>
@@ -1252,14 +1480,60 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
               )}
             </div>
 
-            {selectedException === undefined ? (
+            {plantReadPending ? (
               <div className={DOCK_CLASSES}>
-                {/* No exception to project: the dock explains the gap rather than showing empty axes. */}
+                {/* The covering read is in flight: the dock has nothing to project yet, and the
+                    boundary's own loading region says so instead of the bed's axes drawing empty. */}
+                <StateBoundary state="loading">{null}</StateBoundary>
+              </div>
+            ) : plantReadFailed ? (
+              <div className={DOCK_CLASSES}>
+                {/* The one source that could answer for this selection did not answer, so the dock
+                    states that read rather than asserting an absence the failure cannot support, and
+                    the boundary's retry repeats that read alone (rule P-8). */}
+                <StateBoundary
+                  state="offline"
+                  onRetry={retryPlantRead}
+                  offlineMessage={FILEMAP_CANVAS_TEXT.selectionUnread}
+                >
+                  {null}
+                </StateBoundary>
+              </div>
+            ) : detailReadFailed ? (
+              <div className={DOCK_CLASSES}>
+                {/* The exception resolved and the detail that drives the dock did not: the dock states
+                    that read beside a retry rather than disappearing from the surface, which is how
+                    the trail, the overlay and the option set state their own failures. */}
+                <StateBoundary
+                  state="offline"
+                  onRetry={retryDetailRead}
+                  offlineMessage={FILEMAP_CANVAS_TEXT.dockDetailUnavailable}
+                >
+                  {null}
+                </StateBoundary>
+              </div>
+            ) : detailReadPending ? (
+              <div className={DOCK_CLASSES}>
+                {/* The detail read is answering, so the dock's slot is announced as busy rather than
+                    left blank while it arrives. */}
+                <StateBoundary state="loading">{null}</StateBoundary>
+              </div>
+            ) : selectedException === undefined ? (
+              <div className={DOCK_CLASSES}>
+                {/* No exception to project: the dock explains the gap rather than showing empty axes.
+                    Both sources agree on that absence here — the window answered nothing and the read
+                    narrowed to the selection answered nothing — so the sentence is true. */}
                 <StateBoundary state="empty" emptyMessage={FILEMAP_CANVAS_TEXT.dockEmpty}>
                   {null}
                 </StateBoundary>
               </div>
-            ) : detail === undefined ? null : (
+            ) : detail === undefined ? (
+              <div className={DOCK_CLASSES}>
+                {/* Nothing to plot and no failure to report: the read that would fill this bed has not
+                    answered, so the slot says it is still reading rather than disappearing (rule P-8). */}
+                <StateBoundary state="loading">{null}</StateBoundary>
+              </div>
+            ) : (
               <div className={DOCK_CLASSES}>
                 {/* The baseline the records project, and the option in view drawn over it: the same
                     `activeScenario` the preview caption names, so the caption and the dock can never

@@ -21,10 +21,12 @@
  * reader once while the region is still announced as busy, and two mounted boundaries keep a caption
  * id each (rule B-3). Both themes are exercised on the state that carries the most wording, so a
  * banner that resolved a colour itself would fail here rather than in one theme only. Every control
- * the boundary can render exists only when a handler was supplied (rule P-8), and the retry and reload
- * controls keep their own width inside the column that holds them rather than stretching to it, because
- * that column is also what the loading region's skeleton bars fill. No state spells a simulation label
- * of its own, because `Simulated data` belongs to the shell's badge (rule P-1).
+ * the boundary can render exists only when a handler was supplied (rule P-8), a caller's own sentence
+ * on the offline state stands in the detail role beside the headline rather than leaving the neutral
+ * detail to describe a read it never made, and the retry and reload controls keep their own width
+ * inside the column that holds them rather than stretching to it, because that column is also what
+ * the loading region's skeleton bars fill. No state spells a simulation label of its own, because
+ * `Simulated data` belongs to the shell's badge (rule P-1).
  *
  * The permission, the roles, the refusal's own sentence and the instant below are this suite's own
  * caller-level input, standing for values a service `Problem` and a `Result.meta` supply at run time:
@@ -32,7 +34,7 @@
  * jsdom environment that `vite.config.ts` sets by default applies.
  */
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -76,6 +78,13 @@ const EMPTY_CONTENT = 'Nothing to list, stated in the caller’s own structure';
 
 /** A screen's own sentence naming the inputs a partial read did not answer with. */
 const PARTIAL_MESSAGE = 'The scheduling source did not report line rates.';
+
+/**
+ * A screen's own sentence naming the one read that did not answer, as a screen whose accessory read
+ * failed supplies it through `offlineMessage`: the boundary cannot know which read a caller made, so
+ * only the caller's words can say which one went unanswered.
+ */
+const OFFLINE_MESSAGE = 'The projection read did not answer, so nothing is plotted here.';
 
 /** A screen's own sentence saying what moved while the reader was on the page. */
 const CONFLICT_MESSAGE = 'Another planner changed the owner while you were reading it.';
@@ -346,6 +355,39 @@ describe('StateBoundary', () => {
     );
 
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('T-17 states the caller’s own sentence beside the offline headline and still retries from it', async () => {
+    const onRetry = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <StateBoundary state="offline" onRetry={onRetry} offlineMessage={OFFLINE_MESSAGE}>
+        <p>{CONTENT}</p>
+      </StateBoundary>,
+    );
+
+    const region = screen.getByRole('status');
+
+    /* The headline still reports the condition, and the caller's sentence fills the detail role the
+       neutral one would otherwise occupy: only the caller knows which of its reads went unanswered, so
+       a failure it can name is never described by this component's generic detail instead. */
+    expect(region).toHaveTextContent(STATE_BOUNDARY_TEXT.offlineHeadline);
+    expect(within(region).getByText(OFFLINE_MESSAGE)).toBeVisible();
+    expect(screen.queryByText(STATE_BOUNDARY_TEXT.offlineDetail)).not.toBeInTheDocument();
+
+    /* The content is withheld exactly as it is for the state without a caller's sentence. */
+    expect(screen.queryByText(CONTENT)).not.toBeInTheDocument();
+
+    /* The retry the state offers is unaffected by the sentence, and it is reached and operated from
+       the keyboard alone (rules B-3, P-8). */
+    const control = screen.getByRole('button', { name: STATE_BOUNDARY_TEXT.retryLabel });
+
+    await user.tab();
+    expect(control).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it('T-17 renders a state handed none of its optional payloads instead of throwing', () => {
