@@ -170,12 +170,15 @@ const STALE_AS_OF_PREFIX = /As of/;
 const QUEUE_EMPTY = 'No exceptions to show.';
 
 /**
- * The overview's own sentence for a scope holding nothing to summarise.
+ * The overview's own sentence for a read that holds nothing and that nothing narrowed.
  *
  * The screen reports an emptied population in words rather than as four confident zeros, so this is the
- * rendering the empty state gives on that screen (specification §8, AAP §0.12.4).
+ * rendering the empty state gives on that screen (specification §8, AAP §0.12.4). The trigger driven
+ * below empties the collection the read is served from and applies no filter — no plant or product is
+ * selected — so the sentence is the trigger-neutral one; the filter wording is what a read the shell's
+ * selection narrowed gets, and no case here narrows it.
  */
-const OVERVIEW_EMPTY = 'No exception is open in this scope, so there is nothing to summarise.';
+const OVERVIEW_EMPTY = 'There is nothing to summarise.';
 
 /** The not-found page's heading and the stage notice's arrival sentence for the S4 routes. */
 const NOT_FOUND_HEADING = 'Page not found';

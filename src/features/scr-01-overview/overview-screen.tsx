@@ -143,7 +143,18 @@ const SCREEN_TEXT = {
 
   columnPlantName: 'Name',
 
-  columnOpenExceptions: 'Open exceptions',
+  /**
+   * The risk-by-plant table's third header, shortened from "Open exceptions" for the phone-width box.
+   *
+   * A header is a column's minimum width as much as its figures are: bound by the word "exceptions",
+   * this column needed the 43 px the four-column table cannot spare at a 390 px viewport, where the
+   * money column beside it was already cut mid-number. "Open" matches the terse headers these tables
+   * already use (`Plant`, `Name`, `Date`, `Opened`), and the full phrase is stated twice on the page
+   * without it: as this table's accessible name through `byPlantCaption`, which `DataTable` renders as
+   * a visually hidden `<caption>`, and visibly in the "Open exceptions" tile caption in the tiles card
+   * above. It states no figure, amount, identifier or date (rule P-6).
+   */
+  columnOpenExceptions: 'Open',
 
   columnRevenueAtRisk: 'Revenue at risk',
 
@@ -195,8 +206,21 @@ const SCREEN_TEXT = {
    */
   narrowToDay: 'Narrow the queue to ',
 
-  /** What the boundary says when the scope holds nothing to report. */
-  empty: 'No exception is open in this scope, so there is nothing to summarise.',
+  /**
+   * The sentence the boundary shows when the shell's plant or product selection emptied the read: a
+   * filter is what left nothing to summarise, so the sentence says so (see {@link narrowsRead}).
+   */
+  empty: 'No exception matches the current filters, so there is nothing to summarise.',
+
+  /**
+   * The sentence the boundary shows when nothing narrowed the read and it still holds nothing.
+   *
+   * The simulation popover's `empty` trigger empties the collection the read is served from and claims
+   * no filter, so the filter wording above would describe a constraint no control on this screen sets.
+   * This sentence names no cause, because the read's empty answer is the only fact the screen has
+   * (rule P-4).
+   */
+  emptyUnnarrowed: 'There is nothing to summarise.',
 
   partial:
     'A source behind these figures answered incompletely, so the readings cover the inputs it supplied.',
@@ -393,6 +417,19 @@ const LIST_ITEM_CLASSES = 'flex min-w-0 flex-col gap-1 border-b border-hairline 
 
 /** A changed-since item's record label: the primary text role, at the body step. */
 const ITEM_LABEL_CLASSES = 'min-w-0 break-words text-14 text-text-primary';
+
+/**
+ * The identifier of the record a changed-since entry opens, set beside the entry's label.
+ *
+ * Two entries can describe different records of the same exception — the decision recorded on an
+ * approval and an activity recorded on the exception itself both carry the exception's title — so the
+ * label alone cannot say which record an entry opens, and this does. It sits in the tabular mono face
+ * through `MonoValue`, with the secondary text role at the 12 px step, which AAP 0.5.3 fixes for an
+ * identifier and rule B-3's contrast holds on the card's own surface; and it follows the label text
+ * inside the same span so the control's accessible name still begins with the text a reader sees
+ * (WCAG 2.2 SC 2.5.3, label in name).
+ */
+const ITEM_RECORD_CLASSES = 'ms-2 inline-block align-baseline text-12 text-text-secondary';
 
 /** Supporting text: a record's detail or an empty group's sentence, in the secondary role. */
 const DETAIL_CLASSES = 'min-w-0 break-words text-13 text-text-secondary';
@@ -636,6 +673,27 @@ function revenueAxisTicksOf(axisMax: number): readonly HorizontalBarAxisTick[] {
 /* ---------------------------------------------------------------------------------------------
  * The screen's own reading of an empty payload
  * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Whether the shell's selection narrowed the read: a plant or a product has been chosen.
+ *
+ * The plant and product selection is the only narrowing this read can express. The service intersects
+ * it with the acting role's plant scope before the aggregate runs (AAP 0.2.1), and the screen cannot
+ * see that scope, so no other cause is claimed for an empty answer — which is what keeps the two empty
+ * sentences apart: a list the simulation popover's `empty` trigger emptied must not be confusable with
+ * a filter that matched nothing (the property `src/services/mock/simulation.ts` states for that
+ * trigger, rule P-4).
+ *
+ * It is answered from the values the read was built from rather than from the answer, because an empty
+ * answer is the same whether a selection emptied it or nothing was selected at all. Only the sentence
+ * the boundary states depends on it (see {@link SCREEN_TEXT}'s two empty members).
+ *
+ * @param scope - The shell's plant and product selection.
+ * @returns Whether the selection names any plant or product.
+ */
+function narrowsRead(scope: Scope): boolean {
+  return scope.plants.length > 0 || scope.products.length > 0;
+}
 
 /**
  * Whether the payload holds nothing to report at all: no open exception, no risk row, no changed record.
@@ -926,7 +984,12 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
         state={state}
         stale={staleRecord}
         onRetry={retryRead}
-        emptyMessage={SCREEN_TEXT.empty}
+        /*
+          Two sentences, because an empty answer carries two meanings: the shell's selection narrowed
+          the read, or nothing did and the collection the read is served from is empty. The one stated
+          is the one the selection makes true (see `narrowsRead`).
+        */
+        emptyMessage={narrowsRead(scope) ? SCREEN_TEXT.empty : SCREEN_TEXT.emptyUnnarrowed}
         partialMessage={SCREEN_TEXT.partial}
         conflictMessage={SCREEN_TEXT.conflict}
         forbidden={forbiddenRecord}
@@ -977,7 +1040,19 @@ export function OverviewScreen({ scope, onNarrowQueue }: OverviewScreenProps): R
                   {changed.map((item) => (
                     <li key={item.ref} className={LIST_ITEM_CLASSES}>
                       <EvidenceRef ref={item.ref}>
-                        <span className={ITEM_LABEL_CLASSES}>{item.label}</span>
+                        <span className={ITEM_LABEL_CLASSES}>
+                          {item.label}
+                          {/*
+                            A real space as well as the margin: `ms-2` spaces the identifier
+                            visually, but a text run assembled only from margins reads
+                            "…arrivalAPR-2026-103" to anything that copies the line or reads its
+                            text content, so the separation is in the text itself too.
+                          */}
+                          {' '}
+                          <span className={ITEM_RECORD_CLASSES}>
+                            <MonoValue value={item.ref} kind="id" />
+                          </span>
+                        </span>
                       </EvidenceRef>
                       <p className={DETAIL_CLASSES}>{item.detail}</p>
                     </li>

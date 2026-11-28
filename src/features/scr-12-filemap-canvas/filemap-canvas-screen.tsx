@@ -63,19 +63,22 @@
  * selected exception's own set while the caption beside it names that option, and the primary action
  * navigates to `/exceptions/<identifier>` for the exception the selection resolves to through the
  * service. The primary action is on screen whatever the selection is: while an exception does resolve
- * it investigates that exception, and while the selected node answers none it is rendered disabled
+ * it investigates that exception, and while the selection is not a plant node it is rendered disabled
  * carrying {@link FILEMAP_CANVAS_TEXT.primaryActionUnavailable}, the sentence that names the node to
  * select and the reason a plant is the node that can be investigated — so a reader who selected a
  * supplier, a material, an origin or a customer is told what to do rather than left without the
  * control (rule P-8). A selected plant whose exceptions the four-row window does not reach puts the
- * action in two further states, and each names the read rather than repeating that advice: while the
- * read that covers that plant is in flight the reason is
+ * action in three further states, and each states its own fact rather than repeating that advice:
+ * while the read that covers that plant is in flight the reason is
  * {@link FILEMAP_CANVAS_TEXT.primaryActionReading}, and when that read did not answer it is
  * {@link FILEMAP_CANVAS_TEXT.primaryActionUnread}, because the action does have an exception to
- * investigate and cannot reach it yet. An exception whose set offers no option leaves the preview
- * switch visibly disabled carrying the drawing's own reason, which this file neither restates nor
- * replaces. The only fixed disabled string in this area — `Arrives in stage S4` on **Open part** —
- * belongs to the graph lens and is untouched here.
+ * investigate and cannot reach it yet; when that read answered with no open row at all the reason is
+ * {@link FILEMAP_CANVAS_TEXT.primaryActionNoOpenException}, because the plant is the node the reader
+ * was told to select and the absence it answered with is why the action has nothing to investigate.
+ * An exception whose set offers no option leaves the preview switch visibly disabled carrying the
+ * drawing's own reason, which this file neither restates nor replaces. The only fixed disabled string
+ * in this area — `Arrives in stage S4` on **Open part** — belongs to the graph lens and is untouched
+ * here.
  * "View as table" on both lenses is the same story: each lens composes `ChartFrame`, which owns the
  * toggle and the table view, so this file adds no second toggle and no chart of its own.
  *
@@ -208,17 +211,38 @@ export const FILEMAP_CANVAS_TEXT = {
   primaryAction: 'Investigate selected exception',
 
   /**
-   * Why the primary action cannot act on the node that is selected, and what to select instead.
+   * Why the primary action cannot act on a selection that is not a plant node, and what to select
+   * instead.
    *
    * Rule P-8 requires a control that cannot act to say so in words rather than to vanish, and the
    * reason is a fact about the records: an exception row names the plant the disruption lands on
    * (`ExceptionRow.plantId`) and no supplier, material, origin or customer, so a plant is the one node
    * kind a selection can be investigated from. The sentence therefore names the node to select instead
-   * of restating the absence. It types no identifier, no figure and no record name (rule P-6), and it
-   * claims nothing about a capability the demonstration does not implement (rule P-4).
+   * of restating the absence. That advice holds only for a selection that is not a plant, because a
+   * selection that already is one has followed it: a plant states its own reason through
+   * {@link FILEMAP_CANVAS_TEXT.primaryActionNoOpenException},
+   * {@link FILEMAP_CANVAS_TEXT.primaryActionReading} and
+   * {@link FILEMAP_CANVAS_TEXT.primaryActionUnread}. It types no identifier, no figure and no record
+   * name (rule P-6), and it claims nothing about a capability the demonstration does not implement
+   * (rule P-4).
    */
   primaryActionUnavailable:
     'Select a plant node on the canvas: an exception names the plant the disruption lands on, so a plant is the node this action can investigate.',
+
+  /**
+   * Why the primary action cannot act on the plant that is selected, when that plant answers no open
+   * exception.
+   *
+   * The selection is a plant, so the advice
+   * {@link FILEMAP_CANVAS_TEXT.primaryActionUnavailable} gives has already been followed, and the read
+   * narrowed to that plant has answered rather than failed: no open row lands on it, which is the same
+   * fact the dock states through {@link FILEMAP_CANVAS_TEXT.dockEmpty}. The sentence therefore states
+   * that absence instead of repeating the not-a-plant advice, so the reader is told why this action has
+   * nothing to investigate (rule P-8). It types no identifier, no figure and no record name (rule P-6),
+   * and it claims nothing about a capability the demonstration does not implement (rule P-4).
+   */
+  primaryActionNoOpenException:
+    'The plant selected on the canvas answers no open exception, so this action has nothing to investigate.',
 
   /**
    * Why the primary action cannot act yet, while the read that covers the selected plant is in flight.
@@ -1341,12 +1365,12 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
    * rather than to disappear: a reader who selected a supplier, a material, an origin or a customer
    * would otherwise be left with no control and no way forward. While the selection resolves to an
    * exception the control investigates it, and otherwise it is disabled carrying the reason true of
-   * that state — the node to select when the selection answers none, the covering read that is still
-   * answering while one is in flight, and that read's failure when it did not answer — rather than
-   * always the first of them, which a selected plant whose exception ranks outside the window has
-   * already followed. `ActionButton`'s prop union makes the reason as structural as the disabled
-   * state, and its `aria-disabled` keeps the control focusable so the reason reaches a keyboard reader
-   * too (rule B-3).
+   * that state — the node to select when the selection is not a plant node, the covering read that is
+   * still answering while one is in flight, that read's failure when it did not answer, and the absence
+   * that read established when the plant answers no open exception — rather than always the first of
+   * them, which a selected plant has already followed. `ActionButton`'s prop union makes the reason as
+   * structural as the disabled state, and its `aria-disabled` keeps the control focusable so the reason
+   * reaches a keyboard reader too (rule B-3).
    */
   const headerActions: ReactNode = (
     <ActionButton
@@ -1361,7 +1385,9 @@ export function FilemapCanvasScreen(props: FilemapCanvasScreenProps): ReactEleme
           ? { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionReading }
           : plantReadFailed
             ? { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionUnread }
-            : { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionUnavailable })}
+            : selectedPlantId !== null
+              ? { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionNoOpenException }
+              : { disabled: true, disabledReason: FILEMAP_CANVAS_TEXT.primaryActionUnavailable })}
     >
       {FILEMAP_CANVAS_TEXT.primaryAction}
     </ActionButton>

@@ -337,12 +337,12 @@ function validationProblem(ctx: HandlerContext, message: string): Problem {
  * replaced the set the reader was reading: a reader shown a set that changed under them cannot tell
  * which half is current. `ProblemType` fixes five causes and none of them is a conflict, so it is
  * reported as `'validation'` — a request that cannot be honoured against the records as they stand, the
- * reading the stale-source refusal and the approvals family's write refusal also take (AAP 0.12.1,
- * AAP 0.12.3).
+ * reading the stale-source refusal and a write refused against a record that moved also take
+ * (AAP 0.12.1, AAP 0.12.3).
  *
  * The message states in plain words what happened and what the reader can do about it, because the
  * screen that renders it is showing the conflicting-update state and nothing else (rule P-8). It words
- * the refusal differently from the decision the approvals family refuses, which says the change is
+ * the refusal differently from the write the family owning the record refuses, which says the change is
  * refused rather than merged: the two report one condition and two different actions.
  *
  * @param traceId - The correlation identifier of the call being refused, minted at its entry, so the
@@ -1258,8 +1258,9 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * runs, so every collection read reports the conflicting update the one way a screen can render
    * rather than each family deciding for itself what a changed set means (AAP 0.12.3). `refusable` is
    * what keeps the rest out of the refusal: a read whose payload is one record is served so the act it
-   * carries can be attempted and refused by the family that owns it (AAP 0.12.4 SCR-05), a write is
-   * refused by the family that owns it, and the demonstration controls have to answer so the popover
+   * carries can be attempted and refused by the family that owns the record (AAP 0.12.4 SCR-05), an
+   * update of an existing record is refused by that family through the one `requireNoConflict` those
+   * writes share (`./handlers/audit.ts`), and the demonstration controls have to answer so the popover
    * can lift the trigger it set (rule P-8).
    *
    * @param work - The family call to serve, given the session and the acting persona.
@@ -1318,11 +1319,14 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * a measurement, an answer or a browser-built export.
    *
    * Such a call acts on records the caller already holds rather than reading them afresh, so the
-   * trigger's half of the condition is the family's own refusal: the approvals family names the record
-   * that moved and refuses to merge the change, which is the write refusal this demonstration shows
-   * (AAP 0.12.4 SCR-05). Every read the port declares goes through {@link dispatchRead} or
-   * {@link dispatchCollection} instead: a set reaches its screen with the conflicting update reported,
-   * and a record is served so the act it carries can be attempted (AAP 0.2.1 F10).
+   * trigger's half of the condition is the family's own refusal: the family owning the record names it
+   * and refuses to merge the change, through the one `requireNoConflict` those writes share
+   * (`./handlers/audit.ts`) — the approvals family for a decision, a write-back retry or an outcome
+   * review, the exceptions family for an assign, a note or a dismiss — which is the write refusal this
+   * demonstration shows (AAP 0.12.4 SCR-05). Every read the port declares goes through
+   * {@link dispatchRead} or {@link dispatchCollection} instead: a set reaches its screen with the
+   * conflicting update reported, and a record is served so the act it carries can be attempted
+   * (AAP 0.2.1 F10).
    *
    * @param work - The family call to serve, given the session and the acting persona.
    * @returns The payload the family produced, inside the envelope every port member returns, or a
@@ -1338,9 +1342,10 @@ export class MockBackend implements SiteIntelligenceService, DemonstrationContro
    * and served while the `conflict` trigger is in effect.
    *
    * The record is where the act it carries starts, so this trigger serves the read and refuses the act
-   * instead — the approvals family names the record that moved and refuses to merge the decision made
-   * from it (AAP 0.12.4 SCR-05), which is what lets a screen keep its controls and report the refusal in
-   * the service's own sentence. A set presented as current is the other half of the condition, and
+   * instead — the family owning the record names it and refuses to merge the change made from it,
+   * through the one `requireNoConflict` those writes share (`./handlers/audit.ts`, AAP 0.12.4
+   * SCR-05), which is what lets a screen keep its controls and report the refusal in the service's own
+   * sentence. A set presented as current is the other half of the condition, and
    * {@link dispatchCollection} is where that half is refused.
    *
    * @param work - The family read to serve, given the session and the acting persona.

@@ -29,6 +29,7 @@ import { feature } from 'topojson-client';
 import { useId, useMemo, useRef, useState } from 'react';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   ReactElement,
   ReactNode,
@@ -195,6 +196,19 @@ const MAP_HEIGHT = 520;
 
 /** The point the projection is centred on: the middle of the view box. */
 const VIEW_BOX_CENTER: readonly [number, number] = [MAP_WIDTH / 2, MAP_HEIGHT / 2];
+
+/**
+ * One point in the drawing's own coordinates: the view-box units every mark is placed in.
+ *
+ * A press arrives in client pixels and is answered in these units, and a mark's own centre is stated in
+ * them, so the two spaces never have to be compared through the browser's hit test (rule P-8).
+ */
+interface DrawingPoint {
+  /** The horizontal coordinate, which grows to the right of the frame's origin. */
+  readonly x: number;
+  /** The vertical coordinate, which grows downwards from the frame's origin. */
+  readonly y: number;
+}
 
 /**
  * The room the fitted frame keeps clear on every side of the view box, in view-box units.
@@ -943,6 +957,73 @@ function placedNodesOf(topology: Topology, projection: GeoProjection): readonly 
 }
 
 /**
+ * The node a press at one point belongs to: the nearest mark centre within `radius`, or `null`.
+ *
+ * WHY THE NEAREST CENTRE AND NOT THE MARK PAINTED LAST. A node's target has to stay 24x24 px across
+ * (rule B-3), while two records can be drawn nearer together than that — two plants in one region land
+ * within one target's width of each other at the widest zoom level — so the invisible target of the node
+ * painted later covers the mark a reader sees under the pointer and would take its press. Comparing the
+ * press against the mark centres answers the question the reader is actually asking, "which mark did I
+ * press", from the drawing's own geometry rather than from paint order, and that is what lets a press
+ * perform the node it landed on (rule P-8).
+ *
+ * TWO MARKS AT ONE CENTRE ARE TOLD APART BY THEIR ORDER IN `marks`, WHICH IS THE ORDER THE DRAWING PAINTS
+ * THEM: the strictly-nearer comparison keeps the earlier one, so the answer never depends on which node
+ * happened to be compared first. A radius that is not positive, and a point the browser could not resolve
+ * (a coordinate that is not a finite number), match nothing and yield `null`, which is what leaves a press
+ * that lands clear of every mark to the node whose own control received it.
+ *
+ * THE KEYBOARD NEVER COMES HERE. `Enter` and `Space` on a focused node activate that node directly, because
+ * focus has already chosen the mark and needs no hit-testing at all (rule B-3).
+ *
+ * @param marks Every node the frame placed, in the order the drawing paints them.
+ * @param point The press, in the drawing's own coordinates.
+ * @param radius How far from a mark's centre a press still belongs to it, in the same units.
+ * @returns The nearest node within `radius`, or `null` when the press is clear of every one.
+ */
+export function nearestNodeMark(
+  marks: readonly PlacedNode[],
+  point: DrawingPoint,
+  radius: number,
+): PlacedNode | null {
+  if (!(radius > 0) || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    return null;
+  }
+
+  const limit = radius * radius;
+  let nearest: PlacedNode | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const mark of marks) {
+    const offsetX = mark.x - point.x;
+    const offsetY = mark.y - point.y;
+    const distance = offsetX * offsetX + offsetY * offsetY;
+
+    /* Strictly nearer, so the first of two marks at one centre is the one answered. */
+    if (distance <= limit && distance < nearestDistance) {
+      nearest = mark;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
+/**
+ * The name one node's control is drawn and registered under.
+ *
+ * A node's identifier names its record, and two families may name the same record, so the family is part of
+ * the key: the drawing paints one control per topology node and the pointer resolves a press to one of
+ * them, so the key has to tell them apart (rule P-8).
+ *
+ * @param node The node the control is drawn for.
+ * @returns The control's key.
+ */
+function nodeKeyOf(node: TopologyNode): string {
+  return `${node.kind}:${node.id}`;
+}
+
+/**
  * The sentence a node's accessible name carries about its evidence pins.
  *
  * The counts are read out of `topology.pinsByNode` exactly as the payload states them and are joined in
@@ -1186,7 +1267,10 @@ const NODE_RING_STROKE = 2;
  * away (rule B-3, {@link revealedPan}).
  *
  * A pointer press and a keyboard press are reported separately, because a pointer press that dragged the
- * map is a pan rather than an activation, and the two activation keys always are activations.
+ * map is a pan rather than an activation, and the two activation keys always are activations. The pointer's
+ * handler is given the press itself, because the control a press lands on is not always the node the reader
+ * aimed at: two targets can overlap, so the caller resolves the press to the mark it is nearest
+ * ({@link nearestNodeMark}) rather than trusting the element the browser hit (rule P-8).
  *
  * A node the caller resolved an evidence reference for also declares `aria-haspopup="dialog"`, so the
  * control says what activating it opens; a node no record stands behind opens nothing (rule P-8).
@@ -1198,9 +1282,12 @@ const NODE_RING_STROKE = 2;
  * @param label Where this node's name is printed, or `undefined` when the drawing had no room for it.
  * @param badges Where this node's badge row is drawn, or `undefined` when it carries no pins.
  * @param onActivateFromKeyboard What to do when the node is activated from the keyboard.
- * @param onActivateFromPointer What to do when the node is pressed with the pointer.
+ * @param onActivateFromPointer What to do when the node is pressed with the pointer, which is handed the
+ *   press so the caller can resolve which mark it landed on.
  * @param onFocus What to do when the node takes focus, which is where the caller brings a mark drawn
  *   outside the frame back into it so the focus ring this control reveals is not clipped away.
+ * @param registerElement How the control reports itself to the caller's registry, so the mark a press
+ *   resolved can take the focus of the press it answered, and `null` once it leaves the drawing.
  * @returns The node's group.
  */
 function nodeElement(
@@ -1211,15 +1298,17 @@ function nodeElement(
   label: LabelPlacement | undefined,
   badges: LabelBox | undefined,
   onActivateFromKeyboard: () => void,
-  onActivateFromPointer: () => void,
+  onActivateFromPointer: (event: ReactMouseEvent<SVGGElement>) => void,
   onFocus: () => void,
+  registerElement: (element: SVGGElement | null) => void,
 ): ReactElement {
   const { node, x, y } = placed;
   const printedName = label?.lines[0];
 
   return (
     <g
-      key={`${node.kind}:${node.id}`}
+      key={nodeKeyOf(node)}
+      ref={registerElement}
       role="button"
       tabIndex={0}
       aria-label={nodeAriaLabel(node, counts)}
@@ -2193,6 +2282,76 @@ function viewBoxUnitsPerPixel(surface: SVGSVGElement): number {
   return width > 0 ? MAP_WIDTH / width : 1;
 }
 
+/**
+ * The six numbers of the matrix an element paints its drawing with, in the shape the browser reports them:
+ * a point `x, y` of the drawing is drawn at the client point `(a·x + c·y + e, b·x + d·y + f)`.
+ *
+ * Stated as the six numbers rather than as the browser's matrix object, because those six are all the
+ * conversion needs: reading them is what lets the mapping be inverted by hand, where the matrix object's own
+ * transform methods and point type are absent from the environment the component is tested in.
+ */
+interface DrawingMatrix {
+  /** How far one unit of the drawing's x axis moves the client x. */
+  readonly a: number;
+  /** How far one unit of the drawing's x axis moves the client y. */
+  readonly b: number;
+  /** How far one unit of the drawing's y axis moves the client x. */
+  readonly c: number;
+  /** How far one unit of the drawing's y axis moves the client y. */
+  readonly d: number;
+  /** Where the drawing's origin is drawn, in client x. */
+  readonly e: number;
+  /** Where the drawing's origin is drawn, in client y. */
+  readonly f: number;
+}
+
+/**
+ * The point of the drawing a client point lands on, or `null` when the surface states no mapping at all.
+ *
+ * WHY THE SURFACE'S OWN COORDINATE MATRIX AND NOT A MEASURED RECTANGLE. The surface is drawn inside a one
+ * pixel hairline border ({@link CANVAS_CLASSES}), and `getBoundingClientRect()` reports that border box while
+ * the view box is painted inside the content box: a scale derived from that width is the content width plus
+ * the two border pixels over {@link MAP_WIDTH}, and an origin derived from its left and top is off by the
+ * border on each axis. The error is systematic, about one to two drawing units, which is harmless where two
+ * marks are ten units apart and decisive where records are drawn within a couple of units of each other, as
+ * a plant and a customer at nearly one coordinate are at the widest zoom: the press then converts to a point
+ * nearer the neighbouring mark's centre than the centre the reader sees under the pointer, and the node it
+ * selects is the wrong record (rule P-8). The element's own screen matrix is the mapping the browser
+ * actually paints with — it already carries the scale, the border, the `preserveAspectRatio` letterboxing and
+ * the view box origin the frame is panned by — so none of them is recomputed here by hand and none of them
+ * can be got wrong.
+ *
+ * The matrix is inverted with plain arithmetic rather than through the browser's own matrix and point
+ * objects, which the DOM the component is tested in does not implement. A surface that states no matrix, a
+ * determinant that is not a finite number or is zero, a press whose coordinates are not finite numbers, and
+ * a conversion that does not land on a finite point all resolve nothing, rather than leaving a division to
+ * decide which node a press selected.
+ *
+ * @param surface The element the drawing is painted on, whose screen matrix states how it is mapped.
+ * @param client The press, in client coordinates.
+ * @returns The point in the drawing's own coordinates, or `null` when the surface cannot state the mapping.
+ */
+export function drawingPointOf(surface: SVGSVGElement, client: DrawingPoint): DrawingPoint | null {
+  const matrix: DrawingMatrix | null =
+    typeof surface.getScreenCTM === 'function' ? surface.getScreenCTM() : null;
+
+  if (matrix === null || !Number.isFinite(client.x) || !Number.isFinite(client.y)) {
+    return null;
+  }
+
+  const { a, b, c, d, e, f } = matrix;
+  const determinant = a * d - b * c;
+
+  if (!Number.isFinite(determinant) || determinant === 0) {
+    return null;
+  }
+
+  const x = (d * (client.x - e) - c * (client.y - f)) / determinant;
+  const y = (-b * (client.x - e) + a * (client.y - f)) / determinant;
+
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
 /** Whether a pointer event landed inside a node's control, which is a press of that node rather than a pan. */
 function isNodeControl(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('[role="button"]') !== null;
@@ -2386,6 +2545,18 @@ export function MapCanvas({
   const gestureRef = useRef<PanGesture | null>(null);
   const dragMovedRef = useRef(false);
 
+  /** The surface the drawing is painted on, which is the element a press is measured against. */
+  const surfaceRef = useRef<SVGSVGElement | null>(null);
+
+  /**
+   * The controls the drawing painted, keyed by node.
+   *
+   * A press is resolved to a mark rather than to the element the browser hit, so this registry is how that
+   * resolution reaches the node's own control and focus follows the press. It is the shape
+   * `./radar-chart.tsx` uses for its vertices.
+   */
+  const nodeElements = useRef(new Map<string, SVGGElement>());
+
   const marks = useMemo(() => drawnMarkCoordinatesOf(topology, overlay), [topology, overlay]);
   /** The point the three zoom levels magnify about, memoised on the payload and the preset alone. */
   const markCentre = useMemo(
@@ -2477,19 +2648,87 @@ export function MapCanvas({
   }
 
   /**
-   * Activates a node the pointer pressed, unless that press was a drag of the map.
+   * Holds the control one node is drawn as, and drops it once that node leaves the drawing.
+   *
+   * A press is resolved to the mark it landed on rather than to the element the browser hit, so the drawing
+   * needs a way to reach that mark's own control: the resolved node takes the focus of the press that chose
+   * it, and a re-render leaves the registry holding only the controls actually on screen.
+   *
+   * @param node The node whose control reported itself.
+   * @param element The control, or `null` once it leaves the drawing.
+   */
+  function registerNodeElement(node: TopologyNode, element: SVGGElement | null): void {
+    const key = nodeKeyOf(node);
+
+    if (element === null) {
+      nodeElements.current.delete(key);
+      return;
+    }
+
+    nodeElements.current.set(key, element);
+  }
+
+  /**
+   * The mark a pointer press landed on, in the drawing's own units.
+   *
+   * The press's client coordinates are converted through the surface's own coordinate matrix
+   * ({@link drawingPointOf}) and answered with the nearest mark centre within a target's radius
+   * ({@link nearestNodeMark}), so a target a neighbouring node painted over another node's mark cannot take
+   * the press. Nothing resolves when the surface states no matrix, which is how a drawing with no layout
+   * avoids leaving a division to decide a press, and nothing resolves when the press lands clear of every
+   * mark, so a press on a node's printed name stays with the node whose control received it (rule P-8).
+   *
+   * @param event The press a node's control received.
+   * @returns The node the press belongs to, or `null` when it is clear of every mark.
+   */
+  function markNearestPress(event: ReactMouseEvent<SVGGElement>): PlacedNode | null {
+    const surface = surfaceRef.current;
+
+    if (surface === null) {
+      return null;
+    }
+
+    const point = drawingPointOf(surface, { x: event.clientX, y: event.clientY });
+
+    return point === null ? null : nearestNodeMark(placed, point, NODE_TARGET_RADIUS);
+  }
+
+  /**
+   * Activates the node a pointer press landed on, unless that press was a drag of the map.
    *
    * A press that moved is a pan the reader made across the surface and selects nothing. The flag it
    * leaves behind is cleared here, because the click it was recorded for is the one that arrives next,
    * and a fresh press clears it as well in case no click ever followed.
+   *
+   * THE PRESS IS RESOLVED TO THE MARK UNDER IT, NOT TO THE CONTROL THE BROWSER HIT. Two node targets can
+   * overlap — each is 28 px across (rule B-3) while two records may be drawn nearer together than that — so
+   * the control painted last covers the mark of one painted before it, and a press on the visible centre of
+   * that mark would otherwise report its neighbour (rule P-8). {@link markNearestPress} answers the mark the
+   * press is nearest, and the resolved node is focused before it is activated: the browser focuses the
+   * topmost control under the pointer as the press begins, and `./evidence-drawer.tsx` returns focus to the
+   * element that opened it, so focus has to sit on the node this press actually selected (rule B-3).
+   *
+   * A press that resolves to no mark activates the node whose own control received it, which is the node a
+   * press on a printed name belongs to, and what a surface that states no coordinate matrix degrades to.
+   *
+   * @param node The node whose control received the press.
+   * @param event The press itself.
    */
-  function pressNode(node: TopologyNode): void {
+  function pressNode(node: TopologyNode, event: ReactMouseEvent<SVGGElement>): void {
     if (dragMovedRef.current) {
       dragMovedRef.current = false;
       return;
     }
 
-    activateNode(node);
+    const resolved = markNearestPress(event);
+
+    if (resolved === null || resolved.node === node) {
+      activateNode(node);
+      return;
+    }
+
+    nodeElements.current.get(nodeKeyOf(resolved.node))?.focus();
+    activateNode(resolved.node);
   }
 
   /**
@@ -2708,6 +2947,7 @@ export function MapCanvas({
       </div>
 
       <svg
+        ref={surfaceRef}
         className={CANVAS_CLASSES}
         viewBox={`${-viewPan.x} ${-viewPan.y} ${MAP_WIDTH} ${MAP_HEIGHT}`}
         preserveAspectRatio="xMidYMid meet"
@@ -2747,11 +2987,14 @@ export function MapCanvas({
               () => {
                 activateNode(entry.node);
               },
-              () => {
-                pressNode(entry.node);
+              (event) => {
+                pressNode(entry.node, event);
               },
               () => {
                 revealNode(entry);
+              },
+              (element) => {
+                registerNodeElement(entry.node, element);
               },
             ),
           )}

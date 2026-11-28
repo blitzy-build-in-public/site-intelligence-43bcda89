@@ -16,9 +16,11 @@
  * (rules B-3, P-6); the node the screen holds as selected carries `aria-pressed` and is named in a
  * caption under the drawing; activating a node reports the
  * selection and opens the evidence drawer for the reference the required mapper resolves for it, a
- * node the mapper cannot resolve declaring no drawer and opening none (rule P-8); the two zoom
- * controls stop at the ends of their range and say why (rule P-8); the competitor marks, the chokepoint
- * halos and the legend appear only when the atlas payload supplies them, and always with the fixed
+ * node the mapper cannot resolve declaring no drawer and opening none (rule P-8); a pointer press is
+ * resolved to the mark its point is nearest, so a target painted over a neighbouring node's mark cannot
+ * take the press a reader aimed at it, and focus follows the mark the press selected (rule P-8, rule B-3);
+ * the two zoom controls stop at the ends of their range and say why (rule P-8); the competitor marks, the
+ * chokepoint halos and the legend appear only when the atlas payload supplies them, and always with the fixed
  * market-intelligence label imported from `src/types` (rules P-1, P-5); a competitor's hue follows its
  * own identifier rather than the position the payload lists it in, in the marks and in the legend row
  * alike; the overlay's own enumeration of the marks it paints is the one the drawing reads; and the lens
@@ -40,6 +42,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 
 import type { Atlas, Chokepoint, CompetitorNetwork, PinCounts, Topology, TopologyNode } from '../types';
 import type { TopologyNodeKind } from '../types';
@@ -622,6 +625,53 @@ const COINCIDENT_TOPOLOGY: Topology = {
 };
 
 /**
+ * Two plants drawn on top of one another, beside two marks that hold the frame at world scale.
+ *
+ * WHY THE OUTLIERS ARE THERE. The frame is fitted to the extent of the marks, so a payload of two nearby
+ * plants alone would be magnified until the two sat at opposite sides of the drawing. A network that reaches
+ * across the world keeps them within one target's width of each other, which is the collision a press has to
+ * answer: two records that state nearly one coordinate, as two plants in one region do, drawn closer together
+ * than the 28 px target a press aims at (rule B-3). The lower plant is listed first, so the drawing paints it
+ * first and the upper one's target covers it.
+ */
+const STACKED_MARK_TOPOLOGY: Topology = {
+  plants: [
+    nodeAt('plant', 'stacked-plant-lower', 'Stacked plant lower', 49.19, 16.61),
+    nodeAt('plant', 'stacked-plant-upper', 'Stacked plant upper', 49.2, 16.63),
+  ],
+  suppliers: [],
+  materials: [],
+  origins: [nodeAt('origin', 'stacked-origin-pacific', 'Pacific origin', 34.7, 135.5)],
+  customers: [nodeAt('customer', 'stacked-customer-gulf', 'Gulf customer', 21.5, -101.5)],
+  lanes: [],
+  pinsByNode: {},
+};
+
+/**
+ * Two plants a single drawing unit apart, listed so the second is painted over the first.
+ *
+ * WHY ONE UNIT. The running canvas caught a press on the visible centre of a plant resolving to a record
+ * drawn beside it, because the conversion from the press measured the surface's border box and so shifted
+ * every point it produced by a unit or two. This pair states that distance directly: both marks sit inside
+ * one target's width of each other, so a press converted even slightly off its centre lands nearer the
+ * neighbour, while a press converted through the surface's own matrix lands on the centre it was aimed at.
+ * The two outliers are the same ones {@link STACKED_MARK_TOPOLOGY} holds, and for the same reason: they keep
+ * the frame at world scale, where a degree of latitude is a couple of drawing units.
+ */
+const ADJACENT_MARK_TOPOLOGY: Topology = {
+  plants: [
+    nodeAt('plant', 'adjacent-plant-first', 'Adjacent plant first', 49.19, 16.61),
+    nodeAt('plant', 'adjacent-plant-second', 'Adjacent plant second', 49.6, 16.65),
+  ],
+  suppliers: [],
+  materials: [],
+  origins: [nodeAt('origin', 'adjacent-origin-pacific', 'Pacific origin', 34.7, 135.5)],
+  customers: [nodeAt('customer', 'adjacent-customer-gulf', 'Gulf customer', 21.5, -101.5)],
+  lanes: [],
+  pinsByNode: {},
+};
+
+/**
  * The name every place in the crowded fixture carries: longer than the widest run the map prints, so the
  * drawing has to cut it rather than seat it whole.
  */
@@ -1184,6 +1234,64 @@ function markCentreIn(group: Element): readonly [number, number] | undefined {
   const polygon = group.querySelector('polygon');
 
   return polygon === null ? undefined : polygonCentreOf(polygon);
+}
+
+/**
+ * The radius of the invisible target a node's control draws, read from the drawn disc rather than restated.
+ *
+ * A case about two marks inside one target asks the drawing how wide that target is, so the collision it
+ * states follows the surface if the target size ever changes.
+ *
+ * @param group The node's control.
+ * @returns The target radius, in view-box units.
+ */
+function targetRadiusOf(group: Element): number {
+  return Number(group.querySelector('circle[pointer-events="all"]')?.getAttribute('r'));
+}
+
+/**
+ * The six numbers a surface's coordinate matrix states, in the order the browser reports them: a point
+ * `x, y` of the drawing is painted at the client point `(a·x + c·y + e, b·x + d·y + f)`.
+ */
+interface SurfaceMatrix {
+  readonly a: number;
+  readonly b: number;
+  readonly c: number;
+  readonly d: number;
+  readonly e: number;
+  readonly f: number;
+}
+
+/**
+ * The mapping of a drawing rendered at its own view-box size, unpanned and inside no border.
+ *
+ * It is stated rather than assumed because a case's client point is derived from a mark's drawn centre by
+ * this matrix: at one client pixel per view-box unit, that centre is the point a reader's pointer reports.
+ */
+const IDENTITY_SURFACE_MATRIX: SurfaceMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+/**
+ * States the coordinate matrix the surface paints with, and hands back the spy that states it.
+ *
+ * jsdom implements neither `getScreenCTM` nor a laid-out box, so a case that needs a press converted into
+ * the drawing's own units states the mapping itself. The method is installed on the element first because
+ * there is no inherited one for `vi.spyOn` to wrap; the case restores the spy when it ends.
+ *
+ * @param surface The surface a press is measured against.
+ * @param matrix The mapping to state, as its six numbers.
+ * @returns The spy, so the case can restore it.
+ */
+function stubSurfaceMatrix(
+  surface: SVGSVGElement,
+  matrix: SurfaceMatrix,
+): MockInstance<() => DOMMatrix | null> {
+  Object.defineProperty(surface, 'getScreenCTM', {
+    configurable: true,
+    writable: true,
+    value: () => null,
+  });
+
+  return vi.spyOn(surface, 'getScreenCTM').mockReturnValue(matrix as unknown as DOMMatrix);
 }
 
 /**
@@ -2285,6 +2393,155 @@ describe('MapCanvas', () => {
     await user.click(plant);
 
     expect(selected).toStrictEqual(['node-plant']);
+  });
+
+  it('selects the mark a press landed on when a later-painted node’s target covers it', async () => {
+    const user = userEvent.setup();
+    const selected: string[] = [];
+    const { container } = renderLens({
+      topology: STACKED_MARK_TOPOLOGY,
+      onSelectNode: (nodeId) => {
+        selected.push(nodeId);
+      },
+    });
+
+    const lower = screen.getByRole('button', { name: /Stacked plant lower/ });
+    const upper = screen.getByRole('button', { name: /Stacked plant upper/ });
+    const centre = markCentreIn(lower);
+    const upperCentre = markCentreIn(upper);
+    const radius = targetRadiusOf(lower);
+
+    expect(centre).toBeDefined();
+    expect(upperCentre).toBeDefined();
+
+    if (centre === undefined || upperCentre === undefined) {
+      return;
+    }
+
+    const [centreX, centreY] = centre;
+
+    /* The reproduction: the two centres sit inside one target's width of each other, and the mark the
+       payload lists second is painted after the first, so its target covers the mark a reader sees and a
+       press resolved to the topmost target would report the upper record. */
+    expect(Math.hypot(upperCentre[0] - centreX, upperCentre[1] - centreY)).toBeLessThan(radius);
+    expect(lower.compareDocumentPosition(upper) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    /* jsdom lays nothing out and reports no coordinate matrix, so the surface is given the 1:1 mapping a
+       drawing rendered at its own view-box size paints with: one client pixel is one view-box unit, and the
+       frame is unpanned, so the drawn centre of the lower mark is the point a reader's pointer reports. The
+       press is converted by inverting that matrix, never by measuring the element's box. */
+    const surface = mapSurfaceOf(container);
+    const ctm = stubSurfaceMatrix(surface, IDENTITY_SURFACE_MATRIX);
+
+    /* A browser focuses the topmost control under the pointer as the press begins, which here is the
+       neighbour painted over the mark the press is aimed at. */
+    upper.focus();
+    expect(upper).toHaveFocus();
+
+    fireEvent.click(upper, { clientX: centreX, clientY: centreY });
+
+    /* The press reports the mark whose centre it landed on, and focus follows it, so the drawer that node
+       opens returns the reader to it rather than to the neighbour the browser focused. */
+    expect(selected).toStrictEqual(['stacked-plant-lower']);
+    expect(lower).toHaveFocus();
+    expect(upper).not.toHaveFocus();
+
+    /* The keyboard route is unchanged: Enter activates the node focus chose, never a mark a pointer
+       resolution would have preferred. */
+    upper.focus();
+    await user.keyboard('{Enter}');
+
+    expect(selected).toStrictEqual(['stacked-plant-lower', 'stacked-plant-upper']);
+
+    ctm.mockRestore();
+  });
+
+  it('inverts the surface’s own matrix, so a scaled and offset drawing resolves the mark it names', () => {
+    const selected: string[] = [];
+    const { container } = renderLens({
+      topology: STACKED_MARK_TOPOLOGY,
+      onSelectNode: (nodeId) => {
+        selected.push(nodeId);
+      },
+    });
+
+    const lower = screen.getByRole('button', { name: /Stacked plant lower/ });
+    const upper = screen.getByRole('button', { name: /Stacked plant upper/ });
+    const centre = markCentreIn(lower);
+
+    expect(centre).toBeDefined();
+
+    if (centre === undefined) {
+      return;
+    }
+
+    const [centreX, centreY] = centre;
+
+    /* The drawing is painted at half size, forty client pixels in and twenty-five down, which is the matrix
+       the surface reports: the lower mark's centre is drawn at (0.5·x + 40, 0.5·y + 25) on the client, so
+       nothing of the conversion may be taken from the drawing's own coordinates or from its own scale. */
+    const surface = mapSurfaceOf(container);
+    const ctm = stubSurfaceMatrix(surface, { a: 0.5, b: 0, c: 0, d: 0.5, e: 40, f: 25 });
+
+    /* The press is delivered to the neighbour painted over the point, as a browser delivers it, and it
+       carries the client coordinates the lower mark's centre is drawn at. Only a conversion that inverts the
+       matrix lands back on that centre: one that read the client point as a drawing point, or that assumed
+       the drawing's own scale, resolves no mark within the target's radius and falls back to the control
+       that received the press, which is the upper record. */
+    fireEvent.click(upper, { clientX: 0.5 * centreX + 40, clientY: 0.5 * centreY + 25 });
+
+    expect(selected).toStrictEqual(['stacked-plant-lower']);
+
+    ctm.mockRestore();
+  });
+
+  it('resolves a press on the centre of a mark that is drawn a single unit from its neighbour', () => {
+    const selected: string[] = [];
+    const { container } = renderLens({
+      topology: ADJACENT_MARK_TOPOLOGY,
+      onSelectNode: (nodeId) => {
+        selected.push(nodeId);
+      },
+    });
+
+    const first = screen.getByRole('button', { name: /Adjacent plant first/ });
+    const second = screen.getByRole('button', { name: /Adjacent plant second/ });
+    const firstCentre = markCentreIn(first);
+    const secondCentre = markCentreIn(second);
+    const radius = targetRadiusOf(second);
+
+    expect(firstCentre).toBeDefined();
+    expect(secondCentre).toBeDefined();
+
+    if (firstCentre === undefined || secondCentre === undefined) {
+      return;
+    }
+
+    /* The pair the running canvas caught: two records drawn about one drawing unit apart, well inside one
+       target's width of each other, with the second listed after the first so its target covers it. */
+    const apart = Math.hypot(secondCentre[0] - firstCentre[0], secondCentre[1] - firstCentre[1]);
+
+    expect(apart).toBeGreaterThan(0);
+    expect(apart).toBeLessThanOrEqual(2);
+    expect(apart).toBeLessThan(radius);
+    expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    const surface = mapSurfaceOf(container);
+    const ctm = stubSurfaceMatrix(surface, IDENTITY_SURFACE_MATRIX);
+
+    /* A rect-derived conversion measures the surface's border box while the view box is painted inside its
+       content box, so it shifts every point it produces by a unit or two - enough, at this distance, to land
+       nearer the neighbour, which is how the running canvas opened the other record. The surface's own
+       matrix states the mapping the browser paints with, so the press lands on the centre it was aimed at. */
+    fireEvent.click(second, { clientX: secondCentre[0], clientY: secondCentre[1] });
+
+    expect(selected).toStrictEqual(['adjacent-plant-second']);
+
+    ctm.mockRestore();
   });
 
   it('pans the frame from the arrow keys, in a range it cannot leave', async () => {

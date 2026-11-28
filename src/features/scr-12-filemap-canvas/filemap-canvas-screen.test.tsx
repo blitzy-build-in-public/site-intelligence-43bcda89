@@ -47,8 +47,9 @@
  * a collision, and the only literals a case states are structural: six tiles, five rows, one button.
  * The wording this suite drives by name is imported from the module that owns it wherever the module
  * exports it (`FILEMAP_CANVAS_TEXT`, `STATE_BOUNDARY_TEXT`, `DEPENDENCY_GRAPH_TEXT`,
- * `TIMELINE_DOCK_TEXT`, `SOURCE_LABELS`, `SIM_LABELS`); `CanvasRibbon`'s group name is the one string
- * kept private upstream and restated once in {@link UI}, so a reworded caption reaches one place here.
+ * `MAP_CANVAS_TEXT`, `TIMELINE_DOCK_TEXT`, `SOURCE_LABELS`, `SIM_LABELS`); `CanvasRibbon`'s group
+ * name is the one string kept private upstream and restated once in {@link UI}, so a reworded
+ * caption reaches one place here.
  *
  * NO SHELL IS SUPPLIED, ON PURPOSE. The screen documents that a shell hands it the scope, the
  * selection and the wall-mode request, and that it may read none of the shell's stores
@@ -85,6 +86,7 @@ import type { Mock } from 'vitest';
 
 import { DEPENDENCY_GRAPH_TEXT } from '../../components/dependency-graph';
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
+import { MAP_CANVAS_TEXT } from '../../components/map-canvas';
 import { formatMeasuredHours, formatMoney } from '../../components/mono-value';
 import { STATE_BOUNDARY_TEXT } from '../../components/state-boundary';
 import { TIMELINE_DOCK_TEXT } from '../../components/timeline-dock';
@@ -1897,6 +1899,45 @@ describe('FilemapCanvasScreen', () => {
     expect(port.listExceptions).toHaveBeenCalledWith({ limit: URGENT_WINDOW }, NO_SCOPE);
     expect(port.listExceptions).toHaveBeenCalledWith({ plantId: SECOND_PLANT }, NO_SCOPE);
     expect(screen.queryByRole('region', { name: TIMELINE_DOCK_TEXT.title })).not.toBeInTheDocument();
+  });
+
+  it('gives the selected plant that answers no open exception its own reason for the action', async () => {
+    const user = userEvent.setup();
+
+    /* The window answers for the opening plant alone and the plant-narrowed read answers no row, so the
+       selection is a plant the covering read has already answered for: the reader followed the advice
+       that a plant is the node to select, and this is the state that advice leads to. */
+    port.listExceptions.mockImplementation((query) =>
+      Promise.resolve(
+        envelope(
+          query.plantId === undefined
+            ? URGENT_ROWS.filter((row) => row.plantId === OPENING_PLANT_ID)
+            : [],
+        ),
+      ),
+    );
+
+    renderScreen();
+    await screen.findByRole('region', { name: FILEMAP_CANVAS_TEXT.canvasRegionLabel });
+
+    await selectNode(user, SECOND_PLANT_LABEL);
+
+    /* The strip names the plant the reader selected and the dock states the same absence, so a reason
+       telling that reader to select a plant would contradict both of them (rule P-8). */
+    expect(
+      screen.getByText(`${MAP_CANVAS_TEXT.selectedCaption} ${SECOND_PLANT_LABEL}`),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(FILEMAP_CANVAS_TEXT.dockEmpty)).toBeInTheDocument();
+
+    const action = screen.getByRole('button', { name: FILEMAP_CANVAS_TEXT.primaryAction });
+
+    action.focus();
+
+    /* The action is still disabled, and its reason states the absence the covering read established
+       rather than repeating the advice to select a plant node the reader has already followed. */
+    expect(action).toHaveAttribute('aria-disabled', 'true');
+    expect(action).toHaveAccessibleDescription(FILEMAP_CANVAS_TEXT.primaryActionNoOpenException);
+    expect(action).not.toHaveAccessibleDescription(FILEMAP_CANVAS_TEXT.primaryActionUnavailable);
   });
 
   it('states that the selected plant’s read did not answer, with a retry and the action’s own reason', async () => {

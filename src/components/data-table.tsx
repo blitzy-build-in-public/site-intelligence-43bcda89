@@ -171,8 +171,20 @@ const ROW_HEIGHT_CLASS = 'h-[var(--row-height)]';
  */
 const TABLE_CLASS = 'w-full border-separate border-spacing-0 text-13 text-text-primary';
 
+/**
+ * A header cell: the hairline under it, the mono face at the caption step, and the inline padding the
+ * column's header text and its sort caret are read against.
+ *
+ * The inline padding takes the narrowest 4 px step below `sm` and the documented 12 px from `sm` up.
+ * A four-column table at phone width cannot hold its figures whole at 12 px of inline padding: the
+ * overview's risk-by-plant table measures 404.1 px of minimum width inside a 324 px box at a 390 px
+ * viewport, so the money column's header and digits were clipped until the panel was scrolled. Only
+ * the inline padding moves, so the density mechanism (`--row-height`, `--row-padding`) and every
+ * control's 24x24 px target are untouched, and the shared `:focus-visible` ring keeps its 4 px of
+ * space from the scroll container's own `px-1`.
+ */
 const HEADER_CELL_CLASS =
-  'border-b border-hairline px-3 py-2 font-mono text-12 font-medium text-text-caption';
+  'border-b border-hairline px-1 py-2 font-mono text-12 font-medium text-text-caption sm:px-3';
 
 /**
  * A body cell: the hairline under it, the horizontal step beside it, and the density's own vertical
@@ -184,8 +196,14 @@ const HEADER_CELL_CLASS =
  * padding takes half of the difference between the two row heights on each side, so such a row grows
  * by exactly the 12 px the token names. The value lives in `src/theme/tokens.css` as `--row-padding`,
  * so no pixel length is written here.
+ *
+ * The inline padding follows the header cell's: the narrowest 4 px step below `sm` and the documented
+ * 12 px from `sm` up, because a four-column table at phone width cannot hold its figures whole at
+ * 12 px of inline padding (measured: 404.1 px of table inside a 324 px box at a 390 px viewport, the
+ * money column's digits cut mid-number). Only the inline padding changes, so the vertical padding
+ * above stays the density's own and no control's 24x24 px target moves.
  */
-const CELL_CLASS = 'border-b border-hairline px-3 py-[var(--row-padding)] align-middle';
+const CELL_CLASS = 'border-b border-hairline px-1 py-[var(--row-padding)] align-middle sm:px-3';
 
 /**
  * A pinned column's cell: held at the scroll container's inline end, above the cells that scroll

@@ -70,8 +70,9 @@
  *     unavailable report beside it;
  * 26. the conflict trigger: every collection read refused with its own reason and its own trace, every
  *     read of one record served so the act it carries can be attempted, the decision it demonstrates
- *     refused rather than merged and left undecided, the control's lift answering those reads again, and
- *     the demonstration controls never refused;
+ *     refused rather than merged and left undecided, the note, assignment and dismissal the exceptions
+ *     family makes refused by that same predicate and written by none of them, the control's lift
+ *     answering those reads and those writes again, and the demonstration controls never refused;
  * 27. the missing inputs a record’s evidence reports: the gap one exception states, reported on the
  *     approval, the purchase order and the customer order that carry it, read from that exception’s
  *     own detail rather than from a list the suite types;
@@ -5385,6 +5386,99 @@ describe('the conflict trigger', () => {
     ).data;
 
     expect(decided.status).toBe('approved');
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses a note, an assignment and a dismissal on a record that moved, and writes nothing', async () => {
+    const backend = await readyBackend();
+
+    /*
+     * The subject is an open exception the opening persona may work, both settled through the port: the
+     * queue read is narrowed by the role's own scope, and the plant the row lands on is read from the
+     * persona the session acts as rather than typed here (rule P-6).
+     */
+    const actor = (await backend.getActiveUser()).data;
+    const target = firstOf(
+      (await queueOf(backend)).filter(
+        (row) => row.status === OPEN_STATUS && actor.plantIds.includes(row.plantId),
+      ),
+      'open exception the acting persona may work',
+    );
+
+    /*
+     * The record and the trail as they stand before the trigger. The detail read answers while the
+     * trigger is in effect, because its payload is one record; the trail is a collection and is
+     * refused, so its length is taken now and compared once the control lifts the trigger.
+     */
+    const before = (await backend.getExceptionDetail(target.id)).data;
+    const trailBefore = (await backend.listAuditEvents({})).data;
+
+    await backend.setSimulation('conflict', true);
+
+    /*
+     * The three writes the exceptions family makes on a record that already exists, each attempted from
+     * a record the caller holds. One predicate answers all of them, so a note is refused exactly where
+     * the decision is, rather than one write being merged into a record another persona changed while
+     * the other is refused (AAP 0.12.1, AAP 0.12.4 SCR-05).
+     */
+    const writes: readonly [string, () => Promise<unknown>][] = [
+      ['note', () => backend.noteException(target.id, NOTE_TEXT)],
+      ['assignment', () => backend.assignException(target.id, actor.id)],
+      ['dismissal', () => backend.dismissException(target.id, DISMISS_REASON)],
+    ];
+
+    for (const [member, write] of writes) {
+      const refusal = await refusalOf(write);
+
+      /*
+       * The cause is the one `ProblemType` gives a request the records cannot honour, the sentence is
+       * the one the decision meets, and it names the record it refused and the status that record
+       * stands in (AAP 0.12.3, rule P-6). The trace is the call's own (rule P-8).
+       */
+      expect(refusal.type, member).toBe('validation');
+      expect(refusal.message, member).toMatch(/refused rather than merged/);
+      expect(refusal.message, member).toContain(target.id);
+      expect(refusal.message, member).toContain(target.status);
+      expect(refusal.traceId.trim().length, member).toBeGreaterThan(0);
+    }
+
+    /*
+     * The refusals wrote nothing: the record's activity and the record itself are the ones read before
+     * the trigger, so no note, assignment or dismissal reached the history, and the trail is the length
+     * it was once the control lifts the collection refusal (AAP 0.6.2).
+     */
+    const unchanged = (await backend.getExceptionDetail(target.id)).data;
+
+    expect(unchanged.activity).toEqual(before.activity);
+    expect(unchanged.exception).toEqual(before.exception);
+
+    await backend.setSimulation('conflict', false);
+
+    expect((await backend.listAuditEvents({})).data).toHaveLength(trailBefore.length);
+
+    /*
+     * The same three writes go through once the trigger is lifted, which is what makes the refusals the
+     * conflict's rather than the record's own state (rule P-8).
+     */
+    const noted = (await backend.noteException(target.id, NOTE_TEXT)).data;
+
+    expect(noted.status).toBe(OPEN_STATUS);
+
+    const assigned = (await backend.assignException(target.id, actor.id)).data;
+
+    expect(assigned.ownerId).toBe(actor.id);
+
+    const dismissed = (await backend.dismissException(target.id, DISMISS_REASON)).data;
+
+    expect(dismissed.status).toBe(DISMISSED_STATUS);
+
+    /*
+     * The accepted writes are the ones the refusals held back: the record's activity now carries the
+     * note the first of them appended, so the history the refusals left untouched is the history these
+     * three calls wrote.
+     */
+    const written = (await backend.getExceptionDetail(target.id)).data;
+
+    expect(written.activity.some((event) => event.action === NOTE_ACTION)).toBe(true);
   }, CASE_TIMEOUT_MS);
 });
 

@@ -149,7 +149,8 @@ const UI = {
   /** The risk-by-plant table's four column headers. */
   columnPlant: 'Plant',
   columnPlantName: 'Name',
-  columnOpenExceptions: 'Open exceptions',
+  /** The third header is shortened for the phone-width table; the caption states the full phrase. */
+  columnOpenExceptions: 'Open',
   columnRevenueAtRisk: 'Revenue at risk',
 
   /** The revenue bars: the frame title and the axis the surface is named by. */
@@ -174,8 +175,13 @@ const UI = {
   /** What the series table's date control does, stated ahead of the day the row carries. */
   narrowToDay: 'Narrow the queue to ',
 
-  /** The three sentences the screen supplies to the boundary for its own empty, partial and moved cases. */
-  empty: 'No exception is open in this scope, so there is nothing to summarise.',
+  /**
+   * The four sentences the screen supplies to the boundary: the two empty ones — the filter wording a
+   * narrowed read gets and the trigger-neutral wording a read nothing narrowed gets — and the partial
+   * and moved ones.
+   */
+  empty: 'No exception matches the current filters, so there is nothing to summarise.',
+  emptyUnnarrowed: 'There is nothing to summarise.',
   partial:
     'A source behind these figures answered incompletely, so the readings cover the inputs it supplied.',
   conflict: 'These figures were read against records that have since changed. Read the overview again.',
@@ -997,6 +1003,47 @@ describe('OverviewScreen', () => {
     expect(within(group).getAllByRole('button')).toHaveLength(CHANGED.length);
   });
 
+  it('names the record each changed-since entry opens, so two entries of one exception tell apart', async () => {
+    /*
+     * Two entries of one exception: the same title, and the two different records the entries open —
+     * the shape a decided exception produces when its own activity also moved in the window. The
+     * reference and the title are opaque placeholders, as every identifier in this suite is (rule P-6).
+     */
+    const sharedTitle = 'Record delta';
+    const items: readonly ChangedSinceLastVisitItem[] = [
+      { ref: 'record-delta-approval', label: sharedTitle, detail: 'the decision states its comment' },
+      { ref: 'record-delta-activity', label: sharedTitle, detail: 'the activity states its note' },
+    ];
+
+    mockService.getOverview.mockResolvedValue(
+      envelope({ ...OVERVIEW, changedSinceLastVisit: [...items] }),
+    );
+
+    renderScreen();
+
+    const group = await screen.findByRole('region', { name: UI.changedSinceTitle });
+    const entries = within(group).getAllByRole('listitem');
+    expect(entries).toHaveLength(items.length);
+
+    items.forEach((item, index) => {
+      const entry = at(entries, index, 'changed-since entry');
+      const trigger = within(entry).getByRole('button');
+
+      /* The title both entries carry cannot say which record an entry opens, so the identifier is read
+         inside the entry itself: this is the assertion that fails when the record is left unnamed. */
+      expect(within(entry).getByText(item.ref)).toBeVisible();
+      /* The label stays first, so the control is still announced with the text a reader sees before the
+         identifier that qualifies it (WCAG 2.2 SC 2.5.3, label in name). */
+      expect(trigger).toHaveAccessibleName(
+        new RegExp(`^${escapePattern(item.label)}.*${escapePattern(item.ref)}`, 'u'),
+      );
+      /* Separated in the text itself, not only by a margin: whatever copies the line or reads its text
+         content must see two tokens rather than the identifier fused to the end of the title. */
+      expect(trigger.textContent).toContain(`${item.label} ${item.ref}`);
+      expect(within(entry).getByText(item.detail)).toBeVisible();
+    });
+  });
+
   it('states that no record changed when nothing moved since the last visit', async () => {
     mockService.getOverview.mockResolvedValue(envelope(UNCHANGED_OVERVIEW));
 
@@ -1231,18 +1278,22 @@ describe('OverviewScreen', () => {
     expect(tileRegion(UI.tileOpenExceptions)).toBeVisible();
   });
 
-  it('shows the empty message when the scope holds nothing to summarise', async () => {
+  it('states the trigger-neutral sentence when nothing narrowed the read and it holds nothing', async () => {
     mockService.getOverview.mockResolvedValue(envelope(EMPTY_OVERVIEW));
 
     renderScreen();
 
-    expect(await screen.findByText(UI.empty)).toBeVisible();
-    // An empty scope shows the sentence instead of three blank surfaces.
+    // Nothing narrowed this read, so the sentence claims no filter: a collection the simulation
+    // popover emptied must not be described as a scope the reader narrowed (the property
+    // `src/services/mock/simulation.ts` states for its `empty` trigger, rule P-4).
+    expect(await screen.findByText(UI.emptyUnnarrowed)).toBeVisible();
+    expect(screen.queryByText(UI.empty)).toBeNull();
+    // An empty read shows the sentence instead of three blank surfaces.
     expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
     expect(screen.queryByRole('table')).toBeNull();
   });
 
-  it('shows the empty message for a population whose every plant row reads zero', async () => {
+  it('states the trigger-neutral sentence for a population whose every plant row reads zero', async () => {
     mockService.getOverview.mockResolvedValue(envelope(EMPTIED_OVERVIEW));
 
     renderScreen();
@@ -1250,9 +1301,25 @@ describe('OverviewScreen', () => {
     // A row carrying no exception and no revenue is the aggregate's identity, not a risk row: the
     // screen says there is nothing to summarise rather than printing figures a reader cannot tell
     // apart from computed ones (specification §8, AAP §0.12.4, T-17).
-    expect(await screen.findByText(UI.empty)).toBeVisible();
+    expect(await screen.findByText(UI.emptyUnnarrowed)).toBeVisible();
+    expect(screen.queryByText(UI.empty)).toBeNull();
     expect(screen.queryByRole('region', { name: UI.tileOpenExceptions })).toBeNull();
     expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('tells a read the shell narrowed apart from one nothing narrowed', async () => {
+    const plant = at(PLANTS, 0, 'plant');
+    const narrowed: Scope = { plants: [plant.id], products: [] };
+
+    mockService.getOverview.mockResolvedValue(envelope(EMPTIED_OVERVIEW));
+
+    renderScreen({ scope: narrowed });
+
+    // The same empty payload, and only the selection differs: a filter is what emptied this read, so
+    // the sentence a reader gets is the filter wording rather than the trigger-neutral one (rule P-4).
+    expect(mockService.getOverview).toHaveBeenCalledWith(narrowed);
+    expect(await screen.findByText(UI.empty)).toBeVisible();
+    expect(screen.queryByText(UI.emptyUnnarrowed)).toBeNull();
   });
 
   it('treats a record that moved under the reader as a conflict and offers a reload', async () => {

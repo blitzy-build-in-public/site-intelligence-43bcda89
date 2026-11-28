@@ -97,7 +97,7 @@ import {
   freshnessFor,
   isSimulationOn,
 } from '../simulation';
-import { appendAuditEvent, assertFreeTextLength, listLimitOf } from './audit';
+import { appendAuditEvent, assertFreeTextLength, listLimitOf, requireNoConflict } from './audit';
 
 /* ---------------------------------------------------------------------------------------------
  * A. Structural constants — contracts §1, §4 and §7.1
@@ -212,9 +212,12 @@ function notFoundProblem(ctx: HandlerContext, message: string): Problem {
  *
  * It carries the causes this family reports as validation: an empty note, a dismissal without a
  * reason, an assignee the record set does not hold, a dismissal of an exception that is no longer
- * open, and a record set whose case cannot be measured. `ProblemType` has no cause for a record that
- * has moved on, so the conflicting-update state is reported here with the record's current status in
- * the message rather than through an invented sixth cause.
+ * open, a record set whose case cannot be measured, and a record that moved under the reader while the
+ * conflicting-update trigger was in effect — which `./audit`'s `requireNoConflict` refuses, the one
+ * guard every write this build's screens make on an existing record meets. `ProblemType` has no cause
+ * for a record that has moved on, so the conflicting-update state is reported as `'validation'` either
+ * way — by that guard while the trigger is in effect, and here with the record's current status when the
+ * record's own state rules the write out — rather than through an invented sixth cause.
  *
  * @param ctx - The call's context, whose trace identifier the failure carries.
  * @param message - The reason, in plain words.
@@ -1345,9 +1348,11 @@ function assigneeOf(ctx: HandlerContext, assigneeId: UserId): SeededUser {
 /**
  * Assigns an exception to a persona, appends the `assign` audit event and the history record behind it.
  *
- * The write authorises first, then appends one event whose `before` and `after` payloads hold only the
- * owner that changed, then edits the session's record and stamps the history entry from that event's own
- * instant. A refusal leaves the records and the chain untouched, so a denied assignment creates no
+ * The write authorises first, then refuses a record that moved under the reader through
+ * `requireNoConflict` in `./audit` — the one guard every write this build's screens make on an existing
+ * record meets — and only then appends one event whose `before` and `after` payloads hold only the owner
+ * that changed, edits the session's record, and stamps the history entry from that event's own instant.
+ * A refusal leaves the records and the chain untouched, so a denied or refused assignment creates no
  * approval, no write-back and no audit record (AAP 0.2.2, contracts §6).
  *
  * @param ctx - The session and the persona the call acts as.
@@ -1355,8 +1360,8 @@ function assigneeOf(ctx: HandlerContext, assigneeId: UserId): SeededUser {
  * @param assigneeId - The persona becoming accountable.
  * @returns The exception's investigation payload as the session now holds it.
  * @throws Problem - A `'permission'` failure when the role may not work the exception; a `'not-found'`
- *   failure for an identifier this write does not reach; or a `'validation'` failure when no persona
- *   carries the assignee identifier.
+ *   failure for an identifier this write does not reach; or a `'validation'` failure when the record
+ *   moved under the reader or no persona carries the assignee identifier.
  */
 export async function assignException(
   ctx: HandlerContext,
@@ -1367,6 +1372,7 @@ export async function assignException(
 
   const exception = visibleException(ctx, id);
   requireWork(ctx, exception);
+  requireNoConflict(ctx, `Exception ${exception.id} is reported ${exception.status}.`);
   const assignee = assigneeOf(ctx, assigneeId);
 
   const event = await appendAuditEvent(ctx, {
@@ -1396,14 +1402,17 @@ export async function assignException(
  * The note is the planner's own words and travels to the event's payload unchanged, so the activity a
  * reader follows is the record itself rather than a second copy of the sentence. An empty note is refused
  * rather than recorded, because a record that says nothing is of no use to the next reader (rule P-8).
+ * A record that moved under the reader is refused first, through `requireNoConflict` in `./audit` — the
+ * one guard every write this build's screens make on an existing record meets — so a note is never
+ * merged into a record another persona changed.
  *
  * @param ctx - The session and the persona the call acts as.
  * @param id - The exception the note concerns.
  * @param note - The note, in the caller's own words.
  * @returns The exception's investigation payload as the session now holds it.
  * @throws Problem - A `'permission'` failure when the role may not work the exception; a `'not-found'`
- *   failure for an identifier this write does not reach; or a `'validation'` failure when the note is
- *   empty or longer than `FREE_TEXT_MAX_LENGTH`.
+ *   failure for an identifier this write does not reach; or a `'validation'` failure when the record
+ *   moved under the reader, the note is empty or longer than `FREE_TEXT_MAX_LENGTH`.
  */
 export async function addExceptionNote(
   ctx: HandlerContext,
@@ -1414,6 +1423,7 @@ export async function addExceptionNote(
 
   const exception = visibleException(ctx, id);
   requireWork(ctx, exception);
+  requireNoConflict(ctx, `Exception ${exception.id} is reported ${exception.status}.`);
 
   const text = note.trim();
 
@@ -1444,18 +1454,22 @@ export async function addExceptionNote(
  * the history record behind it.
  *
  * SCR-02 enables the action only once a reason is given, and this write refuses a dismissal without one
- * rather than trusting the control's own state, so a dismissed row always says why it was set aside. Only
- * an exception that still stands open is dismissed: a record that has already moved on is reported with
- * its current status, which is the conflicting-update state reported through `'validation'` because
- * `ProblemType` gives it no cause of its own (see `validationProblem`).
+ * rather than trusting the control's own state, so a dismissed row always says why it was set aside. A
+ * record that moved under the reader is refused first, through `requireNoConflict` in `./audit` — the
+ * one guard every write this build's screens make on an existing record meets — so no dismissal is
+ * merged into a record another persona changed. Only an exception that still stands open is dismissed: a
+ * record that has already moved on is reported with its current status, which is the conflicting-update
+ * condition reported through `'validation'` because `ProblemType` gives it no cause of its own (see
+ * `validationProblem`).
  *
  * @param ctx - The session and the persona the call acts as.
  * @param id - The exception to dismiss.
  * @param reason - Why the exception is being set aside.
  * @returns The exception's investigation payload as the session now holds it.
  * @throws Problem - A `'permission'` failure when the role may not work the exception; a `'not-found'`
- *   failure for an identifier this write does not reach; or a `'validation'` failure when the reason is
- *   empty or longer than `FREE_TEXT_MAX_LENGTH`, or the exception is no longer open.
+ *   failure for an identifier this write does not reach; or a `'validation'` failure when the record
+ *   moved under the reader, the reason is empty or longer than `FREE_TEXT_MAX_LENGTH`, or the exception
+ *   is no longer open.
  */
 export async function dismissException(
   ctx: HandlerContext,
@@ -1466,6 +1480,7 @@ export async function dismissException(
 
   const exception = visibleException(ctx, id);
   requireWork(ctx, exception);
+  requireNoConflict(ctx, `Exception ${exception.id} is reported ${exception.status}.`);
 
   const text = reason.trim();
 

@@ -19,7 +19,11 @@
  * writing family imports it, and its own list read is the trail — so `listLimitOf` and the two page
  * constants beside it stand here and are called by exceptions, approvals, governance and evidence.
  * That is what makes contracts §9's `limit` mean one thing across the families: one default page, one
- * ceiling, and one refusal for a parameter that bounds no page at all.
+ * ceiling, and one refusal for a parameter that bounds no page at all. The same reason puts
+ * `requireNoConflict` below beside them: the conflict trigger's write half is one refusal every write
+ * this build's screens make on an existing record meets, so it stands where the family that happened to
+ * hold it first is not the only one that can reach it, and no family can refuse one such write against a
+ * moved record while accepting another.
  *
  * WHAT THIS MODULE OWNS, AND WHAT IT DELIBERATELY LEAVES ALONE. It owns the event's *content*: the
  * instant it was recorded, the actor, the correlation identifier, and the payload halves a caller
@@ -349,6 +353,57 @@ function requireAuditRead(ctx: HandlerContext): void {
  */
 function validationProblem(ctx: HandlerContext, message: string): Problem {
   return { type: 'validation', message, traceId: ctx.traceId };
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * The one conflict guard every write this build's screens make on an existing record applies
+ * — AAP 0.12.1, AAP 0.12.4 SCR-05
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Refuses a write whose record moved under the reader — AAP 0.12.1, AAP 0.12.4 SCR-05.
+ *
+ * The conflicting-update trigger has two halves, and this is the write half. The adapter's dispatcher
+ * refuses the reads whose payload is a collection, because a set presented as current is what a reader
+ * would otherwise take as the state of the world; a read of one record is served, so the act that record
+ * carries can be attempted, and the refusal that attempt meets belongs to the family owning the record
+ * rather than to the dispatcher (AAP 0.12.4 SCR-05, `../mock-backend.ts`'s `dispatchRead`). One
+ * predicate answers for every write this build's screens make against an existing record — the
+ * approvals family's decision, write-back retry and outcome review, the exceptions family's assign,
+ * note and dismiss — because a demonstration that refused one such write made against a record that
+ * changed while accepting another would be reporting two states under one label (AAP 0.2.1 F10). The
+ * evidence family's pin and element reviews also update an existing record and do not call it: carried
+ * for interface conformance with the evidence stage, they are reached by no route or screen of this
+ * build, whose routes render the stage notice.
+ *
+ * `ProblemType` fixes five causes and none of them is a conflict, so the refusal is reported as
+ * `'validation'` — a request that cannot be honoured against the records as they stand — exactly as the
+ * dispatcher reports the set it refuses (AAP 0.12.3). The sentence opens with the one clause below and
+ * closes with the caller's own message, which names the record and what has happened to it: a caller
+ * derives the identifier and the status from the record it holds rather than typing them, so the
+ * refusal cannot disagree with the record it describes (rule P-6).
+ *
+ * A demonstration control and not production authorisation (rule P-3): the trigger stands for a record
+ * another persona changed between the read and the write, and the check is a member of the session's
+ * trigger set rather than a concurrency mechanism behind the data.
+ *
+ * It writes nothing. A refused write appends no event and no history record, so the record it addresses
+ * and the trail stand exactly as they stood, and lifting the trigger lets the same write succeed
+ * unchanged (AAP 0.6.2, rule P-8).
+ *
+ * @param ctx - The call's context, whose triggers are read and whose trace the refusal carries.
+ * @param message - The reason in plain words, naming the record and what has happened to it.
+ * @throws Problem - A `'validation'` failure carrying that reason while the trigger is in effect.
+ */
+export function requireNoConflict(ctx: HandlerContext, message: string): void {
+  if (!isSimulationOn(ctx.state, 'conflict')) {
+    return;
+  }
+
+  throw validationProblem(
+    ctx,
+    `This record changed since it was read, and the change is refused rather than merged. ${message}`,
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------

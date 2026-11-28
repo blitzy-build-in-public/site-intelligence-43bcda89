@@ -197,14 +197,16 @@ export function emptiesLists(state: MockState): boolean {
  * (`ScreenState` in `src/types/service.ts`, AAP 0.12.4 SCR-05): a set presented as current is what a
  * reader would otherwise take as the state of the world, while a read of one record is where the act
  * that record carries starts. That read is therefore served, and the act meets the refusal —
- * `requireNoConflict` in `src/services/mock/handlers/approvals.ts` names the record that moved and
- * refuses to merge the change. Refusing the record read as well would take the act off the screen
+ * `requireNoConflict` in `src/services/mock/handlers/audit.ts` names the record that moved and refuses
+ * to merge the change, and every write this build's screens make on an existing record calls it: the
+ * approvals family for a decision, a write-back retry or an outcome review, the exceptions family for
+ * an assign, a note or a dismiss. Refusing the record read as well would take the act off the screen
  * before it could be attempted, which is the opposite of what the state demonstrates.
  *
  * The read is a property of a call made by the adapter's dispatcher, never a rendering decision: a
  * screen that had to know about the trigger would be the component's branch AAP 0.12.1 forbids. This
- * predicate is the whole of what this module says about the trigger; the approvals family reads the
- * same flag for the update it refuses to merge, so the demonstration's two halves — the set refused and
+ * predicate is the whole of what this module says about the trigger; those families read the
+ * same flag for the update they refuse to merge, so the demonstration's two halves — the set refused and
  * the write refused — report one condition.
  *
  * A partial answer is not an answer to the condition, so an offline or stale report does not lift the

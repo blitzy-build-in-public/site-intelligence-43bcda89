@@ -84,7 +84,7 @@ import type {
 import type { HandlerContext, MockState } from '../mock-state';
 import type { SeedRecordSet } from '../seed-loader';
 import { demonstrationForbiddenReason, freshnessFor, isSimulationOn } from '../simulation';
-import { appendAuditEvent, assertFreeTextLength, listLimitOf } from './audit';
+import { appendAuditEvent, assertFreeTextLength, listLimitOf, requireNoConflict } from './audit';
 import { recordApprovedPlan } from './exceptions';
 import { getScenarioSet, protectedRevenueOf } from './scenarios';
 
@@ -246,10 +246,10 @@ function permissionProblem(ctx: HandlerContext, permission: Permission, message:
  * The refusal a request the records cannot honour throws.
  *
  * It carries the causes this family reports as validation: a stale or unavailable order book (see
- * `requireFreshOrderBook`), a record that moved under the reader (see `requireNoConflict`), a blank
- * decision comment, an approval whose plan cannot be measured because the records carry no case for
- * its exception, a retry of a step that already succeeded, and a page cursor that names no position
- * of the ordered page.
+ * `requireFreshOrderBook`), a record that moved under the reader (see `requireNoConflict` in `./audit`,
+ * the one guard every writing family applies), a blank decision comment, an approval whose plan cannot
+ * be measured because the records carry no case for its exception, a retry of a step that already
+ * succeeded, and a page cursor that names no position of the ordered page.
  *
  * @param ctx - The call's context, whose correlation identifier the failure carries.
  * @param message - The reason in plain words.
@@ -815,34 +815,8 @@ async function requireRequestableByPolicy(
 }
 
 /* ---------------------------------------------------------------------------------------------
- * G. The conflict, the comment and the decision's status — AAP 0.12.4 SCR-05
+ * G. The facts a decision rests on — the plan, the comment and the status — AAP 0.12.4 SCR-05
  * ------------------------------------------------------------------------------------------- */
-
-/**
- * Refuses a write whose record moved under the reader — AAP 0.12.4 SCR-05.
- *
- * The conflicting-update state needs a failure with a cause, and `ProblemType` fixes five causes
- * none of which is a conflict, so it is reported as `'validation'` with a message stating what
- * happened. Two ways to meet it: the simulation's `conflict` trigger, which stands for a record
- * another persona changed between the read and the write, and a record the write's own precondition
- * already rules out.
- *
- * The trigger refuses this family's reads beside this write, so the write half answers a decision
- * attempted from records the caller read before the trigger came on rather than from reads taken under
- * it (the adapter's `dispatch`).
- *
- * @param ctx - The call's context, whose triggers are read and whose trace the failure carries.
- * @param message - The reason in plain words, naming the record and what has happened to it.
- * @throws Problem - A `'validation'` failure with that message.
- */
-function requireNoConflict(ctx: HandlerContext, message: string): void {
-  if (isSimulationOn(ctx.state, 'conflict')) {
-    throw validationProblem(
-      ctx,
-      `This record changed since it was read, and the change is refused rather than merged. ${message}`,
-    );
-  }
-}
 
 /**
  * Refuses a request for an option that already carries an approved plan.
