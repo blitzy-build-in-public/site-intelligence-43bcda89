@@ -178,14 +178,15 @@ const ALL_VALUE = '';
  * read will answer with.
  *
  * WHY THE HEIGHT IS RESERVED AND WHAT THE NOTICE MAY WIDEN. The top bar is one wrapping row
- * (`ROW_CLASSES` in `src/app/top-bar.tsx`) whose height every control beside this one pays for, so a
- * group that adds a line when its read answers re-breaks its neighbours' lines and moves the navigation
- * and the page's own content under the reader. Measured on the desktop audit (QA finding QA1-01): the
- * pending sentence this group paints made the box 77 px tall and widened it from 260 px to 484 px, and
- * both reverted when the read settled, shifting `main#main-content` by 0.31 of the viewport. `min-h-20`
- * therefore holds the 80 px the settled announcement occupies — the 51 px fields row, the 8 px grid step
- * between the rows and the sentence's own 18 px line, which the grid's next step rounds up to 80 px —
- * so the sentence's line is reserved in both states rather than added in one of them.
+ * (`ROW_CLASSES` in `src/app/top-bar.tsx`) whose height every control beside this one pays for, so
+ * a group that adds a line when its read answers re-breaks its neighbours' lines and moves the
+ * navigation and the page's own content under the reader. Measured on the desktop audit: the
+ * pending sentence this group paints made the box 77 px tall and widened it from 260 px to 484 px,
+ * and both reverted when the read settled, shifting `main#main-content` by 0.31 of the viewport.
+ * `min-h-20` therefore holds the 80 px the settled announcement occupies — the 51 px fields row,
+ * the 8 px grid step between the rows and the sentence's own 18 px line, which the grid's next step
+ * rounds up to 80 px — so the sentence's line is reserved in both states rather than added in one
+ * of them.
  *
  * No colour or surface is set here — each field owns its own, and the token layer exposes no elevation
  * utility to select (specification §4.3). The one size is the reserved block, stated in the spacing
@@ -237,23 +238,23 @@ const SELECT_CLASSES = [
  * rather than being squeezed between the two fields, and that line is reserved there in every state.
  *
  * ONE CLAMPED LINE, ITS WIDTH BOUNDED ON THE GRID. The sentence is the adapter's own message, and a
- * refusal names the permission it needs, the role that is acting and every role that holds it, so it
- * runs to some three hundred characters. Left to break, that set this group's preferred width and
- * wrapped onto up to five lines, and the row then displaced the two fields and left the identifier
- * search on a line of its own: one role's bar measured 420 px against 289 px for every other role
- * (QA finding QA2-06). `truncate` keeps the whole sentence as this element's text — which is the
- * text `aria-describedby` binds to the two disabled selects, so a screen reader is still given all
- * of it — while painting a single line. The `title` carries the same sentence, so a reader using a
+ * refusal names the permission it needs, the role that is acting and every role that holds it, so
+ * it runs to some three hundred characters. Left to break, that set this group's preferred width
+ * and wrapped onto up to five lines, and the row then displaced the two fields and left the
+ * identifier search on a line of its own: one role's bar measured 420 px against 289 px for every
+ * other role. `truncate` keeps the whole sentence as this element's text — which is the text
+ * `aria-describedby` binds to the two disabled selects, so a screen reader is still given all of it
+ * — while painting a single line. The `title` carries the same sentence, so a reader using a
  * pointer reads the remainder the ellipsis hides.
  *
  * HOW MUCH OF IT IS SHOWN IS THE ROW'S DECISION, NOT A FIXED CUT. `max-w-80` bounds the line at the
- * scale's 80th step, so the sentence cannot widen this group past what the top bar's first line holds
- * and cannot re-break that line when the notice appears or goes away (QA finding QA1-01); the reserved
- * line the column holds then keeps the bar's height the same in both states. From `xl` up the row has
- * width to spare, so the line may grow to the 36 rem step (`max-w-xl`): the notice then shows as much
- * of the sentence as one top-bar line can hold with the identifier search still beside it and no extra
- * row at the 1280 px width QA1-01 measures. Neither width is an arbitrary value: each is a named step
- * of the scale, so the bar's boxes stay on the grid.
+ * scale's 80th step, so the sentence cannot widen this group past what the top bar's first line
+ * holds and cannot re-break that line when the notice appears or goes away; the reserved line the
+ * column holds then keeps the bar's height the same in both states. From `xl` up the row has width
+ * to spare, so the line may grow to the 36 rem step (`max-w-xl`): the notice then shows as much of
+ * the sentence as one top-bar line can hold with the identifier search still beside it and no extra
+ * row at the 1280 px width the desktop audit measures. Neither width is an arbitrary value: each is
+ * a named step of the scale, so the bar's boxes stay on the grid.
  */
 const NOTICE_CLASSES = 'min-w-0 max-w-80 truncate text-12 text-text-caption xl:max-w-xl';
 

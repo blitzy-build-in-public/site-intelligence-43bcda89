@@ -43,10 +43,10 @@
  *   arithmetic is small enough to follow in the comment that states it, an invariant over the
  *   result, or read from `tests/fixtures/solver-expected-results.ts`, which rule P-6 makes the one
  *   home of an expected figure.
- * - P-2: it imports the three sibling modules, the shared types, `vitest` and the mock adapter's
- *   `loadSeed()` — so the arithmetic is exercised exactly as the adapter exercises it, and the seeded
- *   case arrives through the one door rule P-2 leaves open. The note above the import states why the
- *   case is reached that way.
+ * - P-2: it imports the three sibling modules, the shared types, `vitest` and the `tests/fixtures`
+ *   accessor that holds the record set — so the arithmetic is exercised exactly as the adapter
+ *   exercises it, and the seeded case arrives through the one door rule P-2 leaves open to it. The
+ *   note above the import states why the case is reached that way.
  * - P-7: the probe identifiers are test-local and carry `PROBE`, and every other identifier is a
  *   seeded record's own; no real vendor, customer, carmaker or cloud product is named, and no filler
  *   prose appears.
@@ -75,23 +75,25 @@ import { solveSupplyDelay } from './solve-supply-delay';
  * function's output against the seed's expected-results table, and a comparison cannot exist without
  * the case the table is measured at.
  *
- * HOW IT IS REACHED, AND WHY THIS WAY. Rule P-2 lets one module read `src/seed/` — the mock adapter's
- * loader — and `tests/source-checks/no-seed-import-outside-mock.test.ts` fails on every other import of
- * the folder, a suite included. The case therefore arrives through `loadSeed()`, the same call the
- * adapter's bootstrap makes, which returns a typed deep clone of the whole record set. That is a
- * deliberate test-only dependency from this folder on `src/services/mock`: rule P-2 leaves no other
- * door to a seeded record, and the four modules under test (`solve-supply-delay.ts`, `calendar.ts`,
- * `rounding.ts` and the shared types) still import neither the service layer nor the seed, so the
- * arithmetic is exercised exactly as the adapter exercises it.
+ * HOW IT IS REACHED, AND WHY THIS WAY. AAP 0.2.1, AAP 0.13.2 and AAP 0.18.1 forbid a file under
+ * `src/domain` from importing the service layer, so this suite may not name it; and rule P-2 lets one
+ * module read `src/seed/`, the mock adapter's loader, which
+ * `tests/source-checks/no-seed-import-outside-mock.test.ts` keeps as that folder's only importer. Both
+ * hold because the case arrives through `loadSeededRecordSet()`, the accessor in
+ * `tests/fixtures/seeded-record-set.ts` that holds this one dependency inside `tests/`: it makes the
+ * call the adapter's bootstrap makes and returns a typed deep clone of the whole record set. This
+ * folder therefore names neither the service layer nor the seed, and the four modules under test
+ * (`solve-supply-delay.ts`, `calendar.ts`, `rounding.ts` and the shared types) are exercised exactly as
+ * the adapter exercises them.
  *
  * The fixture is imported rather than the figures typed here, because rule P-6 gives the expected
  * results exactly one home.
  */
-import { loadSeed } from '../../services/mock/seed-loader';
+import { loadSeededRecordSet } from '../../../tests/fixtures/seeded-record-set';
 import { EXPECTED_SOLVER_ROWS, SOLVER_CASE_ID } from '../../../tests/fixtures/solver-expected-results';
 
 /** The seeded solver cases, as the adapter's loader hands them over: the case the table is measured at. */
-const SEEDED_SOLVER_CASES = loadSeed().solverCases;
+const SEEDED_SOLVER_CASES = loadSeededRecordSet().solverCases;
 
 /* ---------------------------------------------------------------------------------------------
  * A. The probe cases
@@ -1024,7 +1026,7 @@ describe('the working calendar', () => {
 /**
  * Measures the seeded case under one fixture row's levers.
  *
- * The case is looked up from the record set `loadSeed()` returns, by the fixture's own
+ * The case is looked up from the record set `loadSeededRecordSet()` returns, by the fixture's own
  * `SOLVER_CASE_ID`, so the comparison is anchored on the case the table names rather than on whichever
  * case the record set holds first.
  *

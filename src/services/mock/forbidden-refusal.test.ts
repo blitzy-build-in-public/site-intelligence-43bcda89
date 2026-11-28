@@ -14,8 +14,9 @@
  * of the three through the port a screen calls (rules P-3, P-4, rule P-8's "say why").
  *
  * WHY THE NODE ENVIRONMENT, MANDATORY ON THE FIRST LINE ABOVE. The adapter's bootstrap hashes the
- * seeded chain through `crypto.subtle.digest`, which the jsdom environment cannot digest, so the cases
- * run where the platform call works. Nothing here renders.
+ * seeded chain through `crypto.subtle.digest` — a platform call rather than a DOM one — and the
+ * declaration on the first line is what keeps that requirement with the module that has it, stated
+ * for the chain's own suite in the header of `src/domain/audit/audit.test.ts`. Nothing here renders.
  *
  * WHAT THIS SUITE DOES NOT DO. It types no record identifier and no figure: the exception a case asks
  * about is found through the port, and the permission a case names is the one the refusal itself

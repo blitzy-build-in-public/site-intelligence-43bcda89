@@ -787,7 +787,7 @@ function HitListbox({
  * own state; it states the line in a polite live region and offers nothing to operate (rule B-3).
  */
 interface NoticeProps {
-  /** The sentence to show. */
+  /** The sentence the field composed: the busy caption, or the answer that nothing matched. */
   readonly text: string;
 }
 

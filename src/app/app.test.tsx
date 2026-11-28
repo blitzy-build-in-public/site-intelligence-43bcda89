@@ -25,26 +25,30 @@
  * - P-3: the role switcher's non-authorisation note is visible body text in the bar.
  * - B-3: the landmarks are asserted behaviourally — the banner, the navigation by its accessible name,
  *   the single `main` — and no snapshot is taken anywhere.
- * - B-3, and QA finding QA2-09: the navigation folds below `md` behind a disclosure the shell renders
- *   outside the landmark, closed on first paint, its `aria-controls` naming the region it opens and its
- *   `aria-expanded` following the state that region is in, so a phone viewport meets the route rather
- *   than 328 px of navigation.
+ * - B-3: the navigation folds below `md` behind a disclosure the shell renders outside the
+ *   landmark, closed on first paint, its `aria-controls` naming the region it opens and its
+ *   `aria-expanded` following the state that region is in, so a phone viewport meets the route
+ *   rather than 328 px of navigation.
  * - P-1's presentation mode: wall mode hides the navigation and nothing else, so the route the reader
  *   is on, the top bar and the badge all stay mounted.
  * - P-4 / P-7: the shell's own text states none of the vocabulary of an unimplemented claim and names
  *   no barred product. The phrases are assembled from fragments below so that this file does not
  *   itself carry them, which is the same device `src/app/role-switcher.test.tsx` and
  *   `src/components/forbidden-card.test.tsx` use — a source check scans `src/` for them.
- * - QA1-01: the two groups in the bar that read their own records reserve the box their read settles
- *   into — the freshness group takes a line of the bar's row and holds a height floor, and the scope
- *   group holds a column whose sentence is capped below its fields' width. The bar is one wrapping row
- *   whose height every control beside those groups pays for, so a group that grew when its read
- *   answered re-broke its neighbours' lines and moved the navigation and the route's content.
+ * - The bar's stable boxes: the two groups in the bar that read their own records reserve the box
+ *   their read settles into — the freshness group takes a line of the bar's row and holds a height
+ *   floor, and the scope group holds a column whose sentence is capped below its fields' width. The
+ *   bar is one wrapping row whose height every control beside those groups pays for, so a group
+ *   that grew when its read answered re-broke its neighbours' lines and moved the navigation and
+ *   the route's content.
  *
  * THE SERVICE BOUNDARY IS MOCKED AT THE PROVIDER (rule P-2). The real provider awaits the mock
- * adapter's bootstrap, which hashes two hundred seeded audit events through `crypto.subtle` — and
- * that call rejects jsdom's `ArrayBuffer` realm (AAP §0.3.1) — so a suite that rendered through it
- * would be testing the platform rather than the shell. Nothing here imports `src/seed`,
+ * adapter's bootstrap, which hashes two hundred seeded audit events, so a suite that rendered
+ * through it would be testing the adapter's bootstrap rather than the shell. That hash is a platform
+ * call and not a DOM one: the chain hashes through `globalThis.crypto.subtle`, and jsdom 31 exposes
+ * no `crypto.subtle` of its own, so the digest resolves to the platform's implementation — the
+ * environment declaration that carries that requirement with the module, and the reason for it, are
+ * stated once in the header of `src/domain/audit/audit.test.ts`. Nothing here imports `src/seed`,
  * `src/services/mock` or `src/services/api-client`; the stub answers the handful of port members the
  * top bar's children call with promises that never settle, so the bar renders its busy state and no
  * figure is ever produced by this file.
@@ -444,7 +448,7 @@ describe('AppShell — the navigation (rules B-3, P-8)', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * The navigation's narrow disclosure — rule B-3, QA finding QA2-09
+ * The navigation's narrow disclosure — rule B-3
  * ------------------------------------------------------------------------------------------- */
 
 describe('AppShell — the navigation disclosure below md (rule B-3)', () => {
@@ -530,10 +534,10 @@ describe('AppShell — the top bar (AAP §0.12.1, rule P-3)', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * The bar's stable boxes — QA finding QA1-01
+ * The bar's stable boxes
  * ------------------------------------------------------------------------------------------- */
 
-describe('AppShell — the top bar reserves the box each reading group settles into (QA1-01)', () => {
+describe('AppShell — the top bar reserves the box each reading group settles into', () => {
   it('gives the freshness group its own line and a height floor, and caps the scope notice', () => {
     renderShell('/exceptions');
 

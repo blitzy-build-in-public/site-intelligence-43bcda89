@@ -63,16 +63,16 @@
  * eight at 390 px, with no horizontal overflow at either — and reads left to right, top to bottom, in
  * exactly the order above.
  *
- * TWO CHILDREN FOLD THEIR OWN WIDEST CONTENT BELOW `md`, AND THAT IS THEIRS TO DO. At a phone viewport
- * the bar's height is what every route's content pays for, and the six pills took two lines of it while
- * the labelled select took another: the header measured 584 px above a 328 px navigation in an 812 px
- * viewport, which left the route's own heading below the fold (QA finding qa-w013-I35). So
+ * TWO CHILDREN FOLD THEIR OWN WIDEST CONTENT BELOW `md`, AND THAT IS THEIRS TO DO. At a phone
+ * viewport the bar's height is what every route's content pays for, and the six pills took two
+ * lines of it while the labelled select took another: the header measured 584 px above a 328 px
+ * navigation in an 812 px viewport, which left the route's own heading below the fold. So
  * `FreshnessStrip` holds its pills behind one disclosure and `RoleSwitcher` holds its label and its
  * select behind another, both below Tailwind's `md` breakpoint, each trigger owned by the component
- * whose content it reveals (AAP §0.5.2) and each standing in the position its content occupies, so the
- * order AAP §0.12.1 fixes is unchanged. This file still has no breakpoint of its own and still renders
- * no trigger and no wrapped child: from `md` up both children render exactly what they rendered before,
- * and the row's order, wrapping and tokens are as they were.
+ * whose content it reveals (AAP §0.5.2) and each standing in the position its content occupies, so
+ * the order AAP §0.12.1 fixes is unchanged. This file still has no breakpoint of its own and still
+ * renders no trigger and no wrapped child: from `md` up both children render exactly what they
+ * rendered before, and the row's order, wrapping and tokens are as they were.
  *
  * ROLE TOKENS ONLY (rules B-3, B-1, B-2). Every colour, size and radius below is a role token, so both
  * themes resolve the contrast the specification's tables already measured, and no raw palette value,
@@ -144,9 +144,8 @@ const HEADER_CLASSES = 'w-full min-w-0 border-b border-hairline bg-ground text-t
  * label, its select, its note and its control tag — and centring the short items inside the tall
  * one's line box lifted them below its top, so a later DOM item could be met before an earlier one:
  * at 1920 px the role switcher's top edge sat 32.5 px above the sovereignty pill, the badge and the
- * two switches that precede it, and the region under it was left empty (QA finding QA2-07). Sharing
- * the top edge makes the visual sequence the DOM sequence at every width, which is the order
- * AAP §0.12.1 fixes.
+ * two switches that precede it, and the region under it was left empty. Sharing the top edge makes
+ * the visual sequence the DOM sequence at every width, which is the order AAP §0.12.1 fixes.
  *
  * Nothing is justified or auto-margined: the bar's contents are dense enough that they use every line
  * they are given, and an auto margin on any one of them would strand the spare width of a line as a

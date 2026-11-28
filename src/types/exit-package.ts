@@ -1,82 +1,50 @@
 /**
- * Exit package vocabulary: the sections a deployment hands over as an exit
- * artefact, and the package that carries them.
+ * Exit package vocabulary: the exit artefact's sections and the package that carries them.
  *
- * Fixing inputs:
- * - `platform-contracts.md` §3 declares `ExitPackage` among the core types and
- *   directs that it be defined in types next to them, fixing none of its
- *   members. AAP 0.12.2 names "the exit package sections" as the type's
- *   content, so each member below is derived from that statement alone.
- * - AAP 0.12.3 and 0.14.2 place the exit package and its screen in stage S5:
- *   the port's S5 endpoints exist on both adapters for interface conformance
- *   and are never invoked, and the route renders the stage notice. This module
- *   therefore exists so the port type-checks; no screen, handler or download
- *   builder consumes it yet.
+ * Fixing inputs: `platform-contracts.md` §3 declares `ExitPackage` among the core types and
+ * directs that it be defined in types next to them, fixing none of its members, so each member
+ * is derived from AAP 0.12.2's "exit package sections". AAP 0.12.2, §0.12.3 and §0.14.2 place
+ * the package and its screen in stage S5, whose endpoints exist on both adapters for interface
+ * conformance and are never invoked, so the module exists so the port type-checks.
  *
- * A section names the records it packages and holds none of their content, so
- * the package stays an exit artefact rather than a second rendering of the
- * workspace or a second source of truth beside the seed records.
- *
- * The section list, each section's heading and the order they print in are seed
- * record content, so this module types none of them (rule P-6). `generatedAt`
- * is the constant demonstration clock instant of contracts §1, never a reading
- * of the system clock (AAP 0.2.1, determinism), and the handler supplies it. The
- * package carries no manifest, preview, licensing or packaging format shape,
- * because each belongs to the S5 screen and no input fixes one.
+ * A section names the records it packages and copies none of them, so the package stays an exit
+ * artefact rather than a second source of truth beside the seed records. `generatedAt` is the
+ * constant demonstration clock instant of contracts §1, never a system clock read (AAP 0.2.1).
  */
 
 import type { Timestamp } from './primitives';
 
 /**
- * One section of the exit package.
- *
- * The screen prints the sections in the order the package lists them, and each
- * section states what it packages in words a reader can act on: a heading, one
- * summary line, and the identifiers of the records the section carries.
+ * One section of the exit package (AAP 0.12.2): a heading, a summary line and the identifiers it
+ * carries.
  */
 export interface ExitPackageSection {
   /**
-   * Stable identity of the section within the package, so the handler can
-   * assemble the package from mutable state without relying on list position.
+   * Stable identity of the section, so the handler need not rely on list position.
    */
   id: string;
 
-  /**
-   * Printable heading the screen prints above the section's summary line.
-   */
   title: string;
 
-  /**
-   * The single line a reader sees under the heading, describing what the
-   * section packages.
-   */
   summary: string;
 
   /**
-   * Identifiers of the records this section packages — an exception, an audit
-   * event, an evidence pin or their kin, already defined elsewhere. These are
-   * references rather than copies, so a record corrected in the workspace is
-   * never contradicted by a stale copy inside the package.
+   * Identifiers of the records this section packages, already defined elsewhere: references
+   * rather than copies, so a corrected record is never contradicted by a stale copy inside the
+   * package.
    */
   recordRefs: string[];
 }
 
 /**
- * The exit package itself.
- *
- * It exists so the service interface can declare the stage S5 exit-package
- * endpoint without inventing its vocabulary; no code assembles or displays one.
+ * The exit package itself, declared so the service interface can carry the stage S5 endpoint
+ * without inventing its vocabulary; no code assembles or displays one.
  */
 export interface ExitPackage {
   /**
-   * The instant the package was produced, taken from the demonstration clock
-   * rather than the system clock, so the same demonstration state always
-   * produces the same package.
+   * The instant the package was produced, from the demonstration clock and not the system clock.
    */
   generatedAt: Timestamp;
 
-  /**
-   * Every section the package carries, in the order the screen prints them.
-   */
   sections: ExitPackageSection[];
 }

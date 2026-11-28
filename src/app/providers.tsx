@@ -325,14 +325,15 @@ const CACHE_LIFETIME_MS = 300_000;
 /**
  * How long a read's payload is kept once no screen observes it: one minute.
  *
- * TWO LIFETIMES, TWO QUESTIONS. {@link CACHE_LIFETIME_MS} says how long an answer may be *served* without
- * a write moving it; this one says how long the records of an answer nobody is *looking at* stay in
- * memory, which is what React Query's `gcTime` governs. A payload is dropped a minute after the last
- * screen observing it unmounts, so touring the whole application does not hold every route's records at
- * once — the queue, the trail, the canvas topology and pins and the atlas pack would otherwise all stay
- * resident together long after the reader had moved on — while the minute is measured from the moment the
- * last observer leaves, so a screen the reader is still looking at never loses its payload, and the port's
- * own latency band keeps the re-read a returning screen makes cheap (QA1-02).
+ * TWO LIFETIMES, TWO QUESTIONS. {@link CACHE_LIFETIME_MS} says how long an answer may be *served*
+ * without a write moving it; this one says how long the records of an answer nobody is *looking at*
+ * stay in memory, which is what React Query's `gcTime` governs. A payload is dropped a minute after
+ * the last screen observing it unmounts, so touring the whole application does not hold every
+ * route's records at once — the queue, the trail, the canvas topology and pins and the atlas pack
+ * would otherwise all stay resident together long after the reader had moved on — while the minute
+ * is measured from the moment the last observer leaves, so a screen the reader is still looking at
+ * never loses its payload, and the port's own latency band keeps the re-read a returning screen
+ * makes cheap.
  */
 const QUERY_CACHE_GC_TIME_MS = 60_000;
 

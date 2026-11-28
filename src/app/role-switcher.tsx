@@ -56,17 +56,17 @@
  * explanation rule P-8 requires would then be unreachable by keyboard. No meaning is carried by
  * colour: the acting persona, its role and every explanation are text.
  *
- * BELOW THE `md` BREAKPOINT THE LABEL AND THE SELECT FOLD AWAY. The top bar is the shell's banner on
- * every route, so every line of height it spends is spent on every screen: at a 375 px window this
- * control's labelled select on top of the six freshness pills left the navigation and the route's own
- * heading below the fold of a phone viewport (QA finding qa-w013-I35). Below `md` — 48rem — the fixed
- * label and the select therefore sit behind one disclosure whose trigger belongs to this component,
- * because the elements it reveals are this component's (AAP §0.5.2). The trigger's accessible name is
- * {@link ROLE_SWITCHER_LABEL}, so a reader still meets rule P-3's wording before opening it. Only the
- * label and the select fold: the non-authorisation note stays on screen at every width, which is what
- * rule P-3 asks of the interface, and so does every sentence explaining a state in which the control
- * cannot act, so a refusal is never locked behind a closed disclosure. From `md` up nothing changes —
- * label, select and note in the same order, with no trigger and no extra element.
+ * BELOW THE `md` BREAKPOINT THE LABEL AND THE SELECT FOLD AWAY. The top bar is the shell's banner
+ * on every route, so every line of height it spends is spent on every screen: at a 375 px window
+ * this control's labelled select on top of the six freshness pills left the navigation and the
+ * route's own heading below the fold of a phone viewport. Below `md` — 48rem — the fixed label and
+ * the select therefore sit behind one disclosure whose trigger belongs to this component, because
+ * the elements it reveals are this component's (AAP §0.5.2). The trigger's accessible name is
+ * {@link ROLE_SWITCHER_LABEL}, so a reader still meets rule P-3's wording before opening it. Only
+ * the label and the select fold: the non-authorisation note stays on screen at every width, which
+ * is what rule P-3 asks of the interface, and so does every sentence explaining a state in which
+ * the control cannot act, so a refusal is never locked behind a closed disclosure. From `md` up
+ * nothing changes — label, select and note in the same order, with no trigger and no extra element.
  *
  * WHAT IT DOES NOT DO. It fetches nothing of its own (rule B-1): the persona records arrive through
  * the bound adapter, which holds them in memory. It reads no configuration and carries no credential

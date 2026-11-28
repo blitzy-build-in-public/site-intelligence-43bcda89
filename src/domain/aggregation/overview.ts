@@ -1,132 +1,31 @@
 /**
- * The overview aggregates of SCR-01: the four computed tiles, the alternate-source readiness share, the
- * "changed since your last visit" list, the risk-by-plant rows and the fourteen-day opened-and-resolved
- * series.
+ * The overview aggregates of SCR-01: the four tiles, the alternate-source readiness share, the
+ * changed-since-last-visit list, the by-plant rows and the fourteen-day opened-and-resolved
+ * series, computed once from the records handed in and the `Scope` the caller has resolved.
  *
  * Fixing inputs:
- * - `platform-contracts.md` §5, which fixes the computed aggregates as pure functions over records.
- * - AAP 0.8's computation table, whose `src/domain/aggregation/overview.ts` row fixes this module's
- *   arithmetic: "open exceptions, revenue at risk (tile), customer orders at risk, median hours to
- *   approved plan, alternate-source readiness and the open/resolved per-day series", with "readiness
- *   through `wholePercent` (contracts §5); median is the middle value of the qualifying history
- *   records, unrounded; counts are integers".
- * - AAP 0.12.1's "Overview aggregates" row, which fixes the public interface —
- *   `computeOverview(records, scope): Overview` — and its dependence on the rounding helpers and on
- *   the exception aggregates.
- * - AAP 0.12.2's `Overview`, `PlantRiskRow`, `ChangedSinceLastVisitItem` and `DailyCountPoint` rows,
- *   which fix every member this module fills, and `platform-specification.md` SCR-01, which fixes the
- *   screen that reads them.
- * - AAP 0.2.1, which fixes the one scope resolver: the overview takes a `Scope` the caller already
- *   resolved and never re-derives one, so a filtered queue and a filtered overview cannot disagree.
- * - AAP 0.10, which places each simulation label on the component that renders a figure: this module
- *   emits values and no label.
+ * - `platform-contracts.md` §5, which fixes the ten aggregates as pure functions over records.
+ * - AAP 0.8's computation row: these six figures, readiness through `wholePercent`, the median
+ *   as the middle qualifying history value unrounded, and counts as integers.
+ * - AAP 0.12.1's overview row, which fixes `computeOverview(records, scope): Overview`, its
+ *   dependence on the rounding helpers and exception aggregates, and — with AAP 0.12.2's
+ *   `Overview`, `PlantRiskRow`, `ChangedSinceLastVisitItem` and `DailyCountPoint` rows — every
+ *   member filled here; SCR-01 of `platform-specification.md` fixes the screen that reads them.
+ * - AAP 0.2.1's one resolved scope, never re-derived here, so a filtered queue and a filtered
+ *   overview cannot disagree; AAP 0.10, which leaves every simulation label to the component.
  *
- * Five aggregates, one call. The tiles count what is still open, value it, count the customer orders
- * it carries and measure how long an approved plan takes. The readiness share reads the material
- * master the bundle carries and reports how much of what the scope reaches a second supplier can
- * cover. The changed-since list reports the activity the records themselves date. The by-plant rows
- * are the tiles split across the plants the selection names and the plants the admitted exceptions are
- * recorded at, and the fourteen-day series is the flow behind the open count. Each is computed from the
- * records handed in, and each returned collection is freshly built.
- *
- * ONE RULE THE SERIES AND THE QUEUE SHARE IS EXPORTED ON ITS OWN. `openedOrResolvedOn(exception,
- * history, day)` states when an exception is one of the entries the fourteen-day series counts on a
- * day, and it is what the mock adapter's day filter reads, so the queue a reader narrows by date keeps
- * exactly the exceptions the mark that narrowed it counted (AAP 0.12.4, AAP 0.2.1). It is a pure
- * predicate over records — no clock, no state — and the aggregate's counts state the same rule, so
- * neither can be changed without the other's tests noticing.
- *
- * Where the figures come from. Every euro is computed by `revenueOfAffectedLines` from the affected lines
- * `resolveAffectedLines` derives, once per admitted exception, where those lines are already in hand: no
- * caller here derives or values them a second time, the tile closes the sum of those per-exception
- * amounts once through `halfUp2`, and the by-plant rows are a partition of exactly the same amounts, so
- * the tile and the rows add up to the cent (AAP 0.2.1, AAP 0.8). No price, quantity, business amount,
- * threshold or record identifier is written in this file (rule P-6); its only literal numbers are the
- * arithmetic's own unit constants and the fourteen days the specification fixes for the series, and the
- * expected results of `platform-seed-data.md` are test fixtures this module neither holds nor reads.
- *
- * Purity, determinism and the clock (AAP 0.2.1, AAP 0.18.2). The function is a pure function of its
- * two arguments: it reads no system clock, opens no random source, holds no module-level mutable value
- * and performs no I/O, so the same arguments always produce a deeply equal result. Neither argument nor
- * any record inside it is modified, every array returned is built here, and every ordering is stated
- * (ascending series dates, canonical plant order, identifier order, most-recent-first changes) rather
- * than inherited from an engine's comparison or a caller's array order.
- *
- * Rules this module is built to satisfy:
- * - P-6: every number is computed from the records handed in — a count of the exceptions in scope, a
- *   duration between two record instants, a euro amount `revenueOfAffectedLines` computed, or a share of
- *   the material master — and the two helpers of `src/domain/solver/rounding.ts` are the only rounding
- *   applied: `halfUp2` for money and `wholePercent` for the readiness share.
- * - P-5: every value here is a first-party figure computed from first-party records. Nothing in this
- *   module reads a market-intelligence value, so no tile, row, series point or change can blend the
- *   two provenances.
- * - P-2: it imports the shared types, one rounding helper, the calendar module and the exception
- *   aggregates — no seed record, no adapter, no service module and no React — so it cannot become a
- *   second data boundary. Every calendar date it needs comes from `src/domain/solver/calendar.ts`,
- *   the pure core's single civil-date implementation, and none is derived here.
- * - P-1: it emits no label and no `SimLabel`; the component that renders a tile or a chart mark applies
- *   the `Simulated calculation` label.
- * - P-3: the scope handed in reflects the demonstration's browser-side role scoping. This module
- *   narrows by it and asserts nothing about authorisation; the adapter applies the same role scope to
- *   every call it serves.
- * - P-4: it reports counts, durations and amounts and claims no security property; the declared and
- *   simulated wording belongs to the screens that carry it.
- * - P-7: the only identifiers it handles are the synthetic records handed in, and no company, person
- *   or vendor name is written here.
- * - B-1 and B-2: it contacts no host, addresses none and reads no configuration.
- *
- * Alternate-source readiness — the aggregate that is not a tile. AAP 0.8's row for this module and
- * contracts §5 both name alternate-source readiness among the overview aggregates, rounded through
- * `wholePercent`, and `Overview.alternateSourceReadinessPercent` in `src/types/screen-dto.ts` is where
- * it reaches a screen. `alternateSourceReadiness` below states the rule it follows: a material is in
- * scope when the products it goes into meet the resolved scope's products, where an empty `products`
- * member is the "All products" selection `./scope` states, so the rule is the product admission the
- * rest of the overview already applies; the part is the in-scope materials carrying an
- * `alternateSupplierId`; the whole is the in-scope materials; and the part over its whole is rounded
- * half up to a whole percent. With no material in scope the member is `0`, the identity of an empty set
- * rather than a reading of zero readiness. It is reported once for the overview and not per
- * `PlantRiskRow`, because a material record names the products it goes into and no plant: a per-plant
- * share would read a plant into records that do not carry one.
- *
- * The last-visit window. No record carries the instant of a user's previous visit, so "since your last
- * visit" dates from the start of the most recent working day before the as-of date through the as-of
- * instant. The working calendar is the one contracts §1 fixes, so a visit on a Monday covers the
- * preceding Friday instead of an empty weekend, and the window is derived from `asOf` alone: no clock
- * is read and nothing is persisted.
- *
- * The order book. A customer order reaches this module as an `AffectedLine` or as the exception
- * aggregate's `OrderBookEntry`, and `ExceptionAggregateInput.customerOrders` — inherited by this
- * module's bundle — is the order book the affected-line derivation reads. `src/types` declares no
- * separate order type, and none is declared here.
- *
- * The plant an exception is counted at, which is the plant it is recorded at. The queue admits an
- * exception that lands on a plant in scope *or* reaches one through `alsoAffectsPlantIds`, and the
- * by-plant rows must add up to the tiles, so each admitted exception is counted at exactly one plant:
- * the record's own `plantId`, which is the plant the queue's row carries. Nothing is folded into an
- * in-scope plant, so a plant's figure is the same whatever the selection is — an exception recorded at
- * one plant that reaches another is the recorded plant's on both surfaces, and the selection decides
- * only which exceptions are counted, never where they are counted. The rows therefore cover every
- * plant the selection names and every plant an admitted open exception is recorded at, and no
- * exception is counted twice or left out of them (AAP 0.2.1).
- *
- * The median's two conventions. AAP 0.8 fixes "the middle value of the qualifying history records" and
- * states no even-count case, so an even number of qualifying plans takes the arithmetic mean of the two
- * middle values, which is why the member is presented unrounded; with no qualifying record the member is
- * `0`, the identity of an empty set rather than a business reading of zero hours.
- *
- * The series counts one side from the record and the other from the trail. An exception's own
- * `detectedAt` dates its detection, so the opened count reads that member and no exception is missing
- * from it; an exception record carries no resolved-at member, so the resolved count reads the activity
- * trail's `resolved` records. The days are calendar days, because the chart's dates are the queue
- * filter's own keys and a skipped weekend would leave a gap in an axis the queue has a date for, and
- * both counts are whole exceptions.
- *
- * The two record shapes declared here. A plant's name and an activity record's own text are record
- * content this module reads, and `src/types` declares neither a plant record nor an activity record, so
- * `NamedPlant` and `ActivityRecord` below are the minimal shapes of the call, in the manner of
- * `PricedProduct` and `OrderBookEntry` in `./exceptions` and `ScopeFilterInput` in `./scope`: a full
- * plant record and a full exception-history record are both assignable to them, so the adapter passes
- * its records through without mapping them.
+ * What a reader cannot infer from the code:
+ * - Readiness is reported once for the overview, not per by-plant row, because a material record
+ *   names the products it goes into and no plant.
+ * - The last-visit window runs from the start of the most recent working day before the as-of
+ *   date to the as-of instant, derived from `asOf` alone, so no clock is read.
+ * - An admitted exception is counted at the plant its own record states, so the by-plant rows
+ *   stay a partition of the tiles.
+ * - The median's even-count case, which AAP 0.8 leaves open, is the mean of the two middle
+ *   durations, and the series reads opened days from `detectedAt` and resolved days from the
+ *   trail, because an exception record carries no resolved-at member.
+ * - No price, amount or record identifier is typed here (rule P-6); the expected results of
+ *   `platform-seed-data.md` are fixtures this module never reads.
  */
 
 import type {
@@ -151,10 +50,10 @@ import type {
 import type { ExceptionAggregateInput } from './exceptions';
 import { calendarDateOf, isWorkingDay, shiftIsoDate } from '../solver/calendar';
 import { halfUp2, wholePercent } from '../solver/rounding';
-// The queue's row-admission predicates are stated once, in `./exceptions`, and imported here: the
-// exception queue and this overview admit a record by one plant predicate and one product predicate,
-// so a change to either cannot leave a narrowed queue and a narrowed overview describing different
-// populations (AAP 0.2.1).
+// The queue's row-admission predicates are stated once, in `./exceptions`: the queue and this
+// overview admit a record by one plant predicate and one product predicate, so a change to
+// either cannot leave a narrowed queue and a narrowed overview describing different populations
+// (AAP 0.2.1).
 import {
   admitsPlant,
   admitsProducts,
@@ -178,40 +77,38 @@ const SECONDS_PER_MINUTE = 60;
 const MINUTES_PER_HOUR = 60;
 
 /**
- * Milliseconds in an hour: the divisor that turns the difference between two record instants into the
- * hours the fourth tile is measured in.
+ * Milliseconds in an hour: the divisor that turns the difference between two record instants
+ * into the hours the fourth tile is measured in.
  */
 const MILLIS_PER_HOUR = MILLIS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR;
 
 /**
- * Days the opened-and-resolved series reports, the fourteen days `platform-specification.md` SCR-01
- * fixes for the overview's per-day chart.
+ * The length of the opened-and-resolved series: the fourteen days SCR-01 of
+ * `platform-specification.md` fixes for the overview's per-day chart.
  */
 const SERIES_LENGTH = 14;
 
 /**
- * Days the search for the previous working day may step back before it gives up: a full week always
- * contains one Monday to Friday, because the calendar of contracts §1 has no holiday table.
+ * Days the search for the previous working day steps back: a full week always holds one Monday
+ * to Friday, because the calendar of contracts §1 has no holiday table.
  */
 const WORKING_DAY_LOOKBACK = 7;
 
 /**
- * The fourth tile's value with no qualifying record: the identity of an empty set, not a reading of
- * zero hours between a detection and an approval.
+ * The fourth tile's value with no qualifying record: the identity of an empty set, not a reading
+ * of zero hours between a detection and an approval.
  */
 const NO_QUALIFYING_MEDIAN = 0;
 
 /**
- * The readiness share with no material in scope: the identity of an empty set, not a reading that none
- * of a sourced population has an alternate.
+ * The readiness share with no material in scope: the identity of an empty set, not a reading
+ * that none of a sourced population has an alternate.
  */
 const NO_MATERIAL_IN_SCOPE = 0;
 
 /**
- * The activity-trail action that dates the moment an exception was detected, as
- * `src/seed/exception-history.ts` spells it. The series counts its opened days from the exception
- * record's own `detectedAt` instead, which every exception carries; the median measures from this
- * action, so both of its ends are activities of the same trail.
+ * The activity-trail action that dates detection, as `src/seed/exception-history.ts` spells it:
+ * the median measures from this action, so both of its ends are activities of the same trail.
  */
 const OPENED_ACTION = 'opened';
 
@@ -228,12 +125,11 @@ const RESOLVED_ACTION = 'resolved';
 /**
  * One plant's identifier and display name: the only two members the by-plant rows read.
  *
- * Declared here rather than in `src/types` because it is not a contracts type but the minimal shape of
- * the call; the plant records of `src/seed/plants.ts` are richer (`lines`, coordinates, capacity) and
- * assignable to it, so the adapter passes them through without mapping them.
+ * Not a contracts type but the minimal shape of the call; the richer plant records of
+ * `src/seed/plants.ts` are assignable to it, so the adapter passes them through without mapping.
  */
 export interface NamedPlant {
-  /** The plant's identifier, one of `PLT-RGB`, `PLT-BRN`, `PLT-QRO` or `PLT-RAK`. */
+  /** The plant's identifier, as the plant record states it. */
   readonly id: PlantId;
 
   /** The plant's display name, as the plant record states it. */
@@ -244,33 +140,30 @@ export interface NamedPlant {
  * One material, as the readiness share reads it: the products it goes into and whether a second
  * supplier can cover it.
  *
- * Declared here rather than in `src/types` for the same reason as `NamedPlant`: it is not a contracts
- * type but the minimal shape of the call, and the material records of `src/seed/materials.ts` are
- * richer — name, primary supplier, origin, unit cost, lead time — and assignable to it, so the adapter
- * passes them through without mapping them.
+ * Not a contracts type but the minimal shape of the call, so the richer material records of
+ * `src/seed/materials.ts` are assignable to it and pass through without mapping.
  */
 export interface SourcedMaterial {
-  /** The material's identifier, `MAT-` followed by its own key. */
+  /** The material's identifier, as the material record states it. */
   readonly id: MaterialId;
 
   /** The products the material goes into, which is the reach the product selection admits it by. */
   readonly productIds: readonly ProductId[];
 
   /**
-   * The second qualified supplier that can cover the material, absent where the material is
-   * single-sourced: the one member the readiness share counts.
+   * The second qualified supplier that can cover the material, absent where it is
+   * single-sourced.
    */
   readonly alternateSupplierId?: SupplierId;
 }
 
 /**
- * One activity on an exception, as the trail records it: the instant, what was done and the record's
- * own account of it.
+ * One activity on an exception, as the trail records it: the instant, what was done and the
+ * record's own account of it.
  *
- * `src/seed/exception-history.ts` owns the fuller record — its own key and the actor — and is
- * assignable to this shape. Two members are read here and no more: `occurredAt` dates an activity for
- * the changed-since list, the median and the resolved count, and `note` is the account the list shows
- * as its detail.
+ * The fuller `src/seed/exception-history.ts` record is assignable to this shape; `occurredAt`
+ * dates an activity for the changed-since list, the median and the resolved count, and `note` is
+ * the account the list shows as its detail.
  */
 export interface ActivityRecord {
   /** The exception the activity happened on. */
@@ -280,9 +173,8 @@ export interface ActivityRecord {
   readonly occurredAt: Timestamp;
 
   /**
-   * What was done, spelled as the trail spells it. Typed as an open string rather than a closed union
-   * because this module reads two members of the trail's vocabulary (`approved` and `resolved`) and
-   * owns neither; a trail that grows an action needs no change here.
+   * What was done, spelled as the trail spells it. An open string, not a closed union, because
+   * this module reads two members of that vocabulary and owns neither.
    */
   readonly action: string;
 
@@ -291,35 +183,23 @@ export interface ActivityRecord {
 }
 
 /**
- * Every record the overview is computed over, in one bundle.
+ * Every record the overview is computed over, in one bundle: AAP 0.12.1's `records` argument.
  *
- * AAP 0.12.1's signature names `records` as what `computeOverview` is computed over, and this interface
- * is that argument. It extends the exception aggregate's own bundle, so the adapter that already builds
- * one for the queue hands the same object here: the exceptions, the product prices their lines are
- * valued at, the order book, the baseline solves, the read's freshness and the as-of instant are the
- * queue's, and the overview adds only what it alone reads — the plants it groups by, the material
- * master its readiness share counts, the activity trail it dates changes and approvals from, and the
- * approvals themselves.
- *
- * Inheriting the queue's bundle is what makes the two agree: this module admits exceptions with the same
- * two filters the queue applies and values their revenue through the same function, so a narrowed queue
- * and a narrowed overview cannot describe different populations. The inherited `freshness` member is the
- * one part of the bundle this module does not read — the overview declares no freshness member of its
- * own — and it arrives because the adapter builds one bundle for both reads rather than two.
- *
- * The bundle is read and never modified and holds no computed figure; every member is a record, the
- * state of the read, or the demonstration clock's instant.
+ * It extends the exception aggregate's bundle, so the adapter that already builds one for the
+ * queue hands the same object here, and adds only what only this module reads — the plants it
+ * groups by, the material master its readiness share counts, the activity trail and the
+ * approvals. That inheritance is what makes the two agree: this module admits exceptions with
+ * the same two filters the queue applies and values their revenue through the same function. The
+ * inherited `freshness` member is the one part the overview does not read, and it arrives
+ * because the adapter builds one bundle for both reads.
  */
 export interface OverviewInput extends ExceptionAggregateInput {
   /** The plants the by-plant rows report on, each with the name its record states. */
   readonly plants: readonly NamedPlant[];
 
   /**
-   * The material master the alternate-source readiness share is measured over.
-   *
-   * One record per material, carrying the products it goes into and the second supplier that can cover
-   * it. `alternateSourceReadiness` counts the materials the resolved scope's products reach, so this
-   * member and the scope the call is made with are all the figure reads.
+   * The material master the alternate-source readiness share is measured over: one record per
+   * material, carrying the products it goes into and the second supplier that can cover it.
    */
   readonly materials: readonly SourcedMaterial[];
 
@@ -327,11 +207,9 @@ export interface OverviewInput extends ExceptionAggregateInput {
   readonly history: readonly ActivityRecord[];
 
   /**
-   * The approval records, in any order.
-   *
-   * A decided approval is listed in the changed-since list from its own record, because a decision is a
-   * change in its own right and carries the decider's comment as its account. The trail's mirroring
-   * `approved` activity is not listed a second time where the approval itself is (see `collectChanges`).
+   * The approval records, in any order. A decided approval is listed in the changed-since list
+   * from its own record, a decision being a change in its own right, rather than from its
+   * mirroring `approved` activity (see `collectChanges`).
    */
   readonly approvals: readonly Approval[];
 }
@@ -341,26 +219,18 @@ export interface OverviewInput extends ExceptionAggregateInput {
  * ------------------------------------------------------------------------------------------- */
 
 /*
- * The civil-date arithmetic itself lives in `../solver/calendar`, the pure core's one implementation
- * of it: `calendarDateOf` reads the calendar date a record's own instant states, `shiftIsoDate` moves
- * a date by whole days, and `isWorkingDay` answers the working calendar contracts §1 fixes. This
- * module expresses the series' fourteen days and the changed-since window through those functions
- * rather than through copies of its own, so a correction to a leap rule, a month length or a date
- * format is made once. What stays here is what concerns an instant rather than a calendar date — an
- * elapsed-time measurement, and the code-unit ordering every non-date ordering of this module uses.
+ * The civil-date arithmetic lives in `../solver/calendar`, the pure core's one implementation of
+ * it, so a correction to a leap rule, a month length or a date format is made once. What stays
+ * here concerns an instant rather than a calendar date: an elapsed-time measurement, and the
+ * code-unit ordering every non-date ordering of this module uses.
  */
 
 /**
  * Compares two strings by code unit, ascending.
  *
- * Every ordering in this module that is not a date or a duration uses this comparison: a locale
- * comparison would order by the host's collation, where code-unit order answers identically everywhere
- * (AAP 0.18.2).
- *
- * @param left One string.
- * @param right The other string.
- * @returns A negative number when `left` sorts first, a positive one when `right` does, zero when they
- *   are equal.
+ * Every ordering here that is not a date or a duration uses this comparison: a locale comparison
+ * would order by the host's collation, where code-unit order answers identically everywhere (AAP
+ * 0.18.2).
  */
 function compareCodeUnits(left: string, right: string): number {
   if (left === right) {
@@ -376,10 +246,6 @@ function compareCodeUnits(left: string, right: string): number {
  * The difference of two parsed instants is the elapsed time, so the answer is the same on every
  * machine. An unparseable instant, or one that precedes the other, yields `null` rather than a
  * negative or a `NaN` duration: neither is a reading of how long a plan took.
- *
- * @param from The earlier instant.
- * @param to The later instant.
- * @returns The elapsed hours, or `null` when either instant is unreadable or the order is reversed.
  */
 function hoursBetween(from: Timestamp, to: Timestamp): number | null {
   const fromMillis = Date.parse(from);
@@ -393,15 +259,12 @@ function hoursBetween(from: Timestamp, to: Timestamp): number | null {
 }
 
 /**
- * Finds the most recent working day before a date.
+ * Finds the most recent working day before a date (contracts §1), through `isWorkingDay`, so a
+ * visit dated on a Monday reaches back to the preceding Friday.
  *
- * Implements the calendar of contracts §1 through `isWorkingDay`, so a visit dated on a Monday reaches
- * back to the preceding Friday and the window it opens is the one a planner would expect. The search
- * steps back at most a week, which always contains one working day because the calendar has no holiday
- * table.
- *
- * @param date The date to look back from, as `YYYY-MM-DD`.
- * @returns The nearest preceding working day, or `null` when the argument is not a well-formed date.
+ * The search steps back at most a week, which always contains one working day because the
+ * calendar has no holiday table; a date that is not well formed yields `null`, as an unreadable
+ * instant does.
  */
 function previousWorkingDay(date: IsoDate): IsoDate | null {
   for (let back = 1; back <= WORKING_DAY_LOOKBACK; back += 1) {
@@ -418,13 +281,10 @@ function previousWorkingDay(date: IsoDate): IsoDate | null {
 /**
  * Takes the middle value of a set of durations.
  *
- * AAP 0.8 fixes "the middle value of the qualifying history records" for the fourth tile and leaves the
- * even-count case open: with an even number of plans the value is the arithmetic mean of the two middle
- * durations, which is why the member is presented unrounded. With no qualifying plan the answer is the
- * empty set's identity rather than a reading of zero hours.
- *
- * @param durations The qualifying durations, in any order.
- * @returns The median duration, unrounded, or `NO_QUALIFYING_MEDIAN` for an empty set.
+ * AAP 0.8 fixes "the middle value of the qualifying history records" and leaves the even-count
+ * case open: with an even number of plans the value is the mean of the two middle durations,
+ * which is why the member is presented unrounded, and an empty set yields its identity rather
+ * than zero hours.
  */
 function medianOf(durations: readonly number[]): number {
   if (durations.length === 0) {
@@ -454,16 +314,14 @@ function medianOf(durations: readonly number[]): number {
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One exception the resolved scope admits, with the plant it is counted at, the affected lines derived
- * for it and the revenue those lines place at risk.
+ * One exception the resolved scope admits, with the plant it is counted at, the affected lines
+ * derived for it and the revenue those lines place at risk.
  *
- * The pair keeps the two decisions apart. Whether the exception is in the population is the scope's
- * answer, through `admitsPlant`; where it is counted is the record's own answer, its `plantId`. Reading
- * the plant from the record rather than from the selection is what makes one attribution serve both
- * surfaces: the queue's row and the by-plant row of this aggregate name the same plant for the same
- * exception, so no exception is counted twice and none the queue would show is missing here. The lines
- * and their amount travel with it because both are computed once, where they are first in hand, and
- * every tile and row that needs them reads them here (AAP 0.2.1).
+ * Whether the exception is in the population is the scope's answer, through `admitsPlant`; where
+ * it is counted is the record's own `plantId`, so the queue's row and the by-plant row name the
+ * same plant for the same exception. The lines and their amount travel with it because both are
+ * computed once, where they are first in hand, and every tile and row that needs them reads them
+ * here (AAP 0.2.1, AAP 0.8).
  */
 interface ScopedException {
   /** The exception record itself, read and never modified. */
@@ -477,9 +335,6 @@ interface ScopedException {
 
   /**
    * The revenue those affected lines place at risk, valued once, where the lines are in hand.
-   *
-   * `revenueOfAffectedLines` computes it from the very lines this entry carries, so the revenue tile and
-   * the by-plant rows read an amount rather than valuing the same lines again (AAP 0.2.1, AAP 0.8).
    */
   readonly revenue: Money;
 }
@@ -487,39 +342,19 @@ interface ScopedException {
 /**
  * Collects the exceptions the resolved scope admits, each with the plant it is counted at.
  *
- * The two filters are the queue's own: the plant selection, applied through `admitsPlant`, and the
- * product selection, applied through `admitsProducts` over the products the exception's affected lines
- * name. Both predicates and `productIdsOf` are imported from `./exceptions`, where they are stated
- * once: the queue and the overview admit by one pair of rules, so a change to plant or product
- * admission cannot leave the two describing different populations. Both modules also read the one
- * `Scope` that `./scope` resolved (AAP 0.2.1).
+ * The two filters are the queue's own — `admitsPlant`, and `admitsProducts` over the products
+ * the exception's affected lines name — and both are imported from `./exceptions` where they are
+ * stated once. A resolved `plants` member is never read as "all plants": `resolveScope` states
+ * that an empty array means nothing is in scope. The affected lines are derived and valued once
+ * here, where they are first in hand, so the customer-order count, the revenue tile and the
+ * by-plant rows read one entry and no caller re-derives or re-values it; an exception the
+ * product selection rejects is never valued, so the refusal an unpriceable line raises stays
+ * about a line this overview counts. The entries come back in ascending identifier order, so two
+ * calls with the same records return the same sequence.
  *
- * The plant an admitted exception is attributed to is the record's own `plantId`, which is the plant
- * the queue's row carries. The selection decides only which exceptions are in the population, never
- * which plant one of them is counted at, so an exception is counted at the same plant on both surfaces
- * whatever the selection is.
- *
- * A resolved `plants` member is never read as "all plants": `resolveScope` states that an empty array
- * means nothing is in scope and `admitsPlant` reads it that way, so a selection outside the acting
- * role's scope yields no entries rather than another plant's records.
- *
- * The affected lines and the revenue they place at risk are derived and valued once here, where the
- * lines are first in hand, and every tile and row that needs them reads them from the entry rather than
- * computing them again (AAP 0.18.2).
- *
- * The affected lines are derived once per admitted exception and valued once, where they are in hand,
- * which is why the customer-order count, the revenue tile and the by-plant rows all read one entry and
- * no caller re-derives or re-values it (AAP 0.2.1). An exception the product selection rejects is never
- * valued, so the refusal an unpriceable line raises stays about a line this overview actually counts.
- * Ordering: the exceptions come back in ascending identifier order, so two calls with the same records
- * return the same sequence and a caller can assert it.
- *
- * @param records The record bundle: the exceptions, the prices, the order book and the baseline solves.
- * @param scope The resolved scope, from `./scope`'s `resolveScope`.
- * @returns Fresh entries for the admitted exceptions, in ascending identifier order.
- * @throws UnpriceableLineError when an admitted exception's affected line names a product the bundle
- *   carries no price for, since its revenue could not be computed. The refusal is raised here because
- *   this is where the lines are valued.
+ * @throws UnpriceableLineError when an admitted exception's affected line names a product the
+ *   bundle carries no price for, since its revenue could not be computed. The refusal is raised
+ *   here because this is where the lines are valued.
  */
 function scopedExceptions(records: OverviewInput, scope: Scope): ScopedException[] {
   const scoped: ScopedException[] = [];
@@ -550,27 +385,17 @@ function scopedExceptions(records: OverviewInput, scope: Scope): ScopedException
 /**
  * Says whether an exception still counts as open.
  *
- * `ExceptionStatus` fixes three states and this module reads one of them: an exception is open when its
- * status says so, and a resolved or dismissed exception is history the tiles do not count. The three risk
- * tiles and the by-plant rows share this reading, which is what keeps the tile and the row sum equal.
- *
- * @param exception The exception to read.
- * @returns `true` when the exception's status is `open`.
+ * Two of `ExceptionStatus`'s three states are history the tiles do not count; the risk tiles and
+ * the by-plant rows share this reading, which is what keeps the tile and the row sum equal.
  */
 function isOpen(exception: OperationalException): boolean {
   return exception.status === 'open';
 }
 
 /**
- * Reads a plant's display name from the bundle.
- *
- * A plant the bundle carries no record for is labelled by its own identifier, which is the record's key
- * as the scope names it. Nothing is invented and nothing is left blank, and no plant name is written in
- * this file (rule P-6).
- *
- * @param plants The plant records the bundle carries.
- * @param plantId The plant whose name is wanted.
- * @returns The name the plant record states, or the plant's identifier when the bundle carries none.
+ * Reads a plant's display name from the bundle, falling back to the identifier's own key when
+ * the bundle carries no record for that plant: nothing is invented and nothing is left blank,
+ * and no plant name is written in this file (rule P-6).
  */
 function plantNameOf(plants: readonly NamedPlant[], plantId: PlantId): string {
   for (const plant of plants) {
@@ -583,24 +408,19 @@ function plantNameOf(plants: readonly NamedPlant[], plantId: PlantId): string {
 }
 
 /**
- * Measures alternate-source readiness: the share of the in-scope materials a second supplier can cover.
+ * Measures alternate-source readiness: the share of the in-scope materials a second supplier can
+ * cover.
  *
- * Implements contracts §5 and AAP 0.8's "readiness through `wholePercent`". A material is in scope when
- * the products it goes into meet the resolved scope's product selection, which is the admission the
- * exception rows are narrowed by — `admitsProducts`, whose empty `products` member is the "All products"
- * selection `./scope` states — so the share describes the same product selection as the rest of the
- * overview. The part is the in-scope materials carrying an `alternateSupplierId`, the whole is every
- * in-scope material, and the part over its whole is rounded half up to a whole percent, the one rounding
- * AAP 0.8 fixes for readiness.
+ * Implements contracts §5 and AAP 0.8's "readiness through `wholePercent`". A material is in
+ * scope when the products it goes into meet the resolved scope's product selection —
+ * `admitsProducts`, whose empty `products` member is the "All products" selection `./scope`
+ * states — so the share describes the same product selection as the rest of the overview; the
+ * part is the in-scope materials carrying an `alternateSupplierId`, the whole is every in-scope
+ * material.
  *
- * A material record names no plant, which is why the figure is reported once for the overview rather
- * than per by-plant row. With no material in scope the answer is the empty set's identity rather than a
- * reading that a population of nothing is unsourced, and the division by zero that reading would need is
- * never taken.
- *
- * @param materials The material master the bundle carries, in any order.
- * @param scope The resolved scope, whose products member is the product selection.
- * @returns The readiness as a whole percent in `[0, 100]`, and `0` when no material is in scope.
+ * A material record names no plant, which is why the figure is reported once for the overview;
+ * with no material in scope it is the empty set's identity and the division by zero is never
+ * taken.
  */
 function alternateSourceReadiness(materials: readonly SourcedMaterial[], scope: Scope): number {
   let inScope = 0;
@@ -628,15 +448,10 @@ function alternateSourceReadiness(materials: readonly SourcedMaterial[], scope: 
 /**
  * Sums the revenue the open exceptions place at risk, in euro to two decimals.
  *
- * Every term is the amount `revenueOfAffectedLines` valued for that exception from the very lines
- * `scopedExceptions` derived, so no term is derived or valued a second time here, and no term is rounded
- * on its way into the total: the total is closed once through `halfUp2`, which is the only rounding this
- * module applies (AAP 0.8, contracts §4 rule 5). The by-plant rows partition exactly these amounts, so
- * the tile and the rows add up to the cent.
- *
- * @param open The open exceptions the scope admits, each with the lines derived for it and the revenue
- *   they were valued at.
- * @returns The revenue at risk in euro, at most two decimals, and `0` when nothing is open.
+ * Every term is the amount `revenueOfAffectedLines` valued from the lines `scopedExceptions`
+ * derived, so no term is derived or valued a second time and none is rounded on the way in: the
+ * total closes once through `halfUp2`, and the by-plant rows partition exactly these amounts
+ * (AAP 0.8, contracts §4 rule 5).
  */
 function totalRevenue(open: readonly ScopedException[]): Money {
   let total = 0;
@@ -651,13 +466,9 @@ function totalRevenue(open: readonly ScopedException[]): Money {
 /**
  * Counts the distinct customer orders the open exceptions carry on their affected lines.
  *
- * An exception touches a customer order by naming it on a line, so the count is of distinct order
- * identifiers rather than of lines: two exceptions that reach the same order put one order at risk, not
- * two. The lines are the ones the bundle's baseline solves produced, so the figure follows the same
- * derivation the revenue and the queue use.
- *
- * @param open The open exceptions the scope admits, lines in hand.
- * @returns The number of distinct customer orders, as a whole count.
+ * An exception touches a customer order by naming it on a line, so the count is of distinct
+ * order identifiers rather than of lines: two exceptions that reach the same order put one order
+ * at risk.
  */
 function distinctOrderCount(open: readonly ScopedException[]): number {
   const orderIds = new Set<CustomerOrderId>();
@@ -674,15 +485,11 @@ function distinctOrderCount(open: readonly ScopedException[]): number {
 /**
  * Measures how long one exception took from detection to an approved plan.
  *
- * Both ends are activities of the trail the caller handed in: the earliest `opened` activity dates the
- * detection, and the earliest `approved` activity at or after it dates the approval (AAP 0.8's
- * "qualifying history records"). A trail with no opened activity, no approval after the detection, or an
- * unreadable instant contributes nothing to the median rather than a duration of zero, because neither
- * absence is a measurement that a plan took no time.
- *
- * @param activity The trail records of one exception, or `undefined` when the trail has none.
- * @param exceptionId The exception the activities must belong to.
- * @returns The elapsed hours, unrounded, or `null` when the exception has no qualifying pair.
+ * Both ends are activities of the trail handed in: the earliest `opened` activity dates the
+ * detection and the earliest `approved` activity at or after it dates the approval (AAP 0.8's
+ * "qualifying history records"). A trail with no opened activity, no approval after the
+ * detection, or an unreadable instant contributes nothing to the median rather than a duration
+ * of zero, because neither absence is a measurement that a plan took no time.
  */
 function approvedPlanHours(
   activity: readonly ActivityRecord[] | undefined,
@@ -738,15 +545,11 @@ function approvedPlanHours(
 /**
  * Measures the fourth tile: the middle hours between detection and an approved plan.
  *
- * The qualifying population is every exception the scope admits that carries both activities, whatever
- * its current status — a plan approved on an exception that has since been resolved is a real
- * measurement of how long approval took, and excluding it would bias the tile towards the exceptions
- * still open. The middle value is unrounded, as AAP 0.8 fixes it, and an empty population returns the
- * empty set's identity rather than a reading of zero hours.
- *
- * @param scoped The exceptions the scope admits.
- * @param historyByException The trail, grouped by the exception each activity belongs to.
- * @returns The median hours, unrounded, or `NO_QUALIFYING_MEDIAN` when no plan qualified.
+ * The qualifying population is every exception the scope admits that carries both activities,
+ * whatever its current status: a plan approved on an exception since resolved is a real
+ * measurement of how long approval took, and excluding it would bias the tile towards the
+ * exceptions still open. The middle value is unrounded, as AAP 0.8 fixes it, and an empty
+ * population yields the empty set's identity.
  */
 function medianHoursToApprovedPlan(
   scoped: readonly ScopedException[],
@@ -772,16 +575,10 @@ function medianHoursToApprovedPlan(
 /**
  * Names the plants the by-plant rows cover, in the order the table states them.
  *
- * The set is the selection's own plants together with the plant each admitted open exception is
- * recorded at. The order is `records.plants`' — the canonical plant order the records state — so two
- * calls with the same records return the same sequence; a plant no plant record holds follows those
- * that do, in the order it is first named, the selection first and then the admitted exceptions in
- * their own order.
- *
- * @param records The record bundle: the plant records that state the canonical order.
- * @param scope The resolved scope, whose plants member is one half of the set.
- * @param open The open exceptions the scope admits, whose recorded plants are the other half.
- * @returns The plant identifiers the rows cover, each once, in the stated order.
+ * The set is the selection's plants together with the plant each admitted open exception is
+ * recorded at. The order is `records.plants`' — the canonical plant order the records state; a
+ * plant no record holds follows those that do, the selection first and then the admitted
+ * exceptions in their own order.
  */
 function plantRowOrder(
   records: OverviewInput,
@@ -822,26 +619,19 @@ function plantRowOrder(
 }
 
 /**
- * Groups the open exceptions by the plant each is recorded at, one row per plant the read reports.
+ * Groups the open exceptions by the plant each is recorded at, one row per plant the read
+ * reports.
  *
- * The rows are the tiles split by plant: the open count and the revenue at risk of the exceptions
- * recorded at each plant, so the rows partition the admitted open exceptions and add up to the tiles
- * exactly. Each exception's amount is the one `scopedExceptions` valued where its lines were derived, so
- * nothing is valued again here. A row is emitted for every plant the resolved scope names — a plant in
- * scope with nothing open keeps its row, with a count and an amount of zero, because a plant a planner
- * can see and that has no exception is a reading in its own right — and for every plant an admitted open
- * exception is recorded at. The second half is what gives an exception recorded outside the selection its
- * own row instead of folding it into an in-scope one, and it is the queue's own attribution read here, so
- * the two surfaces group the same rows the same way (AAP 0.2.1).
+ * The rows are the tiles split by plant, so they partition the admitted open exceptions and add
+ * up to the tiles exactly, each amount the one `scopedExceptions` valued. A row is emitted for
+ * every plant the resolved scope names — a plant in scope with nothing open keeps its row, with
+ * a zero count and amount, because a plant a planner can see and that has no exception is a
+ * reading in its own right — and for every plant an admitted open exception is recorded at, so
+ * an exception recorded outside the selection gets its own row instead of being folded into an
+ * in-scope one (AAP 0.2.1). The order is the canonical plant order `records.plants` states,
+ * never the selection's or the caller's own, so the table reads the same way twice;
+ * {@link plantRowOrder} states it and the set it orders.
  *
- * The order is the canonical plant order `records.plants` states — `PLT-RGB`, `PLT-BRN`, `PLT-QRO`,
- * `PLT-RAK` — never the selection's or the caller's own order, so the table reads the same way twice
- * whatever the selection is. {@link plantRowOrder} states it and the set it orders.
- *
- * @param records The record bundle: the plant records that fix the order and label the rows.
- * @param scope The resolved scope, whose plants member fixes the rows a selection names.
- * @param open The open exceptions the scope admits, each with the revenue its lines were valued at.
- * @returns A fresh row per plant the selection names or an admitted open exception is recorded at.
  * @throws Error when an affected line names a product the baseline carries no price for, as
  *   `totalRevenue` does.
  */
@@ -879,24 +669,18 @@ function plantRows(
 /**
  * Says whether one exception is an entry the fourteen-day series counts on one calendar day.
  *
- * This is the series' own rule, stated once and exported, so the counts and the queue's day filter
- * cannot drift apart: an exception counts on a day when its record was detected that day — the
- * `detectedAt` member every exception carries, which dates the opened count — or when its activity
- * trail holds a `resolved` record that day, which is where the resolved count reads it. A day is a
- * calendar date read from the instant in
- * that instant's own offset, through the same {@link calendarDateOf} the counts use, so no time zone,
- * locale or clock of the host can move an exception to another day. A day that is not a well-formed
- * calendar date matches nothing rather than throwing: it is a caller's malformed filter, and the read
- * it narrows answers with no rows.
+ * This is the series' own rule, stated once and exported, so the counts and the queue's day
+ * filter cannot drift apart: an exception counts on a day when its record was detected that day
+ * — the `detectedAt` member every exception carries, which dates the opened count — or when its
+ * activity trail holds a `resolved` record that day, which is where the resolved count reads it.
+ * A day is a calendar date read from the instant in that instant's own offset, through the same
+ * {@link calendarDateOf} the counts use, so no host time zone, locale or clock can move an
+ * exception to another day. A day that is not a well-formed calendar date matches nothing rather
+ * than throwing: it is a caller's malformed filter, and the read it narrows answers with no
+ * rows.
  *
- * The history is the whole activity trail rather than this exception's slice, because that is the shape
- * the adapter holds and the trail is small; every record that is not this exception's resolution on
- * this day is ignored without being indexed.
- *
- * @param exception - The exception to place on the day.
- * @param history - The activity trail the resolved side is read from.
- * @param day - The calendar date to test, as `YYYY-MM-DD`.
- * @returns `true` when the exception was opened or resolved on that day.
+ * The history is the whole trail rather than this exception's slice, because that is the shape
+ * the adapter holds and the trail is small; every other record is ignored without being indexed.
  */
 export function openedOrResolvedOn(
   exception: OperationalException,
@@ -916,26 +700,21 @@ export function openedOrResolvedOn(
 }
 
 /**
- * Counts the exceptions opened and resolved on each of the fourteen days ending on the as-of date.
+ * Counts the exceptions opened and resolved on each of the fourteen days ending on the as-of
+ * date.
  *
- * The opened count reads each exception record's own `detectedAt`, which every exception carries, so no
- * exception is missing from it; the resolved count reads the activity trail's `resolved` records, because
- * an exception record carries no resolved-at member.
- * Both are counts of whole exceptions and both are restricted to the exceptions the scope admits.
- * {@link openedOrResolvedOn} states that rule for one day at a time and is what the queue's day filter
- * reads; this function states it as the two counts a chart draws, over one sweep of the records.
+ * The opened count reads each exception record's own `detectedAt`, so no exception is missing
+ * from it; the resolved count reads the trail's `resolved` records, because an exception record
+ * carries no resolved-at member. Both count whole exceptions and both are restricted to the
+ * exceptions the scope admits, which {@link openedOrResolvedOn} states for one day at a time and
+ * the queue's day filter reads.
  *
- * The days are calendar days, ascending, ending on the as-of date and derived from that instant alone, so
- * the series is the same length on every run and its last point is the day the demonstration clock stands
- * on — the date the queue filters by. A day with no activity keeps its point with two zeros rather than
- * being dropped, so a chart drawn from the series has no gap in its axis. An as-of instant whose opening
- * characters are not a calendar date yields an empty series rather than a throw, because the tile and the
- * rows are still worth reporting without it.
- *
- * @param records The record bundle: the exceptions, the trail and the as-of instant.
- * @param scoped The exceptions the scope admits.
- * @param asOfDate The calendar date the as-of instant falls on, or `null` when it is unreadable.
- * @returns One point per day, in ascending date order.
+ * The days are calendar days, ascending, derived from the as-of instant alone, so the series is
+ * the same length on every run and its last point is the day the demonstration clock stands on.
+ * A day with no activity keeps its point with two zeros, so a chart drawn from the series has no
+ * gap in its axis. An as-of instant whose opening characters are not a calendar date yields an
+ * empty series rather than a throw, because the tile and the rows are still worth reporting
+ * without it.
  */
 function buildSeries(
   records: OverviewInput,
@@ -1012,15 +791,11 @@ interface ChangeCandidate {
 /**
  * Says whether an instant falls inside the changed-since window.
  *
- * The window opens on the start of the most recent working day before the as-of date and closes at the
- * as-of instant itself, so nothing dated after the demonstration clock is reported as a change. The
- * opening bound is compared as a calendar date, read in the instant's own offset, and the closing bound
- * as an instant, because a record written later on the as-of date has not happened yet by the clock.
- *
- * @param instant The instant of the record's own change.
- * @param windowStart The first calendar date the window admits.
- * @param asOfMillis The as-of instant in milliseconds, or `NaN` when it could not be read.
- * @returns `true` when the instant is on or after the window's first day and not after the as-of instant.
+ * The window opens on the start of the most recent working day before the as-of date and closes
+ * at the as-of instant itself, so nothing dated after the demonstration clock is reported as a
+ * change. The opening bound is compared as a calendar date read in the instant's own offset and
+ * the closing bound as an instant, because a record written later on the as-of date has not
+ * happened yet by the clock.
  */
 function isInChangeWindow(instant: Timestamp, windowStart: IsoDate, asOfMillis: number): boolean {
   const date = calendarDateOf(instant);
@@ -1045,21 +820,16 @@ function isInChangeWindow(instant: Timestamp, windowStart: IsoDate, asOfMillis: 
 /**
  * Builds the changed-since list from the records' own dates.
  *
- * Two record kinds make a change. An activity on the trail — opened, assigned, noted, dismissed or
- * resolved — is listed from the trail record, whose `note` is its own account of what happened. A
- * decision on an approval is listed from the approval record, whose decider comment is the account and
- * whose identifier opens the approval itself. Where both describe the same decision, the trail's
- * mirroring `approved` activity is not listed beside the approval, so a decision appears once; an
- * approval the bundle does not carry is still reported from the trail it left.
+ * Two record kinds make a change: an activity on the trail — opened, assigned, noted, dismissed
+ * or resolved — listed from the trail record, whose `note` is its own account, and a decision on
+ * an approval, listed from the approval record, whose decider comment is the account and whose
+ * identifier opens the approval itself. Where both describe the same decision, the trail's
+ * mirroring `approved` activity is not listed beside the approval, so a decision appears once;
+ * an approval the bundle does not carry is still reported from the trail it left.
  *
- * The list is ordered most recent first, then by reference and detail by code unit, so the order is a
- * function of the records rather than of the bundle's array order. The window is the one the module
- * header records, derived from the as-of instant alone (AAP 0.2.1's purity, rule P-6's no typed figure).
- *
- * @param records The record bundle: the trail, the approvals and the as-of instant.
- * @param scoped The exceptions the scope admits, which is what limits the list to what the user may see.
- * @param asOfDate The calendar date the as-of instant falls on, or `null` when it is unreadable.
- * @returns Fresh entries, most recent change first, or an empty list when nothing changed in the window.
+ * The list is ordered most recent first, then by reference and by detail by code unit, so the
+ * order is a function of the records rather than of the bundle's array order. The window is the
+ * module header's, derived from the as-of instant alone.
  */
 function collectChanges(
   records: OverviewInput,
@@ -1149,12 +919,10 @@ function collectChanges(
 /**
  * Groups the activity trail by the exception each activity belongs to.
  *
- * The median walks one exception's activities at a time, so the trail is indexed once instead of scanned
- * once per exception. The groups keep the trail's own order, which makes the earliest-activity search in
- * `approvedPlanHours` a matter of the records rather than of the map.
- *
- * @param history The activity trail, in any order.
- * @returns A fresh map from an exception identifier to that exception's activities.
+ * The median walks one exception's activities at a time, so the trail is indexed once instead of
+ * scanned once per exception. The groups keep the trail's own order, which makes the
+ * earliest-activity search in `approvedPlanHours` a matter of the records rather than of the
+ * map.
  */
 function groupHistoryByException(
   history: readonly ActivityRecord[],
@@ -1175,44 +943,23 @@ function groupHistoryByException(
 }
 
 /**
- * Computes the overview: the four tiles, the alternate-source readiness share, the changed-since list,
- * the by-plant rows and the series — contracts §5; AAP 0.8's overview row; AAP 0.12.1's overview
- * aggregates.
+ * Computes the overview: the four tiles, the alternate-source readiness share, the changed-since
+ * list, the by-plant rows and the series — contracts §5; AAP 0.8's overview row; AAP 0.12.1's
+ * overview aggregates; AAP 0.12.2's `Overview`.
  *
- * One pure call over the records the caller hands in and a scope the caller has already resolved, which
- * is the whole contract of this module: the scope is never re-derived (AAP 0.2.1), no clock is read (the
- * as-of instant travels in the bundle, since AAP 0.12.1's signature carries no clock parameter), no
- * random source is opened and nothing is written to a global. The same two arguments always produce a
- * deeply equal `Overview`, and neither argument nor any record inside it is modified — every array and
- * object returned is built here.
+ * One pure call over the records handed in and a scope the caller has already resolved, which is
+ * the whole contract of this module: the scope is never re-derived (AAP 0.2.1), no clock is read
+ * (the as-of instant travels in the bundle, since AAP 0.12.1's signature carries no clock
+ * parameter), no random source is opened and nothing is written to a global. The same two
+ * arguments always produce a deeply equal `Overview`, and neither argument nor any record inside
+ * it is modified — every array and object returned is built here.
  *
- * What each member is computed from:
- * - `openExceptions` counts the exceptions the scope admits whose status is open.
- * - `revenueAtRiskEur` sums the amount each of those exceptions was valued at once, where its affected
- *   lines were derived, and closes the total once through `halfUp2`.
- * - `customerOrdersAtRisk` counts the distinct customer orders their affected lines name.
- * - `medianHoursToApprovedPlan` takes the middle detection-to-approval duration of the exceptions that
- *   carry both activities, unrounded.
- * - `alternateSourceReadinessPercent` reports the share of the in-scope materials a second supplier can
- *   cover, rounded half up through `wholePercent`.
- * - `changedSinceLastVisit` lists the activity and the decisions of the window the module header fixes.
- * - `byPlant` groups the open exceptions by the plant each is recorded at, over the plants the
- *   selection names and the plants those exceptions are recorded at, in canonical plant order, so the
- *   rows add up to the tiles and a plant's figure is the same whatever the selection is.
- * - `openResolvedSeries` reports the fourteen days ending on the as-of date.
+ * Every figure reaches a screen as a computed one and carries `Simulated calculation` there
+ * (rule P-1); this module emits no label, and nothing it returns combines a first-party value
+ * with a market-intelligence one (rule P-5).
  *
- * Every figure reaches a screen as a computed one and carries `Simulated calculation` there (rule P-1);
- * this module emits no label, and nothing it returns combines a first-party value with a
- * market-intelligence one (rule P-5).
- *
- * @param records The record bundle: the exceptions, the product prices their lines are valued at, the
- *   order book, the baseline solves, the plants, the material master, the activity trail, the approvals
- *   and the as-of instant.
- * @param scope The resolved scope, from `./scope`'s `resolveScope`. Its `plants` member empty means
- *   nothing is in scope.
- * @returns The computed overview, freshly built.
- * @throws Error when an in-scope exception's affected line names a product the bundle does not carry,
- *   since its revenue could not be computed.
+ * @throws Error when an in-scope exception's affected line names a product the bundle does not
+ *   carry, since its revenue could not be computed.
  */
 export function computeOverview(records: OverviewInput, scope: Scope): Overview {
   const scoped = scopedExceptions(records, scope);

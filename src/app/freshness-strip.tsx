@@ -65,15 +65,15 @@
  * - Loaded: one pill per record, in the catalogue's order. An empty catalogue is stated as such
  *   rather than rendered as an empty row of nothing.
  *
- * WHY THE PILLS SIT BEHIND A DISCLOSURE BELOW THE `md` BREAKPOINT. The top bar is the shell's banner
- * on every route, so every line it takes is taken off every screen. At a 375 px window the six pills
- * wrapped onto two lines of their own and, together with the role switcher's labelled select, left
- * the navigation and the route's own heading below the fold of a phone viewport: the header measured
- * 584 px above a 328 px navigation in an 812 px viewport (QA finding qa-w013-I35). Everything below
- * `md` — 48rem — therefore holds the pills behind one disclosure. Its trigger is this component's
- * because the pills are the content it reveals (AAP §0.5.2), and the nine top-bar positions keep the
- * order AAP §0.12.1 fixes either way, because the trigger stands where the pills stand. From `md` up
- * the strip renders exactly what it rendered before: one group of six pills, no trigger, no extra
+ * WHY THE PILLS SIT BEHIND A DISCLOSURE BELOW THE `md` BREAKPOINT. The top bar is the shell's
+ * banner on every route, so every line it takes is taken off every screen. At a 375 px window the
+ * six pills wrapped onto two lines of their own and, together with the role switcher's labelled
+ * select, left the navigation and the route's own heading below the fold of a phone viewport: the
+ * header measured 584 px above a 328 px navigation in an 812 px viewport. Everything below `md` —
+ * 48rem — therefore holds the pills behind one disclosure. Its trigger is this component's because
+ * the pills are the content it reveals (AAP §0.5.2), and the nine top-bar positions keep the order
+ * AAP §0.12.1 fixes either way, because the trigger stands where the pills stand. From `md` up the
+ * strip renders exactly what it rendered before: one group of six pills, no trigger, no extra
  * element.
  *
  * THE DISCLOSURE NEVER HIDES A REFUSAL. Only the pills fold away. The pending caption, the unreadable
@@ -142,19 +142,19 @@ const FRESHNESS_QUERY_KEY = ['getSourceCatalogue'] as const;
  * grid's own step, so six pills share a narrow top bar without a margin between siblings and without
  * overflowing the row.
  *
- * WHY THE GROUP OWNS A LINE AND A RESERVED HEIGHT. The top bar is one wrapping row (`ROW_CLASSES` in
- * `src/app/top-bar.tsx`) whose height every control beside this one pays for, so a group that changes
- * size when its read answers re-breaks its neighbours' lines and moves the navigation and the page's
- * own content under the reader. Measured on the desktop audit (QA finding QA1-01): this group's read
- * settling turned a single notice line into the pills' block and shifted `main#main-content` by 0.35 of
- * the viewport. `basis-full` therefore gives the group a line nothing else shares, so the pills' width
- * is the bar's width rather than a share of it and nothing beside it re-wraps when they arrive; the
- * floor classes then hold the height the pills will occupy before they arrive — 64 px from `lg` up
- * (the two-row block the six pills make on a desktop line), 100 px between `md` and `lg` (the three
- * rows they make once the line is narrower) and 64 px below `md`, where the pills sit behind the
- * disclosure and this box holds its trigger. It is a floor rather than a fixed height: a notice that
- * needs more lines still takes them, because clipping the reason a read did not happen to save a line
- * would state less than rule P-4 requires.
+ * WHY THE GROUP OWNS A LINE AND A RESERVED HEIGHT. The top bar is one wrapping row (`ROW_CLASSES`
+ * in `src/app/top-bar.tsx`) whose height every control beside this one pays for, so a group that
+ * changes size when its read answers re-breaks its neighbours' lines and moves the navigation and
+ * the page's own content under the reader. Measured on the desktop audit: this group's read
+ * settling turned a single notice line into the pills' block and shifted `main#main-content` by
+ * 0.35 of the viewport. `basis-full` therefore gives the group a line nothing else shares, so the
+ * pills' width is the bar's width rather than a share of it and nothing beside it re-wraps when
+ * they arrive; the floor classes then hold the height the pills will occupy before they arrive —
+ * 64 px from `lg` up (the two-row block the six pills make on a desktop line), 100 px between `md`
+ * and `lg` (the three rows they make once the line is narrower) and 64 px below `md`, where the
+ * pills sit behind the disclosure and this box holds its trigger. It is a floor rather than a fixed
+ * height: a notice that needs more lines still takes them, because clipping the reason a read did
+ * not happen to save a line would state less than rule P-4 requires.
  *
  * No colour or surface is set here — each pill owns its own, and the token layer exposes no elevation
  * utility for either surface to select (specification §4.3). The one size is the reserved block, stated

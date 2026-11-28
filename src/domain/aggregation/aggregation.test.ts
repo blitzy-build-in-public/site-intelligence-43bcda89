@@ -60,9 +60,10 @@
  *   aggregates themselves declare, so nothing a competitor figure reaches the suite through exists in
  *   its vocabulary.
  * - P-2: it imports the five sibling modules, the scope resolver, two permission and rounding
- *   helpers, the seeded record set, the audit chain that links it and `vitest` — no service module and
- *   no React — so the aggregates are exercised exactly as the adapter exercises them. The seed imports
- *   are the documented exception the note above them states.
+ *   helpers, the audit chain that links its events, the `tests/fixtures` accessor that holds the
+ *   seeded record set, and `vitest` — no service module and no React — so the aggregates are
+ *   exercised exactly as the adapter exercises them. The note beside the imports states why the
+ *   records are reached that way.
  * - P-4: no case title or comment claims these aggregates establish sovereignty, prevent copying or
  *   resist tampering; they report counts and amounts and claim nothing beyond them.
  * - P-7: the identifiers are test-local and carry `PROBE`; no company, person, vendor or product of
@@ -137,19 +138,20 @@ import { computeRibbonTiles, countAtHeadOfUrgency, sortUrgent } from './urgency'
  * baseline solves the adapter takes with `solveSupplyDelay` at the do-nothing levers, because the
  * affected-lines rule reads a measurement rather than a stored figure.
  *
- * HOW THE RECORDS ARE REACHED, AND WHY THIS WAY. Rule P-2 lets one module read `src/seed/` — the mock
- * adapter's loader — and `tests/source-checks/no-seed-import-outside-mock.test.ts` fails on every other
- * import of the folder, a suite included. The records therefore arrive through `loadSeed()`, the call
- * the adapter's bootstrap makes, and the bindings after the imports name the members it returns. That
- * is a deliberate test-only dependency from this folder on `src/services/mock`: rule P-2 leaves no
- * other door to a seeded record, and the modules under test still import neither the service layer nor
- * the seed. The audit chain is imported for the ledger comparison alone: `computeLedger` counts linked
- * events, so the drafts are linked here the way the adapter's bootstrap links them, with real hashes
- * rather than placeholders.
+ * HOW THE RECORDS ARE REACHED, AND WHY THIS WAY. AAP 0.2.1, AAP 0.13.2 and AAP 0.18.1 forbid a file
+ * under `src/domain` from importing the service layer, so this suite may not name it; and rule P-2
+ * lets one module read `src/seed/`, the mock adapter's loader, which
+ * `tests/source-checks/no-seed-import-outside-mock.test.ts` keeps as that folder's only importer. Both
+ * hold because the records arrive through `loadSeededRecordSet()`, the accessor in
+ * `tests/fixtures/seeded-record-set.ts` that holds this one dependency inside `tests/`: it makes the
+ * call the adapter's bootstrap makes, and the bindings after the imports name the members it returns.
+ * This folder therefore names neither the service layer nor the seed, and the modules under test are
+ * exercised exactly as the adapter exercises them. The audit chain is imported for the ledger
+ * comparison alone: `computeLedger` counts linked events, so the drafts are linked here the way the
+ * adapter's bootstrap links them, with real hashes rather than placeholders.
  */
 import { appendEvent } from '../audit/chain';
 import { solveSupplyDelay } from '../solver/solve-supply-delay';
-import { loadSeed } from '../../services/mock/seed-loader';
 import {
   EXPECTED_AFFECTED_LINES_BY_EXCEPTION,
   EXPECTED_BY_PLANT,
@@ -160,20 +162,22 @@ import {
   EXPECTED_REVENUE_AT_RISK_BY_EXCEPTION,
   EXPECTED_URGENT_ORDER,
 } from '../../../tests/fixtures/aggregates-expected';
+import { loadSeededRecordSet } from '../../../tests/fixtures/seeded-record-set';
 
 /* ---------------------------------------------------------------------------------------------
  * The seeded record set, as the mock adapter loads it (rule P-2, AAP 0.9)
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * One deep clone of every seeded record, taken through the adapter's loader.
+ * One deep clone of every seeded record, taken through the fixtures accessor.
  *
- * Rule P-2 leaves exactly one door to `src/seed/`, and `loadSeed()` is the suite's way through it: the
- * same call the adapter's bootstrap makes, returning records typed by the barrel. Nothing here writes
- * to the clone, and each binding below names the member the comparisons read, so a renamed record set
- * fails the type check here rather than leaving a comparison against an empty collection.
+ * `loadSeededRecordSet()` is the suite's way to the record set: it makes the call the adapter's
+ * bootstrap makes and hands back the records the loader publishes, so this folder depends on no
+ * service module of its own. Nothing here writes to the clone, and each binding below names the member
+ * the comparisons read, so a renamed record set fails the type check here rather than leaving a
+ * comparison against an empty collection.
  */
-const SEEDED_RECORD_SET = loadSeed();
+const SEEDED_RECORD_SET = loadSeededRecordSet();
 
 /** The exception records the queue, the overview and the ribbon are computed over. */
 const EXCEPTIONS = SEEDED_RECORD_SET.exceptions;

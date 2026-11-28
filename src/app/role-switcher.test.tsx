@@ -30,12 +30,16 @@
  * the wide presentation the markup every other suite in this repository reads (rules P-3 and P-8).
  *
  * THE SERVICE IS MOCKED AT THE PROVIDER, the one boundary a shell module may read records through
- * (rule P-2). The specifier below is exactly the one `./role-switcher.tsx` imports, and Vitest keys a
- * mock on the resolved module, so the same stub also answers `providers.tsx`'s own import of
- * `useActiveUser`. The real provider is never reached, and that is the point: its bootstrap hashes the
- * seeded audit trail through `crypto.subtle`, which rejects jsdom's `ArrayBuffer` realm, so a suite
- * that rendered through it would be testing the platform rather than the control. The stub is created
- * through `vi.hoisted` so it exists before the mocked module is loaded, and it is typed from
+ * (rule P-2). The specifier below is exactly the one `./role-switcher.tsx` imports, and Vitest keys
+ * a mock on the resolved module, so the same stub also answers `providers.tsx`'s own import of
+ * `useActiveUser`. The real provider is never reached, and that is the point: its bootstrap hashes
+ * the seeded audit trail, so a suite that rendered through it would be testing the adapter's
+ * bootstrap rather than the control. That hash is a platform call and not a DOM one: the chain hashes
+ * through `globalThis.crypto.subtle`, and jsdom 31 exposes no `crypto.subtle` of its own, so the
+ * digest resolves to the platform's implementation — the environment declaration that carries that
+ * requirement with the module, and the reason for it, are stated once in the header of
+ * `src/domain/audit/audit.test.ts`. The stub is created through `vi.hoisted` so it exists before the
+ * mocked module is loaded, and it is typed from
  * `DemonstrationControls` itself, so it cannot drift from the signature the control calls.
  *
  * THE REAL SHELL STORE IS USED, NOT A DOUBLE. `providers.tsx` is imported rather than mocked, because

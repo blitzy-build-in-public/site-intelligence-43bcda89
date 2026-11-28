@@ -194,7 +194,7 @@ interface RenderedControl {
   /** The role the control carries. */
   readonly role: ControlRole;
 
-  /** The control itself. */
+  /** The locator that reaches the control, which every press and state read goes through. */
   readonly control: Locator;
 
   /** The accessible name as rendered, whitespace collapsed. */

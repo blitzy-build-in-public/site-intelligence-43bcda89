@@ -1,47 +1,41 @@
 /**
  * The navigation table of the Site Intelligence shell.
  *
- * Declares the entries the shell's navigation offers: the thirteen visible
- * entries in three groups, the further routes that answer without being listed,
- * the build stage that owns each entry, and the disabled state with the exact
- * tooltip that goes with it.
+ * Declares the entries the shell's navigation offers: the thirteen visible entries in three groups,
+ * the further routes that answer without being listed, the build stage that owns each entry, and
+ * the disabled state with the exact tooltip that goes with it.
  *
- * Pure data module (AAP 0.12.1 "Navigation table"; AAP 0.13.1's tree; AAP
- * 0.15.1's high-priority row for `app.tsx`, `router.tsx`, `providers.tsx` and
- * this file). It holds values and the two lookups the shell needs, imports the
- * `Role` union and the queue's path from `src/types`, and reads nothing: no
- * React, no JSX, no I/O, no clock, no seed record and no service adapter. Every
- * collection and every member is `readonly`, so a consumer cannot reorder the
- * navigation or rewrite an entry at run time.
+ * Pure data module (AAP 0.12.1 "Navigation table"; AAP 0.13.1's tree; AAP 0.15.1's high-priority
+ * row for `app.tsx`, `router.tsx`, `providers.tsx` and this file). It holds values and the two
+ * lookups the shell needs, imports the `Role` union and the queue's path from `src/types`, and
+ * reads nothing: no React, no JSX, no I/O, no clock, no seed record and no service adapter. Every
+ * collection and every member is `readonly`, so a consumer cannot reorder the navigation or rewrite
+ * an entry at run time.
  *
- * DERIVATION - section 5.2 is not on disk. The specification's own navigation
- * table (section 5.2) is not part of this repository, so the entries below are
- * derived from the route table of AAP 0.12.4: its screen identifiers, the stage
- * that owns each route, the tooltip on each entry whose stage has not arrived,
- * and the persona entry routes its landing-route paragraph fixes. If
- * `platform-specification.md` is supplied later, its section 5.2 labels and
- * order transcribe over this derivation and supersede it; no consumer changes,
- * because the shell, the router and the tests all read the table from here
- * rather than restating an entry.
+ * DERIVATION - section 5.2 is not on disk. The specification's own navigation table (section 5.2)
+ * is not part of this repository, so the entries below are derived from the route table of AAP
+ * 0.12.4: its screen identifiers, the stage that owns each route, the tooltip on each entry whose
+ * stage has not arrived, and the persona entry routes its landing-route paragraph fixes. If
+ * `platform-specification.md` is supplied later, its section 5.2 labels and order transcribe over
+ * this derivation and supersede it; no consumer changes, because the shell, the router and the
+ * tests all read the table from here rather than restating an entry.
  *
  * Rules served:
- * - P-8: one entry either navigates to a route the router declares or carries a
- *   `disabledReason` that explains itself in words. This module is the single
- *   source of that state, so no second list can drift from it, and the shell
- *   renders a disabled entry as an action control with its reason rather than as
- *   a link.
- * - P-7: every label uses the product's own vocabulary, Site Intelligence and the
- *   FileMap canvas, and names no real company or product.
- * - P-4: no label states or implies a deployment property. The governance entries
- *   are named for the screen that shows declared configuration, and nothing here
- *   describes what that configuration would establish.
- * - P-6: routes, screen identifiers and stage numbers only. No threshold, amount,
- *   count, date or record identifier appears, because nothing here is a business
- *   figure.
- * - P-2: a type and one route path are the only imports, so this module cannot
- *   become a second data boundary.
- * - B-3: an entry's label is the accessible name of the control the shell renders
- *   for it, so a disabled entry is announced together with its reason.
+ * - P-8: one entry either navigates to a route the router declares or carries a `disabledReason`
+ *   that explains itself in words. This module is the single source of that state, so no second
+ *   list can drift from it, and the shell renders a disabled entry as an action control with its
+ *   reason rather than as a link.
+ * - P-7: every label uses the product's own vocabulary, Site Intelligence and the FileMap canvas,
+ *   and names no real company or product.
+ * - P-4: no label states or implies a deployment property. The governance entries are named for the
+ *   screen that shows declared configuration, and nothing here describes what that configuration
+ *   would establish.
+ * - P-6: routes, screen identifiers and stage numbers only. No threshold, amount, count, date or
+ *   record identifier appears, because nothing here is a business figure.
+ * - P-2: a type and one route path are the only imports, so this module cannot become a second data
+ *   boundary.
+ * - B-3: an entry's label is the accessible name of the control the shell renders for it, so a
+ *   disabled entry is announced together with its reason.
  * - B-2: nothing here reads configuration and nothing resembles a credential.
  */
 import { EXCEPTION_QUEUE_PATH } from '../types/routes';
@@ -50,10 +44,10 @@ import type { Role } from '../types/entities';
 /**
  * The build stage that owns a route.
  *
- * Stages S1 to S3 are built in this run and their entries navigate. S4 and S5
- * arrive in a later run (AAP 0.7), so their entries are listed and disabled with
- * the tooltip `disabledTooltipFor` returns, which is how a person sees where the
- * workspace is going without a control that fails when they reach for it.
+ * Stages S1 to S3 are built in this run and their entries navigate. S4 and S5 arrive in a later run
+ * (AAP 0.7), so their entries are listed and disabled with the tooltip `disabledTooltipFor`
+ * returns, which is how a person sees where the workspace is going without a control that fails
+ * when they reach for it.
  */
 export type NavStage = 1 | 2 | 3 | 4 | 5;
 
@@ -70,20 +64,17 @@ export interface NavItem {
   /**
    * The route path the entry navigates to.
    *
-   * A disabled entry carries the route its stage will declare, kept as a pattern
-   * where the route is parameterised (`/plants/:plantId/plan`). The shell renders
-   * a disabled entry through an action control and never as a link, so a person
-   * never follows a pattern from here; the route itself is still declared, since
-   * `STAGE_NOTICE_ROUTES` takes every disabled entry's own `to` and
-   * `FURTHER_ROUTES` publishes it. A person who reaches that path by address is
-   * therefore told which stage its workspace arrives in rather than landing on a
-   * page that does not exist.
+   * A disabled entry carries the route its stage will declare, kept as a pattern where the route is
+   * parameterised (`/plants/:plantId/plan`). The shell renders a disabled entry through an action
+   * control and never as a link, so a person never follows a pattern from here; the route itself is
+   * still declared, since `STAGE_NOTICE_ROUTES` takes every disabled entry's own `to` and
+   * `FURTHER_ROUTES` publishes it. A person who reaches that path by address is therefore told
+   * which stage its workspace arrives in rather than landing on a page that does not exist.
    */
   readonly to: string;
 
   /**
-   * The screen identifier the route belongs to, or `null` where no screen of this
-   * run owns it yet.
+   * The screen identifier the route belongs to, or `null` where no screen of this run owns it yet.
    */
   readonly screenId: string | null;
 
@@ -91,9 +82,9 @@ export interface NavItem {
   readonly stage: NavStage;
 
   /**
-   * `null` when the entry navigates, or the exact tooltip text when it is
-   * disabled. The two are mutually exclusive by construction: `NAV_GROUPS` fills
-   * one and leaves the other `null` for every entry.
+   * `null` when the entry navigates, or the exact tooltip text when it is disabled. The two are
+   * mutually exclusive by construction: `NAV_GROUPS` fills one and leaves the other `null` for
+   * every entry.
    */
   readonly disabledReason: string | null;
 }
@@ -115,10 +106,9 @@ export interface NavGroup {
 /**
  * A route the application answers without listing it in the navigation.
  *
- * These are the routes a person reaches from a row, a card or the entry route:
- * a detail screen for a selected record, or the page that states which stage a
- * workspace arrives in. The router mounts each of them; the navigation never
- * shows them.
+ * These are the routes a person reaches from a row, a card or the entry route: a detail screen for
+ * a selected record, or the page that states which stage a workspace arrives in. The router mounts
+ * each of them; the navigation never shows them.
  */
 export interface FurtherRoute {
   /** The route path as the router matches it. */
@@ -142,10 +132,10 @@ export interface FurtherRoute {
 /**
  * The tooltip of an entry whose stage has not been built.
  *
- * Fixed text: exact wording, no trailing period, never paraphrased and never
- * abbreviated, because rule P-8 makes this sentence the only thing that tells a
- * person why an entry cannot act. It is also the text the stage-notice page
- * repeats, so a route reached directly explains itself in the same words.
+ * Fixed text: exact wording, no trailing period, never paraphrased and never abbreviated, because
+ * rule P-8 makes this sentence the only thing that tells a person why an entry cannot act. It is
+ * also the text the stage-notice page repeats, so a route reached directly explains itself in the
+ * same words.
  */
 export const STAGE_4_TOOLTIP = 'Arrives in stage S4';
 
@@ -155,11 +145,10 @@ export const STAGE_5_TOOLTIP = 'Arrives in stage S5';
 /**
  * The navigation in render order: three groups, thirteen entries.
  *
- * The groups follow the work a person does rather than the stage that built each
- * screen, so the FileMap canvas sits first even though it arrived in S2: it is
- * the workspace the product is named for and the entry route four of the eight
- * personas land on. Every entry whose stage is S4 or S5 carries its tooltip and
- * navigates nowhere; every other entry carries a route and no tooltip.
+ * The groups follow the work a person does rather than the stage that built each screen, so the
+ * FileMap canvas sits first even though it arrived in S2: it is the workspace the product is named
+ * for and the entry route four of the eight personas land on. Every entry whose stage is S4 or S5
+ * carries its tooltip and navigates nowhere; every other entry carries a route and no tooltip.
  */
 export const NAV_GROUPS: readonly NavGroup[] = [
   {
@@ -289,11 +278,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 /**
  * Every visible entry, flattened from `NAV_GROUPS` in the same order.
  *
- * Derived from the groups rather than declared a second time, so the two cannot
- * disagree: a consumer that wants one flat list for a roving cursor, a count or a
- * test reads this, and a consumer that wants the headings reads `NAV_GROUPS`.
- * `flatMap` keeps the derivation free of indexed access, which strict indexing
- * would widen to include `undefined`.
+ * Derived from the groups rather than declared a second time, so the two cannot disagree: a
+ * consumer that wants one flat list for a roving cursor, a count or a test reads this, and a
+ * consumer that wants the headings reads `NAV_GROUPS`. `flatMap` keeps the derivation free of
+ * indexed access, which strict indexing would widen to include `undefined`.
  */
 export const NAV_ITEMS: readonly NavItem[] = NAV_GROUPS.flatMap(
   (group) => group.items,
@@ -302,12 +290,11 @@ export const NAV_ITEMS: readonly NavItem[] = NAV_GROUPS.flatMap(
 /**
  * The two stage-notice routes the navigation never lists.
  *
- * A supplier profile and a material profile are opened from a row or a card that
- * shows the record, so neither has a `NavItem` whose `to` could carry its path and
- * both are stated here instead. They belong to S4 and render the stage-notice page
- * for the same reason the disabled entries do: a person who reaches one by address
- * is told which stage the workspace arrives in rather than landing on a page that
- * does not exist (rule P-8).
+ * A supplier profile and a material profile are opened from a row or a card that shows the record,
+ * so neither has a `NavItem` whose `to` could carry its path and both are stated here instead. They
+ * belong to S4 and render the stage-notice page for the same reason the disabled entries do: a
+ * person who reaches one by address is told which stage the workspace arrives in rather than
+ * landing on a page that does not exist (rule P-8).
  */
 const STAGE_NOTICE_DETAIL_ROUTES: readonly FurtherRoute[] = [
   {
@@ -327,15 +314,14 @@ const STAGE_NOTICE_DETAIL_ROUTES: readonly FurtherRoute[] = [
 /**
  * Every route that renders the stage-notice page: one list, one source per path.
  *
- * The entries of the navigation whose stage has not been built contribute their own
- * `to`, screen identifier and stage, so a disabled entry cannot lose its route and a
- * route cannot name a path the navigation states differently; the two profile paths
- * the navigation never lists are appended from `STAGE_NOTICE_DETAIL_ROUTES`. Deriving
- * them here rather than retyping them is what makes the router's half of the contract
- * checkable: `src/app/router.tsx` mounts the stage-notice page at every path in this
- * list, with the stage the entry carries, so the external supplier engineer's
- * `/evidence` home explains itself instead of falling to the not-found page (AAP 0.7,
- * AAP 0.12.4, rule P-8).
+ * The entries of the navigation whose stage has not been built contribute their own `to`, screen
+ * identifier and stage, so a disabled entry cannot lose its route and a route cannot name a path
+ * the navigation states differently; the two profile paths the navigation never lists are appended
+ * from `STAGE_NOTICE_DETAIL_ROUTES`. Deriving them here rather than retyping them is what makes the
+ * router's half of the contract checkable: `src/app/router.tsx` mounts the stage-notice page at
+ * every path in this list, with the stage the entry carries, so the external supplier engineer's
+ * `/evidence` home explains itself instead of falling to the not-found page (AAP 0.7, AAP 0.12.4,
+ * rule P-8).
  */
 export const STAGE_NOTICE_ROUTES: readonly FurtherRoute[] = [
   ...NAV_ITEMS.filter((item) => item.disabledReason !== null).map(
@@ -352,22 +338,21 @@ export const STAGE_NOTICE_ROUTES: readonly FurtherRoute[] = [
 /**
  * The routes the application answers without listing them in the navigation.
  *
- * This list holds every path the router declares besides the enabled `to` of each
- * navigation entry, so the router's table is those enabled entries plus this list and
- * nothing else. Each path is reached from a visible control rather than from the
- * navigation: a row or a card opens the detail screen for the record it shows, the
- * approvals inbox opens one approval, the policy list opens one policy, a stage-notice
- * path states which stage its workspace arrives in, and the root path resolves to the
- * active persona's entry route.
+ * This list holds every path the router declares besides the enabled `to` of each navigation entry,
+ * so the router's table is those enabled entries plus this list and nothing else. Each path is
+ * reached from a visible control rather than from the navigation: a row or a card opens the detail
+ * screen for the record it shows, the approvals inbox opens one approval, the policy list opens one
+ * policy, a stage-notice path states which stage its workspace arrives in, and the root path
+ * resolves to the active persona's entry route.
  *
- * All seven stage-notice paths are in this list. Two are the profile routes the
- * navigation never lists, and the other five arrive from `STAGE_NOTICE_ROUTES` as the
- * `to` of the entries whose stage has not been built rather than being retyped here,
- * so an entry's route and its disabled state are declared together in `NAV_GROUPS` and
- * no path depends on a reader drawing the right conclusion from a comment.
+ * All seven stage-notice paths are in this list. Two are the profile routes the navigation never
+ * lists, and the other five arrive from `STAGE_NOTICE_ROUTES` as the `to` of the entries whose
+ * stage has not been built rather than being retyped here, so an entry's route and its disabled
+ * state are declared together in `NAV_GROUPS` and no path depends on a reader drawing the right
+ * conclusion from a comment.
  *
- * Nothing in this module points at a route the router does not answer, and no path
- * appears twice (AAP 0.13.2).
+ * Nothing in this module points at a route the router does not answer, and no path appears twice
+ * (AAP 0.13.2).
  */
 export const FURTHER_ROUTES: readonly FurtherRoute[] = [
   {
@@ -404,13 +389,13 @@ export const FURTHER_ROUTES: readonly FurtherRoute[] = [
 ];
 
 /**
- * The tooltip a route of the given stage carries, or `null` when the stage is
- * built and the route navigates.
+ * The tooltip a route of the given stage carries, or `null` when the stage is built and the route
+ * navigates.
  *
- * One function answers this so a consumer derived from a stage - the navigation,
- * the router's stage-notice routes, a test - cannot invent a third wording. The
- * `switch` covers every member of `NavStage`, so a stage added to the union is a
- * compile error here rather than an entry that silently navigates nowhere.
+ * One function answers this so a consumer derived from a stage - the navigation, the router's
+ * stage-notice routes, a test - cannot invent a third wording. The `switch` covers every member of
+ * `NavStage`, so a stage added to the union is a compile error here rather than an entry that
+ * silently navigates nowhere.
  */
 export function disabledTooltipFor(stage: NavStage): string | null {
   switch (stage) {
@@ -430,18 +415,15 @@ export function disabledTooltipFor(stage: NavStage): string | null {
 /**
  * The route each persona lands on, keyed by role (AAP 0.12.4).
  *
- * Typed as a total `Record<Role, string>`, so a role added to the union fails
- * compilation until its landing route is stated here. The personas of
- * specification section 3 map as follows:
- * - USR-01 material planner, USR-03 head of supply chain, USR-05 production
- *   planner and USR-07 supplier quality engineer land on the FileMap canvas, the
- *   workspace the product is named for;
- * - USR-02 plant manager lands on the approvals inbox, the queue that asks for a
- *   decision;
+ * Typed as a total `Record<Role, string>`, so a role added to the union fails compilation until its
+ * landing route is stated here. The personas of specification section 3 map as follows:
+ * - USR-01 material planner, USR-03 head of supply chain, USR-05 production planner and USR-07
+ *   supplier quality engineer land on the FileMap canvas, the workspace the product is named for;
+ * - USR-02 plant manager lands on the approvals inbox, the queue that asks for a decision;
  * - USR-04 platform administrator lands on the declared-configuration screen;
  * - USR-06 auditor lands on the audit trail;
- * - USR-08 external supplier engineer lands on the evidence workspace, which
- *   renders the stage-notice page until S4 arrives rather than failing.
+ * - USR-08 external supplier engineer lands on the evidence workspace, which renders the
+ *   stage-notice page until S4 arrives rather than failing.
  */
 const ENTRY_ROUTE_BY_ROLE: Record<Role, string> = {
   'material-planner': '/canvas',
@@ -457,10 +439,10 @@ const ENTRY_ROUTE_BY_ROLE: Record<Role, string> = {
 /**
  * The route the root path resolves to for the given persona.
  *
- * `null` is the shell before the service bootstrap has resolved the active user;
- * it renders no route until then, so the canvas is a defensive default rather than
- * a documented landing route for anyone. Every role member has its own entry
- * above, and the map is total, so this lookup cannot fall through.
+ * `null` is the shell before the service bootstrap has resolved the active user; it renders no
+ * route until then, so the canvas is a defensive default rather than a documented landing route for
+ * anyone. Every role member has its own entry above, and the map is total, so this lookup cannot
+ * fall through.
  */
 export function entryRouteFor(role: Role | null): string {
   return role === null ? '/canvas' : ENTRY_ROUTE_BY_ROLE[role];

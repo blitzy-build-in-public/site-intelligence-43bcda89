@@ -29,11 +29,11 @@
  *
  * BELOW `md` THE NAVIGATION FOLDS, AND ITS TRIGGER IS THE SHELL'S TOO. The three group rows cost a
  * phone viewport more height than the route they lead to, so the strip holds them behind one
- * disclosure below Tailwind's `md` breakpoint and shows them unconditionally from `md` up (QA finding
- * QA2-09). The trigger is a sibling of the landmark rather than a child of it, so the `nav` declares
- * exactly the entries the navigation table declares; the open state is `PrimaryNavigation`'s own, and
- * the panel is closed by a class rather than by unmounting, so the trigger's `aria-controls` always
- * names an element that exists.
+ * disclosure below Tailwind's `md` breakpoint and shows them unconditionally from `md` up. The
+ * trigger is a sibling of the landmark rather than a child of it, so the `nav` declares exactly the
+ * entries the navigation table declares; the open state is `PrimaryNavigation`'s own, and the panel
+ * is closed by a class rather than by unmounting, so the trigger's `aria-controls` always names an
+ * element that exists.
  *
  * WALL MODE. The canvas's presentation mode hides the navigation, and the flag for it is the shell
  * store's `wallMode`: `src/app/router.tsx` hands the canvas screen the setter as `onWallModeChange`, so
@@ -313,15 +313,16 @@ function NavEntry({ item }: { readonly item: NavItem }): ReactElement {
  * level-one heading, which is exactly the document outline a reader navigating by heading would then
  * have to wade through (rule B-3).
  *
- * BELOW `md` THE GROUP ROWS FOLD AWAY, AND THE TRIGGER STANDS OUTSIDE THE LANDMARK. The three rows cost
- * a phone viewport more height than the route they lead to — at 390x844 the strip measured 328 px on
- * top of the top bar, so nothing but shell chrome was visible on first paint (QA finding QA2-09). The
- * trigger is therefore a sibling immediately before the landmark rather than a child of it, so the
- * `nav` keeps exactly the entries the navigation table declares and no control of its own. It carries
- * `type="button"` so it is never a form's default submit, `aria-expanded` carries the state a screen
- * reader announces, and `aria-controls` names the region holding the groups. It is hidden from `md` up
- * by {@link NAV_TOGGLE_CLASSES}, where the rows are always on screen, and the region is `hidden` while
- * closed and `md:block` after it, so the narrow and the wide presentation cannot both be wrong.
+ * BELOW `md` THE GROUP ROWS FOLD AWAY, AND THE TRIGGER STANDS OUTSIDE THE LANDMARK. The three rows
+ * cost a phone viewport more height than the route they lead to — at 390x844 the strip measured
+ * 328 px on top of the top bar, so nothing but shell chrome was visible on first paint. The trigger
+ * is therefore a sibling immediately before the landmark rather than a child of it, so the `nav`
+ * keeps exactly the entries the navigation table declares and no control of its own. It carries
+ * `type="button"` so it is never a form's default submit, `aria-expanded` carries the state a
+ * screen reader announces, and `aria-controls` names the region holding the groups. It is hidden
+ * from `md` up by {@link NAV_TOGGLE_CLASSES}, where the rows are always on screen, and the region
+ * is `hidden` while closed and `md:block` after it, so the narrow and the wide presentation cannot
+ * both be wrong.
  *
  * APART FROM THAT STATE IT READS THE TABLE AND NOTHING ELSE: it derives no route, and an entry it draws
  * is exactly the entry the plan declares.

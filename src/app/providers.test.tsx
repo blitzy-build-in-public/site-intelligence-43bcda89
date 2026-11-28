@@ -25,10 +25,13 @@
  * - `resetShell` restores every data field, which is the contract the demonstration reset relies on.
  *
  * THE SERVICE BOUNDARY IS MOCKED AT THE PROVIDER (rule P-2). The real provider awaits the mock
- * adapter's bootstrap, which hashes two hundred seeded audit events through `crypto.subtle`, and
- * that call rejects jsdom's `ArrayBuffer` realm, so a suite that mounted it would be testing the
- * platform rather than this module. The specifier is the one `providers.tsx` imports; nothing here
- * imports `src/seed`, a mock adapter or the API client.
+ * adapter's bootstrap, which hashes two hundred seeded audit events, so a suite that mounted it would
+ * be testing the adapter's bootstrap rather than this module. That hash is a platform call and not a
+ * DOM one: the chain hashes through `globalThis.crypto.subtle`, and jsdom 31 exposes no
+ * `crypto.subtle` of its own, so the digest resolves to the platform's implementation — the
+ * environment declaration that carries that requirement with the module, and the reason for it, are
+ * stated once in the header of `src/domain/audit/audit.test.ts`. The specifier is the one
+ * `providers.tsx` imports; nothing here imports `src/seed`, a mock adapter or the API client.
  *
  * NO FIGURE AND NO RECORD IDENTIFIER IS TYPED (rule P-6). The persona below is a fixture of this
  * suite's own: an identifier-shaped name is avoided entirely, and no amount, count or date appears.
