@@ -12,17 +12,26 @@
  * spelled as AAP 0.12.3 spells them, every entry is built from the one base path, none carries a
  * query separator or a fragment, no caller-supplied value can turn the segment it occupies into a
  * second segment, a query or a fragment, and the two lists below cover every value the module
- * exports, so an entry cannot land here untested.
+ * exports, so an entry cannot land here untested. Against a source outside this module, every member
+ * the service port declares is also tied to the entry that serves it in a table the compiler holds
+ * to the port, so each derived spelling is anchored to the member it answers for and not only to
+ * the module that spells it.
  *
  * WHAT THIS SUITE DOES NOT DO. It does not compare the thirty-one derived entries with §9, because
- * no copy of that document is readable in this run; that gap stays recorded in the module's header
- * rather than closed by a passing test. It imports no seed record, no mock adapter and no API
- * client (rule P-2), reads no file and opens no socket (rule B-1), needs no configuration and
- * holds no credential (rule B-2), and types no record identifier and no business figure (rule
+ * no copy of that document is readable in this run, and the forty is the module's own figure rather
+ * than one §9 states: the table below anchors each derived spelling to the port member it serves,
+ * but leaves the spelling itself unverified. A supplied contracts §9 — or its §2, which types those
+ * members — is what would settle the count and every derived spelling, and is the document a
+ * reviewer diffs the table against when it arrives; until then that gap stays recorded in the
+ * module's header rather than closed by a passing test. It imports no seed record, no mock adapter
+ * and no API client (rule P-2), reads no file and opens no socket (rule B-1), needs no configuration
+ * and holds no credential (rule B-2), and types no record identifier and no business figure (rule
  * P-6): the only quantity it names is the entry count the module's own header states.
  */
 
 import { describe, expect, it } from 'vitest';
+
+import type { SiteIntelligenceService } from '../site-intelligence-service';
 import * as pathsModule from './paths';
 import {
   API_BASE_PATH,
@@ -166,6 +175,93 @@ const ALL_ENTRIES: readonly string[] = [
 ];
 
 /**
+ * Which of the entries above serve each member the service port declares, in the port's own order.
+ *
+ * This is the suite's one anchor that does not come from the module under test. `ALL_ENTRIES` is a
+ * transcription of `paths.ts` and the cases over it prove the module is internally consistent; the
+ * port is a separate input — `src/services/site-intelligence-service.ts`, the interface contracts §2
+ * fixes member for member — so typing this table by `keyof SiteIntelligenceService` turns a member
+ * that is misspelled, renamed, omitted or invented into a `tsc --noEmit` error instead of a row that
+ * silently stops being checked. The device is the type-level one
+ * `src/services/service-conformance.test.ts` uses for its adapter conformance.
+ *
+ * Every row states its entry in the shape `ALL_ENTRIES` holds it: a constant entry as it stands, or
+ * a builder answered with `PLAIN_SEGMENT` in each segment it takes. A reviewer can therefore diff a
+ * row against the path contracts §9 will fix for that member when the document lands, one member per
+ * line and in the order the port declares them.
+ *
+ * The five empty rows are the members whose capability has no HTTP counterpart (AAP 0.6.2,
+ * contracts §11): the two demonstration controls, answered against the adapter's own state, and the
+ * three exports, whose payload is assembled in the browser and offered as a download rather than
+ * sent as a request. `approvalsPath` is the one entry two members share, because a collection with
+ * two methods is one path: `listApprovals` reads it with `GET` and `requestApproval` posts to it.
+ */
+const MEMBER_ENTRIES: Readonly<Record<keyof SiteIntelligenceService, readonly string[]>> = {
+  getOverview: [overviewPath],
+  listExceptions: [exceptionsPath],
+  getExceptionDetail: [exceptionPath(PLAIN_SEGMENT)],
+  getAffectedLines: [exceptionAffectedLinesPath(PLAIN_SEGMENT)],
+  assignException: [exceptionAssigneePath(PLAIN_SEGMENT)],
+  noteException: [exceptionNotesPath(PLAIN_SEGMENT)],
+  dismissException: [exceptionDismissalPath(PLAIN_SEGMENT)],
+  getScenarioSet: [exceptionScenariosPath(PLAIN_SEGMENT)],
+  solveScenario: [exceptionScenarioSolvePath(PLAIN_SEGMENT)],
+  listApprovals: [approvalsPath],
+  getApproval: [approvalPath(PLAIN_SEGMENT)],
+  getApprovalOutcome: [approvalOutcomePath(PLAIN_SEGMENT)],
+  requestApproval: [approvalsPath],
+  decideApproval: [approvalDecisionPath(PLAIN_SEGMENT)],
+  reviewApprovalOutcome: [approvalOutcomeReviewPath(PLAIN_SEGMENT)],
+  retryWriteBack: [approvalWriteBackRetryPath(PLAIN_SEGMENT, PLAIN_SEGMENT)],
+  listAuditEvents: [auditEventsPath],
+  getAuditEvent: [auditEventPath(PLAIN_SEGMENT)],
+  verifyAuditChain: [auditEventsVerifyPath],
+  getModelCatalogue: [modelsPath],
+  listSuggestedQuestions: [assistantQuestionsPath],
+  askAssistant: [assistantQueriesPath],
+  getSovereigntyStatus: [sovereigntyPath],
+  getOutboundLedger: [sovereigntyOutboundLedgerPath],
+  listPolicies: [policiesPath],
+  getPolicy: [policyPath(PLAIN_SEGMENT)],
+  requestPolicyException: [policyExceptionsPath(PLAIN_SEGMENT)],
+  getEvidence: [evidencePath],
+  getDocument: [documentPath(PLAIN_SEGMENT)],
+  listPins: [evidencePinsPath],
+  reviewPin: [evidencePinReviewPath(PLAIN_SEGMENT)],
+  listPackages: [packagesPath],
+  getPackage: [packagePath(PLAIN_SEGMENT)],
+  reviewElement: [packageElementReviewPath],
+  searchIdentifiers: [searchPath],
+  getTopology: [topologyPath],
+  getCanvasRibbon: [canvasRibbonPath],
+  getAtlas: [atlasPath],
+  getSourceCatalogue: [sourcesPath],
+  getPlanGrid: [plantPlanGridPath(PLAIN_SEGMENT)],
+  getExitPackage: [exitPackagePath],
+  exportEvidencePack: [],
+  exportScenarioComparison: [],
+  exportChokepointBrief: [],
+  setSimulation: [],
+  resetDemo: [],
+};
+
+/**
+ * The five port members that are answered without a request, and so take no entry above.
+ *
+ * Spelled as port member names rather than as strings a case compares loosely, so a rename in the
+ * port is a `tsc --noEmit` error here too. The cases below hold `MEMBER_ENTRIES` to this list in
+ * both directions: these five are the only rows left empty, and every other member is served by at
+ * least one entry.
+ */
+const BROWSER_ONLY_MEMBERS = [
+  'setSimulation',
+  'resetDemo',
+  'exportEvidencePack',
+  'exportScenarioComparison',
+  'exportChokepointBrief',
+] as const satisfies readonly (keyof SiteIntelligenceService)[];
+
+/**
  * The nine entries quoted verbatim by AAP 0.12.3, each paired with the path that document quotes and
  * the module's own entry reproduces. That table quotes the approvals collection's `POST`; the
  * module's single entry answers `GET` on the same collection for the list, because a collection with
@@ -192,6 +288,15 @@ const AAP_QUOTED_PATHS: [quoted: string, built: string][] = [
  * ------------------------------------------------------------------------------------------- */
 
 describe('the path vocabulary as a whole', () => {
+  /*
+   * The figure below is the module's own: `paths.ts` labels its entries "Entry 1 of 40" to "Entry 40
+   * of 40" and records that contracts §9 is absent from this run, so the file under test is what
+   * states the number, not the document that would fix it. A supplied contracts §9 — or its §2,
+   * which types the members these entries serve — is what settles it, and `MEMBER_ENTRIES` above is
+   * the table a reviewer diffs the derived spellings against when it arrives. Until then this case
+   * holds the module to its own figure, stated here so the figure is not mistaken for an external
+   * one.
+   */
   it('holds the forty distinct entries the module header states', () => {
     expect(ALL_ENTRIES).toHaveLength(40);
     expect(new Set(ALL_ENTRIES).size).toBe(ALL_ENTRIES.length);
@@ -224,6 +329,53 @@ describe('the path vocabulary as a whole', () => {
     for (const entry of ALL_ENTRIES) {
       expect(entry).not.toContain('://');
     }
+  });
+});
+
+describe('the port members each entry serves', () => {
+  it('reaches every entry the module exports, and reaches no other', () => {
+    const reached = new Set(Object.values(MEMBER_ENTRIES).flat());
+
+    expect(reached).toEqual(new Set(ALL_ENTRIES));
+  });
+
+  it('reaches the forty entries as a distinct set, and shares exactly the approvals collection', () => {
+    const rows = Object.values(MEMBER_ENTRIES);
+    const mapped = rows.flat();
+    const distinct = new Set(mapped);
+
+    expect(distinct.size).toBe(40);
+    // `paths.ts` states that "`approvalsPath` is the one entry two members share — `listApprovals`
+    // reads that collection with `GET`, `requestApproval` posts to it — so no entry is dead and no
+    // member is left without one". Both halves of that sentence are checked here rather than the
+    // weaker "some entry is shared": the entries standing in more than one row are computed from the
+    // rows themselves and must be exactly that collection — a second share fails this and names the
+    // entry it added — and the rows must hold exactly one item more than the distinct set, which is
+    // the one share. Set equality in the case above keeps every entry reached; this case keeps
+    // exactly one of them reached twice.
+    const shared = Array.from(distinct).filter(
+      (entry) => rows.filter((row) => row.includes(entry)).length > 1,
+    );
+
+    expect(shared).toEqual([approvalsPath]);
+    expect(mapped.length).toBe(distinct.size + 1);
+  });
+
+  it('leaves the five members with no HTTP counterpart unserved', () => {
+    const unserved = Object.entries(MEMBER_ENTRIES)
+      .filter(([, entries]) => entries.length === 0)
+      .map(([member]) => member);
+
+    expect(new Set(unserved)).toEqual(new Set(BROWSER_ONLY_MEMBERS));
+  });
+
+  it('serves every other member with at least one entry', () => {
+    const browserOnly = new Set<string>(BROWSER_ONLY_MEMBERS);
+    const servedByNothing = Object.entries(MEMBER_ENTRIES)
+      .filter(([member, entries]) => !browserOnly.has(member) && entries.length === 0)
+      .map(([member]) => member);
+
+    expect(servedByNothing).toEqual([]);
   });
 });
 

@@ -10,11 +10,14 @@
  * the T-11 paths without a pointer (AAP 0.7).
  *
  * HOW THE ROUTES ARE FOUND. Nothing here types an exception, approval or policy identifier into an
- * address: every route is reached the way a reader reaches it — a navigation entry, a row's own
- * action, a screen's primary control, or the role switcher's landing route — and the parameterised
- * paths are read back with `new URL(page.url()).pathname` so a failure names the screen it came from.
- * The two routes a reader only meets by address are covered as such: the stage-notice page USR-08
- * lands on, and an address that matches nothing.
+ * address: every test loads the application's own root, and each route is then reached the way a reader
+ * reaches it — a navigation entry, a row's own action, a screen's primary control, or the role
+ * switcher's landing route — with the parameterised paths read back through
+ * `new URL(page.url()).pathname` so a failure names the screen it came from. The routes no control
+ * leads to are then covered by address — the six stage-notice paths rule P-8 leaves no control to
+ * follow, and an address that matches nothing — while the seventh stage-notice path, `/evidence`, is
+ * the external supplier engineer's landing route and is reached through the role switcher like every
+ * other persona's home.
  *
  * WHY EVERY CHECK WAITS, AND WHY IT NEVER SLEEPS. The mock adapter answers in 150-400 ms and a theme
  * change animates a colour transition, while axe measures *composited* colours: a run that starts
@@ -69,6 +72,18 @@ function isBlockingImpact(impact: string | null | undefined): boolean {
 }
 
 /**
+ * The accessible name the shell gives its navigation landmark.
+ *
+ * `src/app/app.tsx` fixes it in `APP_SHELL_TEXT.navLandmark` and holds it as data rather than as text
+ * in the JSX so a suite can name it instead of retyping it. This file repeats the literal rather than
+ * importing it, because a spec that imported the shell would load React, the router and the mock
+ * adapter into the Playwright process; rule B-3 makes the accessible name the contract, and it is what
+ * keeps a navigation entry lookup scoped to the shell's landmark rather than to the first element
+ * announcing itself as a navigation.
+ */
+const NAV_LANDMARK = 'Primary';
+
+/**
  * The persistent badge's accessible name, matched by its opening words only: the control names the
  * demonstration clock beside the label, and the label is the fixed specification §5.3 string rule P-1
  * requires the badge to carry.
@@ -88,6 +103,42 @@ const UNIMPLEMENTED_CLAIMS = [
   'guaranteed',
   'certified',
 ] as const;
+
+/**
+ * The six stage-notice paths no navigation entry can be followed to, in the navigation table's order.
+ *
+ * The seventh stage-notice path, `/evidence`, is the external supplier engineer's home route, so the
+ * role switcher reaches it in the sweep below and it is not repeated here. Four of these six are the
+ * routes of the disabled entries, which rule P-8 renders as a visibly disabled control that explains
+ * itself rather than as a link, and two are the profile paths the navigation never lists. An address is
+ * therefore the only way in, for a reader and for this sweep: no control leads there, and activating a
+ * disabled entry would assert the opposite of what the rule requires.
+ *
+ * Three of the six are parameterised, and each carries a segment that is plainly not a record
+ * identifier: the stage-notice page reads no path parameter — it derives the workspace's name from the
+ * route table instead — so any segment reaches the same page, and rule P-6 keeps a record's identifier
+ * out of an address.
+ */
+const STAGE_NOTICE_PATHS: readonly string[] = [
+  '/suppliers',
+  '/suppliers/any-supplier',
+  '/materials/any-material',
+  '/plants/any-plant/plan',
+  '/admin/sources',
+  '/admin/models',
+];
+
+/**
+ * The one sentence a stage-notice page states, as `stageNoticeSentence` in
+ * `src/app/stage-notice-page.tsx` builds it: "The <workspace> workspace arrives in stage S<stage>.".
+ *
+ * Nothing else on that page tells it apart from the not-found page: both render inside the shell and
+ * both carry a level-one heading and the badge, and the address alone cannot tell the two apart
+ * either, because the catch-all route answers at whatever address was asked for. Asserting this
+ * sentence is what proves each address reached the notice its workspace belongs to, so axe measured
+ * the page the sweep claims instead of the route that matches nothing.
+ */
+const STAGE_NOTICE_ARRIVAL = /arrives in stage S\d/i;
 
 /**
  * The minimum target size AAP 0.12.4 fixes for every control, in CSS pixels: the 24x24 px of WCAG 2.2
@@ -285,6 +336,37 @@ async function awaitTheme(page: Page, theme: Theme): Promise<void> {
     `the shell must carry data-theme="${theme}" after the switch is used`,
   ).toHaveAttribute('data-theme', theme);
   await settleAnimations(page);
+}
+
+/**
+ * Loads the application at its entry address and reaches `entry` through the shell's own navigation.
+ *
+ * A screen the navigation offers is entered the way a reader enters it (AAP 0.7): a test that addressed
+ * `/overview`, `/exceptions` or `/assistant` directly would stay green if the link that should lead
+ * there were removed or pointed elsewhere. `/` is the application's own root rather than a route — it
+ * redirects to the entry route the acting persona's role fixes — so no screen's path is named to reach
+ * one. The navigation landmark is awaited before its entries are followed, because the shell, and the
+ * adapter's bootstrap behind it, must be ready for the click to land.
+ *
+ * @param page The page under test.
+ * @param entry The navigation entry's accessible name, matched exactly.
+ * @param route The address the entry must reach.
+ * @param where The screen being opened, named in the failure.
+ */
+async function openThroughNavigation(
+  page: Page,
+  entry: string,
+  route: RegExp,
+  where: string,
+): Promise<void> {
+  await page.goto('/');
+  const navigation = page.getByRole('navigation', { name: NAV_LANDMARK });
+  await expect(
+    navigation,
+    'the shell must render its navigation landmark before an entry can be followed (rule B-3)',
+  ).toBeVisible();
+  await navigation.getByRole('link', { name: entry, exact: true }).click();
+  await awaitRoute(page, route, where);
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -701,9 +783,10 @@ async function describedTextOf(page: Page, control: Locator): Promise<string> {
  *
  * The route list is not written down as addresses: it is built by driving the navigation, each
  * screen's primary control and the role switcher's landing route, and the parameterised paths are read
- * back from the browser afterwards. The two routes a reader meets by address are covered as such — the
- * stage-notice page USR-08 lands on, and an address that matches nothing — because rule B-3 applies
- * there too: the badge, the skip link and the navigation are on screen in both places.
+ * back from the browser afterwards. The routes a reader meets only by address are covered as such — the
+ * seven stage-notice paths, six of them taken from `STAGE_NOTICE_PATHS` because rule P-8 leaves no
+ * control to follow through their disabled entries, and an address that matches nothing — because rule
+ * B-3 applies there too: the badge, the skip link and the navigation are on screen in all of them.
  *
  * WHY THE PERSONA CHANGES MIDWAY. The mock adapter enforces the permission matrix of contracts §7, so
  * a governance screen answers a planning persona with a denial card and its own content only for the
@@ -748,7 +831,7 @@ test(
       }
     };
 
-    await page.goto('/overview');
+    await openThroughNavigation(page, 'Overview', /\/overview$/, 'the overview');
     await sweep('the overview');
 
     await page.getByRole('link', { name: 'Exceptions', exact: true }).click();
@@ -799,14 +882,29 @@ test(
     await switchRole(page, 'USR-08');
     await sweep('the stage notice', new RegExp(`${entryRouteForPersona('USR-08')}$`));
 
+    /*
+     * The six stage-notice paths no control leads to, each opened by address because rule P-8 renders
+     * its navigation entry as a disabled control rather than a link. No persona switch is needed: the
+     * stage-notice page reads no permission and renders its own level-one heading inside `main`, so
+     * every one of these addresses is a page rule B-3 requires axe to measure.
+     */
+    for (const path of STAGE_NOTICE_PATHS) {
+      await page.goto(path);
+      await expect(
+        page.locator('main h1').first(),
+        `${path} must render the stage notice its workspace belongs to, not the route that matches nothing`,
+      ).toHaveText(STAGE_NOTICE_ARRIVAL);
+      await sweep(`the stage notice at ${path}`);
+    }
+
     await page.goto('/no-such-page');
     await sweep('the not-found page');
 
     const paths = visited.map((route) => route.path);
     expect(
       paths.length,
-      `the sweep must cover the shell, the nine screens, the stage notice and the not-found page; it covered ${paths.length}: ${paths.join(', ')}`,
-    ).toBeGreaterThanOrEqual(14);
+      `the sweep must cover the shell, the nine screens, the seven stage-notice paths and the not-found page; it covered ${paths.length}: ${paths.join(', ')}`,
+    ).toBeGreaterThanOrEqual(20);
     expect(new Set(paths).size, `each route must be swept once: ${paths.join(', ')}`).toBe(paths.length);
 
     /*
@@ -842,8 +940,7 @@ test(
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/overview');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Overview', /\/overview$/, 'the overview');
 
     await expect(
       page.getByRole('figure').first(),
@@ -900,25 +997,47 @@ test(
  * role switcher, the navigation in its three groups, five evidence figures, a sortable table and two
  * charts whose marks are focusable — and the exception queue second because a table is where a focus
  * order usually breaks: its rows are a roving cursor with exactly one tab stop.
+ *
+ * The shell's skip link is activated after the first walk: reaching it proves rule B-3's keyboard
+ * clause, and pressing it proves WCAG 2.2 SC 2.4.1, which axe does not test at all.
  */
 test(
   'T-16 keyboard: Tab reaches every control in document order with a visible focus ring',
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/overview');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Overview', /\/overview$/, 'the overview');
     await expectKeyboardReachable(page, 'the overview');
 
     /*
-     * The second screen is addressed directly. A walk ends with focus outside the document — that is how
-     * the browser signals the cycle is complete — and a document whose focus sits in the browser's own
-     * chrome does not reliably hand a following pointer click to the page. Addressing the second screen
-     * keeps this test about the focus order it exists to measure; that every route is reachable through
-     * the interface is what the sweep above proves.
+     * WCAG 2.2 SC 2.4.1 wants a mechanism that bypasses the blocks repeating on every page, and the
+     * shell provides it as the skip link the top bar and the navigation sit behind. axe does not test
+     * that criterion and the walk above only proves the link can be reached, so it is activated here
+     * and focus is read back from the landmark it targets. The step follows the walk because reaching
+     * the skip link means passing the whole document first, and on this screen that pass moves the
+     * queue table's roving row cursor off the row a walk must begin with: the walk is measured from the
+     * state a reader's first Tab reaches, and the skip link from the state the walk leaves behind.
      */
-    await page.goto('/exceptions');
-    await awaitSettled(page);
+    const skipLink = page.getByRole('link', { name: 'Skip to main content', exact: true });
+    await tabUntilFocused(page, skipLink, 'the skip link that bypasses the navigation');
+    await page.keyboard.press('Enter');
+    expect(
+      await page.evaluate(
+        () => document.querySelector('main')?.contains(document.activeElement) ?? false,
+      ),
+      'activating the skip link must put focus inside the main landmark, so the navigation every ' +
+        'route repeats can be bypassed from the keyboard (WCAG 2.2 SC 2.4.1, rule B-3)',
+    ).toBe(true);
+
+    /*
+     * The second screen is reached the way a reader reaches it as well. A walk ends with focus outside
+     * the document — that is how the browser signals the cycle is complete — and a document whose focus
+     * sits in the browser's own chrome does not reliably hand a following pointer click to the page.
+     * Loading `/` again before the click removes that condition, so the navigation entry is followed
+     * from a freshly loaded shell and this test still measures nothing but the focus order it exists to
+     * measure.
+     */
+    await openThroughNavigation(page, 'Exceptions', /\/exceptions$/, 'the exception queue');
     await expectKeyboardReachable(page, 'the exception queue');
 });
 
@@ -940,8 +1059,7 @@ test(
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/overview');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Overview', /\/overview$/, 'the overview');
 
     const search = page.locator('[data-shortcut="search"]');
     await page.keyboard.press('/');
@@ -1008,8 +1126,7 @@ test(
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/exceptions');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Exceptions', /\/exceptions$/, 'the exception queue');
 
     const rows = page.getByRole('row');
     const firstRow = rows.nth(1);
@@ -1049,8 +1166,7 @@ test(
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/overview');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Overview', /\/overview$/, 'the overview');
 
     const figure = page.getByRole('button', { name: /open evidence$/ }).first();
     await tabUntilFocused(page, figure, 'a figure that opens its evidence');
@@ -1089,8 +1205,7 @@ test(
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/exceptions');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Exceptions', /\/exceptions$/, 'the exception queue');
     await switchRole(page, 'USR-02');
     await awaitRoute(page, new RegExp(`${entryRouteForPersona('USR-02')}$`), 'the approvals inbox');
 
@@ -1157,8 +1272,7 @@ test(
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/exceptions');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Exceptions', /\/exceptions$/, 'the exception queue');
     await switchRole(page, 'USR-02');
     await awaitRoute(page, new RegExp(`${entryRouteForPersona('USR-02')}$`), 'the approvals inbox');
 
@@ -1222,8 +1336,7 @@ test(
   async ({ page }): Promise<void> => {
     test.setTimeout(180_000);
 
-    await page.goto('/assistant');
-    await awaitSettled(page);
+    await openThroughNavigation(page, 'Evidence assistant', /\/assistant$/, 'the evidence assistant');
 
     const model = page.getByRole('combobox', { name: 'Answer model' });
     const selectedModelText = async (): Promise<string> =>

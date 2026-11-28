@@ -5,9 +5,14 @@
  * company or cloud product name, placeholder Latin text, or the vocabulary of an unimplemented claim.
  *
  * AAP §0.9 owns this row: the check reads every TypeScript, TSX and CSS file under `src/` as raw text
- * and runs inside `npm test`. The built output is the other half of the same rule and is owned by
- * `e2e/bundle-checks.spec.ts`, which defines its own word lists over `dist/`; this file neither
- * imports it nor reads `dist/`, so the two halves can neither duplicate nor weaken each other.
+ * and runs inside `npm test`. The stylesheet half of that scan is vacuous in this environment by
+ * construction — Vitest hands back an empty string for a stylesheet's raw text — and the coverage case
+ * below asserts that premise over every collected stylesheet instead of assuming it, so a runner that
+ * starts returning text fails there rather than silently changing what the scan means. The stylesheet
+ * half of the same rule is covered over the compiled stylesheets in `dist/` by
+ * `e2e/bundle-checks.spec.ts` (AAP §0.9), which defines its own word lists over the build the browser
+ * is served; this file neither imports it nor reads `dist/`, so the two halves can neither duplicate
+ * nor weaken each other.
  *
  * What each category is for:
  *  - rule P-7 fixes the product and the workspace names, bars one product name outright, and admits
@@ -22,8 +27,10 @@
  * prohibited name would land in `src/seed` (the company data), in `src/features` (the prose a reader
  * sees) or in a stylesheet comment before it landed anywhere else, so a location exemption would hide
  * exactly the occurrence the rule exists to catch. Every pattern is word-bounded, and the
- * discrimination suite at the end of this file proves that each one still fires: a scan that has
- * silently stopped matching is the failure mode these tests exist to prevent.
+ * discrimination suite at the end of this file proves that each one still fires on a sample of its own
+ * shape, on a lower-case spelling of it and on an upper-case spelling of it: a scan that has silently
+ * stopped matching, or one that only ever matched one casing of a brand's name, is the failure mode
+ * these tests exist to prevent.
  *
  * A file under `src/` that wants to assert the absence of this vocabulary must not embed it, because
  * the test file would then sit inside the tree this check reads and the scan would report its own
@@ -49,12 +56,15 @@ import { describe, expect, it } from 'vitest';
  * Every TypeScript, TSX and stylesheet file under `src/`, read as raw text at collection time.
  *
  * `?raw` reads a file's bytes without evaluating it, so the scan sees a comment, a string literal and
- * a JSX text node exactly as a reader does. A stylesheet contributes its path to the guards below even
- * though Vitest hands back an empty string for its text here: `test.css` is off in `vite.config.ts`, so
- * stylesheet text is stubbed out in this environment. That gap is closed where the same rule has real
- * text to read — the compiled stylesheets inside `dist/`, which `e2e/bundle-checks.spec.ts` scans
- * (AAP §0.9). The scan below reads whatever text it is handed, so it starts covering a stylesheet's
- * prose the moment that prose arrives, and no pattern is narrowed to suit the stubbed value.
+ * a JSX text node exactly as a reader does. A stylesheet contributes its path but no text: Vitest's
+ * `test.css` option is off — the default `vite.config.ts` leaves alone — so raw stylesheet text is
+ * stubbed to an empty string here. The stylesheet half of the scan is therefore vacuous by
+ * construction in this environment, and the coverage case asserts exactly that, stylesheet by
+ * stylesheet, so no reader mistakes the empty result for a clean one. That half of the same rule is
+ * covered where the stylesheet is real text: the compiled CSS inside `dist/`, which
+ * `e2e/bundle-checks.spec.ts` scans (AAP §0.9). The scan below reads whatever text it is handed, so it
+ * starts covering a stylesheet's prose the moment that prose arrives, and no pattern is narrowed to
+ * suit the stubbed value.
  */
 const SOURCE_TEXT_FILES: Record<string, string> = import.meta.glob<string>(
   '../../src/**/*.{ts,tsx,css}',
@@ -65,6 +75,17 @@ const SOURCE_TEXT_FILES: Record<string, string> = import.meta.glob<string>(
 const SOURCE_PATHS: readonly string[] = Object.keys(SOURCE_TEXT_FILES)
   .map(repositoryPathOf)
   .sort();
+
+/**
+ * Each collected file's text, keyed by the repository path a failure message names.
+ *
+ * The scan walks the glob result directly; the coverage case needs one specific path's text — to prove
+ * a stylesheet came back empty and a script did not — so the same collection is keyed once here rather
+ * than re-deriving `repositoryPathOf` at every lookup.
+ */
+const SOURCE_TEXT_BY_PATH: ReadonlyMap<string, string> = new Map(
+  Object.entries(SOURCE_TEXT_FILES).map(([globKey, text]) => [repositoryPathOf(globKey), text]),
+);
 
 /** The extensions the glob must reach for each half of the scan; the guards below prove both. */
 const SCRIPT_EXTENSIONS: readonly string[] = ['.ts', '.tsx'];
@@ -160,7 +181,7 @@ function findMatches(pattern: RegExp, text: string): SourceMatch[] {
  * One prohibited string and its category
  * ------------------------------------------------------------------------------------------- */
 
-/** One prohibited string, with a way to build a sample of its own shape. */
+/** One prohibited string, with a sample of its own shape and the lower-case spellings it must catch. */
 interface ProhibitedString {
   /** The prohibited string as a word-bounded global `RegExp`. */
   readonly pattern: RegExp;
@@ -172,6 +193,16 @@ interface ProhibitedString {
    * device `src/app/app.test.tsx` and its siblings use for their own assertions.
    */
   readonly sample: () => string;
+  /**
+   * The lower-case spellings a source could use for this string, assembled when they are called.
+   *
+   * Rule P-7 bars the name, not the typography it is written in, so a pattern that matches only the
+   * branded capitalisation would leave every lower-case occurrence of a real vendor or cloud product
+   * name unscanned. Each spelling here is entirely lower case, is assembled from fragments for the same
+   * reason `sample` is, and must match this pattern, and so must its upper-cased form — the
+   * discrimination suite proves both, per pattern, so a pattern sensitive to either casing cannot pass.
+   */
+  readonly caseVariants: () => readonly string[];
 }
 
 /** One category of prohibited string, scanned and proven as a unit. */
@@ -233,6 +264,7 @@ const BARRED_PRODUCT_NAME: ProhibitedCategory = {
           ['plumb', 'line'].join('-'),
           ['plumb', 'line'].join('_'),
         ].join(' / '),
+      caseVariants: () => [['plumb', 'line'].join('')],
     },
   ],
 };
@@ -249,7 +281,8 @@ const BARRED_PRODUCT_NAME: ProhibitedCategory = {
  *
  * These tokens cannot occur in the application's own vocabulary in any language it uses, so a
  * word-bounded match on them reports filler text and nothing else. Each is assembled from fragments in
- * its sample for the same reason as every other sample here.
+ * its sample, and again in the lower-case spelling its pattern must catch, for the same reason as every
+ * other sample here.
  */
 const PLACEHOLDER_TEXT: ProhibitedCategory = {
   label: 'placeholder Latin text',
@@ -257,22 +290,27 @@ const PLACEHOLDER_TEXT: ProhibitedCategory = {
     {
       pattern: /\blorem ipsum\b/gi,
       sample: () => [['lo', 'rem'].join(''), ['ip', 'sum'].join('')].join(' '),
+      caseVariants: () => [[['lo', 'rem'].join(''), ['ip', 'sum'].join('')].join(' ')],
     },
     {
       pattern: /\bdolor sit amet\b/gi,
       sample: () => [['do', 'lor'].join(''), ['sit', 'amet'].join(' ')].join(' '),
+      caseVariants: () => [[['do', 'lor'].join(''), ['sit', 'amet'].join(' ')].join(' ')],
     },
     {
       pattern: /\bconsectetur\b/gi,
       sample: () => ['consec', 'tetur'].join(''),
+      caseVariants: () => [['consec', 'tetur'].join('')],
     },
     {
       pattern: /\badipiscing\b/gi,
       sample: () => ['adip', 'iscing'].join(''),
+      caseVariants: () => [['adip', 'iscing'].join('')],
     },
     {
       pattern: /\bsed do eiusmod\b/gi,
       sample: () => [['sed', 'do'].join(' '), ['eius', 'mod'].join('')].join(' '),
+      caseVariants: () => [[['sed', 'do'].join(' '), ['eius', 'mod'].join('')].join(' ')],
     },
   ],
 };
@@ -285,12 +323,22 @@ const PLACEHOLDER_TEXT: ProhibitedCategory = {
  * How a name in this group is matched, and why the choice is per name rather than per group.
  *
  * A word-bounded case-insensitive match is safe only where the token cannot occur in ordinary prose,
- * in this domain's vocabulary or in a design token — a distinctive coined company name qualifies. A
- * token that is also an ordinary English word, a unit, a colour or a weather noun is matched
- * case-sensitively in its branded capitalisation, and so is a short acronym, because its lower-case
- * letters end ordinary words. That distinction is the whole false-positive protection: the
- * discrimination suite at the end of this file proves that an ordinary lower-case word sharing a short
- * acronym's last letters, and a lower-case colour word, produce no match.
+ * in this domain's vocabulary or in a design token — a distinctive coined company name qualifies, and
+ * so does a name whose only other use is a scientific unit this interface never writes, which is why
+ * the enterprise-software group matches every one of its names in any casing.
+ *
+ * A token that is also an ordinary English word, a unit, a colour or a weather noun, or a short acronym
+ * whose lower-case letters end an ordinary word, needs more than a flag. Each of those carries the
+ * branded capitalisation as one alternative and, as a second, the name in any casing matched only when
+ * the product or service noun that makes it a brand reference follows it — so the brand is caught in
+ * whichever casing a source writes it, while "azure sky", "snowflake pattern" and "laws of motion" stay
+ * untouched. The discrimination suite below proves both directions.
+ *
+ * Whatever a name's shape, its pattern declares at least one entirely lower-case spelling and the same
+ * suite proves the pattern matches it, in that casing and again in its upper-cased form. A pattern that
+ * only ever sees one casing of a brand's name leaves every other casing of a real vendor or cloud
+ * product name unscanned, and rule P-7 bars the name rather than its typography, so no pattern here
+ * relies on capitalisation.
  *
  * Candidates whose own spelling is an ordinary English word or this domain's vocabulary are
  * deliberately absent: a workplace product named after a day of the week, business suites named after
@@ -303,38 +351,227 @@ const PLACEHOLDER_TEXT: ProhibitedCategory = {
 
 /** Carmaker names (rule P-7 names carmakers explicitly). */
 const CARMAKER_NAMES: readonly ProhibitedString[] = [
-  { pattern: /\btoyota\b/gi, sample: () => ['Toy', 'ota'].join('') },
-  { pattern: /\bvolkswagen\b/gi, sample: () => ['Volks', 'wagen'].join('') },
-  { pattern: /\bhyundai\b/gi, sample: () => ['Hyun', 'dai'].join('') },
-  { pattern: /\bporsche\b/gi, sample: () => ['Por', 'sche'].join('') },
+  {
+    pattern: /\btoyota\b/gi,
+    sample: () => ['Toy', 'ota'].join(''),
+    caseVariants: () => [['toy', 'ota'].join('')],
+  },
+  {
+    pattern: /\bvolkswagen\b/gi,
+    sample: () => ['Volks', 'wagen'].join(''),
+    caseVariants: () => [['volks', 'wagen'].join('')],
+  },
+  {
+    pattern: /\bhyundai\b/gi,
+    sample: () => ['Hyun', 'dai'].join(''),
+    caseVariants: () => [['hyun', 'dai'].join('')],
+  },
+  {
+    pattern: /\bporsche\b/gi,
+    sample: () => ['Por', 'sche'].join(''),
+    caseVariants: () => [['por', 'sche'].join('')],
+  },
 ];
 
-/** Enterprise-software vendor names, the category a manufacturing workspace is likeliest to inherit. */
+/**
+ * Enterprise-software vendor names, the category a manufacturing workspace is likeliest to inherit.
+ *
+ * Every name here is coined, and none has an ordinary homograph in this project's vocabulary — the one
+ * unit of measurement among them is a surname before it is a unit, and no prose in the interface writes
+ * it — so each is matched in every casing. `e2e/bundle-checks.spec.ts` places the same names in its
+ * case-insensitive tier for the same reason, so the two halves of rule P-7 agree about their shape.
+ */
 const ENTERPRISE_SOFTWARE_NAMES: readonly ProhibitedString[] = [
-  { pattern: /\bmicrosoft\b/gi, sample: () => ['Micro', 'soft'].join('') },
-  { pattern: /\bsalesforce\b/gi, sample: () => ['Sales', 'force'].join('') },
-  { pattern: /\bnetsuite\b/gi, sample: () => ['Net', 'Suite'].join('') },
-  { pattern: /\bservicenow\b/gi, sample: () => ['Service', 'Now'].join('') },
-  { pattern: /\bSiemens\b/g, sample: () => ['Sie', 'mens'].join('') },
-  { pattern: /\bdassault\b/gi, sample: () => ['Das', 'sault'].join('') },
+  {
+    pattern: /\bmicrosoft\b/gi,
+    sample: () => ['Micro', 'soft'].join(''),
+    caseVariants: () => [['micro', 'soft'].join('')],
+  },
+  {
+    pattern: /\bsalesforce\b/gi,
+    sample: () => ['Sales', 'force'].join(''),
+    caseVariants: () => [['sales', 'force'].join('')],
+  },
+  {
+    pattern: /\bnetsuite\b/gi,
+    sample: () => ['Net', 'Suite'].join(''),
+    caseVariants: () => [['net', 'suite'].join('')],
+  },
+  {
+    pattern: /\bservicenow\b/gi,
+    sample: () => ['Service', 'Now'].join(''),
+    caseVariants: () => [['service', 'now'].join('')],
+  },
+  {
+    pattern: /\bsiemens\b/gi,
+    sample: () => ['Sie', 'mens'].join(''),
+    caseVariants: () => [['sie', 'mens'].join('')],
+  },
+  {
+    pattern: /\bdassault\b/gi,
+    sample: () => ['Das', 'sault'].join(''),
+    caseVariants: () => [['das', 'sault'].join('')],
+  },
+];
+
+/**
+ * One name or noun written so that a pattern built from it matches every casing of that text.
+ *
+ * Each letter becomes its own two-character class — `[aA]`, `[wW]`, `[sS]` — instead of the finished
+ * pattern carrying the `i` flag, because that flag widens every alternative the pattern holds,
+ * including the branded bare word whose exact capitalisation is what keeps an ordinary word writable.
+ * Non-letters are passed through unchanged, and a backslash together with the character it escapes is
+ * copied as one unit, so a noun written as a regex fragment (`active\s+directory`) keeps its own escape
+ * rather than having the letter inside it turned into a character class.
+ */
+function fragmentInAnyCasing(fragment: string): string {
+  let pattern = '';
+
+  for (let index = 0; index < fragment.length; index += 1) {
+    const character = fragment.charAt(index);
+    const escapedCharacter = fragment.charAt(index + 1);
+    const lower = character.toLowerCase();
+    const upper = character.toUpperCase();
+
+    if (character === '\\' && escapedCharacter !== '') {
+      pattern += `${character}${escapedCharacter}`;
+      index += 1;
+    } else if (lower !== upper) {
+      pattern += `[${lower}${upper}]`;
+    } else {
+      pattern += character;
+    }
+  }
+
+  return pattern;
+}
+
+/**
+ * A pattern for a cloud product name whose own spelling is also an ordinary word.
+ *
+ * Rule P-7 bars the name rather than the typography it is written in, so the branded capitalisation
+ * alone cannot be the whole match. The pattern carries two alternatives, and each one carries the casing
+ * its job allows:
+ *
+ *  - the branded spelling exactly as the vendor publishes it, matched wherever it appears on its own,
+ *    because that is the form a name in an interface actually takes. It cannot be widened to every
+ *    casing: a bare `azure` is a colour, a bare `snowflake` is a crystal and a bare `aws` ends the
+ *    ordinary words "laws" and "draws", so a case-insensitive bare match would report prose the
+ *    application has every right to write;
+ *  - the same name in any casing — `aws cloud`, `Azure tenant`, `AZURE TENANT`,
+ *    `Snowflake warehouse`, `SNOWFLAKE WAREHOUSE` — matched only when one of that name's own product or
+ *    service nouns follows it, because that noun is what makes the word a reference to the product
+ *    instead of prose about a colour, a crystal or a law. Any casing is the point here: a title-case or
+ *    all-caps reference is still the brand, and the discrimination suite's upper-cased samples prove the
+ *    pattern reaches it. The casing comes from `fragmentInAnyCasing` rather than the `i` flag, which
+ *    would widen the branded alternative above and forfeit the false-positive guard.
+ *
+ * Both alternatives are word-bounded, and the pattern carries the `g` flag the discrimination suite
+ * requires of every pattern.
+ *
+ * The nouns arrive as a parameter rather than from one shared list, so each name carries the vocabulary
+ * of its own product family and no name's list decides another's. They are written in any casing too, so
+ * an upper-case `WAREHOUSE` still anchors the name that belongs to it.
+ */
+function productReferencePattern(branded: string, productNouns: readonly string[]): RegExp {
+  const productNoun = productNouns.map(fragmentInAnyCasing).join('|');
+
+  return new RegExp(
+    `\\b${branded}\\b|\\b${fragmentInAnyCasing(branded)}\\b(?=[\\s-]+(?:${productNoun}))`,
+    'g',
+  );
+}
+
+/** The product and service nouns that make a lower-case `aws` a reference to that cloud provider. */
+const AWS_PRODUCT_NOUNS: readonly string[] = [
+  'account',
+  'cli',
+  'cloud',
+  'console',
+  'ec2',
+  'iam',
+  'lambda',
+  'region',
+  's3',
+  'sdk',
+];
+
+/**
+ * The same for `azure`: its own tenancy and service vocabulary, not another product's.
+ *
+ * One entry, the directory service, is a two-word name written as a regex fragment so the space
+ * between its words may be any run of whitespace.
+ */
+const AZURE_PRODUCT_NOUNS: readonly string[] = [
+  'active\\s+directory',
+  'blob',
+  'cloud',
+  'devops',
+  'functions',
+  'kubernetes',
+  'openai',
+  'region',
+  'sql',
+  'storage',
+  'subscription',
+  'tenant',
+];
+
+/** The same for `snowflake`: the data-platform vocabulary its product names are drawn from. */
+const SNOWFLAKE_PRODUCT_NOUNS: readonly string[] = [
+  'account',
+  'cloud',
+  'data',
+  'database',
+  'schema',
+  'snowpark',
+  'stream',
+  'task',
+  'warehouse',
 ];
 
 /**
  * Cloud product names.
  *
- * The short acronym and the two ordinary nouns carry no `i` flag and are written in their branded
- * capitalisation, so the lower-case word a source may legitimately contain cannot reach them; the
- * coined product names below them are matched case-insensitively because no ordinary word shares them.
- * The enterprise-software group above follows the same rule for the one name that is also a unit of
- * measurement, and follows the looser one for every coined name that has no ordinary homograph.
+ * The three names above the coined ones are also ordinary words, or a short acronym whose lower-case
+ * letters end an ordinary word, so each carries the two alternatives `productReferencePattern` builds:
+ * its branded spelling wherever it appears, and that same name in any casing directly before one of its
+ * own product or service nouns. `aws` in "the laws of motion", `azure` in "an azure sky" and `snowflake`
+ * in "a snowflake pattern" therefore stay unmatched, which the must-not-fire suite below proves. The
+ * coined product names below them need none of that and are matched case-insensitively outright,
+ * because no ordinary word shares their spelling.
  */
 const CLOUD_PRODUCT_NAMES: readonly ProhibitedString[] = [
-  { pattern: /\bAWS\b/g, sample: () => ['A', 'W', 'S'].join('') },
-  { pattern: /\bAzure\b/g, sample: () => ['Az', 'ure'].join('') },
-  { pattern: /\bSnowflake\b/g, sample: () => ['Snow', 'flake'].join('') },
-  { pattern: /\bbigquery\b/gi, sample: () => ['Big', 'Query'].join('') },
-  { pattern: /\bgoogle\s+cloud\b/gi, sample: () => ['Google', ' Cloud'].join('') },
-  { pattern: /\bamazon\s+web\s+services\b/gi, sample: () => ['Amazon', ' Web Services'].join('') },
+  {
+    pattern: productReferencePattern('AWS', AWS_PRODUCT_NOUNS),
+    sample: () => ['A', 'W', 'S'].join(''),
+    caseVariants: () => [['aws', 'cloud'].join(' ')],
+  },
+  {
+    pattern: productReferencePattern('Azure', AZURE_PRODUCT_NOUNS),
+    sample: () => ['Az', 'ure'].join(''),
+    caseVariants: () => [['azure', 'tenant'].join(' ')],
+  },
+  {
+    pattern: productReferencePattern('Snowflake', SNOWFLAKE_PRODUCT_NOUNS),
+    sample: () => ['Snow', 'flake'].join(''),
+    caseVariants: () => [['snowflake', 'warehouse'].join(' ')],
+  },
+  {
+    pattern: /\bbigquery\b/gi,
+    sample: () => ['Big', 'Query'].join(''),
+    caseVariants: () => [['big', 'query'].join('')],
+  },
+  {
+    pattern: /\bgoogle\s+cloud\b/gi,
+    sample: () => ['Google', ' Cloud'].join(''),
+    caseVariants: () => [['google', ' cloud'].join('')],
+  },
+  {
+    pattern: /\bamazon\s+web\s+services\b/gi,
+    sample: () => ['Amazon', ' Web Services'].join(''),
+    caseVariants: () => [['amazon', ' web services'].join('')],
+  },
 ];
 
 /**
@@ -344,9 +581,21 @@ const CLOUD_PRODUCT_NAMES: readonly ProhibitedString[] = [
  * real model vendor's name in the interface would name an integration the demonstration does not have.
  */
 const MODEL_VENDOR_NAMES: readonly ProhibitedString[] = [
-  { pattern: /\bopenai\b/gi, sample: () => ['Open', 'AI'].join('') },
-  { pattern: /\banthropic\b/gi, sample: () => ['Anthrop', 'ic'].join('') },
-  { pattern: /\bchatgpt\b/gi, sample: () => ['Chat', 'GPT'].join('') },
+  {
+    pattern: /\bopenai\b/gi,
+    sample: () => ['Open', 'AI'].join(''),
+    caseVariants: () => [['open', 'ai'].join('')],
+  },
+  {
+    pattern: /\banthropic\b/gi,
+    sample: () => ['Anthrop', 'ic'].join(''),
+    caseVariants: () => [['anthrop', 'ic'].join('')],
+  },
+  {
+    pattern: /\bchatgpt\b/gi,
+    sample: () => ['Chat', 'GPT'].join(''),
+    caseVariants: () => [['chat', 'gpt'].join('')],
+  },
 ];
 
 /** The third category: any real company, carmaker or cloud product name under `src/`. */
@@ -388,6 +637,7 @@ const UNIMPLEMENTED_CLAIM_VOCABULARY: ProhibitedCategory = {
           ['tamper', 'proof'].join('-'),
           ['tamper', 'proof'].join(' '),
         ].join(' / '),
+      caseVariants: () => [['tamper', 'proof'].join('-')],
     },
     {
       pattern: /\btamper[\s-]?resistant\b/gi,
@@ -397,6 +647,7 @@ const UNIMPLEMENTED_CLAIM_VOCABULARY: ProhibitedCategory = {
           ['tamper', 'resistant'].join('-'),
           ['tamper', 'resistant'].join(' '),
         ].join(' / '),
+      caseVariants: () => [['tamper', 'resistant'].join('-')],
     },
     {
       pattern: /\bzero[\s-]?trust\b/gi,
@@ -404,14 +655,17 @@ const UNIMPLEMENTED_CLAIM_VOCABULARY: ProhibitedCategory = {
         [['zero', 'trust'].join(''), ['zero', 'trust'].join('-'), ['zero', 'trust'].join(' ')].join(
           ' / ',
         ),
+      caseVariants: () => [['zero', 'trust'].join('-')],
     },
     {
       pattern: /\bguaranteed\b/gi,
       sample: () => ['guarant', 'eed'].join(''),
+      caseVariants: () => [['guarant', 'eed'].join('')],
     },
     {
       pattern: /\bcertified\b/gi,
       sample: () => ['certif', 'ied'].join(''),
+      caseVariants: () => [['certif', 'ied'].join('')],
     },
   ],
 };
@@ -435,6 +689,12 @@ const PROHIBITED_CATEGORIES: readonly ProhibitedCategory[] = [
  * forbid the build from meeting the rule it is checking. The audit note and the sovereignty label are
  * the two that a claim pattern could plausibly overreach; `certificate of analysis` is the domain
  * noun a package document may legitimately carry.
+ *
+ * The competitor tag is rule P-5's own wording, `Synthetic company`, character for character: the
+ * rule ranks above every other input (AAP §0.16), so the companion-string row of AAP §0.10, which
+ * pairs the tag with a different company word, is superseded by it — the same precedence
+ * `COMPETITOR_NAME_TAG` records where the string is shipped. The superseded wording is deliberately
+ * absent: a must-not-fire list that carried it would document a string the application must not use.
  */
 const REQUIRED_INTERFACE_TEXT: readonly string[] = [
   'Simulated control: this shows the mechanism, not production tamper resistance.',
@@ -444,17 +704,19 @@ const REQUIRED_INTERFACE_TEXT: readonly string[] = [
   'Simulated recommendation',
   'Simulated write-back',
   'Simulated market intelligence',
-  'Simulated company',
+  // Rule P-5 fixes this tag and supersedes the plan's earlier companion-string wording for it.
+  'Synthetic company',
   'Simulated data: client self-assessment',
   'certificate of analysis',
 ];
 
 /**
- * Ordinary prose that shares letters with a name in the third category.
+ * Ordinary prose that shares letters or a whole spelling with a name in the third category.
  *
- * Each sample is the reason the case-sensitivity rule exists: a word ending in a short acronym's
- * letters, a lower-case colour word and a lower-case weather noun. Passed through the scan they must
- * produce no match, or the patterns would have to exempt the files that hold such prose.
+ * Each sample is the reason the widening above is anchored rather than bare: a word ending in a short
+ * acronym's letters, a lower-case colour word and a lower-case weather noun, each followed by a noun
+ * that is not the product's. Passed through the scan they must produce no match, or the patterns would
+ * have to exempt the files that hold such prose.
  */
 const ORDINARY_VOCABULARY: readonly string[] = [
   'the laws of motion and the draws of a schedule',
@@ -480,6 +742,12 @@ describe('forbidden-strings source check (rules P-7, P-4, P-1)', () => {
     const stylesheets = SOURCE_PATHS.filter((path) => path.endsWith(STYLESHEET_EXTENSION));
     const outsideSource = SOURCE_PATHS.filter((path) => !path.startsWith('src/'));
     const dataAssets = SOURCE_PATHS.filter((path) => path.endsWith(DATA_ASSET_EXTENSION));
+    const emptyStylesheets = stylesheets.filter(
+      (path) => (SOURCE_TEXT_BY_PATH.get(path) ?? '') === '',
+    );
+    const silentScripts = scripts.filter(
+      (path) => (SOURCE_TEXT_BY_PATH.get(path) ?? '').trim() === '',
+    );
 
     expect(
       SOURCE_PATHS.length,
@@ -500,6 +768,14 @@ describe('forbidden-strings source check (rules P-7, P-4, P-1)', () => {
     expect(
       dataAssets,
       'this check reads authored script and stylesheet text, not a data asset: a place name in the bundled boundary file is not a product name, so widening the glob to it would report noise instead of a defect',
+    ).toEqual([]);
+    expect(
+      emptyStylesheets,
+      'the stylesheet half of this scan is vacuous only because Vitest hands back an empty string for a stylesheet: one collected stylesheet came back with text, so the patterns below would scan it for the first time, or a stylesheet the glob used to return is gone, so the half the header describes is not the half being scanned',
+    ).toEqual(stylesheets);
+    expect(
+      silentScripts,
+      'a collected TypeScript or TSX file came back with no text, so a prohibited string inside it would pass the scan above unnoticed',
     ).toEqual([]);
   });
 
@@ -526,6 +802,45 @@ describe('forbidden-strings source check (rules P-7, P-4, P-1)', () => {
         ).toEqual([]);
       });
     }
+
+    it('matches a lower-case and an upper-case spelling of every prohibited string', () => {
+      const casingGaps = PROHIBITED_CATEGORIES.flatMap((category) =>
+        category.strings.flatMap((string, index) => {
+          const where = `${category.label}: pattern ${index + 1} of ${category.strings.length}`;
+          const variants = string.caseVariants();
+
+          if (variants.length === 0) {
+            return [`${where} declares no lower-case spelling, so its casing is never proven`];
+          }
+
+          return variants.flatMap((variant) => {
+            const gaps: string[] = [];
+            const upperCaseVariant = variant.toUpperCase();
+
+            if (variant !== variant.toLowerCase()) {
+              gaps.push(`${where} declares ${JSON.stringify(variant)}, which is not all lower case`);
+            }
+            if (findMatches(string.pattern, variant).length === 0) {
+              gaps.push(
+                `${where} does not match its own lower-case spelling ${JSON.stringify(variant)}`,
+              );
+            }
+            if (findMatches(string.pattern, upperCaseVariant).length === 0) {
+              gaps.push(
+                `${where} does not match the upper-case spelling ${JSON.stringify(upperCaseVariant)}`,
+              );
+            }
+
+            return gaps;
+          });
+        }),
+      );
+
+      expect(
+        casingGaps,
+        'a pattern that matches only the branded capitalisation of a name leaves its lower-case occurrences unscanned, and one that stops at the lower-case spelling leaves the title-case and all-caps forms unscanned: rule P-7 bars the name rather than the typography it is written in',
+      ).toEqual([]);
+    });
 
     it('carries the global flag on every pattern', () => {
       const unflagged = PROHIBITED_CATEGORIES.flatMap((category) =>

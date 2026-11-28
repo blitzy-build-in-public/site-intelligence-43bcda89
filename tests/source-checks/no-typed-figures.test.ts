@@ -1,33 +1,47 @@
 // @vitest-environment node
 
 /**
- * Rule P-6 source check: no currency amount and no record identifier is typed into a screen or a
- * component, and the assistant's builders hold no figure, sentence or question of their own.
+ * Rule P-6 source check: no currency amount, no record identifier and no bare magnitude is typed
+ * into a screen, a component or a shell module, and the assistant's builders hold no figure,
+ * sentence or question of their own.
  *
  * WHAT THIS PROVES. Rule P-6 requires every number shown to be computed by the solver module or from
  * a seed record by the contracts' rules, and forbids a number typed into "a component, a text
  * template or a test hook". The screen-side proof is structural — a figure reaches a screen through
  * the service, from `src/domain/solver` or `src/domain/aggregation` — and this module is the
- * mechanical proof beside it: it reads the text of every screen and component module and fails when
- * a currency amount or a record identifier has been typed into one. AAP 0.9 fixes this row and its
- * coverage; AAP 0.8 fixes the two facts that depend on it — the expected results of the seed document
- * live only in `tests/fixtures/`, so a displayed figure is never a fixture, and the canvas's default
- * exception is resolved from service data rather than written into the screen precisely because this
- * check reads that screen.
+ * mechanical proof beside it: it reads the text of every screen, component and shell module and fails
+ * when a currency amount, a record identifier or a bare magnitude has been typed into one. AAP 0.9
+ * fixes this row and three of the subjects it reads; rule P-6, which the plan ranks below the rules,
+ * adds the shell to them. AAP 0.8 fixes the two facts that depend on it — the expected results of the
+ * seed document live only in `tests/fixtures/`, so a displayed figure is never a fixture, and the
+ * canvas's default exception is resolved from service data rather than written into the screen
+ * precisely because this check reads that screen.
  *
  * The assistant's builders are held to their design as well. `src/services/mock/assistant-script.ts`
  * owns the arithmetic that fills the seeded sentences and nothing else: every question, every
  * sentence and every figure belongs to `src/seed/assistant-questions.ts` or arrives from a
  * computation at call time, so a three-digit literal, a string mixing digits with letters, or a
  * string holding a question mark in that module is an injected figure, an invented sentence or a
- * typed question.
+ * typed question, and a bare magnitude there is the same defect as a bare magnitude on a screen — so
+ * the magnitude family below is applied to the builders as well.
  *
- * WHAT IS DELIBERATELY NOT A HIT. A percentage, a pixel size, a `viewBox`, a stroke width, a radius,
- * a row height, a timeout, an array index and a bare currency *code* are all legal: the components
- * carry geometry, widths and step counts of their own, and the one money formatter's options name
- * the currency code rather than an amount. The check therefore matches the three shapes a typed
- * amount takes — the euro symbol, a currency code touching digits, a thousands-grouped digit run —
- * and the twelve record-identifier patterns the contracts fix, and leaves every other number alone.
+ * WHAT THIS READS. Every application module a reader can see rendered — `src/features/**` (the
+ * screens), `src/components/**` (the shared components) and `src/app/**` (the shell: the top bar, the
+ * simulation controls, the role switcher, the search field, the freshness strip, the scope filters,
+ * the sovereignty pill and the stage-notice and not-found pages) — plus
+ * `src/services/mock/assistant-script.ts`, the builders, named as one path rather than globbed as a
+ * folder. The shell is read because rule P-6's subject is "a component, a text template or a test
+ * hook" and the shell is the component a reader sees on every route, composing sentences and figures
+ * of its own. `src/seed/` is deliberately not read: it is where the records and their text belong
+ * (AAP 0.8).
+ *
+ * WHAT IS DELIBERATELY NOT A HIT. A ratio, a percentage used as a scale, a pixel size, a `viewBox`, a
+ * stroke width, a radius, a row height, a timeout, an array index, a step count and a bare currency
+ * *code* are all legal: the components carry geometry, widths and scale maxima of their own, and the
+ * one money formatter's options name the currency code rather than an amount. The check therefore
+ * matches the three shapes a typed amount takes — the euro symbol, a currency code touching digits, a
+ * thousands-grouped digit run — the twelve record-identifier patterns the contracts fix, and the
+ * three shapes a typed bare magnitude takes, and leaves every other number alone.
  *
  * WHERE THE SUBJECT IS NARROWED, AND WHY. Two narrowings, each of them the rule's own subject rather
  * than a list of files permitted to break the rule:
@@ -35,8 +49,8 @@
  * - **Test modules are not scanned.** P-6 forbids a number typed into "a component, a text template
  *   or a test hook"; a test's expected output is none of the three, and `mono-value.test.tsx` cannot
  *   prove the money formatter without asserting a formatted amount. The folder globs drop any path
- *   ending in `.test.ts` or `.test.tsx` for that reason. No application file is exempt, and no
- *   allowlist of files exists here.
+ *   ending in `.test.ts` or `.test.tsx` for that reason. No application module a reader can see
+ *   rendered is exempt, and no allowlist of files exists here.
  * - **Comments are not scanned.** A comment reaches no reader, so it cannot present a typed figure as
  *   a computed one, and this project's style asks a comment to cite the input that fixes a value — a
  *   citation such as the number of competitor networks the market pack holds is documentation, not a
@@ -53,9 +67,10 @@
  * of quietly weakening every rule in the file.
  *
  * HOW THE RULES ARE APPLIED. A rule is a regular expression plus the kinds of text it judges, so the
- * same machinery states a currency shape, an identifier shape and the builders' four constraints. A
- * hit is reported as `<repository path>:<line> — <matched text>`, every hit is collected rather than
- * the first, and each category has its own case so a red gate names the category that broke.
+ * same machinery states a currency shape, a bare-magnitude shape, an identifier shape and the
+ * builders' own constraints. A hit is reported as `<repository path>:<line> — <matched text>`, every
+ * hit is collected rather than the first, and each category has its own case so a red gate names the
+ * category that broke.
  *
  * NO FILE SYSTEM, NO IMPORT OF `src/`. `import.meta.glob(..., { query: '?raw' })` hands over each
  * module's bytes without evaluating it, so this suite needs no DOM, keeps `@types/node` out of the
@@ -76,7 +91,7 @@
 import { describe, expect, it } from 'vitest';
 
 /* ---------------------------------------------------------------------------------------------
- * A. The modules this check reads — AAP 0.9 fixes the coverage, rule P-6 the subject
+ * A. The modules this check reads — AAP 0.9 fixes three of the subjects, rule P-6 the fourth
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -93,6 +108,21 @@ const FEATURE_SOURCE_TEXT: Record<string, string> = import.meta.glob<string>(
 /** Every shared component module's text, read the same way. */
 const COMPONENT_SOURCE_TEXT: Record<string, string> = import.meta.glob<string>(
   '../../src/components/**/*.{ts,tsx}',
+  { query: '?raw', import: 'default', eager: true },
+);
+
+/**
+ * Every shell module's text: the top bar, the simulation controls, the role switcher, the search
+ * field and the rest of the shell under `src/app`, read the same way.
+ *
+ * The shell is where a reader meets the application on every route, so it composes text as a screen
+ * does — the freshness strip states a source and its as-of time, the stage-notice pages say when a
+ * workspace arrives, and the simulation controls name the states they trigger. Rule P-6's subject is
+ * "a component, a text template or a test hook", which covers these modules exactly as it covers a
+ * screen, so they are read here rather than left to the suites that render them.
+ */
+const SHELL_SOURCE_TEXT: Record<string, string> = import.meta.glob<string>(
+  '../../src/app/**/*.{ts,tsx}',
   { query: '?raw', import: 'default', eager: true },
 );
 
@@ -153,10 +183,11 @@ function scannedFilesOf(globbed: Readonly<Record<string, string>>): readonly Sca
   return Object.entries(globbed).map(([globKey, text]) => ({ path: repositoryPath(globKey), text }));
 }
 
-/** Every screen and component module, test modules included. */
-const SCREEN_AND_COMPONENT_FILES: readonly ScannedFile[] = [
+/** Every screen, component and shell module, test modules included. */
+const APPLICATION_MODULE_FILES: readonly ScannedFile[] = [
   ...scannedFilesOf(FEATURE_SOURCE_TEXT),
   ...scannedFilesOf(COMPONENT_SOURCE_TEXT),
+  ...scannedFilesOf(SHELL_SOURCE_TEXT),
 ];
 
 /**
@@ -168,9 +199,9 @@ const SCREEN_AND_COMPONENT_FILES: readonly ScannedFile[] = [
  */
 const TEST_MODULE_PATH = /\.test\.tsx?$/;
 
-/** The screen and component modules a reader can see rendered, and so the ones P-6 governs. */
-const RENDERED_SCREEN_AND_COMPONENT_FILES: readonly ScannedFile[] =
-  SCREEN_AND_COMPONENT_FILES.filter((file) => !TEST_MODULE_PATH.test(file.path));
+/** The application modules a reader can see rendered, and so the ones P-6 governs. */
+const RENDERED_APPLICATION_MODULE_FILES: readonly ScannedFile[] =
+  APPLICATION_MODULE_FILES.filter((file) => !TEST_MODULE_PATH.test(file.path));
 
 /** The assistant's builders, resolved from the single-path glob. */
 const ASSISTANT_BUILDER_FILES: readonly ScannedFile[] = scannedFilesOf(ASSISTANT_BUILDER_TEXT);
@@ -388,7 +419,8 @@ function lineNumberAt(text: string, index: number): number {
 }
 
 /* ---------------------------------------------------------------------------------------------
- * C. The rules — three currency shapes, twelve identifier shapes, four builder constraints
+ * C. The rules — three currency shapes, three bare-magnitude shapes, twelve identifier shapes and
+ *    four builder constraints
  * ------------------------------------------------------------------------------------------- */
 
 /**
@@ -440,6 +472,105 @@ const CURRENCY_PATTERNS: readonly SourcePattern[] = [
   { pattern: /\u20AC/g, subjects: ['literals', 'jsxText'] },
   { pattern: /(?:EUR\s?[0-9]|[0-9]\s?EUR)/gi, subjects: ['nonComment'] },
   { pattern: /\d{1,3}(?:,\d{3})+/g, subjects: ['literals', 'jsxText'] },
+];
+
+/**
+ * The words a component names a business measure with.
+ *
+ * A constant that states one of them holds a figure the application must compute: units late, kits
+ * delayed, days late, revenue at risk, a percentage ready. The list is vocabulary rather than a set
+ * of names, because the qualification after the measure word is the screen's own — `UNITS_LATE`,
+ * `KITS_DELAYED` and `REVENUE_AT_RISK` are one shape.
+ */
+const MEASURE_NAME_WORDS =
+  'UNITS|KITS|ORDERS|LINES|DAYS|HOURS|COST|PRICE|REVENUE|AMOUNT|MARGIN|READINESS|PERCENT|SCORE' +
+  '|QTY|QUANTITY|IDLE|DELAYED';
+
+/**
+ * The suffixes a component legitimately qualifies a layout or a scale with.
+ *
+ * Each one names a pixel, a duration, a rounding or a class list rather than a business figure, so a
+ * measure word carrying one of them is a geometry or presentation constant: `SCORE_MAX = 100` is the
+ * top of a scale, not a score, and `READINESS_MAX` is the same shape.
+ */
+const LAYOUT_AND_SCALE_SUFFIXES =
+  'WIDTH|HEIGHT|RADIUS|OFFSET|MAX|MIN|STEP|SIZE|LENGTH|DURATION|PRECISION|CLASSES|FORMAT|HEADER' +
+  '|LABEL|TOP|LEFT|PADDING';
+
+/**
+ * A numeric literal bound to a constant whose name states a domain measure: `const UNITS_LATE = 580;`.
+ *
+ * This is the shape a typed figure most often takes, and no currency pattern sees it — there is no
+ * euro sign, no currency code and no thousands separator in it. The shape is the name, not the size:
+ * `const DAYS_LATE = 3;` states a business figure as plainly as `const UNITS_LATE = 580;`, while a
+ * width of 760 and a radius of 120 are geometry whatever their magnitude. A digit-count threshold
+ * would therefore let the first through and report the second, so the rule reads the name instead:
+ * it must lead with a measure word, and the exclusions below then release the constants that qualify
+ * a measure with a layout or a scale. A name whose measure word does not lead it is not read at all,
+ * which is why the vocabulary can hold MARGIN while `X_LABEL_EDGE_MARGIN` and `HINT_VIEWPORT_MARGIN`
+ * — the two offsets the tree names with it — stay out of the report. An optional type annotation is
+ * allowed between the name and the `=`, so an annotated declaration is read like an inferred one, and
+ * the whole value is matched so a report shows the figure that has to go.
+ */
+const MEASURE_ASSIGNMENT_PATTERN: SourcePattern = {
+  pattern: new RegExp(
+    `(?<![A-Za-z0-9_])(?:${MEASURE_NAME_WORDS})(?:_(?!${LAYOUT_AND_SCALE_SUFFIXES}\\b)[A-Z0-9]+)*` +
+      '(?:\\s*:[^=;{}()\\n]*)?\\s*=\\s*\\d+(?:\\.\\d+)?',
+    'g',
+  ),
+  subjects: ['code'],
+};
+
+/**
+ * A bare magnitude of three or more digits typed straight into visible markup: `580` between tags.
+ *
+ * P-6 catches a number typed into "a component"; a number between two tags is the one way one
+ * appears as visible content, with no literal, no attribute and no formatter around it. Three digits
+ * is a shape rather than a threshold: the geometry a component writes into markup lives in
+ * attributes — `x={420}`, `viewBox="0 0 420 240"`, `width="120"` — and never in a JSX text node,
+ * while a step, an index or a rotation the markup could carry is one or two digits. The lookbehind
+ * leaves a decimal fraction alone, so a fragment such as `0.500` is not read as a magnitude.
+ */
+const BARE_MARKUP_MAGNITUDE_PATTERN: SourcePattern = {
+  pattern: /(?<![\d.])\d{3,}/g,
+  subjects: ['jsxText'],
+};
+
+/**
+ * A bare magnitude of three or more digits followed by whitespace and a letter, in a literal or in
+ * JSX text: the figure a copy sentence is written around, such as `'defers 900 service kits'`.
+ *
+ * A currency amount in copy is already caught by the euro symbol or the grouped run; this is the
+ * amount a sentence states with no currency marker at all, and it is the hardest of the three to
+ * separate from the text a component legitimately holds. The separator is what does it: a figure a
+ * sentence states is followed by a space and a word, while the digit runs the tree carries in its
+ * literals are joined to what names them — `'text-13'`, `'motion-safe:duration-150'`,
+ * `'group-hover:opacity-100 group-active:opacity-100'` — so the lookbehind refuses a run that
+ * continues a word, a dotted path or a hyphenated token, and a `viewBox` such as `'0 0 420 240'`
+ * stays out because its numbers are separated by more numbers rather than by a word. Three digits is
+ * again a shape and not a threshold: a two-digit figure in copy cannot be told from a day count, a
+ * step or a percentage of a scale, and a measure that is really two digits is caught by the
+ * assignment shape above, which reads the name.
+ */
+const MAGNITUDE_IN_COPY_PATTERN: SourcePattern = {
+  pattern: /(?<![\w.-])\d{3,}(?=\s+[A-Za-z])/g,
+  subjects: ['literals', 'jsxText'],
+};
+
+/**
+ * The three shapes a bare business magnitude takes when it is typed rather than computed.
+ *
+ * A currency amount is not the only figure a component must not type. `const UNITS_LATE = 580;`
+ * states a domain measure with no euro sign, no code and no separator, and rule P-6 forbids it
+ * exactly as it forbids a typed amount — so this family sits beside `CURRENCY_PATTERNS` and is
+ * applied wherever they are. Each shape is defined by what it looks like rather than by a size at
+ * which a number becomes suspicious, because the geometry a component carries is as large as a
+ * magnitude and a business figure can be as small as three days.
+ */
+const BARE_MAGNITUDE_PATTERNS: readonly SourcePattern[] = [
+  MEASURE_ASSIGNMENT_PATTERN,
+  BARE_MARKUP_MAGNITUDE_PATTERN,
+  MAGNITUDE_IN_COPY_PATTERN,
 ];
 
 /**
@@ -514,6 +645,7 @@ const ASSISTANT_QUESTION_PATTERN: SourcePattern = {
 const ASSISTANT_PATTERNS: readonly SourcePattern[] = [
   ...CURRENCY_PATTERNS,
   ...IDENTIFIER_PATTERNS,
+  ...BARE_MAGNITUDE_PATTERNS,
   ASSISTANT_MAGNITUDE_PATTERN,
   ASSISTANT_MIXED_CONTENT_PATTERN,
   ASSISTANT_QUESTION_PATTERN,
@@ -560,15 +692,17 @@ function collectHits(files: readonly ScannedFile[], patterns: readonly SourcePat
  * ------------------------------------------------------------------------------------------- */
 
 describe('the check reads every module it claims to cover', () => {
-  it('finds screen modules and component modules once the test modules are set aside', () => {
-    const paths = RENDERED_SCREEN_AND_COMPONENT_FILES.map((file) => file.path);
+  it('finds screen, component and shell modules once the test modules are set aside', () => {
+    const paths = RENDERED_APPLICATION_MODULE_FILES.map((file) => file.path);
     const screens = paths.filter((path) => path.startsWith('src/features/'));
     const components = paths.filter((path) => path.startsWith('src/components/'));
+    const shell = paths.filter((path) => path.startsWith('src/app/'));
     expect(screens.length, 'no screen module was found, so the screen rules would scan nothing').toBeGreaterThan(0);
     expect(
       components.length,
       'no component module was found, so the component rules would scan nothing',
     ).toBeGreaterThan(0);
+    expect(shell.length, 'no shell module was found, so the shell rules would scan nothing').toBeGreaterThan(0);
     expect(paths.filter((path) => TEST_MODULE_PATH.test(path))).toEqual([]);
   });
 
@@ -577,7 +711,7 @@ describe('the check reads every module it claims to cover', () => {
   });
 
   it('reads every scanned module to its end with every string and block comment closed', () => {
-    const unterminated = [...SCREEN_AND_COMPONENT_FILES, ...ASSISTANT_BUILDER_FILES]
+    const unterminated = [...APPLICATION_MODULE_FILES, ...ASSISTANT_BUILDER_FILES]
       .filter((file) => !scanSource(file.text).closed)
       .map((file) => file.path);
     expect(
@@ -588,25 +722,35 @@ describe('the check reads every module it claims to cover', () => {
 });
 
 /* ---------------------------------------------------------------------------------------------
- * E. Screens and components — currency amounts and record identifiers
+ * E. Screens, components and the shell — currency amounts, record identifiers and bare magnitudes
  * ------------------------------------------------------------------------------------------- */
 
-describe('a currency amount is never typed into a screen or a component', () => {
+describe('a currency amount is never typed into a screen, a component or a shell module', () => {
   it('reports every amount, currency code or grouped figure written there', () => {
-    const hits = collectHits(RENDERED_SCREEN_AND_COMPONENT_FILES, CURRENCY_PATTERNS);
+    const hits = collectHits(RENDERED_APPLICATION_MODULE_FILES, CURRENCY_PATTERNS);
     expect(
       hits,
-      'an amount is typed into a screen or a component; a computed value belongs on screen through MonoValue',
+      'an amount is typed into a screen, a component or a shell module; a computed value belongs on screen through MonoValue',
     ).toEqual([]);
   });
 });
 
-describe('a record identifier is never typed into a screen or a component', () => {
+describe('a record identifier is never typed into a screen, a component or a shell module', () => {
   it('reports every record identifier written there', () => {
-    const hits = collectHits(RENDERED_SCREEN_AND_COMPONENT_FILES, IDENTIFIER_PATTERNS);
+    const hits = collectHits(RENDERED_APPLICATION_MODULE_FILES, IDENTIFIER_PATTERNS);
     expect(
       hits,
-      'a record identifier is typed into a screen or a component; every record it names arrives from the service',
+      'a record identifier is typed into a screen, a component or a shell module; every record it names arrives from the service',
+    ).toEqual([]);
+  });
+});
+
+describe('a bare magnitude is never typed into a screen, a component or a shell module', () => {
+  it('reports a measure bound to a literal, and a figure written into markup or into a sentence', () => {
+    const hits = collectHits(RENDERED_APPLICATION_MODULE_FILES, BARE_MAGNITUDE_PATTERNS);
+    expect(
+      hits,
+      'a magnitude is typed into a screen, a component or a shell module; every figure shown is computed by the solver or computed from a seed record by the contracts rules',
     ).toEqual([]);
   });
 });
@@ -621,6 +765,14 @@ describe("the assistant's builders hold no figure, sentence or question of their
     expect(
       hits,
       'an amount or a record identifier is typed into the builders; both belong to the records they are filled from',
+    ).toEqual([]);
+  });
+
+  it('reports a bare magnitude written there as a measure, in markup or in a sentence', () => {
+    const hits = collectHits(ASSISTANT_BUILDER_FILES, BARE_MAGNITUDE_PATTERNS);
+    expect(
+      hits,
+      'a magnitude is typed into the builders as a measure, into markup or into a sentence they are supposed to receive',
     ).toEqual([]);
   });
 
@@ -677,14 +829,39 @@ const SYNTHETIC_TYPED_AMOUNT = [
 const SYNTHETIC_TYPED_IDENTIFIER = "const TYPED_REFERENCE = 'EXC-2026-0000';";
 
 /**
+ * A synthetic screen snippet carrying a bare business magnitude: a large measure, a small one and a
+ * measure bound to a literal with a type annotation. None carries a currency marker, so only the
+ * magnitude family can report them, and the small one is what proves the rule reads the name rather
+ * than a size.
+ */
+const SYNTHETIC_TYPED_MAGNITUDE = [
+  'const UNITS_LATE = 580;',
+  'const DAYS_LATE = 3;',
+  'const PERCENT_READY: number = 78;',
+].join('\n');
+
+/**
+ * A synthetic screen snippet carrying a figure where no assignment reveals it: straight into visible
+ * markup, and into the text of a copy sentence.
+ */
+const SYNTHETIC_TYPED_FIGURE_IN_COPY = [
+  'const LATE_UNITS = <span>580</span>;',
+  "const NOTICE = 'defers 900 service units by 10 days';",
+].join('\n');
+
+/**
  * A synthetic component snippet holding every figure a component may legitimately carry: a ratio, a
- * percentage, a width, a `viewBox`, and the money formatter's options naming the currency code it
- * renders in without stating an amount.
+ * percentage of a scale, a width, a `viewBox`, the geometry and scale names the magnitude family has
+ * to leave alone, and the money formatter's options naming the currency code it renders in without
+ * stating an amount.
  */
 const SYNTHETIC_LEGAL_FIGURES = [
   'const SHARE = 0.42;',
   'const SHARE_PERCENT = 42;',
   'const WIDTH = 420;',
+  'const VIEW_WIDTH = 760;',
+  'const RADIUS = 120;',
+  'const SCORE_MAX = 100;',
   "const VIEW_BOX = '0 0 420 240';",
   "const MONEY_FORMAT = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });",
   'const SHIFTED = ROW_HEIGHT + 2;',
@@ -721,10 +898,29 @@ describe('each rule fires on a synthetic breach', () => {
     expect(hits).toEqual([`${SYNTHETIC_COMPONENT_PATH}:1${HIT_SEPARATOR}EXC-2026-0000`]);
   });
 
+  it('catches a bare magnitude typed into a synthetic screen', () => {
+    const hits = collectHits(
+      syntheticModule(SYNTHETIC_COMPONENT_PATH, SYNTHETIC_TYPED_MAGNITUDE),
+      BARE_MAGNITUDE_PATTERNS,
+    );
+    expect(hits).toContain(`${SYNTHETIC_COMPONENT_PATH}:1${HIT_SEPARATOR}UNITS_LATE = 580`);
+    expect(hits).toContain(`${SYNTHETIC_COMPONENT_PATH}:2${HIT_SEPARATOR}DAYS_LATE = 3`);
+    expect(hits).toContain(`${SYNTHETIC_COMPONENT_PATH}:3${HIT_SEPARATOR}PERCENT_READY: number = 78`);
+  });
+
+  it('catches a figure typed into synthetic markup and into a synthetic sentence', () => {
+    const hits = collectHits(
+      syntheticModule(SYNTHETIC_COMPONENT_PATH, SYNTHETIC_TYPED_FIGURE_IN_COPY),
+      BARE_MAGNITUDE_PATTERNS,
+    );
+    expect(hits).toContain(`${SYNTHETIC_COMPONENT_PATH}:1${HIT_SEPARATOR}580`);
+    expect(hits).toContain(`${SYNTHETIC_COMPONENT_PATH}:2${HIT_SEPARATOR}900`);
+  });
+
   it('passes a synthetic screen holding only figures a component may carry', () => {
     const hits = collectHits(
       syntheticModule(SYNTHETIC_COMPONENT_PATH, SYNTHETIC_LEGAL_FIGURES),
-      [...CURRENCY_PATTERNS, ...IDENTIFIER_PATTERNS],
+      [...CURRENCY_PATTERNS, ...IDENTIFIER_PATTERNS, ...BARE_MAGNITUDE_PATTERNS],
     );
     expect(hits).toEqual([]);
   });

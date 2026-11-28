@@ -143,7 +143,7 @@ The seven labels are fixed text from the specification, reproduced here exactly 
 | `Simulated market intelligence` | Every competitor network, series, chokepoint row, overlay and halo, and the atlas legend entries for the competitor series |
 | `Declared, not verified` | Every row of the sovereignty screen and the deployment summary above them |
 
-Three companion strings are fixed in the same way: `Simulated company` on every competitor name in a legend, selector or table header; `Simulated data: client self-assessment` on the client's own radar series; and the atlas banner `Simulated market intelligence pack v2026.11. No first-party record is used in any competitor figure.`
+Three companion strings are fixed in the same way: `Synthetic company` on every competitor name in a legend, selector or table header; `Simulated data: client self-assessment` on the client's own radar series; and the atlas banner `Simulated market intelligence pack v2026.11. No first-party record is used in any competitor figure.`
 
 ## What a real deployment must supply
 

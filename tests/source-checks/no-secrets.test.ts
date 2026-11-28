@@ -1,36 +1,52 @@
 // @vitest-environment node
 
 /**
- * Rule B-2 source check: no credential sits under `src/`, and nothing there reads configuration.
+ * Rule B-2 source check: no credential sits in the repository's source trees, and nothing under `src/`
+ * reads configuration.
  *
- * The check scans every file under `src/` and runs inside `npm test` (AAP §0.9); the built bundle is
- * scanned by `e2e/bundle-checks.spec.ts`, which repeats the same shapes over `dist/`. It matches
- * credential **shapes**, never bare words, and that is a deliberate and recorded decision: rule B-2's
- * own vocabulary ("apiKey", "token", "secret", "password") is also this project's design-token
- * vocabulary — "role token", `tokens.css`, "the density token" appear in the theme, component and
- * stylesheet sources because they describe the design system — so a literal substring match would fail
- * the gate on prose while no credential exists anywhere in the tree.
+ * The credential half reads every file under `src/` and every file under `tests/` that can hold a
+ * credential, and runs inside `npm test` (AAP §0.9); the built bundle is scanned by
+ * `e2e/bundle-checks.spec.ts`, which repeats the same shapes over `dist/`. `tests/` is scanned beside
+ * the application because rule B-2's subject is the repository rather than the application: a fixture
+ * or a source check is exactly where a credential copied from a sample would be pasted, and one there
+ * sits in the repository as much as one in `src/` does. One rule set covers both trees — the same
+ * shapes, the same acceptance predicates and the same exclusion lists — so there is no second, weaker
+ * scan to keep in step and no tree judged by a different standard. It matches credential **shapes**,
+ * never bare words, and that is a deliberate and recorded decision: rule B-2's own vocabulary
+ * ("apiKey", "token", "secret", "password") is also this project's design-token vocabulary — "role
+ * token", `tokens.css`, "the density token" appear in the theme, component and stylesheet sources
+ * because they describe the design system — so a literal substring match would fail the gate on prose
+ * while no credential exists anywhere in the repository.
  *
- * No file, folder or comment line is exempt from the scan, and none may be made exempt: `src/theme`,
- * `src/components` and `src/app` are the likeliest places a credential would be planted, so a location
- * exemption would hide a real one. All the discrimination lives in the shapes themselves, each of which
- * matches the form a credential takes in code rather than the word for it: a credential key assigned a
- * quoted value, an `Authorization` header assigned a quoted value, a bearer credential, a private-key
- * block, or a long base64-like literal. They are narrow enough that design-token prose cannot trip them
- * and broad enough that a real credential in any of those files still does. Do not narrow the scan back
- * to a bare-word match — it cannot pass — and do not add a prose exemption in its place, which would only
+ * No file, folder or comment line is exempt from the scan in either tree, and none may be made exempt:
+ * `src/theme`, `src/components` and `src/app` are the likeliest places a credential would be planted,
+ * and `tests/` holds the fixtures a sample gets copied into, so a location exemption would hide a real
+ * one. This file is scanned like any other, because it sits under `tests/source-checks/` — which is why
+ * every sample in it is assembled from fragments at call time and why its prose describes the shapes
+ * without writing one. All the discrimination lives in the shapes themselves, each of which matches the
+ * form a credential takes in code rather than the word for it: a credential key assigned a quoted
+ * value, an `Authorization` header assigned a quoted value, a bearer token, a private-key block, or a
+ * long base64-like literal. They are narrow enough that design-token prose cannot trip them and broad
+ * enough that a real credential in any of those files still does. Do not narrow the scan back to a
+ * bare-word match — it cannot pass — and do not add a prose exemption in its place, which would only
  * hide the next credential. The quoted value is what separates a stored credential from a type
- * declaration: `apiKey: string` describes a field, while `apiKey: '<value>'` carries one.
+ * declaration: `apiKey` beside a type describes a field, while the same name with a quoted value
+ * carries one.
  *
- * Two guards keep the scan from passing vacuously, because a scan over an empty set reports nothing and
- * so proves nothing: the collected set must be non-empty, and it must hold at least one stylesheet. The
- * second guard is about the path rather than the text, because Vitest returns a stylesheet's text as an
- * empty string in this environment — the path is the only evidence that the glob's `css` branch ran, and
- * without it the stylesheet half of the pattern could stop being exercised with no failure to show it.
+ * Three guards keep the scan from passing vacuously, because a scan over an empty set reports nothing
+ * and so proves nothing: each tree's collected set must be non-empty, `src/` must hold at least one
+ * stylesheet, and no tree may carry a file type the scan passes over in silence. The stylesheet guard is
+ * about the path rather than the text, because Vitest returns a stylesheet's text as an empty string in
+ * this environment — the path is the only evidence that the glob's `css` branch ran, and without it the
+ * stylesheet half of the pattern could stop being exercised with no failure to show it. `tests/` holds
+ * no stylesheet today, so its collected and empty stylesheet sets are both empty and the canary rests on
+ * `src/`; the compiled CSS is scanned as built text by `e2e/bundle-checks.spec.ts` (AAP §0.9).
  *
  * The same scan asserts that nothing under `src/` reads `import.meta.env` or `process.env` (AAP §0.9),
  * which is the form in which this plan meets the configuration half of rule B-2: it declares no
- * environment variable at all, so nothing may read one.
+ * environment variable at all, so nothing may read one. That half covers `src/` alone, for the reason
+ * recorded with the case itself: AAP §0.9 fixes the property of the application, and a test harness's
+ * own environment read is not the application's configuration.
  *
  * Node environment: the check reads source text and asserts on it, so it needs no DOM. Vite's
  * `import.meta.glob` is the only build facility it uses, and `@types/node` stays out of the project —
@@ -64,6 +80,46 @@ const SOURCE_TEXT_FILES: Record<string, string> = import.meta.glob<string>(
  */
 const ALL_SOURCE_FILES: readonly string[] = Object.keys(import.meta.glob('../../src/**/*'));
 
+/**
+ * Every file under `tests/` that can hold a credential, read the same way and with the same options.
+ *
+ * The second tree is here because rule B-2 forbids a secret in the repository, not only in the
+ * application: `tests/fixtures` and `tests/source-checks` are where a value copied out of a sample
+ * lands, and this file sits among them. The shapes, their acceptance predicates and their exclusion
+ * lists are shared with the `src/` half — one rule set, two trees.
+ */
+const TEST_TEXT_FILES: Record<string, string> = import.meta.glob<string>(
+  '../../tests/**/*.{ts,tsx,css,json,txt,svg}',
+  { query: '?raw', import: 'default', eager: true },
+);
+
+/**
+ * Every path under `tests/`, read for its path alone, so the coverage assertion can hold the tests tree
+ * to the same comparison `ALL_SOURCE_FILES` allows for `src/`: a file added there in an extension the
+ * text glob does not cover has to fail rather than escape the scan silently.
+ */
+const ALL_TEST_FILES: readonly string[] = Object.keys(import.meta.glob('../../tests/**/*'));
+
+/** One tree the credential half of the check reads, with what it collected from it. */
+interface CheckedTree {
+  /** The tree's repository-relative directory, so a message that has to name the tree can. */
+  readonly label: string;
+  /** The raw text of every file the text glob matched, keyed by the glob path. */
+  readonly textFiles: Record<string, string>;
+  /** The path of every file the path-only glob matched, which coverage is measured against. */
+  readonly allFiles: readonly string[];
+}
+
+/**
+ * The two trees the credential half reads: `src/` and `tests/`, in that order so a failure lists the
+ * application's own files first. The configuration half reads the first of them alone, and records why
+ * where it scans.
+ */
+const CHECKED_TREES: readonly CheckedTree[] = [
+  { label: 'src/', textFiles: SOURCE_TEXT_FILES, allFiles: ALL_SOURCE_FILES },
+  { label: 'tests/', textFiles: TEST_TEXT_FILES, allFiles: ALL_TEST_FILES },
+];
+
 /** Extensions whose text the scan reads: source, data and licence text. */
 const TEXT_EXTENSIONS: readonly string[] = ['.ts', '.tsx', '.json', '.txt', '.svg'];
 
@@ -80,12 +136,11 @@ const STYLESHEET_EXTENSION = '.css';
 /**
  * The asset formats the scan cannot read as text, listed so the coverage assertion below allows them.
  *
- * Every non-binary file type under `src/` is read as text, SVG included: an SVG is markup, so an
- * element in one can carry an inline credential assignment, and the raw-text glob above reads
- * `*.svg` with `TEXT_EXTENSIONS` listing it, so a credential planted in an icon file is reported
- * like any other. What is left here is binary data the scan cannot decode as text: the font and
- * raster formats Vite emits into `dist/assets/` as bytes and a browser never parses as
- * configuration.
+ * Every non-binary file type under a checked tree is read as text, SVG included: an SVG is markup, so
+ * an element in one can carry an inline credential assignment, and the raw-text glob reads `*.svg`
+ * with `TEXT_EXTENSIONS` listing it, so a credential planted in an icon file is reported like any
+ * other. What is left here is binary data the scan cannot decode as text: the font and raster formats
+ * Vite emits into `dist/assets/` as bytes and a browser never parses as configuration.
  */
 const ASSET_EXTENSIONS: readonly string[] = [
   '.woff2',
@@ -111,9 +166,36 @@ function extensionOf(path: string): string {
   return lastDot > lastSeparator ? path.slice(lastDot).toLowerCase() : '';
 }
 
+/**
+ * This suite's own directory, relative to the repository root.
+ *
+ * `import.meta.glob` returns its keys relative to the importing module, so every key is written from
+ * here: `../../src/app/app.tsx` for the application tree, `../fixtures/solver-expected-results.ts` for
+ * a sibling folder, and `./forbidden-strings.test.ts` for a file in this directory. Anchoring a key at
+ * this constant is what turns it into the repository-relative path a reader can open, and it is what
+ * makes a finding in the tests tree name `tests/…` rather than a path written from inside that tree.
+ */
+const SUITE_DIRECTORY = 'tests/source-checks';
+
 /** A glob key turned into the repository-relative path a reader can open. */
 function sourcePathOf(globKey: string): string {
-  return globKey.replace(/^(?:\.\.\/)+/, '');
+  const segments: string[] = [];
+
+  for (const segment of `${SUITE_DIRECTORY}/${globKey}`.split('/')) {
+    if (segment === '' || segment === '.') {
+      continue;
+    }
+
+    if (segment === '..') {
+      segments.pop();
+
+      continue;
+    }
+
+    segments.push(segment);
+  }
+
+  return segments.join('/');
 }
 
 /** One occurrence of a shape in a file's text. */
@@ -190,7 +272,8 @@ interface CredentialShape {
 }
 
 /**
- * The eight credential shapes rule B-2 forbids under `src/` (AAP §0.9).
+ * The eight credential shapes rule B-2 forbids in the repository — `src/` and `tests/` alike
+ * (AAP §0.9).
  *
  * Each one is a form a credential takes in code. None of them is the bare word, which is why the
  * design-token vocabulary the sources are full of cannot reach them.
@@ -238,7 +321,7 @@ const CREDENTIAL_SHAPES: readonly CredentialShape[] = [
       [['Author', 'ization'].join(''), ':', `'${['place', 'holder'].join('')}'`].join(' '),
   },
   {
-    label: 'bearer credential',
+    label: 'bearer token',
     // `Bearer` followed by eight or more credential characters: the token itself, not the scheme name.
     // "bearer" as a bare word appears in prose; `Bearer <credential>` never does.
     pattern: /\bbearer\s+[A-Za-z0-9._~+/-]{8,}=*/gi,
@@ -365,8 +448,8 @@ const NON_CREDENTIAL_LONG_STRINGS: readonly string[] = [
  * Every shape one sample matches, decided by the same rules the tree scan applies.
  *
  * The non-credential samples prove the scan's discrimination only if they are measured against the
- * acceptance rule as well as the pattern, so this routes through `findMatches` exactly as the scan of
- * `src/` does rather than testing the patterns alone.
+ * acceptance rule as well as the pattern, so this routes through `findMatches` exactly as the tree scan
+ * does rather than testing the patterns alone.
  */
 function shapesMatching(sample: string): CredentialShape[] {
   return CREDENTIAL_SHAPES.filter(
@@ -377,82 +460,116 @@ function shapesMatching(sample: string): CredentialShape[] {
 describe('no-secrets source check (rule B-2)', () => {
   /**
    * The guard the rest of the suite rests on: a scan whose input set is empty reports no finding and so
-   * passes every assertion below for the wrong reason. Both halves are asserted here rather than left to
+   * passes every assertion below for the wrong reason. Each tree is asserted here rather than left to
    * the coverage check, because that check compares two lists that are both empty on an empty tree.
+   *
+   * The stylesheet leaf stays with `src/`, the one tree that holds stylesheets today: its presence is
+   * what proves the glob's `css` branch ran, and `tests/` cannot carry that proof while it holds none.
    */
-  it('collects a non-empty file set that includes a stylesheet', () => {
-    const collectedPaths = Object.keys(SOURCE_TEXT_FILES);
-    const stylesheetPaths = collectedPaths
-      .filter((path) => extensionOf(path) === STYLESHEET_EXTENSION)
-      .map(sourcePathOf);
+  it('collects a non-empty file set from both trees, including a stylesheet under src/', () => {
+    const emptyTrees = CHECKED_TREES.filter(
+      (tree) => tree.allFiles.length === 0 || Object.keys(tree.textFiles).length === 0,
+    ).map((tree) => tree.label);
+    const stylesheetPaths = Object.keys(SOURCE_TEXT_FILES).filter(
+      (path) => extensionOf(path) === STYLESHEET_EXTENSION,
+    );
 
-    expect(ALL_SOURCE_FILES.length, 'the source glob collected no path at all').toBeGreaterThan(0);
     expect(
-      collectedPaths.length,
-      'the raw-text glob read nothing, so every scan below would pass without scanning a file',
-    ).toBeGreaterThan(0);
+      emptyTrees,
+      'a glob collected nothing from a tree, so every scan over it would pass without reading a file',
+    ).toEqual([]);
     expect(
       stylesheetPaths.length,
-      'no stylesheet was collected, so the glob\'s css branch never ran',
+      "no stylesheet was collected under src/, so the glob's css branch never ran",
     ).toBeGreaterThan(0);
   });
 
-  it('reads every source file that can hold a credential', () => {
-    const readablePaths = Object.keys(SOURCE_TEXT_FILES);
-    const stylesheetPaths = ALL_SOURCE_FILES.filter(
-      (path) => extensionOf(path) === STYLESHEET_EXTENSION,
-    );
-    const unreadTextFiles = ALL_SOURCE_FILES.filter(
-      (path) => TEXT_EXTENSIONS.includes(extensionOf(path)) && !readablePaths.includes(path),
-    );
-    const emptyTextFiles = Object.entries(SOURCE_TEXT_FILES)
-      .filter(([path, text]) => extensionOf(path) !== STYLESHEET_EXTENSION && text.trim() === '')
-      .map(([path]) => sourcePathOf(path));
-    const emptyStylesheets = Object.entries(SOURCE_TEXT_FILES)
-      .filter(([path, text]) => extensionOf(path) === STYLESHEET_EXTENSION && text === '')
-      .map(([path]) => sourcePathOf(path));
-    const unknownExtensions = ALL_SOURCE_FILES.filter((path) => {
-      const extension = extensionOf(path);
+  it('reads every file under src/ and tests/ that can hold a credential', () => {
+    const coverage = CHECKED_TREES.map((tree) => {
+      const readablePaths = Object.keys(tree.textFiles);
 
-      return (
-        !TEXT_EXTENSIONS.includes(extension) &&
-        extension !== STYLESHEET_EXTENSION &&
-        !ASSET_EXTENSIONS.includes(extension)
-      );
+      return {
+        label: tree.label,
+        stylesheetPaths: tree.allFiles
+          .filter((path) => extensionOf(path) === STYLESHEET_EXTENSION)
+          .map(sourcePathOf)
+          .sort(),
+        unreadTextFiles: tree.allFiles
+          .filter(
+            (path) => TEXT_EXTENSIONS.includes(extensionOf(path)) && !readablePaths.includes(path),
+          )
+          .map(sourcePathOf),
+        emptyTextFiles: Object.entries(tree.textFiles)
+          .filter(([path, text]) => extensionOf(path) !== STYLESHEET_EXTENSION && text.trim() === '')
+          .map(([path]) => sourcePathOf(path)),
+        emptyStylesheets: Object.entries(tree.textFiles)
+          .filter(([path, text]) => extensionOf(path) === STYLESHEET_EXTENSION && text === '')
+          .map(([path]) => sourcePathOf(path))
+          .sort(),
+        unknownExtensions: tree.allFiles
+          .filter((path) => {
+            const extension = extensionOf(path);
+
+            return (
+              !TEXT_EXTENSIONS.includes(extension) &&
+              extension !== STYLESHEET_EXTENSION &&
+              !ASSET_EXTENSIONS.includes(extension)
+            );
+          })
+          .map(sourcePathOf),
+      };
     });
 
     expect(
-      unreadTextFiles.map(sourcePathOf),
+      coverage.flatMap((entry) => entry.unreadTextFiles),
       'a source file was not read as text, so a credential in it could not be found',
     ).toEqual([]);
-    expect(emptyTextFiles, 'a source file was read as text but came back empty').toEqual([]);
     expect(
-      emptyStylesheets,
-      'only a stylesheet may come back empty here; Vitest stubs CSS module text to an empty string',
-    ).toEqual(stylesheetPaths.map(sourcePathOf));
+      coverage.flatMap((entry) => entry.emptyTextFiles),
+      'a source file was read as text but came back empty',
+    ).toEqual([]);
+    for (const entry of coverage) {
+      expect(
+        entry.emptyStylesheets,
+        `only a stylesheet may come back empty under ${entry.label}; Vitest stubs CSS module text to an empty string`,
+      ).toEqual(entry.stylesheetPaths);
+    }
     expect(
-      unknownExtensions.map(sourcePathOf),
-      'new file type in src/: extend this scan to read it, or record why it cannot hold a credential',
+      coverage.flatMap((entry) => entry.unknownExtensions),
+      'new file type in a checked tree: extend this scan to read it, or record why it cannot hold a credential',
     ).toEqual([]);
   });
 
-  it('reports no credential shape anywhere under src/', () => {
+  it('reports no credential shape under src/ or tests/', () => {
     const findings: string[] = [];
 
-    for (const [path, text] of Object.entries(SOURCE_TEXT_FILES)) {
-      for (const shape of CREDENTIAL_SHAPES) {
-        for (const match of findMatches(shape.pattern, text, shape.accepts)) {
-          findings.push(`${sourcePathOf(path)}:${match.line} — ${match.text} [${shape.label}]`);
+    for (const tree of CHECKED_TREES) {
+      for (const [path, text] of Object.entries(tree.textFiles)) {
+        for (const shape of CREDENTIAL_SHAPES) {
+          for (const match of findMatches(shape.pattern, text, shape.accepts)) {
+            findings.push(`${sourcePathOf(path)}:${match.line} — ${match.text} [${shape.label}]`);
+          }
         }
       }
     }
 
     expect(
       findings,
-      'rule B-2 forbids a credential under src/: each line above names the file, the line and the shape',
+      'rule B-2 forbids a credential anywhere in the repository: each line above names the file, the line and the shape',
     ).toEqual([]);
   });
 
+  /**
+   * Scoped to `src/` deliberately: this is the one place the two trees are not judged alike, and the
+   * difference is the subject rather than the rule.
+   *
+   * AAP §0.9 fixes the property of the **application** — "Nothing in `src/` reads `import.meta.env` or
+   * `process.env`" — because the application is what runs in a browser against a deployment's
+   * configuration. A test harness is a different thing: reading the environment a runner was started
+   * with is how a harness does its job, so a scan of `tests/` for this form would assert a property no
+   * source of truth sets and would report a legitimate read as a finding. The credential half above
+   * carries rule B-2's repository-wide guarantee; only this half is `src/`.
+   */
   it('finds no configuration read anywhere under src/', () => {
     const findings: string[] = [];
 

@@ -603,7 +603,8 @@ test('T-01 the exception queue is reached from the FileMap canvas through the na
 test('the queue’s plant filter narrows it, clearing it restores it, and a saved view re-applies it', async ({
   page,
 }) => {
-  await page.goto('/exceptions');
+  await page.goto('/');
+  await primaryNavigation(page).getByRole('link', { name: 'Exceptions' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Exception queue' })).toBeVisible();
 
   await waitForQueueRows(page);
@@ -1401,7 +1402,8 @@ test('the overview shows its tiles, changed-since list, risk-by-plant table and 
  * through the route, the screen's heading and its first row.
  */
 test('the overview’s primary action opens the exception queue', async ({ page }) => {
-  await page.goto('/overview');
+  await page.goto('/');
+  await primaryNavigation(page).getByRole('link', { name: 'Overview' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
   await expect(simulatedDataBadge(page)).toBeVisible();
 
