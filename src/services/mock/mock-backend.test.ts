@@ -2621,6 +2621,9 @@ describe('the assistant', () => {
 
       expect(answer.text).toContain(citation.ref);
       expect(answer.text).toContain(String(order.unitsLate));
+      // Each figure carries the unit its measure is taken in, derived from the measured row rather
+      // than typed here, so no cited order is left as a bare count a reader has to interpret (AAP 0.8).
+      expect(answer.text).toContain(`${String(order.unitsLate)} units late`);
     }
   }, CASE_TIMEOUT_MS);
 

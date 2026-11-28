@@ -19,10 +19,13 @@
  * one-click switch re-asks on the in-boundary model; a permission refusal renders the forbidden card;
  * any other rejection renders the offline notice with a retry that repeats the read; a question
  * outside the script renders whatever text the service returned; a disabled control carries a reason
- * a keyboard user can read; the model selector carries an `id` and a `name` beside the legend that
- * names it; all seven screen states render; the route mounts the product eyebrow, one level-one
- * heading and the screen's single primary action; and both themes render the same content from role
- * tokens.
+ * a keyboard user can read; a question activated from the keyboard hands its focus to the answer
+ * region instead of dropping it to the document's body, while a question submitted from the composer's
+ * field keeps the focus the reader is typing with, and the block card hands its own focus to that
+ * region again when its switch re-asks; the model selector carries an `id` and a `name`
+ * beside the legend that names it; all seven screen states render; the route mounts the product
+ * eyebrow, one level-one heading and the screen's single primary action; and both themes render the
+ * same content from role tokens.
  * The browser halves of `T-10` and `T-11` are `e2e/s1-assistant.spec.ts`, and axe is `T-16` in
  * `e2e/s1-keyboard-and-axe.spec.ts`: `@axe-core/playwright` is browser-only and the project declares
  * no jest-axe dependency, so no accessibility scan can run here. This suite proves instead the
@@ -661,6 +664,51 @@ describe('AssistantPanel — the refusals', () => {
     expect(second?.[0].modelId).not.toBe(EXTERNAL_ID);
   });
 
+  /* The card that reports a policy block carries the control that puts the question again, and the card
+     leaves the document the moment that control does. The focus it held is handed to the region that
+     survives the re-ask, so a reader who switches models from the keyboard is not left on the document's
+     body with no ring on anything (rule B-3). */
+  it("hands focus to the answer region when the block card's switch re-asks the question", async () => {
+    const user = userEvent.setup();
+    const pending = deferredAnswer();
+    service.askAssistant
+      .mockRejectedValueOnce(policyProblem())
+      .mockImplementationOnce(() => pending.promise);
+    renderWithProviders(<AssistantPanel />);
+
+    await selectModel(user, EXTERNAL_ID);
+    await ask(user, QUESTION.prompt);
+    await waitFor(() => expect(service.askAssistant).toHaveBeenCalledTimes(1));
+
+    const switchControl = groupScopeFor(POLICY_ID).getByRole('button', {
+      name: new RegExp(IN_BOUNDARY),
+    });
+    const region = switchControl.closest('[tabindex="-1"]');
+
+    if (!(region instanceof HTMLElement)) {
+      throw new Error('The block card does not sit inside the panel’s focusable answer region.');
+    }
+
+    switchControl.focus();
+    expect(switchControl).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(service.askAssistant).toHaveBeenCalledTimes(2));
+
+    /* The refusal the card reported is cleared by the question now in flight, and the region that held
+       the card holds the focus the card could not keep. */
+    expect(document.activeElement).toBe(region);
+    expect(region).toContainElement(screen.getByText(ASSISTANT_PANEL_TEXT.asking));
+
+    await act(async () => {
+      pending.resolve(envelope(citedAnswer()));
+    });
+
+    expect(await screen.findByText(ANSWER_TEXT)).toBeVisible();
+    expect(document.activeElement).toBe(region);
+  });
+
   it('renders the forbidden card when the read is refused for want of a permission', async () => {
     service.listSuggestedQuestions.mockRejectedValue(permissionProblem());
     renderWithProviders(<AssistantPanel />);
@@ -846,6 +894,73 @@ describe('AssistantPanel — a question in flight', () => {
     });
 
     expect(await screen.findByText(ANSWER_TEXT)).toBeVisible();
+  });
+
+  it('hands focus to the answer region when a question activated from the keyboard replaces its own control', async () => {
+    const user = userEvent.setup();
+    const pending = deferredAnswer();
+    service.askAssistant.mockImplementation(() => pending.promise);
+    renderWithProviders(<AssistantPanel />);
+
+    const control = await screen.findByRole('button', { name: QUESTION.prompt });
+
+    /* Reached and activated the way the defect was: Tab to the question control, then `Enter`. */
+    for (let step = 0; step < 4 && document.activeElement !== control; step += 1) {
+      await user.tab();
+    }
+    expect(control).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(service.askAssistant).toHaveBeenCalledTimes(1));
+
+    /* The control moves inside its own explanation the moment the question is in flight, so it cannot
+       keep the focus; the region holding the pending announcement takes it instead of the document's
+       body, and carries the programmatic tab stop that hand-off needs. */
+    const region = document.activeElement;
+
+    if (!(region instanceof HTMLElement)) {
+      throw new Error('No element holds focus while the question is in flight.');
+    }
+
+    expect(region).not.toBe(document.body);
+    expect(region).toHaveAttribute('tabindex', '-1');
+    expect(region).toContainElement(screen.getByText(ASSISTANT_PANEL_TEXT.asking));
+
+    /* The answer replaces the announcement inside that same region, so the focus it was handed stays
+       on the outcome rather than falling back to the body once the flight ends. */
+    await act(async () => {
+      pending.resolve(envelope(citedAnswer()));
+    });
+
+    expect(await screen.findByText(ANSWER_TEXT)).toBeVisible();
+    expect(document.activeElement).toBe(region);
+  });
+
+  it('keeps focus in the composer field when the question is submitted from it', async () => {
+    const user = userEvent.setup();
+    const pending = deferredAnswer();
+    service.askAssistant.mockImplementation(() => pending.promise);
+    renderWithProviders(<AssistantPanel />);
+
+    const field = await screen.findByLabelText(ASSISTANT_PANEL_TEXT.composerLabel);
+    await user.type(field, TYPED_QUESTION);
+    expect(field).toHaveFocus();
+
+    /* `Enter` in the field submits the form, and the field itself survives the render that puts the
+       question in flight, so the hand-off leaves the reader where they are typing rather than moving
+       them to the answer region. */
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(service.askAssistant).toHaveBeenCalledTimes(1));
+    expect(field).toHaveFocus();
+
+    await act(async () => {
+      pending.resolve(envelope(citedAnswer()));
+    });
+
+    expect(await screen.findByText(ANSWER_TEXT)).toBeVisible();
+    expect(field).toHaveFocus();
   });
 });
 

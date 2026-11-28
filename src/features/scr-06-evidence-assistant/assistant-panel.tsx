@@ -72,10 +72,12 @@
  * - B-3: the region is named by `Panel`'s caption, the question list is a real list of native buttons,
  *   focus order follows the document, every control keeps the 24x24 px minimum target and the theme's
  *   focus ring, and nothing animates — the pending answer region is announced through `role="status"`
- *   with no transition, so a reduced-motion session has nothing to opt out of.
+ *   with no transition, so a reduced-motion session has nothing to opt out of. Focus itself is never
+ *   dropped: the control an activation replaced is handed to the answer region, which is the one
+ *   element that survives the render putting a question in flight (see {@link AssistantPanelBody}).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
 
 import { Panel } from '../../components/panel';
@@ -233,8 +235,19 @@ const FIELD_CLASSES = [
   'motion-safe:transition-colors motion-safe:duration-150',
 ].join(' ');
 
-/** The answer region and the pending announcement above it, one 4 px step apart. */
-const ANSWER_REGION_CLASSES = 'flex min-w-0 flex-col gap-2';
+/**
+ * The answer region and the pending announcement above it, one 4 px step apart.
+ *
+ * The region is a programmatic focus target rather than a control: it carries `tabIndex={-1}` at its
+ * call site, so a question activated from the keyboard hands its focus to the answer it produced
+ * rather than leaving it on the document's body, and it draws the theme's 2 px focus-ring role
+ * whenever the focus it was handed is visible (rule B-3). Every value is a role token, so both themes
+ * resolve their own measured ring, and no palette literal and no elevation is reachable from here.
+ */
+const ANSWER_REGION_CLASSES = [
+  'flex min-w-0 flex-col gap-2',
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
+].join(' ');
 
 /** The pending announcement's own line, in the secondary text role at the type scale's 13 px step. */
 const PENDING_CLASSES = 'text-13 text-text-secondary';
@@ -424,6 +437,14 @@ export interface AssistantPanelBodyProps {
  * document's own focus order and the theme's focus ring (rule B-3). Nothing animates, so a
  * reduced-motion session has nothing to opt out of.
  *
+ * A QUESTION IN FLIGHT REPLACES THE CONTROL THAT ASKED IT. `ActionButton` renders a control that can act
+ * as a bare `button` and one that cannot inside the explanation for why, so the moment a question is put
+ * in flight the node that was activated leaves the document and focus would otherwise fall to the body,
+ * with no ring on anything (rule B-3). The activation handlers therefore record what was focused before
+ * the question is put, and the answer region — the one element that survives both the flight and its
+ * outcome — takes that focus once the recorded node has gone. A node still in the document keeps the
+ * focus it holds, so a question submitted from the composer's field never pulls the reader out of it.
+ *
  * @param props - The state, the payloads, the reader's draft and the handlers. See
  *   {@link AssistantPanelBodyProps}.
  * @returns The named panel, with its state rendered by `StateBoundary` around the content.
@@ -453,6 +474,18 @@ export function AssistantPanelBody(props: AssistantPanelBodyProps): ReactElement
   const fieldId = useId();
   const captionId = useId();
 
+  /*
+   * The node a question is being asked from, recorded before the question is put because the render
+   * that puts it in flight replaces it: a question control moves inside its own explanation the moment
+   * `isAsking` turns true, and the composer's submit does the same when its blocker changes to the
+   * in-flight reason. What the reader activated is therefore captured while it is still in the
+   * document, and the effect below hands focus on only when it has left.
+   */
+  const activatedControlRef = useRef<Element | null>(null);
+
+  /* The region that takes that focus: the answer, the pending announcement, or the refusal card. */
+  const answerRegionRef = useRef<HTMLDivElement | null>(null);
+
   /* The one reason the composer's submit cannot act, in the order of condition precedence: a question
      already in flight outranks an empty draft, which outranks having no model to answer with. */
   const submitBlocker: string | null = isAsking
@@ -463,7 +496,14 @@ export function AssistantPanelBody(props: AssistantPanelBodyProps): ReactElement
         ? ASSISTANT_PANEL_TEXT.noModelBlocker
         : null;
 
+  /* What activating a control of this panel does first: record the node it was activated from, so the
+     render that replaces it cannot leave the reader's focus on the document's body (rule B-3). */
+  const rememberActivatedControl = (): void => {
+    activatedControlRef.current = document.activeElement;
+  };
+
   const askDraft = (): void => {
+    rememberActivatedControl();
     onAsk?.(draft);
   };
 
@@ -482,10 +522,52 @@ export function AssistantPanelBody(props: AssistantPanelBodyProps): ReactElement
   };
 
   const handleQuestion = (prompt: string): void => {
+    rememberActivatedControl();
     onAsk?.(prompt);
   };
 
-  const showsAnswerRegion = isAsking || answer !== undefined;
+  /* The block card's two controls put a question as well, and the card they sit in leaves the document
+     the moment one of them does — a question in flight clears the refusal it was reporting — so the
+     same recording answers for them: the focus the card held is handed to the region that survives it,
+     rather than falling to the document's body (rule B-3). */
+  const switchToInBoundary = (): void => {
+    rememberActivatedControl();
+    onSwitchToInBoundary?.();
+  };
+
+  const retryQuestion = (): void => {
+    rememberActivatedControl();
+    onRetryQuestion?.();
+  };
+
+  /* The region is rendered from every outcome this panel can hold rather than from the pending state
+     alone, because it is the focus target a keyboard activation is handed to: it has to survive the
+     render that replaces the pending announcement with the answer, and the one that replaces it with a
+     refusal a policy recorded, or the focus it took would leave the document with that announcement.
+     A refusal settles with no answer beside it, so the card that reports it belongs inside the same
+     region. The region still shows exactly one of the three at a time, so nothing moves on screen. */
+  const showsAnswerRegion =
+    isAsking || answer !== undefined || (refusal !== undefined && onSwitchToInBoundary !== undefined);
+
+  /*
+   * The focus hand-off, at the one render that can drop it. `isAsking` turning true is the render that
+   * moves an activated question control inside its explanation, so the recorded node is judged here
+   * rather than at activation: a node the document still holds — the composer's field, which submits
+   * the form without being replaced — keeps the focus it has, and only a node this render removed hands
+   * it to the answer region. The recording belongs to that one transition, so it is cleared on every
+   * pass and a later render cannot read an activation that has already been answered.
+   */
+  useEffect(() => {
+    const activated = activatedControlRef.current;
+
+    activatedControlRef.current = null;
+
+    if (!isAsking || activated === null || activated.isConnected) {
+      return;
+    }
+
+    answerRegionRef.current?.focus();
+  }, [isAsking]);
 
   /* The partial state's own sentence is the inputs the service reported missing, read from the answer
      rather than composed here (rule P-6): the banner then names what is absent instead of stating only
@@ -543,26 +625,31 @@ export function AssistantPanelBody(props: AssistantPanelBodyProps): ReactElement
           ) : null}
 
           {showsAnswerRegion ? (
-            <div className={ANSWER_REGION_CLASSES}>
+            /* Focusable but not a control: `tabIndex={-1}` puts the region in the programmatic focus
+               order only, so it adds no Tab stop and hands the answer to the keyboard activation that
+               produced it (rule B-3). */
+            <div ref={answerRegionRef} tabIndex={-1} className={ANSWER_REGION_CLASSES}>
               {isAsking ? (
                 <p role="status" className={PENDING_CLASSES}>
                   {ASSISTANT_PANEL_TEXT.asking}
                 </p>
               ) : null}
               {answer === undefined ? null : <AssistantAnswer answer={answer} />}
+
+              {/* The refusal is the service's own record, rendered as data. It needs the switch to take
+                  the model the denying policy permits; without that handler the card would offer a
+                  control that cannot act, so it is not rendered at all (rule P-8). A refusal settles
+                  with no answer beside it, so the card is the region's own content and the region the
+                  reader's focus was handed to stays in the document as it arrives. */}
+              {refusal === undefined || onSwitchToInBoundary === undefined ? null : (
+                <PolicyBlockCard
+                  problem={refusal}
+                  onSwitchToInBoundary={switchToInBoundary}
+                  onRetry={onRetryQuestion === undefined ? undefined : retryQuestion}
+                />
+              )}
             </div>
           ) : null}
-
-          {/* The refusal is the service's own record, rendered as data. It needs the switch to take the
-              model the denying policy permits; without that handler the card would offer a control that
-              cannot act, so it is not rendered at all (rule P-8). */}
-          {refusal === undefined || onSwitchToInBoundary === undefined ? null : (
-            <PolicyBlockCard
-              problem={refusal}
-              onSwitchToInBoundary={onSwitchToInBoundary}
-              onRetry={onRetryQuestion}
-            />
-          )}
 
           {/* The selector stays operable while a question is in flight: the choice applies to the next
               question, and the answer on screen names the model the service composed it with, so

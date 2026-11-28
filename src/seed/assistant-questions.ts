@@ -128,7 +128,9 @@ export const ASSISTANT_QUESTIONS: readonly AssistantQuestion[] = [
    *
    * `{unitsLateCo770233}` and `{unitsLateCo770251}` are the units-late measures of those two orders
    * under the baseline solve of `CASE-1184` with the air-freight and transfer levers both at zero
-   * (AAP 0.8), so the sentence reports what doing nothing would leave late rather than a plan.
+   * (AAP 0.8), so the sentence reports what doing nothing would leave late rather than a plan. The
+   * measure's unit words are stated after each placeholder, because the builder renders the figure
+   * alone: a second bare count would leave the reader to infer what the number counts.
    */
   {
     id: 'Q1',
@@ -136,7 +138,7 @@ export const ASSISTANT_QUESTIONS: readonly AssistantQuestion[] = [
     outline:
       'Names the customer orders a no-action response leaves late and states what each one comes to against its own due date.',
     template:
-      'With neither air freight nor a transfer in the plan, the affected customer orders miss their dates: CO-770233 runs {unitsLateCo770233} units late and CO-770251 runs {unitsLateCo770251}, both under the baseline solve of CASE-1184.',
+      'With neither air freight nor a transfer in the plan, the affected customer orders miss their dates: CO-770233 runs {unitsLateCo770233} units late and CO-770251 runs {unitsLateCo770251} units late, both under the baseline solve of CASE-1184.',
     records: [
       { kind: 'exception', id: 'EXC-2026-1184' },
       { kind: 'solver-case', id: 'CASE-1184' },
