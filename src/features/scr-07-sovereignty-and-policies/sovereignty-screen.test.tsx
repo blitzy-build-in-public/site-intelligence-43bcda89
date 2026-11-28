@@ -681,6 +681,12 @@ vi.mock('../../services/service-provider', () => {
     useService: () => service,
     useDemonstration: () => demonstration,
     useActiveUser: () => null,
+    /*
+     * The cache key the screen reads the acting persona under. The real module owns the tuple; this
+     * double has to carry it because the screen imports the binding, and a suite that left it out would
+     * fail on the import rather than on the behaviour it means to assert.
+     */
+    ACTIVE_USER_QUERY_KEY: ['getActiveUser'],
   };
 });
 

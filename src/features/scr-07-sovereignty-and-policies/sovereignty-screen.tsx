@@ -116,13 +116,18 @@ import { StateBoundary } from '../../components/state-boundary';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
-import { useDemonstration, useService } from '../../services/service-provider';
+import {
+  ACTIVE_USER_QUERY_KEY,
+  useDemonstration,
+  useService,
+} from '../../services/service-provider';
 import { APPROVAL_GATE_SOURCE, LEDGER_WINDOW_DAYS, SIM_LABELS } from '../../types';
 import type {
   ActiveUser,
   AuditEvent,
   AuditResult,
   ExportPayload,
+  ListQuery,
   Permission,
   PolicyDetail,
   Result,
@@ -879,24 +884,36 @@ function exportBlockerOf({
 }
 
 /* ---------------------------------------------------------------------------------------------
+ * The query the policy read sends
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The query this screen's policy read sends: no status filter and no page bound.
+ *
+ * The page prints the whole policy set the acting role may read, with the decisions recorded against
+ * each policy beneath it, so the port's optional narrowing is left out rather than defaulted to one
+ * member. Held as one named value so the call and the cache key cannot name two different queries.
+ */
+const POLICY_SET_QUERY: ListQuery = {};
+
+/* ---------------------------------------------------------------------------------------------
  * The screen — AAP 0.12.4 SCR-07, rules P-4 and P-1
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * What the router hands SCR-07: the shell's plant and product selection, and nothing else. Neither
- * read takes it — the declared configuration and the policy set are group-wide — but it keys both
- * cache entries, so a change in the top bar re-reads the page while the payload stays the records the
- * acting role may see (AAP 0.18.1, rule P-2).
+ * read takes it — the declared configuration and the policy set are group-wide — and it is in neither
+ * cache key either, so a change in the top bar re-reads nothing here while both payloads stay the
+ * records the acting role may see (AAP 0.18.1, rule P-2).
  */
 export interface SovereigntyScreenProps {
   /**
-   * The shell's plant and product selection, passed in because a screen never reads the shell's
-   * stores (AAP 0.18.1).
+   * The shell's plant and product selection, carried for the router's uniform route contract.
    *
-   * Declared configuration and the policy set are group-wide, so neither read takes the selection:
-   * the port's members accept no scope argument. The selection is carried in the cache keys instead,
-   * so a change re-reads this page as every other screen's reads do while the records the service
-   * returns stay exactly the ones the acting role may see.
+   * Declared configuration and the policy set are group-wide, so neither read takes the selection: the
+   * port's members accept no scope argument. It is in neither cache key either, because a key holds the
+   * arguments its read receives, so a top-bar change leaves both payloads in place and they stay exactly
+   * the records the acting role may see.
    */
   readonly scope: Scope;
 }
@@ -915,13 +932,14 @@ export interface SovereigntyScreenProps {
  * whether a download is being prepared, and the message of an export that produced no file, so a
  * re-render can never move a record (rule P-6).
  *
- * @param props - The shell's plant and product selection.
+ * @param _props - The shell's plant and product selection, accepted for the router's uniform route
+ *   contract; no read on this screen is parameterised by it.
  * @returns The header with the export action, the deployment summary, the declared rows, the outbound
  *   ledger, the policy set with a grant action on each row and the recent decisions — all of it inside
  *   the boundary that explains a read which could not be completed — and the grant dialog while a row
  *   has opened it.
  */
-export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactElement {
+export function SovereigntyScreen(_props: SovereigntyScreenProps): ReactElement {
   const service = useService();
   const demonstration = useDemonstration();
   const queryClient = useQueryClient();
@@ -943,14 +961,14 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
    * the case where repeating the call can succeed.
    */
   const sovereigntyQuery = useQuery<Result<SovereigntyStatus>, unknown>({
-    queryKey: ['getSovereigntyStatus', scope.plants, scope.products],
+    queryKey: ['getSovereigntyStatus'],
     queryFn: () => service.getSovereigntyStatus(),
     retry: false,
   });
 
   const policiesQuery = useQuery<Result<PolicyDetail[]>, unknown>({
-    queryKey: ['listPolicies', scope.plants, scope.products],
-    queryFn: () => service.listPolicies({}),
+    queryKey: ['listPolicies', POLICY_SET_QUERY],
+    queryFn: () => service.listPolicies(POLICY_SET_QUERY),
     retry: false,
   });
 
@@ -960,9 +978,14 @@ export function SovereigntyScreen({ scope }: SovereigntyScreenProps): ReactEleme
    * persona the switch selected, and the gate below has to describe the role a request would be
    * evaluated against. The capability is absent on an adapter without identity, and `skipToken` then
    * reads nothing.
+   *
+   * The key is `ACTIVE_USER_QUERY_KEY`, not a literal of this file's own: one cache entry holds the
+   * session's identity, written by the role switcher and read by the shell, so the persona this
+   * screen's gate judges and the persona the shell shows are one answer rather than two that could
+   * drift.
    */
   const actingUserQuery = useQuery<Result<ActiveUser>, unknown>({
-    queryKey: ['getActiveUser'],
+    queryKey: ACTIVE_USER_QUERY_KEY,
     queryFn: demonstration === null ? skipToken : () => demonstration.getActiveUser(),
     retry: false,
   });

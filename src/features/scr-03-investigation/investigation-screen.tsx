@@ -834,9 +834,6 @@ const QUEUE_LINK_CLASSES = [
   'self-start',
 ].join(' ');
 
-/** The scope the shell supplies before its filters have resolved, which selects every plant and product. */
-const NO_SCOPE: Scope = { plants: [], products: [] };
-
 /* ---------------------------------------------------------------------------------------------
  * The note form
  * ------------------------------------------------------------------------------------------- */
@@ -957,9 +954,9 @@ function NoteForm({ exceptionId, onClose, onRecorded }: NoteFormProps): ReactEle
 /**
  * What the router hands SCR-03: the shell's plant and product selection, and nothing else — the
  * exception itself comes from the `:exceptionId` parameter, which the screen reads. The selection is
- * optional because a route mounted before the top bar's filters resolve supplies none, and the screen
- * then reads under an unnarrowed scope; it earns its place in the cache key rather than in the call,
- * since the port narrows by the acting role's plant scope (AAP 0.6.2, 0.12.4).
+ * optional because a route mounted before the top bar's filters resolve supplies none, and it earns no
+ * place in the request or in the cache keys either: the port takes the identifier alone and narrows by
+ * the acting role's plant scope itself (AAP 0.6.2, 0.12.4).
  */
 export interface InvestigationScreenProps {
   /**
@@ -967,8 +964,8 @@ export interface InvestigationScreenProps {
    *
    * The detail read itself is not scope-parameterised: the port's method takes the identifier and the
    * service narrows by the acting role's plant scope, refusing an exception outside it as one this read
-   * does not reach. The selection is carried in this screen's cache key so a change in the top bar
-   * re-reads the record the way every other screen's reads do (AAP 0.6.2, 0.12.4).
+   * does not reach. The selection is carried in neither of this screen's cache keys, so a change in the
+   * top bar re-reads nothing here: the record cannot differ under one (AAP 0.6.2, 0.12.4).
    */
   readonly scope?: Scope;
 }
@@ -988,20 +985,20 @@ interface WriteReport {
 /**
  * Renders SCR-03: one exception investigated, from what changed through to the options.
  *
- * The read is keyed on the method's name, the identifier and the shell's selection, and its settled
- * facts decide the state in one place ({@link deriveScreenState}); the boundary owns how that state
- * looks. The option set is read beside it so the projection can plot the designated option, and its
+ * The read is keyed on the method's name and the exception's identifier alone — the port takes the
+ * identifier, and the adapter applies the acting role's plant scope itself — and its settled facts
+ * decide the state in one place ({@link deriveScreenState}); the boundary owns how that state looks.
+ * The option set is read beside it so the projection can plot the designated option, and its
  * failure is deliberately not fatal: an exception whose options cannot be read still shows what
  * changed, what it touches and what the baseline projects. The only state this component owns is what
  * the reader chose — whether the note form is open, and the report a write left behind.
  *
- * @param props - The shell's plant and product selection.
+ * @param _props - The shell's plant and product selection, accepted for the router's uniform route
+ *   contract; no read on this screen is parameterised by it.
  * @returns The investigation inside the state boundary, or the panel that explains a route which names
  *   no readable exception.
  */
-export function InvestigationScreen(props: InvestigationScreenProps): ReactElement {
-  const scope = props.scope ?? NO_SCOPE;
-
+export function InvestigationScreen(_props: InvestigationScreenProps): ReactElement {
   const service = useService();
   const activeUser = useActiveUser();
   const queryClient = useQueryClient();
@@ -1020,7 +1017,7 @@ export function InvestigationScreen(props: InvestigationScreenProps): ReactEleme
    * retry for the case where repeating the call can succeed.
    */
   const detailQuery = useQuery<Result<ExceptionDetail>, unknown>({
-    queryKey: ['getExceptionDetail', exceptionId, scope.plants, scope.products],
+    queryKey: ['getExceptionDetail', exceptionId],
     queryFn:
       exceptionId === undefined ? skipToken : () => service.getExceptionDetail(exceptionId),
     retry: false,

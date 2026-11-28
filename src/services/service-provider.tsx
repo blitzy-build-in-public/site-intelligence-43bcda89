@@ -372,12 +372,14 @@ async function startBootstrap(): Promise<BootstrapOutcome> {
  *
  * One key, one shape, one fact — the entry holds `getActiveUser()`'s own `Result<ActiveUser>` envelope,
  * exactly as the member answers it, so every reader of the session's identity shares the value this
- * boundary publishes instead of keeping a second copy of it. Two screens already read the capability
- * this way and key it identically (`src/features/scr-07-sovereignty-and-policies/
- * sovereignty-screen.tsx` and `policy-detail-screen.tsx`, whose grant gate must describe the persona
- * the adapter is enforcing), and a demonstration reset or a role switch invalidates the cache whole, so
- * the entry those screens hold, the entry a switch writes and the entry this boundary reads are the
- * same entry with the same spelling.
+ * boundary publishes instead of keeping a second copy of it. This constant is that entry's one owner:
+ * the role switcher writes it, this boundary reads it, and every screen whose gate describes the
+ * persona the adapter is enforcing imports it rather than spelling the tuple again
+ * (`src/features/scr-05-approvals-and-audit/approval-detail-screen.tsx` and the two SCR-07 screens,
+ * `sovereignty-screen.tsx` and `policy-detail-screen.tsx`), so a change to the constant reaches every
+ * reader at once. A demonstration reset or a role switch invalidates the cache whole, so the entry
+ * those screens hold, the entry a switch writes and the entry this boundary reads are the same entry
+ * with the same spelling.
  *
  * The shape is the member's envelope rather than the persona alone, because a key cannot hold two
  * shapes: a reader that expected a bare `ActiveUser` under a key another reader fills with the

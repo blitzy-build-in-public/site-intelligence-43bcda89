@@ -550,14 +550,16 @@ export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
   const [sort, setSort] = useState<TableSort | null>(null);
 
   /*
-   * The inbox read. Its key is the port member's name followed by the arguments that vary — the two
-   * halves of the scope — so a selection change is a new entry rather than a cached page re-filtered,
-   * and the invalidation a decision performs (`['listApprovals']`, matched by key prefix) reaches every
-   * scope's entry at once. Retries follow the shell's client, which turns them off and leaves the
-   * repeating to the boundary's own control.
+   * The inbox read. Its key is the port member's name followed by every argument the call receives — the
+   * query held above and the two halves of the scope — so a selection change is a new entry rather than
+   * a cached page re-filtered, and a second reader that sends the same query and scope (SCR-04's
+   * approval read) shares this entry instead of fetching one list twice. The invalidation a decision
+   * performs (`['listApprovals']`, matched by key prefix) reaches every scope's entry at once. Retries
+   * follow the shell's client, which turns them off and leaves the repeating to the boundary's own
+   * control.
    */
   const approvalsQuery = useQuery<Result<Approval[]>, unknown>({
-    queryKey: ['listApprovals', scope.plants, scope.products],
+    queryKey: ['listApprovals', INBOX_QUERY, scope.plants, scope.products],
     queryFn: () => service.listApprovals(INBOX_QUERY, scope),
   });
 

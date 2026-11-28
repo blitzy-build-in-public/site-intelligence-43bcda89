@@ -93,12 +93,12 @@
  * here and typed against those unions: a member the union gains or loses fails this file's compilation
  * instead of being hand-typed into a control. The port's `listAuditEvents(query)` takes no scope,
  * because the chain is not plant-scoped — a persona either holds `audit.read` or does not — so the
- * scope this screen receives is carried in the query *key*, a scope change re-reads the trail as every
- * other screen's reads do, and the request itself stays exactly the port's signature. A failure whose
- * cause the state mapping does not name — a `policy` or `simulated-write-back` refusal of a list read —
- * is rendered `offline`: the boundary's offline rendering withholds content, says nothing answered and
- * offers a retry, and a cause it cannot name must not be presented as content that exists. A
- * `not-found` refusal is `empty` on every screen, from the one mapping in
+ * audit query is the whole of the read's key, and the shell's selection reaches neither the request nor
+ * the key: a top-bar change re-reads nothing here, because the trail cannot differ under one. A
+ * failure whose cause the state mapping does not name — a `policy` or `simulated-write-back` refusal of
+ * a list read — is rendered `offline`: the boundary's offline rendering withholds content, says nothing
+ * answered and offers a retry, and a cause it cannot name must not be presented as content that
+ * exists. A `not-found` refusal is `empty` on every screen, from the one mapping in
  * `src/components/screen-state.ts`.
  *
  * Rules this module is built to satisfy:
@@ -1256,18 +1256,20 @@ const COLUMNS: readonly TableColumn<AuditEvent>[] = [
 const TRAIL_READ = 'listAuditEvents';
 
 /**
- * The shell's plant and product selection reaches the trail keyed into its cache entry rather than into
- * the request, because the trail is the role's to read and not a plant's: a selection change re-reads
- * the events without changing which of them this role may see.
+ * The shell's plant and product selection, accepted for the router's uniform route contract.
+ *
+ * No read on this screen is scope-parameterised — the trail is the role's to read and not a plant's —
+ * so the field is carried for `src/app/router.tsx`, which hands every screen its selection, and reaches
+ * neither the request nor the query's cache key.
  */
 export interface AuditScreenProps {
   /**
-   * The shell's plant and product selection.
+   * The shell's plant and product selection, which no read here is parameterised by.
    *
    * The trail itself is not plant-scoped — a persona either holds `audit.read` or does not, which is
-   * why the port's read takes the filters alone — so the selection is carried in the query's key
-   * rather than in the request: a scope change re-reads the trail as every other screen's read does,
-   * and the records the read returns stay exactly the ones this role may see.
+   * why the port's read takes the filters alone — so the selection is carried neither in the request
+   * nor in the query's key: a top-bar change re-reads nothing here, and the records the read returns
+   * stay exactly the ones this role may see.
    */
   readonly scope: Scope;
 }
@@ -1289,11 +1291,12 @@ export interface AuditScreenProps {
  * table's order, which event's detail is open and the last report — so a re-render can never change a
  * record.
  *
- * @param props - The shell's plant and product selection.
+ * @param _props - The shell's plant and product selection, accepted for the router's uniform route
+ *   contract; no read on this screen is parameterised by it.
  * @returns The page header, the verification group with its fixed note and result, the filters, the
  *   trail inside the state boundary, and the detail drawer while one is open.
  */
-export function AuditScreen({ scope }: AuditScreenProps): ReactElement {
+export function AuditScreen(_props: AuditScreenProps): ReactElement {
   const service = useService();
   const queryClient = useQueryClient();
 
@@ -1313,7 +1316,7 @@ export function AuditScreen({ scope }: AuditScreenProps): ReactElement {
    * retry for the case where repeating the call can succeed.
    */
   const eventsQuery = useQuery<Result<AuditEvent[]>, unknown>({
-    queryKey: [TRAIL_READ, auditQuery, scope.plants, scope.products],
+    queryKey: [TRAIL_READ, auditQuery],
     queryFn: () => service.listAuditEvents(auditQuery),
     retry: false,
   });

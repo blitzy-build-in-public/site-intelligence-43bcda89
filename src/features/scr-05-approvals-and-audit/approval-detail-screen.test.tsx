@@ -690,6 +690,12 @@ const mockDemonstration = vi.hoisted(() => ({
 vi.mock('../../services/service-provider', () => ({
   useService: () => mockService,
   useDemonstration: () => mockDemonstration,
+  /*
+   * The cache key the screen reads the acting persona under. The real module owns the tuple; this
+   * double has to carry it because the screen imports the binding, and a suite that left it out would
+   * fail on the import rather than on the behaviour it means to assert.
+   */
+  ACTIVE_USER_QUERY_KEY: ['getActiveUser'],
 }));
 
 /** One user-event session, as the suite's helpers take it. */

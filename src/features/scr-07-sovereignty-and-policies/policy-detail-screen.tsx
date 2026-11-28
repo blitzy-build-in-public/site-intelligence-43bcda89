@@ -34,11 +34,11 @@
  * `../../services/service-provider`: `getPolicy` returns the policy's whole detail, the acting
  * persona — read from the demonstration capability's `getActiveUser` — decides whether the grant
  * control can act, and the same capability's `listPersonas` supplies the second approvers the dialog
- * offers. The route parameter arrives from `useParams()` and the shell's plant and product
- * selection arrives as `scope`, which this screen carries in the cache key so a selection change
- * re-reads the policy as every other screen's reads do (AAP 0.6.2, 0.12.4). No seed module, mock
- * adapter, API client, domain module, shell module or other feature is imported: the port is the only
- * data boundary here (rule P-2).
+ * offers. The route parameter arrives from `useParams()`, and the shell's plant and product selection
+ * arrives as `scope` and reaches no read: the policy set is group-wide rather than plant-scoped, so
+ * `getPolicy` takes the identifier alone and a selection change re-reads nothing here (AAP 0.6.2,
+ * 0.12.4). No seed module, mock adapter, API client, domain module, shell module or other feature is
+ * imported: the port is the only data boundary here (rule P-2).
  *
  * THE SEVEN STATES. The screen renders inside `StateBoundary`, and the state is derived once, in
  * {@link deriveScreenState}, from what the query settled to and from the freshness report the result
@@ -128,7 +128,11 @@ import { StateBoundary } from '../../components/state-boundary';
 import { PENDING_CLOCK_ICON, StatusIndicator } from '../../components/status-indicator';
 import type { StatusMeaning } from '../../components/status-indicator';
 import { ActionButton } from '../../components/tooltip';
-import { useDemonstration, useService } from '../../services/service-provider';
+import {
+  ACTIVE_USER_QUERY_KEY,
+  useDemonstration,
+  useService,
+} from '../../services/service-provider';
 import { APPROVAL_GATE_SOURCE, SIM_LABELS } from '../../types';
 import type {
   ActiveUser,
@@ -649,18 +653,17 @@ function requestRowKeyOf(row: PendingRequestRow): string {
 /**
  * What the router hands SCR-07's policy detail: the shell's plant and product selection, and nothing
  * else — the policy comes from the `:policyId` parameter, which the screen reads. The selection is
- * required even though `getPolicy` takes no scope, because it is what keys the read: a change in the
- * top bar re-reads the policy the way every other screen's reads do, while the payload stays the
- * records the acting role may see (AAP 0.6.2, rule P-2).
+ * required even though no read here takes a scope: `getPolicy` takes the identifier alone, so the
+ * selection is in neither the request nor the cache key, and a change in the top bar re-reads nothing
+ * while the payload stays the records the acting role may see (AAP 0.6.2, rule P-2).
  */
 export interface PolicyDetailScreenProps {
   /**
-   * The shell's plant and product selection.
+   * The shell's plant and product selection, carried for the router's uniform route contract.
    *
    * The policy set is group-wide rather than plant-scoped, so the port's read takes the identifier
-   * alone; the selection is carried in the cache key instead, so a change re-reads the policy as
-   * every other screen's reads do, while the records the service returns stay exactly the ones the
-   * acting role may see.
+   * alone; the selection is in neither the request nor the cache key, so a change re-reads nothing here
+   * while the records the service returns stay exactly the ones the acting role may see.
    */
   readonly scope: Scope;
 }
@@ -669,24 +672,25 @@ export interface PolicyDetailScreenProps {
  * SCR-07's policy detail, at `/admin/policies/:policyId`.
  *
  * Three reads, each through the service boundary (rule P-2): the policy through `getPolicy` under one
- * cache entry per identifier and selection; the acting persona through the demonstration capability's
- * `getActiveUser`, which decides whether the grant control can act; and the roster a second approver
- * is chosen from through the same capability's `listPersonas`. The identifier arrives from the route
- * and the selection from the shell, so nothing is typed here — every identifier, statement, persona
- * and instant on screen is a member of a payload the port returned (rule P-6).
+ * cache entry per identifier; the acting persona through the demonstration capability's `getActiveUser`,
+ * which decides whether the grant control can act; and the roster a second approver is chosen from
+ * through the same capability's `listPersonas`. The identifier arrives from the route, and the
+ * selection the shell hands over reaches no read, so nothing is typed here — every identifier,
+ * statement, persona and instant on screen is a member of a payload the port returned (rule P-6).
  *
  * The component keeps no record of its own. The only state it owns is whether the grant dialog is
  * open, so a re-render can never change a record, and a request the reader records appears because
  * the detail read is invalidated once the port resolves it rather than because this screen holds a
  * copy of it (AAP 0.12.2 `PolicyDetail.pendingExceptions`).
  *
- * @param props - The shell's plant and product selection.
+ * @param _props - The shell's plant and product selection, accepted for the router's uniform route
+ *   contract; no read on this screen is parameterised by it.
  * @returns The page header, which renders in every state and carries the grant action once the record
  *   is loaded, then the declared-or-evaluated block, the recorded decisions and the time-boxed
  *   exception requests inside the boundary that explains a record which could not be read, and the
  *   grant dialog while it is open.
  */
-export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactElement {
+export function PolicyDetailScreen(_props: PolicyDetailScreenProps): ReactElement {
   const service = useService();
   const demonstration = useDemonstration();
   const queryClient = useQueryClient();
@@ -704,7 +708,7 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
    * nothing rather than asking the service for an empty identifier.
    */
   const policyQuery = useQuery<Result<PolicyDetail>, unknown>({
-    queryKey: ['getPolicy', policyIdentifier, scope.plants, scope.products],
+    queryKey: ['getPolicy', policyIdentifier],
     queryFn:
       policyIdentifier === undefined ? skipToken : () => service.getPolicy(policyIdentifier),
     retry: false,
@@ -716,9 +720,14 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
    * persona the switch selected, and the gate below has to describe the role a request would actually
    * be evaluated against. The capability is absent on an adapter without identity, and `skipToken`
    * then reads nothing.
+   *
+   * The key is `ACTIVE_USER_QUERY_KEY`, not a literal of this file's own: one cache entry holds the
+   * session's identity, written by the role switcher and read by the shell, so the persona this
+   * screen's gate judges and the persona the shell shows are one answer rather than two that could
+   * drift.
    */
   const actingUserQuery = useQuery<Result<ActiveUser>, unknown>({
-    queryKey: ['getActiveUser'],
+    queryKey: ACTIVE_USER_QUERY_KEY,
     queryFn: demonstration === null ? skipToken : () => demonstration.getActiveUser(),
     retry: false,
   });
@@ -729,9 +738,11 @@ export function PolicyDetailScreen({ scope }: PolicyDetailScreenProps): ReactEle
    * reached it — so the read runs only when the bound adapter holds it, and it is bound once here
    * rather than narrowed again inside the query.
    *
-   * The value cached is the persona list under the plain `['listPersonas']` key the shell's role
-   * switcher (`src/app/role-switcher.tsx`) reads, not the `Result` envelope: one method, one key, one
-   * shape, so neither reader can hand the other a value of the wrong type.
+   * The value cached is the unwrapped persona list, under the bare `['listPersonas']` key no other
+   * reader uses: a key names the reader that caches it as well as the method, so the shell's role
+   * switcher (`src/app/role-switcher.tsx`) holds its roster under `['listPersonas', 'shell']` and the
+   * sovereignty dialog under `['listPersonas', 'governance']`, and no one reader can hand another a
+   * value of the wrong type.
    */
   const readPersonas =
     demonstration === null ? undefined : demonstration.listPersonas?.bind(demonstration);

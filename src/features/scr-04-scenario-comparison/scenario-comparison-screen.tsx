@@ -61,9 +61,10 @@
  *
  * FOUR GAPS THIS SCREEN REPORTS RATHER THAN WORKS AROUND.
  * 1. `getScenarioSet(exceptionId)` takes no `Scope`, so the shell's plant and product selection cannot
- *    be handed to it. It travels in the cache key instead — a change in the top bar re-reads the set
- *    the way every other screen's reads do — while the adapter applies the acting role's plant scope
- *    itself (AAP 0.12.4), which is why this screen never filters a record it was given.
+ *    be handed to it: the adapter applies the acting role's plant scope itself (AAP 0.12.4), which is
+ *    why this screen never filters a record it was given. The selection is not carried in the set's
+ *    cache key either — the method takes the identifier alone, so the selection cannot change the
+ *    answer and a top-bar change re-reads nothing here.
  * 2. AAP 0.12.4's row asks for "rejected options with the blocking constraint", and
  *    `./comparison-matrix.tsx` already renders exactly that list from `ScenarioSet.rejected` directly
  *    beneath its table. A second list on the same page would state each rejected identifier and its
@@ -128,6 +129,7 @@ import type {
   ApprovalStatus,
   ExportPayload,
   Freshness,
+  ListQuery,
   Problem,
   Result,
   Scenario,
@@ -329,6 +331,17 @@ const NOTICE_CLASSES =
 const NO_SCOPE: Scope = { plants: [], products: [] };
 const NO_SCENARIOS: readonly Scenario[] = [];
 const NO_APPROVALS: readonly Approval[] = [];
+
+/**
+ * The query this screen's approval read sends: no status filter.
+ *
+ * The comparison asks the same question the inbox asks — every approval in the scope, because the plan
+ * the reader is looking at may be pending or may already be decided — so the query is held as one named
+ * value used in both the call and the cache key, exactly as the inbox holds its own. Two readers that
+ * send the same query under an unnamed literal would key the same read two ways, which is how one read
+ * comes to have two entries.
+ */
+const APPROVALS_QUERY: ListQuery = {};
 
 /* ---------------------------------------------------------------------------------------------
  * The route a request lands on, and the tone each series is drawn in
@@ -880,10 +893,10 @@ function approvalGateReasonOf(gate: Freshness | undefined): string | null {
 /**
  * What the router hands SCR-04: the shell's plant and product selection, and nothing else — the
  * exception comes from the `:exceptionId` parameter the screen reads itself. The selection is optional
- * because a route can mount the screen before the top bar's filters resolve; it reaches both cache
- * keys, and `listApprovals` takes it as its own second argument while `getScenarioSet` takes no scope
- * argument, so the adapter applies the acting role's plant scope to the set it answers (AAP 0.12.4,
- * AAP 0.18.1).
+ * because a route can mount the screen before the top bar's filters resolve. It reaches the approval
+ * read, which takes it as its own second argument beside the query that read sends; the option set
+ * takes the exception's identifier alone, so the acting role's plant scope reaches it through the
+ * adapter instead of the key (AAP 0.12.4, AAP 0.18.1).
  */
 export interface ScenarioComparisonScreenProps {
   /**
@@ -891,9 +904,9 @@ export interface ScenarioComparisonScreenProps {
    * (AAP 0.18.1). Optional so the route may mount the screen without one.
    *
    * The option read itself is not scope-parameterised: `getScenarioSet` takes the exception's
-   * identifier, and the adapter applies the acting role's plant scope before it answers. The
-   * selection is carried in this screen's cache key, so a change in the top bar re-reads the
-   * comparison the way every other screen's reads do.
+   * identifier, and the adapter applies the acting role's plant scope before it answers, so the
+   * selection is not in the set's cache key and a change in the top bar leaves that read alone. The
+   * approval list does take it, as the second argument of both its call and its key.
    */
   readonly scope?: Scope;
 }
@@ -902,11 +915,12 @@ export interface ScenarioComparisonScreenProps {
  * Renders SCR-04: one exception's response options, their arithmetic, the recommendation and the plan
  * the reader puts forward.
  *
- * Both reads are keyed on the method's name and the shell's selection — the option set on the
- * exception the route names beside them — and the set's settled facts decide the state in one place
- * ({@link deriveScreenState}); the boundary owns how that state looks. The only state this component
- * owns is what the reader chose — the selected option, whether a request or a download is running, and
- * what a refused request left behind — so a re-render can never move a record (rule P-6).
+ * Each read is keyed on the method's name and exactly the arguments it receives — the option set on the
+ * exception's identifier alone, the approval list on the query it sends and the shell's selection —
+ * and the set's settled facts decide the state in one place ({@link deriveScreenState}); the boundary
+ * owns how that state looks. The only state this component owns is what the reader chose — the
+ * selected option, whether a request or a download is running, and what a refused request left
+ * behind — so a re-render can never move a record (rule P-6).
  *
  * @param props - The shell's plant and product selection.
  * @returns The header with its three controls, the notices a refused request or export left, and — inside
@@ -936,7 +950,7 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
    * A route that names no exception asks for nothing at all.
    */
   const scenarioQuery = useQuery<Result<ScenarioSet>, unknown>({
-    queryKey: ['getScenarioSet', exceptionId, scope.plants, scope.products],
+    queryKey: ['getScenarioSet', exceptionId],
     queryFn: exceptionId === undefined ? skipToken : () => service.getScenarioSet(exceptionId),
     retry: false,
   });
@@ -946,14 +960,16 @@ export function ScenarioComparisonScreen(props: ScenarioComparisonScreenProps): 
    * decided: the option set states no approval, so this is a read of its own, named as the port names
    * it. Every invalidation a request, a decision and a write-back retry perform carries the
    * `listApprovals` prefix, so those writes reach this entry and a reader returning from SCR-05 reads
-   * the decision rather than the state the comparison was first drawn in. It is keyed on the shell's
-   * selection beside the method, exactly as the inbox keys its own entry. A refusal here is not turned
-   * into a state of the page: the comparison below behaves as it does without the read (see the module
-   * note), so an inbox this persona may not read never breaks the comparison they may.
+   * the decision rather than the state the comparison was first drawn in. Its key is the method's name,
+   * the query it sends and the two halves of the shell's selection — the same shape the inbox keys its
+   * own entry with, so the two readers of one (query, scope) share a single entry rather than fetching
+   * it twice. A refusal here is not turned into a state of the page: the comparison below behaves as it
+   * does without the read (see the module note), so an inbox this persona may not read never breaks the
+   * comparison they may.
    */
   const approvalsQuery = useQuery<Result<Approval[]>, unknown>({
-    queryKey: ['listApprovals', scope.plants, scope.products],
-    queryFn: () => service.listApprovals({}, scope),
+    queryKey: ['listApprovals', APPROVALS_QUERY, scope.plants, scope.products],
+    queryFn: () => service.listApprovals(APPROVALS_QUERY, scope),
     retry: false,
   });
 

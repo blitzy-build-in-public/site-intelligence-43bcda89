@@ -157,7 +157,11 @@ import {
   CONTROL_STRUCTURE_CLASSES,
   SECONDARY_CONTROL_CLASSES,
 } from '../../components/tooltip';
-import { useDemonstration, useService } from '../../services/service-provider';
+import {
+  ACTIVE_USER_QUERY_KEY,
+  useDemonstration,
+  useService,
+} from '../../services/service-provider';
 import type { SiteIntelligenceService } from '../../services/site-intelligence-service';
 import {
   APPROVAL_GATE_SOURCE,
@@ -1180,19 +1184,21 @@ function failureOf(...errors: readonly unknown[]): unknown {
 }
 
 /**
- * What the shell hands the approval detail: its plant and product selection, which rides in the reads'
- * cache keys and nowhere else. The approval itself arrives from the route parameter, and the service
- * intersects the selection with the acting role's plant scope, so a selection change is a new read
- * rather than a detail left over from the previous one.
+ * What the shell hands the approval detail: its plant and product selection, which no read of this
+ * screen is parameterised by. The approval itself arrives from the route parameter, and the service
+ * intersects the acting role's plant scope with the record it selects, so a selection change re-reads
+ * nothing here: the detail cannot differ under one.
  */
 export interface ApprovalDetailScreenProps {
   /**
-   * The shell's plant and product selection.
+   * The shell's plant and product selection, carried for the router's uniform route contract.
    *
-   * Passed into the reads' cache keys and nothing else: this screen narrows nothing itself, because the
-   * service intersects the selection with the acting role's plant scope before it selects a record, so a
-   * filtered inbox and this detail cannot disagree about which approval exists. Carrying it in the key
-   * means a selection change is a new read rather than a detail left over from the previous one.
+   * None of the four reads takes a scope: `getApproval(approvalId)` and
+   * `getApprovalOutcome(approvalId)` take the identifier, and the plan's option and exception are read
+   * by the exception's. The selection is therefore in neither a request nor a cache key. The service
+   * intersects the acting role's plant scope with the record it selects, so a filtered inbox and this
+   * detail cannot disagree about which approval exists, and a selection change leaves the detail this
+   * screen already holds in place.
    */
   readonly scope: Scope;
 }
@@ -1206,10 +1212,11 @@ export interface ApprovalDetailScreenProps {
  * moved. Nothing on this screen writes a record itself, holds a figure of its own, or decides whether
  * an action is permitted: the service is the authority and this screen is the explanation beside it.
  *
- * @param props - The shell's plant and product selection.
+ * @param _props - The shell's plant and product selection, accepted for the router's uniform route
+ *   contract; no read on this screen is parameterised by it.
  * @returns The page header, and the detail inside the state boundary.
  */
-export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): ReactElement {
+export function ApprovalDetailScreen(_props: ApprovalDetailScreenProps): ReactElement {
   const service = useService();
   const demonstration = useDemonstration();
   const queryClient = useQueryClient();
@@ -1230,7 +1237,7 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
    * nothing rather than asking the service for an empty identifier.
    */
   const approvalQuery = useQuery<Result<Approval>, unknown>({
-    queryKey: ['getApproval', approvalId, scope.plants, scope.products],
+    queryKey: ['getApproval', approvalId],
     queryFn: approvalId === undefined ? skipToken : () => service.getApproval(approvalId),
     retry: false,
   });
@@ -1274,9 +1281,13 @@ export function ApprovalDetailScreen({ scope }: ApprovalDetailScreenProps): Reac
    * persona the switch selected, and the gate below has to describe the role a decision would actually
    * be evaluated against. The capability is absent on an adapter without identity, and `skipToken`
    * then reads nothing.
+   *
+   * The key is `ACTIVE_USER_QUERY_KEY`, not a literal of this file's own: one cache entry holds the
+   * session's identity, written by the role switcher and read by the shell, so the persona this screen's
+   * gate judges and the persona the shell shows are one answer rather than two that could drift.
    */
   const actingUserQuery = useQuery<Result<ActiveUser>, unknown>({
-    queryKey: ['getActiveUser'],
+    queryKey: ACTIVE_USER_QUERY_KEY,
     queryFn: demonstration === null ? skipToken : () => demonstration.getActiveUser(),
     retry: false,
   });
