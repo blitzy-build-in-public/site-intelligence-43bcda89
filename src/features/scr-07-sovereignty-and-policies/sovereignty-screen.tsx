@@ -98,7 +98,7 @@
 import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { Card, INSET_SURFACE_CLASSES } from '../../components/card';
 import { DataTable } from '../../components/data-table';
@@ -422,6 +422,29 @@ const PAGE_CLASSES = 'flex min-w-0 flex-col gap-4';
 const DETAIL_CLASSES = 'text-13 break-words text-text-secondary';
 
 /**
+ * The link a policy row's title is: the row's own way into that policy's page.
+ *
+ * It keeps the supporting sentence's own type and colour — the title is the label, so the link adds no
+ * font size, weight or colour of its own to it — and adds the two things a reader needs to see: an
+ * underline in the control-boundary role, the role the token layer assigns to a control's boundary, so
+ * the mark reads as an affordance in both themes, and the 2 px `--color-focus-ring` outline on
+ * `:focus-visible`. `min-h-6 min-w-6` is the 24x24 px minimum target rule B-3 requires, and the colour
+ * transition is `motion-safe:` so a reduced-motion session gets the change without the animation.
+ *
+ * `relative` gives the link a positioned box of its own, so a visually hidden absolute box inside the
+ * cell is laid out against the link and clipped by the table's `overflow-x-auto` rather than escaping
+ * it, the reason `src/components/evidence-drawer.tsx`'s trigger carries it.
+ */
+const POLICY_LINK_CLASSES = [
+  DETAIL_CLASSES,
+  'relative inline-flex min-h-6 min-w-6 items-center rounded-control underline',
+  'decoration-control-boundary underline-offset-2',
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
+  'motion-safe:transition-colors motion-safe:duration-150',
+  'hover:decoration-accent',
+].join(' ');
+
+/**
  * A declared label beside the record's own status word, on one wrapping baseline, so the fixed label
  * travels with the row rather than only with the panel it sits under (rule P-1).
  */
@@ -466,15 +489,30 @@ const NOTICE_CLASSES = `flex min-w-0 flex-col gap-1 ${INSET_SURFACE_CLASSES}`;
  * ------------------------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------------------------
- * The route a policy row opens, and the neutral collections a memoised member needs
+ * The route a policy's page lives on, and the neutral collections a memoised member needs
  * ------------------------------------------------------------------------------------------- */
 
 /**
- * The route a policy row activates: the per-policy page AAP 0.12.4's SCR-07 row fixes, to which the
- * row's own identifier is appended. It is a route of this application, not an address anything is
- * requested from (rule B-1), and the identifier is the record's own rather than a typed one.
+ * The route the per-policy pages live under: the page AAP 0.12.4's SCR-07 row fixes, to which a
+ * policy's own identifier is appended by {@link policyRouteOf}. It is a route of this application,
+ * not an address anything is requested from (rule B-1).
  */
 const POLICIES_ROUTE = '/admin/policies';
+
+/**
+ * The route of one policy's own page: {@link POLICIES_ROUTE} with the row's own `id` appended —
+ * the record's identifier rather than a typed one (rule P-6) — encoded so it can never be read as
+ * path structure.
+ *
+ * It is the single definition of that address, so the two controls that open the page — the row's
+ * activation and the title's link — cannot drift onto different routes (rule P-8).
+ *
+ * @param policy The policy whose page the route addresses.
+ * @returns The policy's own route.
+ */
+function policyRouteOf(policy: PolicyDetail): string {
+  return `${POLICIES_ROUTE}/${encodeURIComponent(policy.id)}`;
+}
 
 /**
  * The policy set of a read that has not settled yet.
@@ -543,8 +581,10 @@ const SOVEREIGNTY_COLUMNS: readonly TableColumn<SovereigntyRow>[] = [
  *
  * The identifier opens the evidence of the policy it names — the record's own `id` is the reference
  * `getEvidence` resolves — so a reader can reach the rule, the engine's status and the decisions
- * citing it without leaving the page (AAP 0.2.1 F12, principle PR-6). Opening that evidence is the
- * cell's own control; activating the row anywhere else still opens the policy's route.
+ * citing it without leaving the page (AAP 0.2.1 F12, principle PR-6). The title beside it is the
+ * row's link to the policy's own page, the SCR-07 route AAP 0.12.4 fixes, so that page is reached by
+ * a control a reader can see and a keyboard can follow (rule P-8, AAP 0.7's seventh criterion);
+ * activating the row itself still opens the same route from the row cursor.
  *
  * `evaluated` is the discriminator the service supplies, so no identifier is special-cased here: a
  * policy the engine does not evaluate is rendered as declared configuration under the fixed label
@@ -569,7 +609,11 @@ const POLICY_COLUMNS: readonly TableColumn<PolicyDetail>[] = [
   {
     id: 'title',
     header: SOVEREIGNTY_SCREEN_TEXT.columnPolicyTitle,
-    render: (policy) => <span className={DETAIL_CLASSES}>{policy.title}</span>,
+    render: (policy) => (
+      <Link className={POLICY_LINK_CLASSES} to={policyRouteOf(policy)}>
+        {policy.title}
+      </Link>
+    ),
   },
   {
     id: 'evaluation',
@@ -1136,7 +1180,7 @@ export function SovereigntyScreen(_props: SovereigntyScreenProps): ReactElement 
 
   /** Opens the policy the reader activated: its own identifier, resolved from the row's data. */
   const openPolicy = (policy: PolicyDetail): void => {
-    void navigate(`${POLICIES_ROUTE}/${encodeURIComponent(policy.id)}`);
+    void navigate(policyRouteOf(policy));
   };
 
   /*
@@ -1309,8 +1353,9 @@ export function SovereigntyScreen(_props: SovereigntyScreenProps): ReactElement 
             {/*
               The policy set. Each row states the policy's identifier, its title, whether the engine
               evaluates it and whether a request awaits a decision, and its own last column offers the
-              grant flow against that policy; activating the row itself opens the policy's detail, which
-              is the route AAP 0.12.4 fixes and where the same flow is offered in the page header.
+              grant flow against that policy. The identifier opens the evidence behind it, the title is
+              the row's link to the policy's own page — the route AAP 0.12.4 fixes, where the same flow
+              is offered in the page header — and activating the row opens that page as well.
             */}
             <Card title={SOVEREIGNTY_SCREEN_TEXT.policiesTitle}>
               <DataTable<PolicyDetail>

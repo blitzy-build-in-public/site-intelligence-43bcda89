@@ -634,7 +634,7 @@ function retryControl(): HTMLElement | null {
 
 /** One lever field, found by the accessible name that is the contract's own member name. */
 function leverField(field: keyof Levers): HTMLInputElement {
-  const input = screen.getByRole('spinbutton', { name: field });
+  const input = screen.getByRole('textbox', { name: field });
 
   if (!(input instanceof HTMLInputElement)) {
     throw new Error(`the ${field} field is not an input`);
@@ -692,7 +692,7 @@ async function replaceLeverValue(user: UserEvent, field: keyof Levers, value: nu
 /**
  * Replaces one field's value with the characters a case writes out, the way a pointer user types them.
  *
- * A number field holds the reader's own text, so a case about that text has to enter it as it stands:
+ * A lever field holds the reader's own text, so a case about that text has to enter it as it stands:
  * `String(value)` is the wrong input for a value whose exponent form the case exists to rule out, and
  * the field is where the reader's typing enters the component.
  */
@@ -713,8 +713,8 @@ async function editLevers(user: UserEvent, levers: Levers): Promise<void> {
  * Replaces the focused field's value with the keyboard alone: select what the field holds, then type.
  *
  * `Control`+`A` followed by the digits is the keyboard's own replacement, so nothing here clicks and
- * the field is the one `Tab` arrived at. A number input does not offer the selection API, which is why
- * the selection has to come from the key rather than from a helper that would need it.
+ * the field is the one `Tab` arrived at: the case drives the field's own text from the keyboard rather
+ * than setting it through a helper, which is the operation a keyboard reader performs.
  */
 async function typeOverFocusedValue(user: UserEvent, value: number): Promise<void> {
   await interact(() => user.keyboard(`{Control>}a{/Control}${String(value)}`));
@@ -1208,7 +1208,7 @@ describe('a sandbox with nothing to duplicate', () => {
     /* The sentence is the panel's own paragraph. The same words also sit in the hint that explains
        the control, so the case names the paragraph rather than whichever element came first. */
     expect(within(panel).getByText(SCENARIO_SANDBOX_TEXT.noOption, { selector: 'p' })).toBeVisible();
-    expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
+    expect(screen.queryAllByRole('textbox')).toHaveLength(0);
 
     const control = recomputeControl();
     expect(control).toHaveTextContent(SCENARIO_SANDBOX_TEXT.recomputeLabel);

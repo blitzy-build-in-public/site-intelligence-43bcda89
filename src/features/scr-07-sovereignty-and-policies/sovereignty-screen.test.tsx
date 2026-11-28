@@ -17,19 +17,22 @@
  * the dialog named by its own heading for that row's policy and closes without sending a
  * request, while a policy the engine never evaluates offers none and says why; that one row per
  * recorded decision renders the event's own values, most recent first; that a policy row opens that
- * policy's route; that the seven states specification §8 fixes each render from the read's own
- * outcome; that a grant control which cannot act is disabled with its reason reachable from the
- * keyboard (rule P-8); that nothing the screen was not given reaches the page, so no claim about the
- * deployment can arrive unasserted (rule P-4); that both themes render the same declaration and the
- * same actions; and that the export action and a row's grant action are each reached with `Tab` and
- * show the focus ring (rule B-3, T-16).
+ * policy's route, and that the title it prints is a link named by that policy's own title and
+ * addressing its own route, followed by a pointer press and by `Enter` on the focused link; that the
+ * seven states specification §8 fixes each render from the read's own outcome; that a grant control
+ * which cannot act is disabled with its reason reachable from the keyboard (rule P-8); that nothing
+ * the screen was not given reaches the page, so no claim about the deployment can arrive unasserted
+ * (rule P-4); that both themes render the same declaration and the same actions; and that the export
+ * action and a row's grant action are each reached with `Tab` and show the focus ring (rule B-3,
+ * T-16).
  *
  * WHERE THE DATA COMES FROM. The service and the demonstration capability are mocked at
  * `service-provider.tsx`, the one boundary a screen may read through (rule P-2), so no seed module, no
  * adapter and no HTTP client is involved and the suite observes exactly the calls the screen makes.
- * `react-router`'s `useNavigate` is replaced by a spy, because the screen is the only module in this
- * tree that reaches a router hook and `src/app` may not be imported from a feature test: a policy row
- * is asserted to open its route without mounting the shell. Everything else — `Card`, `PageHeader`,
+ * `react-router`'s `useNavigate` is replaced by a spy, because `src/app` may not be imported from a
+ * feature test: a policy row's own activation is asserted on the call it makes without mounting the
+ * shell, while the title link is the real `Link` mounted in a `MemoryRouter` and asserted on the route
+ * the router reports. Everything else — `Card`, `PageHeader`,
  * `DataTable`, `MonoValue`, `StatusIndicator`, `StateBoundary`, `ForbiddenCard`, `ActionButton`, the
  * `OutboundLedger` and the grant dialog — is the real module, because what a reader receives is the
  * thing under test.
@@ -78,8 +81,10 @@
  * the bytes handed to the download path with the bytes the service returned. A grant flow that sent a
  * request on open, or a close that left the dialog mounted, fails the grant case. An explanation that
  * lives only under the pointer fails the disabled-control case, which reads the reason off the hint a
- * keyboard focus brings up. A screen that rendered a sentence of its own, or a second `Simulated data`
- * badge, fails the last case of the set.
+ * keyboard focus brings up. A title cell that is plain text, or a link addressing any route but that
+ * policy's own, fails the policy-set cases, which assert each row's link by its title and its target
+ * and then follow it with a pointer press and with `Enter`. A screen that rendered a sentence of its
+ * own, or a second `Simulated data` badge, fails the last case of the set.
  *
  * Runs under the jsdom environment `vite.config.ts` sets by default; nothing here hashes, reads the
  * system clock, touches the network or reaches outside the service boundary.
@@ -96,6 +101,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVIDENCE_DRAWER_TEXT } from '../../components/evidence-drawer';
@@ -760,19 +767,49 @@ function withholdObjectUrlMembers(): void {
  * The harness and the readings it takes
  * ------------------------------------------------------------------------------------------- */
 
-/** Renders the screen as the shell mounts it: inside a cache of its own, with retries off. */
-function renderScreen(): HTMLElement {
+/**
+ * Reports the pathname the router holds.
+ *
+ * A policy row's title is a link, so the route a reader lands on by following it is the router's own
+ * state rather than a call the screen made: this probe reads it back, the way the sibling screen
+ * suites read the route their own links open.
+ */
+function LocationProbe(): ReactElement {
+  const location = useLocation();
+
+  return <span data-testid="location-probe">{location.pathname}</span>;
+}
+
+/**
+ * Renders the screen as the shell mounts it: inside a cache of its own, with retries off, and inside
+ * the router the shell supplies, which the title link of every policy row renders through.
+ *
+ * @param options.withLocationProbe Also renders {@link LocationProbe} beside the screen, for a case
+ *   that asserts the route a link lands on rather than the call `useNavigate` received. It stays off
+ *   by default because the probe contributes a text node the whole-page case would have to account
+ *   for.
+ * @returns The render's container, which the whole-page case walks for unaccounted text.
+ */
+function renderScreen(options: { readonly withLocationProbe?: boolean } = {}): HTMLElement {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
 
   const { container } = render(
     <QueryClientProvider client={queryClient}>
-      <SovereigntyScreen scope={SCOPE} />
+      <MemoryRouter>
+        <SovereigntyScreen scope={SCOPE} />
+        {options.withLocationProbe === true ? <LocationProbe /> : null}
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 
   return container;
+}
+
+/** The pathname the router holds, as {@link LocationProbe} reports it. */
+function locationNow(): string {
+  return collapse(screen.getByTestId('location-probe').textContent ?? '');
 }
 
 /** Puts the document on one theme and one density, the two preferences the theme layer keys on. */
@@ -1484,6 +1521,13 @@ describe('SovereigntyScreen', () => {
       ).toBeVisible();
       expect(collapsedTextOf(at(cells, 1, 'title cell'))).toBe(policy.title);
 
+      // The title is the row's link to that policy's own page: its accessible name is the title the
+      // row prints, and its target is that policy's route composed from the record's own identifier
+      // (rules P-6 and P-8).
+      expect(
+        within(at(cells, 1, 'title cell')).getByRole('link', { name: policy.title }),
+      ).toHaveAttribute('href', `${POLICY_DETAIL_ROUTE}/${policy.id}`);
+
       // Whether the engine evaluates the policy, or the deployment only declares it (rule P-4).
       expect(collapsedTextOf(at(cells, 2, 'evaluation cell'))).toBe(
         policy.evaluated ? TEXT.policyEvaluated : DECLARED_LABEL,
@@ -1508,6 +1552,45 @@ describe('SovereigntyScreen', () => {
     expect(navigateMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith(`${POLICY_DETAIL_ROUTE}/${target.id}`);
   });
+
+  /**
+   * The two ways a reader follows a policy row's title link — a pointer press, and `Enter` once the
+   * link holds focus — differ only in the input that activates it, so they are one parameterised case.
+   */
+  it.each([
+    { input: 'a pointer press', keyboard: false },
+    { input: 'Enter on the focused link', keyboard: true },
+  ] as const)(
+    'opens the policy’s own route from its title link, reached with $input',
+    async ({ keyboard }) => {
+      const user = userEvent.setup();
+
+      renderScreen({ withLocationProbe: true });
+
+      const table = await screen.findByRole('table', { name: TEXT.policiesCaption });
+      const target = at(POLICIES, 0, 'policy');
+      const cells = cellsOf(at(dataRowsOf(table), 0, 'policy row'));
+      const link = within(at(cells, 1, 'title cell')).getByRole('link', { name: target.title });
+
+      if (keyboard) {
+        link.focus();
+        expect(link).toHaveFocus();
+        await user.keyboard('{Enter}');
+      } else {
+        await user.click(link);
+      }
+
+      // The route is the one the record's own identifier composes, and it is reached through the link
+      // rather than the address bar (AAP 0.7's seventh criterion, rule P-8).
+      await waitFor(() => {
+        expect(locationNow()).toBe(`${POLICY_DETAIL_ROUTE}/${target.id}`);
+      });
+
+      // The link owns its activation: the row around it does not open as well, so the hook the row's
+      // own cursor calls is left alone.
+      expect(navigateMock).not.toHaveBeenCalled();
+    },
+  );
 
   it('opens the evidence of the policy a row’s identifier names', async () => {
     const user = userEvent.setup();

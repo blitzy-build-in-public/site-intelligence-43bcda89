@@ -21,7 +21,10 @@
  *   decisions the engine recorded — a denial naming the rule that refused it — and the
  *   "Grant time-boxed exception" flow whose three terms are each refused by the control itself, whose
  *   recorded request then appears as pending against the policy it named. AAP 0.12.4's SCR-07 row
- *   fixes the content and rule P-8 the refusal.
+ *   fixes the content and rule P-8 the refusal. The first policy page is reached by pressing the title
+ *   link its row prints — the visible control that opens a policy's own route, which AAP 0.7's seventh
+ *   criterion requires to be reachable without typing an address — and the two later visits with the
+ *   row cursor, so both ways of opening a policy are exercised.
  *
  * HOW IT REACHES THE APPLICATION. Every value is read from the screen it is compared with: the stale
  * banner's own as-of instant is the string each disabled control's explanation has to carry, the
@@ -892,9 +895,31 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
    * The one policy the engine never evaluates. It is shown as declared configuration under the fixed
    * label, and nothing on it is presented as a decision: no evaluated status, and no recorded decision
    * row in the table beside it (rules P-4 and P-6).
+   *
+   * Its page is reached the way a reader reaches it: the title the row prints is the link that opens
+   * that policy's own page (rule P-8, AAP 0.7's seventh criterion). The address and the title are read
+   * back from the control that carries them, so no record value is written here (rule P-6).
    */
-  await activateRow(page, await rowMentioning(policies, DECLARED_POLICY_ID));
-  await expect(page).toHaveURL(new RegExp(`/admin/policies/${DECLARED_POLICY_ID}$`));
+  const declaredRow = await rowMentioning(policies, DECLARED_POLICY_ID);
+  const declaredTitle = declaredRow.getByRole('link');
+
+  await expect(
+    declaredTitle,
+    'the title a policy row prints is the link that opens that policy’s own page',
+  ).toHaveCount(1);
+
+  const declaredTitleText = await textOf(declaredTitle);
+  const declaredRoute = (await declaredTitle.getAttribute('href')) ?? '';
+
+  expect(declaredTitleText, 'the link is named by the title its row prints').not.toBe('');
+  expect(declaredRoute, 'the link opens a policy’s own page').toContain('/admin/policies/');
+
+  await declaredTitle.click();
+
+  await expect(
+    page,
+    'pressing the title link lands on the route the link itself states',
+  ).toHaveURL((url) => url.pathname === declaredRoute);
   /*
    * The router swaps the outlet on a client-side transition, so the policy list is still mounted for a
    * frame after the address changes. Waiting for it to leave keeps the assertions below from reading a
@@ -902,6 +927,10 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
    * rather than slept for).
    */
   await expect(policies, 'the policy list leaves the screen once a policy detail opens').toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { level: 1 }),
+    'the page the link opens is the policy whose title the link carries',
+  ).toHaveText(declaredTitleText);
   await expect(page.getByText(DECLARED_NOT_VERIFIED, { exact: true }).first()).toBeVisible();
   await expect(
     page.getByText(EVALUATED_STATUS, { exact: true }),
@@ -1011,9 +1040,9 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   /*
    * The time-boxed exception. The action belongs to the policy it would be raised against, so it is
    * offered in each policy row's own last column: the row a reader presses is the policy the dialog
-   * names. The control acts, the dialog it opens collects the three terms AAP 0.12.4 fixes, and each
-   * missing term is named by the submit's own explanation until it is supplied — which is rule P-8
-   * applied to a form whose reader can fix every cause it has.
+   * names. The control acts, the dialog it opens collects the three terms AAP 0.12.4 fixes, and every
+   * term still outstanding is named by the submit's own explanation until it is supplied — which is
+   * rule P-8 applied to a form whose reader can fix every cause it has.
    */
   await follow(page, 'Sovereignty and policies');
 
@@ -1054,20 +1083,39 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
     'the dialog names the policy whose own row the reader pressed',
   ).toContainText(requestedAgainst);
 
-  /* Nothing supplied: the submit refuses, and the sentence it gives is the reason field's own. */
+  /*
+   * Nothing supplied: the submit refuses, and its one explanation names every term still to be
+   * supplied, in the order the fields appear. Each term's own sentence is read from the field that
+   * states it, so this file types none of the dialog's copy and a sentence that stopped at the first
+   * unmet term could not carry the composed text asserted here (rule P-8).
+   */
   await expect(submit).toHaveAttribute('aria-disabled', 'true');
   const reasonMessage = await descriptionOf(page, reason);
+  const expiryMessage = await descriptionOf(page, expiry);
+  const approverMessage = await descriptionOf(page, approver);
+
   expect(reasonMessage, 'the empty reason field states what it needs').not.toBe('');
+  expect(expiryMessage, 'the empty expiry field states what it needs').not.toBe('');
+  expect(approverMessage, 'the unchosen approver field states what it needs').not.toBe('');
+
   await expect(
     submit,
-    'the refusal names the field still to be supplied',
-  ).toHaveAccessibleDescription(reasonMessage);
+    'the refusal names every term still to be supplied, in the order the fields appear',
+  ).toHaveAccessibleDescription(`${reasonMessage} ${expiryMessage} ${approverMessage}`);
 
-  /* The reason supplied: the refusal moves to the expiry, again in that field's own words. */
+  /*
+   * The reason supplied: the explanation drops the term just supplied and keeps the two still
+   * outstanding, rather than sending the reader back to the field they have already filled in.
+   */
   await reason.fill(REQUEST_REASON);
-  const expiryMessage = await descriptionOf(page, expiry);
-  expect(expiryMessage).not.toBe(reasonMessage);
-  await expect(submit).toHaveAccessibleDescription(expiryMessage);
+
+  const outstandingExpiry = await descriptionOf(page, expiry);
+  const outstandingApprover = await descriptionOf(page, approver);
+
+  await expect(
+    submit,
+    'the refusal names the two terms still to be supplied, and no longer the one just supplied',
+  ).toHaveAccessibleDescription(`${outstandingExpiry} ${outstandingApprover}`);
 
   /*
    * The expiry is filled from the earliest date the field itself accepts, so this file types no date:
@@ -1077,8 +1125,11 @@ test('T-14 the policy set declares POL-009 without evaluating it and records a t
   expect(earliest, 'the expiry field states the earliest date it accepts').not.toBeNull();
   await expiry.fill(dayAfter(earliest ?? ''));
 
-  const approverMessage = await descriptionOf(page, approver);
-  await expect(submit).toHaveAccessibleDescription(approverMessage);
+  const lastOutstanding = await descriptionOf(page, approver);
+  await expect(
+    submit,
+    'with the two earlier terms supplied, the refusal names the one still outstanding',
+  ).toHaveAccessibleDescription(lastOutstanding);
 
   const candidate = await approver.locator('option').nth(1).getAttribute('value');
   expect(candidate, 'the dialog offers a second persona to approve the request').toBeTruthy();

@@ -46,7 +46,10 @@
  * rejection that is not the port's `Problem` are `offline`, a pending read is `loading`, an aged order
  * book is `stale`, an incomplete one or a record missing a member the inbox shows is `partial`, and a
  * resolved empty list is `empty`. `StateBoundary` owns what each state looks like, so this file
- * composes no banner, no skeleton and no denial card of its own.
+ * composes no banner, no skeleton and no denial card of its own. An empty answer is the same answer
+ * whichever emptied it, so the one sentence that state prints is chosen from the selection the read
+ * was built from rather than from the answer (see {@link narrowsRead} and {@link SCREEN_TEXT}'s two
+ * empty members).
  *
  * Rules this file is built to satisfy:
  * - P-1: the two computed columns carry `Simulated calculation` from `SIM_LABELS`; nothing presents a
@@ -192,8 +195,21 @@ const SCREEN_TEXT = {
   tableCaption:
     'Approvals in scope, with the plan each one puts forward, the cost it adds, the revenue it protects, its status and the freshness of the order book behind it.',
 
-  /** The inbox's sentence when the read answered with nothing in scope. */
+  /**
+   * The sentence shown when a narrowed read holds no approval: the shell's scope selection emptied the
+   * list, so the wording states the scope the reader set (see {@link narrowsRead}).
+   */
   empty: 'No approvals in the current scope.',
+
+  /**
+   * The sentence shown when the inbox holds no approval and nothing narrowed the read.
+   *
+   * The demonstration control that empties the list empties the collection this read is served from, so
+   * no scope narrowed the read and the scope wording above would name a selection no control on this
+   * page set. This sentence claims no scope and no other cause either, because the read's empty answer
+   * is the only fact this screen has (rule P-4).
+   */
+  emptyUnnarrowed: 'No approvals to show.',
 
   /** Why a value on this screen is shown as the record holds it rather than as a complete reading. */
   partial:
@@ -264,6 +280,17 @@ function describeScope(scope: Scope): string {
     scope.products.length === 0 ? SCREEN_TEXT.allProducts : scope.products.join(', ');
 
   return `${SCREEN_TEXT.description} ${SCREEN_TEXT.scopeLabel}: ${plants}${SCREEN_TEXT.scopeSeparator}${products}.`;
+}
+
+/**
+ * Whether the shell's selection narrowed the read: a plant or a product is set.
+ *
+ * It is answered from the selection the read was built from rather than from the answer, because an
+ * empty answer is the same whether the scope emptied it or nothing was selected at all. Only the
+ * sentence the empty state states depends on it (see {@link SCREEN_TEXT}'s two empty members).
+ */
+function narrowsRead(scope: Scope): boolean {
+  return scope.plants.length > 0 || scope.products.length > 0;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -584,6 +611,13 @@ export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
   const rows = useMemo(() => orderRows(result?.data ?? [], sort), [result, sort]);
   const columns = useMemo(() => buildColumns(gate), [gate]);
 
+  /**
+   * The sentence the inbox states when the read answered with no approval: the scope wording for a
+   * read the shell's selection narrowed, the trigger-neutral sentence for one nothing narrowed (see
+   * {@link narrowsRead}).
+   */
+  const emptySentence = narrowsRead(scope) ? SCREEN_TEXT.empty : SCREEN_TEXT.emptyUnnarrowed;
+
   /*
    * The read's own facts, plus this screen's facts about itself. The approval-gate source is the one
    * `requestApproval` and `decideApproval` refuse on when it is stale or unavailable, so the stale
@@ -643,7 +677,7 @@ export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
         state={state}
         stale={staleRecord}
         onRetry={retryRead}
-        emptyMessage={SCREEN_TEXT.empty}
+        emptyMessage={emptySentence}
         partialMessage={SCREEN_TEXT.partial}
         conflictMessage={SCREEN_TEXT.conflict}
         forbidden={forbiddenRecord}
@@ -657,7 +691,7 @@ export function ApprovalsScreen({ scope }: ApprovalsScreenProps): ReactElement {
           onSort={handleSort}
           defaultOrder={INBOX_DEFAULT_ORDER}
           onRowActivate={openApproval}
-          emptyMessage={SCREEN_TEXT.empty}
+          emptyMessage={emptySentence}
         />
       </StateBoundary>
     </div>

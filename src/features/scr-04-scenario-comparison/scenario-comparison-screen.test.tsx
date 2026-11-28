@@ -1129,7 +1129,7 @@ function sandboxGroup(): HTMLElement {
 
 /** One lever field inside that group, found by the accessible name the contract gives the lever. */
 function sandboxLever(field: keyof Levers): HTMLElement {
-  return within(sandboxGroup()).getByRole('spinbutton', { name: field });
+  return within(sandboxGroup()).getByRole('textbox', { name: field });
 }
 
 /** How many tab stops a case may walk before a control is declared unreachable. */

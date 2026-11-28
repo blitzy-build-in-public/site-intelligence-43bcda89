@@ -56,10 +56,12 @@
  * - P-7: every name on screen is a record value supplied by the caller or the service; the module
  *   writes none of its own.
  * - P-8: the submit is rendered through `ActionButton`, whose props make `disabledReason` mandatory
- *   exactly when the control is disabled, and each blocker has its own plain sentence: the reason is
- *   empty, the expiry is missing or not after the demonstration clock's date, the second approver has
- *   not been chosen, no approver is offered at all, or a request is already in flight. The same
- *   sentence is the field's described-by message, so it is read as well as painted.
+ *   exactly when the control is disabled, and that reason names every term still unmet in the order the
+ *   fields appear — the reason is empty, the expiry is missing or not after the demonstration clock's
+ *   date, and the second approver has not been chosen or no approver is offered at all — composed into
+ *   one explanation that the hint paints and the control's described-by resolves, so it is read as well
+ *   as shown. Each field keeps its own plain sentence as its described-by message, and a request already
+ *   in flight outranks the terms.
  *
  * THE CANDIDATE SECOND APPROVERS ARRIVE AS A PROP. `SiteIntelligenceService` declares no read for the
  * personas a request may name — `getPolicy` returns the policy's decisions rather than its audience, and
@@ -648,11 +650,20 @@ export function GrantExceptionDialog({
         ? GRANT_EXCEPTION_DIALOG_TEXT.approverRequired
         : null;
 
-  /* Every blocker in the order the fields appear, so the sentence the disabled submit carries names the
-     first thing the reader has to fix; while a request is in flight that state outranks all of them. */
+  /* Every term still unmet, in the order the fields appear, composed into the one sentence the disabled
+     submit carries: a reader who has already answered a term is told about the ones still outstanding
+     rather than sent back to the one they just dealt with. Each part is one of the dialog's own
+     sentences, so the composition restates no wording and adds none; while a request is in flight that
+     state outranks all of them. */
+  const unmetBlockers = [reasonBlocker, expiryBlocker, approverBlocker].filter(
+    (blocker): blocker is string => blocker !== null,
+  );
+
   const submitBlocker = submitting
     ? GRANT_EXCEPTION_DIALOG_TEXT.submitInFlight
-    : (reasonBlocker ?? expiryBlocker ?? approverBlocker);
+    : unmetBlockers.length === 0
+      ? null
+      : unmetBlockers.join(' ');
 
   /* Focus moves into the dialog as it opens and returns to whatever opened it as it closes. The opener
      is read in this pass rather than in a later one, because the first field is focused straight after

@@ -41,7 +41,8 @@
  *
  * WHERE THE REST OF THIS FILE'S RATIONALE SITS: the fixed note and the claim scan that must leave it
  * alone on {@link AUDIT_CHAIN_NOTE}, the chain's label on {@link CHAIN_LABEL}, the filters on
- * `AuditFilterValues` and {@link buildAuditQuery}, the drawer on {@link AuditDetailDrawer}, the filter
+ * `AuditFilterValues` and {@link buildAuditQuery}, the two sentences the empty state states on
+ * {@link narrowsRead}, the drawer on {@link AuditDetailDrawer}, the filter
  * primitives on {@link FilterTextField} and {@link FilterChoiceField}, and the report's lifetime on
  * {@link AuditScreen}'s own notes.
  *
@@ -213,8 +214,21 @@ const SCREEN_TEXT = {
   /** The detail shown when a failed verification carried no message of its own. */
   verifyFailedDetail: 'The service did not answer the verification, so nothing is reported here.',
 
-  /** The sentence shown in the table and the empty state when no event matches the filters. */
+  /**
+   * The sentence shown when a narrowed read holds no event: a filter the reader set emptied the trail,
+   * so the wording states the filters (see {@link narrowsRead}).
+   */
   empty: 'No audit events match these filters.',
+
+  /**
+   * The sentence shown when the trail holds no event and nothing narrowed the read.
+   *
+   * The demonstration control that empties the trail empties the collection this read is served from, so
+   * no filter narrowed the read and the filter wording above would name a constraint no control on this
+   * page set. This sentence claims no filter and no other cause either, because the read's empty answer
+   * is the only fact this screen has (rule P-4).
+   */
+  emptyUnnarrowed: 'No audit events to show.',
 
   /** The partial state's sentence, naming the incomplete answer behind the trail. */
   partial:
@@ -439,6 +453,26 @@ function buildAuditQuery(filters: AuditFilterValues, cursor: string | undefined)
     ...(from === undefined ? {} : { from }),
     ...(to === undefined ? {} : { to }),
   };
+}
+
+/**
+ * Whether a filter narrowed the read: any of the six filters is set.
+ *
+ * It is answered from the filters the read was built from rather than from the answer, because an
+ * empty answer is the same whether a filter emptied it or nothing was filtered at all. It asks
+ * {@link filterText} the same question {@link buildAuditQuery} asks, so the predicate and the query
+ * agree on what counts as a set filter — a field holding only spaces narrows neither. Only the
+ * sentence the empty state states depends on it (see {@link SCREEN_TEXT}'s two empty members).
+ */
+function narrowsRead(filters: AuditFilterValues): boolean {
+  return (
+    filterText(filters.actorId) !== undefined ||
+    filterText(filters.action) !== undefined ||
+    filterText(filters.objectRef) !== undefined ||
+    filters.result !== '' ||
+    filterText(filters.from) !== undefined ||
+    filterText(filters.to) !== undefined
+  );
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -1406,6 +1440,12 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
 
   const auditQuery = useMemo(() => buildAuditQuery(filters, cursor), [filters, cursor]);
 
+  /**
+   * The sentence the trail states when the read answered with no event: the filter wording for a read
+   * a filter narrowed, the trigger-neutral sentence for one nothing narrowed (see {@link narrowsRead}).
+   */
+  const emptySentence = narrowsRead(filters) ? SCREEN_TEXT.empty : SCREEN_TEXT.emptyUnnarrowed;
+
   /*
    * The trail read. Retries are off on purpose: a refusal recorded in the records' own permissions
    * fails the same way however often it is repeated, and the boundary offers the reader an explicit
@@ -1709,7 +1749,7 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
         state={state}
         stale={staleRecord}
         onRetry={retryRead}
-        emptyMessage={SCREEN_TEXT.empty}
+        emptyMessage={emptySentence}
         partialMessage={SCREEN_TEXT.partial}
         conflictMessage={SCREEN_TEXT.conflict}
         forbidden={forbiddenRecord}
@@ -1753,7 +1793,7 @@ export function AuditScreen(_props: AuditScreenProps): ReactElement {
             onSort={handleSort}
             defaultOrder={TRAIL_DEFAULT_ORDER}
             onRowActivate={openDetail}
-            emptyMessage={SCREEN_TEXT.empty}
+            emptyMessage={emptySentence}
             pageSize={AUDIT_PAGE_SIZE}
           />
         </div>

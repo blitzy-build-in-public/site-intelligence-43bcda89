@@ -17,6 +17,13 @@
  * is written, leaving the element, the package's readiness and the chain as they stood, while a valid
  * member still settles the element.
  *
+ * WHAT ELSE IT HOLDS. The money shape two payload families state. The customer-order and the
+ * purchase-order payload report a record's own amount, and the drawer prints that text unchanged, so
+ * the cases below hold every record a solver case measures to the interface's one money shape and to
+ * one text per record value — each expectation built with `formatMoney` rather than with an amount
+ * written here, because two records stating equal prices must not reach the reader in two shapes
+ * (contracts §1, AAP §0.8, rule P-6).
+ *
  * WHY IT CALLS THE HANDLER RATHER THAN THE PORT. The adapter's suite drives every read through
  * `MockBackend`, which owns its state privately and hashes the seeded trail at bootstrap; reaching a
  * package review through it would take a role switch and the adapter's 150-400 ms of latency per call,
@@ -36,12 +43,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { hasPermission, plantScopeFor } from '../../../domain/policy/permissions';
-import { PERMISSIONS, SIM_LABELS } from '../../../types';
+import { formatMoney, PERMISSIONS, SIM_LABELS } from '../../../types';
 import type {
   ActiveUser,
   ElementReview,
   ElementReviewDecision,
+  Money,
   Permission,
+  PlantId,
   Problem,
   Role,
 } from '../../../types';
@@ -320,6 +329,248 @@ describe('the permission a record class asks beside the evidence read', () => {
     expect(evidence.provenance).toBe('computed');
     expect(evidence.inputs).toContain(`endpoint = ${row.endpoint}`);
     expect(evidence.inputs).toContain(`purpose = ${row.purpose}`);
+  });
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The money shape a payload's `inputs` list states
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * The money of one record a solver case measures, read from the record rather than stated here.
+ *
+ * The subject is derived from the record set: a solver case's own order references and its delayed
+ * purchase order are what fix the customer orders and the inbound order AAP §0.8's figures are
+ * measured over, so the case below asserts over exactly those records while typing no identifier and
+ * no amount (rule P-6).
+ */
+interface MeasuredMoney {
+  /** The reference `getEvidence` answers for the record. */
+  readonly reference: string;
+
+  /** The plant the record sits at, which decides whether the acting persona may read it. */
+  readonly plantId: PlantId;
+
+  /** The amount exactly as the record states it. */
+  readonly amount: Money;
+}
+
+/**
+ * One record family a solver case measures, with the `inputs` member its money reaches the drawer
+ * under.
+ */
+interface MoneyFamilyCase {
+  /** How the record family is named in a case's title. */
+  readonly family: string;
+
+  /** The `inputs` member the family's amount is stated under, as the record spells it. */
+  readonly member: string;
+
+  /** The records of the family a solver case measures, with their own amounts. */
+  readonly measured: (state: MockState) => readonly MeasuredMoney[];
+}
+
+/**
+ * The record a reference of a set names.
+ *
+ * @param records - The records to read.
+ * @param id - The reference the set is expected to carry.
+ * @param what - How the set is named in a failure, so a thin fixture reports what it is missing.
+ * @returns The record of that reference.
+ * @throws Error - The set carries no record of that reference.
+ */
+function recordOf<T extends { readonly id: string }>(
+  records: readonly T[],
+  id: string,
+  what: string,
+): T {
+  const found = records.find((record) => record.id === id);
+
+  if (found === undefined) {
+    throw new Error(`The seeded record set holds no ${what} ${id}.`);
+  }
+
+  return found;
+}
+
+/**
+ * The persona the matrix grants the evidence read and whose plant scope reaches every plant a set of
+ * records sits at.
+ *
+ * Both sides are answered by the matrix rather than by a role named here (rule P-3), so a case acts as
+ * a persona the authority actually describes and keeps acting as one wherever the matrix moves.
+ *
+ * @param state - The session whose user records are read.
+ * @param plantIds - Every plant the records a case reads sit at.
+ * @returns The acting persona.
+ * @throws Error - The record set carries no persona of that description.
+ */
+function personaReaching(state: MockState, plantIds: readonly PlantId[]): ActiveUser {
+  const found = state.records.users
+    .map(personaOf)
+    .find(
+      (persona) =>
+        mayDo(persona, 'evidence.read') &&
+        plantIds.every((plantId) => persona.plantIds.includes(plantId)),
+    );
+
+  if (found === undefined) {
+    throw new Error(
+      `The seeded record set carries no persona holding evidence.read whose plant scope reaches ${plantIds.join(', ')}.`,
+    );
+  }
+
+  return found;
+}
+
+/**
+ * The member one `inputs` entry states: the name to the left of the `name = value` separator the
+ * payload's list uses.
+ *
+ * @param entry - One entry of a payload's `inputs` list.
+ * @returns The member's name, or the entry itself when it carries no separator.
+ */
+function memberOf(entry: string): string {
+  const [member] = entry.split(' = ');
+
+  return member ?? entry;
+}
+
+/**
+ * The two record families whose amount the payload reports verbatim from the record, and which a
+ * solver case measures.
+ *
+ * The customer order is the family the two orders of the baseline case belong to; the purchase order
+ * is the inbound commitment that case's disruption is measured on. Both members end in `Eur`, which is
+ * what makes them the contracts' money members (contracts §1).
+ */
+const MONEY_FAMILY_CASES: readonly MoneyFamilyCase[] = [
+  {
+    family: 'customer order',
+    member: 'unitPriceEur',
+    measured: (state) =>
+      state.records.solverCases.flatMap((solverCase) =>
+        solverCase.orders.map((measured) => {
+          const order = recordOf(state.records.customerOrders, measured.orderId, 'customer order');
+
+          return { reference: order.id, plantId: order.plantId, amount: order.unitPriceEur };
+        }),
+      ),
+  },
+  {
+    family: 'purchase order',
+    member: 'unitCostEur',
+    measured: (state) =>
+      state.records.solverCases.map((solverCase) => {
+        const order = recordOf(
+          state.records.purchaseOrders,
+          solverCase.delayedPurchaseOrderId,
+          'purchase order',
+        );
+
+        return { reference: order.id, plantId: order.plantId, amount: order.unitCostEur };
+      }),
+  },
+];
+
+describe('the money shape a payload states for the records a solver case measures', () => {
+  it.each(MONEY_FAMILY_CASES)(
+    'states $member of every measured $family in the interface money shape, and one amount in one text',
+    async ({ member, measured }) => {
+      const state = await createMockState();
+      const subjects = measured(state);
+      const persona = personaReaching(
+        state,
+        subjects.map((subject) => subject.plantId),
+      );
+      const rendered = new Map<string, string>();
+
+      expect(subjects.length).toBeGreaterThan(0);
+
+      for (const subject of subjects) {
+        const evidence = await getEvidence(contextFor(state, persona), subject.reference);
+        const stated = `${member} = ${formatMoney(subject.amount)}`;
+
+        /* The amount is the record's own, stated in the interface's one money shape — the currency
+           code, a thousands separator and at most two decimals (contracts §1, AAP §0.8). The
+           expectation is built with the formatter, never with an amount written here, so a case cannot
+           agree with a second rendering of the same figure (rule P-6). */
+        expect(evidence.inputs).toContain(stated);
+
+        /* No money member of the payload reaches the drawer as the bare machine number a raw
+           interpolation of the record leaves: every `*Eur` entry carries its currency code. */
+        const money = evidence.inputs.filter((entry) => memberOf(entry).endsWith('Eur'));
+
+        expect(money.length).toBeGreaterThan(0);
+
+        for (const entry of money) {
+          expect(entry).toContain('EUR');
+        }
+
+        /* One record value has one text. The case that produced this assertion is two orders of one
+           solver case whose equal unit price reached the drawer in two shapes, `1.850 EUR` beside
+           `1850 EUR`. */
+        const previous = rendered.get(String(subject.amount));
+
+        if (previous !== undefined) {
+          expect(previous).toBe(stated);
+        }
+
+        rendered.set(String(subject.amount), stated);
+      }
+    },
+  );
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * The solver case a scripted answer cites
+ * ------------------------------------------------------------------------------------------- */
+
+describe('the evidence behind a solver case', () => {
+  it('answers the case a citation names, and refuses a reference under its prefix no case carries', async () => {
+    const state = await createMockState();
+    const persona = personaWhere(state, ['evidence.read'], []);
+    const solverCase = firstOf(state.records.solverCases, 'solver case');
+    const measured = firstOf(solverCase.orders, 'customer order the case measures');
+
+    /* The reference a scripted answer cites is the case record's own identifier, so a prefix no record
+       answers is derived from it here rather than typed: the record's digits, repeated, name no case
+       (rule P-6). */
+    const caseDigits = solverCase.id.replace(/^\D+/, '');
+    const casePrefix = solverCase.id.slice(0, solverCase.id.length - caseDigits.length);
+    const absentRef = `${casePrefix}${caseDigits}${caseDigits}`;
+
+    const evidence = await getEvidence(contextFor(state, persona), solverCase.id);
+
+    /* The chip that failed before opens the drawer's sections now: the payload states the case's own
+       position in words and the rules that measure an option from it, and it names the exception the
+       case belongs to upstream of itself (AAP 0.12.2's `Evidence`, principle PR-6). */
+    expect(evidence.value.trim()).not.toBe('');
+    expect(evidence.formula.trim()).not.toBe('');
+    expect(evidence.upstream).toContain(solverCase.exceptionId);
+
+    // The record's own inputs carry `Simulated data`, because every member reported here is a seeded field.
+    expect(evidence.label).toBe(SIM_LABELS[0]);
+
+    /* The price a measured order was agreed at reaches the payload in the one money shape the module
+       states an amount in, never as a bare machine number (contracts §1, rule P-6). */
+    expect(
+      evidence.inputs.some(
+        (entry) =>
+          entry.includes(measured.orderId) && entry.includes(formatMoney(measured.unitPriceEur)),
+      ),
+    ).toBe(true);
+
+    /* A reference under the case's own prefix that no record carries is refused as `'not-found'` naming
+       it, rather than blaming another family's lookup, so a citation the records cannot answer reports
+       what it looked for. */
+    expect(state.records.solverCases.map((record) => record.id)).not.toContain(absentRef);
+
+    const problem = await refusalOf(() => getEvidence(contextFor(state, persona), absentRef));
+
+    expect(problem.type).toBe('not-found');
+    expect(problem.traceId).toBe(TRACE_ID);
+    expect(problem.message).toContain(absentRef);
   });
 });
 

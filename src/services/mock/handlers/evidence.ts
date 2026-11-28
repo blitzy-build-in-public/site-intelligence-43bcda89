@@ -96,6 +96,7 @@ import type {
   Role,
   Scenario,
   SimLabel,
+  SolverCase,
   SupplierId,
   WriteBack,
 } from '../../../types';
@@ -421,6 +422,19 @@ const LINE_PREFIX = 'LN-';
 const PRODUCT_PREFIX = 'PRD-';
 
 /**
+ * The opening of one solver case's own reference — the supply position one exception's options are
+ * measured from.
+ *
+ * The reference is the seed record's own `SolverCase.id` (`src/seed/solver-cases.ts`), not an
+ * identifier pattern contracts §1 fixes: that section states the patterns of the records it names, and
+ * the case is named by the reference the record itself carries, so the prefix below is that record
+ * family's own opening rather than a shape this module imposes. It is tested after every prefix whose
+ * identifier a screen carries and before the declared outbound endpoint, which `resolveRef`'s walk
+ * order states.
+ */
+const SOLVER_CASE_PREFIX = 'CASE-';
+
+/**
  * `atlas:<seriesId>` — one series of the competitive atlas's resilience radar.
  *
  * A radar series is a market-intelligence record rather than a first-party one, so its payload carries
@@ -714,17 +728,18 @@ function isNodeRef(resolved: ResolvedRef): resolved is NodeRef {
 }
 
 /**
- * Whether a resolved reference is one of the five families whose plants are the plants of one exception.
+ * Whether a resolved reference is one of the six families whose plants are the plants of one exception.
  *
- * The exception itself, a scenario that answers it, an approval of it, one figure inside that approval and
- * a step of a plan's write-back all belong to one disruption, so all five are admitted over the plants
- * that exception touches rather than over one plant of their own. Written as a type guard over the
- * union's own discriminant, so `assertExceptionReach` can take that five-family member and nothing else:
- * the compiler then proves no record of another family is admitted by an exception's reach, and no
- * exception by another family's rule.
+ * The exception itself, a scenario that answers it, an approval of it, one figure inside that approval, a
+ * step of a plan's write-back and the solver case those options are measured from all belong to one
+ * disruption, so all six are admitted over the plants that exception touches rather than over one plant
+ * of their own. Written as a type guard over the union's own discriminant, so `assertExceptionReach` can
+ * take that six-family member and nothing else: the compiler then proves no record of another family is
+ * admitted by an exception's reach, and no exception by another family's rule.
  *
  * @param resolved - The record the reference named.
- * @returns Whether it is an exception, a scenario, an approval, an approval's figure or a write-back step.
+ * @returns Whether it is an exception, a scenario, an approval, an approval's figure, a write-back step
+ *   or a solver case.
  */
 function isExceptionRef(resolved: ResolvedRef): resolved is ExceptionRef {
   switch (resolved.family) {
@@ -733,6 +748,7 @@ function isExceptionRef(resolved: ResolvedRef): resolved is ExceptionRef {
     case 'approval':
     case 'approval-figure':
     case 'write-back':
+    case 'solver-case':
       return true;
     default:
       return false;
@@ -816,12 +832,13 @@ function assertNodeReach(ctx: HandlerContext, resolved: NodeRef): void {
  * refused by the one plant the record is laid on (AAP 0.2.1's one-scope rule; principle PR-6, "every
  * figure opens its evidence").
  *
- * A scenario and an approval belong to one exception, so both are admitted over that exception's plants:
- * the option a screen printed and the plan a screen approved stand where the disruption they answer
- * stands. The intersection is decided by the contracts §7.1 matrix through `hasPermission`, evaluated
- * with each plant in turn, so the answer is the role's plant scope, the persona's seeded scope and the
- * plants the exception touches — the authority every scoped list and aggregate is narrowed by, rather
- * than a second scope table.
+ * A scenario and an approval belong to one exception, and so does the solver case the options are
+ * measured from, so each is admitted over that exception's plants: the option a screen printed, the plan
+ * a screen approved and the case the option was measured from all stand where the disruption they
+ * answer stands. The intersection is decided by the contracts §7.1 matrix through `hasPermission`,
+ * evaluated with each plant in turn, so the answer is the role's plant scope, the persona's seeded scope
+ * and the plants the exception touches — the authority every scoped list and aggregate is narrowed by,
+ * rather than a second scope table.
  *
  * An exception the records hold nowhere leaves its scenario or approval with no plant to narrow it by, so
  * the permission's own decision stands, which is the reading `hasPermission` documents for a `null`
@@ -830,7 +847,7 @@ function assertNodeReach(ctx: HandlerContext, resolved: NodeRef): void {
  * refused (rule P-8) — the wording `assertNodeReach` uses for a node that reaches several plants.
  *
  * @param ctx - The call's context: the persona the check is made for and the records the exception is read from.
- * @param resolved - The exception, scenario or approval the reference named.
+ * @param resolved - The exception, scenario, approval, solver case or write-back step the reference named.
  * @throws Problem - A `'permission'` failure naming the permission and the roles that hold it.
  */
 function assertExceptionReach(ctx: HandlerContext, resolved: ExceptionRef): void {
@@ -859,14 +876,15 @@ function assertExceptionReach(ctx: HandlerContext, resolved: ExceptionRef): void
  * The exception an exception-derived record answers, or `undefined` when the records hold it nowhere.
  *
  * An exception names itself; a scenario and an approval name the exception they answer, which is the
- * relation contracts §3 fixes for both (`Scenario.exceptionId`, `Approval.exceptionId`); and a step of a
- * write-back belongs to the plan it writes back, so it answers the exception of the approval or the
- * option that holds it. Resolved through the record each one carries rather than through a second list,
- * so the plants a scenario, an approval or a write-back step is admitted over cannot describe a
- * different disruption from the one it answers.
+ * relation contracts §3 fixes for both (`Scenario.exceptionId`, `Approval.exceptionId`); a solver case
+ * names the exception whose options it measures, which is the relation AAP 0.12.2 fixes for it
+ * (`SolverCase.exceptionId`); and a step of a write-back belongs to the plan it writes back, so it
+ * answers the exception of the approval or the option that holds it. Resolved through the record each
+ * one carries rather than through a second list, so the plants a scenario, an approval, a solver case or
+ * a write-back step is admitted over cannot describe a different disruption from the one it answers.
  *
  * @param records - The session's record set.
- * @param resolved - The exception, scenario, approval or write-back step the reference named.
+ * @param resolved - The exception, scenario, approval, solver case or write-back step the reference named.
  * @returns The exception behind it, or `undefined` when the record set holds no such exception.
  */
 function exceptionBehind(
@@ -2220,6 +2238,7 @@ type ResolvedRef =
   | { readonly family: 'material'; readonly record: Material }
   | { readonly family: 'line'; readonly record: Line }
   | { readonly family: 'product'; readonly record: Product }
+  | { readonly family: 'solver-case'; readonly record: SolverCase }
   | {
       readonly family: 'outbound-endpoint';
       readonly record: SeedRecordSet['sovereignty']['ledger'][number];
@@ -2261,17 +2280,26 @@ type NodeRef = Extract<
 >;
 
 /**
- * The four arms of {@link ResolvedRef} whose plants are the plants of one exception.
+ * The five arms of {@link ResolvedRef} whose plants are the plants of one exception.
  *
  * Separated from the union for the reason {@link NodeRef} is: an exception, a scenario that answers one,
- * an approval of one and a step of a plan's write-back are admitted over every plant that exception
- * touches through `alsoAffectsPlantIds`, which no other family needs, and the compiler then proves
+ * an approval of one, a step of a plan's write-back and the solver case whose supply position those
+ * options are measured from are admitted over every plant that exception touches through
+ * `alsoAffectsPlantIds`, which no other family needs, and the compiler then proves
  * `assertExceptionReach` is never handed a record of another family and no other family is narrowed by
  * an exception's reach.
  */
 type ExceptionRef = Extract<
   ResolvedRef,
-  { readonly family: 'exception' | 'scenario' | 'approval' | 'approval-figure' | 'write-back' }
+  {
+    readonly family:
+      | 'exception'
+      | 'scenario'
+      | 'approval'
+      | 'approval-figure'
+      | 'write-back'
+      | 'solver-case';
+  }
 >;
 
 /**
@@ -2473,16 +2501,20 @@ function resolveWriteBackRef(ctx: HandlerContext, ref: string): WriteBackStepRef
  * silently showed a neighbouring figure would be worse than one that reports the reference it could
  * not resolve. The order is — composed aggregate, write-back step, atlas series, package, exception,
  * scenario, approval, audit event, pin, document, customer order, policy, purchase order, shared
- * chokepoint, competitor site and network, radar series reading, then the seven node families and the
- * declared outbound endpoint — and it is written out here rather than derived from a table so a
- * reader can see it. `PPAP-` is tested first among the record families because a package identifier
- * begins with the two letters a purchase order's begins with, and a shorter prefix tested first would
- * shadow it; `POL-` is tested before the shorter `PO-` for the same longer-prefix-first reason, and the
- * two cannot actually collide, because a policy identifier's third character is a letter where a
- * purchase order's is the separator. The composed roots and the write-back root are tested before every
- * prefix because `overview:`, `canvas:` and `write-back:` match none of them, and the endpoint family is
- * tested once every prefix branch has declined the reference, so no prefix can shadow an endpoint and no
- * endpoint can be read as an identifier.
+ * chokepoint, competitor site and network, radar series reading, then the seven node families, the
+ * solver case and the declared outbound endpoint — and it is written out here rather than derived from a
+ * table so a reader can see it. The solver case is read between those two because its reference is the
+ * record family's own `SolverCase.id` rather than a pattern contracts §1 fixes: it belongs with the
+ * identifiers a screen carries rather than with the declared configuration, and testing it before the
+ * endpoint keeps the endpoint family — selected by a value the record states and carrying no prefix at
+ * all — the last resort, so neither can shadow the other. `PPAP-` is tested first among the record
+ * families because a package identifier begins with the two letters a purchase order's begins with, and
+ * a shorter prefix tested first would shadow it; `POL-` is tested before the shorter `PO-` for the same
+ * longer-prefix-first reason, and the two cannot actually collide, because a policy identifier's third
+ * character is a letter where a purchase order's is the separator. The composed roots and the write-back
+ * root are tested before every prefix because `overview:`, `canvas:` and `write-back:` match none of
+ * them, and the endpoint family is tested once every prefix branch has declined the reference, so no
+ * prefix can shadow an endpoint and no endpoint can be read as an identifier.
  *
  * THE TWO FAMILIES SCR-07 OPENS ITS FIGURES FROM NAME THEMSELVES. A policy is named by its own `POL-`
  * identifier, and an outbound endpoint by the exact endpoint string the declared configuration gives
@@ -2888,6 +2920,26 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
     );
   }
 
+  /*
+   * The solver case the assistant's scripted answers cite. The case is the input side of contracts §4 —
+   * a scenario is only ever produced from one — so the drawer behind a citation reports the record the
+   * cited measures are computed from (AAP 0.8, principle PR-6). It is read here, after every family a
+   * screen's identifier names and before the declared endpoint, because its reference is the record's
+   * own `SolverCase.id` rather than a contracts §1 pattern.
+   */
+  if (ref.startsWith(SOLVER_CASE_PREFIX)) {
+    const found = records.solverCases.find((candidate) => candidate.id === ref);
+
+    if (found !== undefined) {
+      return { family: 'solver-case', record: found };
+    }
+
+    throw notFoundProblem(
+      ctx,
+      `The record set holds no solver case with the reference ${ref}, so the evidence behind it cannot be resolved.`,
+    );
+  }
+
   const endpoint = records.sovereignty.ledger.find((candidate) => candidate.endpoint === ref);
 
   if (endpoint !== undefined) {
@@ -2896,7 +2948,16 @@ async function resolveRef(ctx: HandlerContext, ref: string): Promise<ResolvedRef
 
   throw notFoundProblem(
     ctx,
-    `The deployment record declares no outbound endpoint named ${ref}, so the evidence behind it cannot be resolved. No record family answers the reference ${ref}. A reference names a package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a customer order, a purchase order, a policy, an outbound endpoint, a shared chokepoint, a competitor site or network, a radar series reading, a plant, a supplier, a tier-2 origin, a customer, a material, a production line or a product; or it names a computed figure as ${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, one radar series as ${ATLAS_SERIES_PREFIX}<seriesId>, one figure inside an approval as ${APPROVAL_PREFIX}<approval id>${AXIS_SEPARATOR}<member>, or one step of a plan's write-back as ${WRITE_BACK_REF_GRAMMAR}.`,
+    `No record family answers the reference ${ref}, and the deployment record declares no outbound ` +
+      `endpoint of that name either, so the evidence behind it cannot be resolved. A reference names a ` +
+      `package, an exception, a scenario, an approval, an audit event, an evidence pin, a document, a ` +
+      `customer order, a purchase order, a policy, a solver case, an outbound endpoint, a shared ` +
+      `chokepoint, a competitor site or network, a radar series reading, a plant, a supplier, a tier-2 ` +
+      `origin, a customer, a material, a production line or a product; or it names a computed figure as ` +
+      `${OVERVIEW_REF_ROOT}:<key> or ${CANVAS_REF_ROOT}:<key>, one radar series as ` +
+      `${ATLAS_SERIES_PREFIX}<seriesId>, one figure inside an approval as ` +
+      `${APPROVAL_PREFIX}<approval id>${AXIS_SEPARATOR}<member>, or one step of a plan's write-back as ` +
+      `${WRITE_BACK_REF_GRAMMAR}.`,
   );
 }
 
@@ -3120,10 +3181,10 @@ async function closingStockFigureOf(
  * The families whose plants one subject cannot state are answered with `null` here and narrowed by their
  * own rule in `getEvidence`: the four canvas nodes by `assertNodeReach`, which reads every plant the
  * records place a node in; the exception, the scenario that answers one, the approval of one, a figure
- * inside an approval and a step of a write-back of one by `assertExceptionReach`, which reads every plant
- * the exception they belong to touches — the set the exception queue admits the row by (AAP 0.2.1,
- * principle PR-6); and a composed aggregate where its figure is resolved, which the `'aggregate'` case
- * below states.
+ * inside an approval, a step of a write-back of one and the solver case those options are measured from
+ * by `assertExceptionReach`, which reads every plant the exception they belong to touches — the set the
+ * exception queue admits the row by (AAP 0.2.1, principle PR-6); and a composed aggregate where its
+ * figure is resolved, which the `'aggregate'` case below states.
  *
  * @param ctx - The call's context, whose records place a pin's node.
  * @param resolved - The record the reference named.
@@ -3158,6 +3219,13 @@ function subjectOf(ctx: HandlerContext, resolved: ResolvedRef): ScopedSubject | 
        * is laid on, so `assertExceptionReach` decides them over that whole set. Narrowing a scenario or
        * an approval to the exception's own plant here would refuse the option a screen printed, and the
        * plan a screen approved, wherever the row was admitted through a plant the exception also reaches.
+       */
+      return null;
+    case 'solver-case':
+      /*
+       * A case names the exception whose supply position it measures, so it stands where that disruption
+       * stands: `assertExceptionReach` admits it over every plant the exception touches, which is the set
+       * the scenario the case's own options produce is admitted over.
        */
       return null;
     case 'customer-order':
@@ -3275,6 +3343,8 @@ function evidenceFor(ctx: HandlerContext, resolved: ResolvedRef): Evidence {
       return lineEvidence(ctx.state.records, resolved.record);
     case 'product':
       return productEvidence(ctx.state.records, resolved.record);
+    case 'solver-case':
+      return solverCaseEvidence(ctx, resolved.record);
     case 'atlas-series':
       return atlasSeriesEvidence(ctx.state.records, resolved.series, resolved.axes);
   }
@@ -3380,6 +3450,97 @@ function exceptionEvidence(ctx: HandlerContext, exception: OperationalException)
     confidence: exception.confidence,
     missingInputs: [...exception.missingInputs],
     documents: documentsCiting(records, exception.id),
+  };
+}
+
+/**
+ * The evidence behind one solver case: the supply position the exception's options are measured from.
+ *
+ * The case is the input side of contracts §4 and states no measure of its own. Units late, maximum days
+ * late, orders on time, added cost, line idle days, revenue delayed, the run-out, the closing-stock
+ * series, the side effects and the write-backs a plan sets in motion are the solver's output from this
+ * record together with the levers of the option measured, and the payload behind that option reports
+ * them (AAP 0.8, AAP 0.12.2's solver-case row). So the value states the position the record itself
+ * carries — the exception it belongs to, the stock and the build rate the projection opens with, and the
+ * window it covers — and the formula names the rules that compute the measures from it, recomputing none
+ * of them.
+ *
+ * The payload carries `first_party` and the `Simulated data` label rather than `computed` and
+ * `Simulated calculation`, because every member it reports is a field of the seeded record: the record
+ * states the inputs, and the measures computed from them are labelled by the surface that prints them,
+ * exactly as `scenarioEvidence` labels a seeded option's own figures (AAP 0.10, rule P-1).
+ *
+ * The case's own reference appears in no seeded document's title or body, so the documents behind it are
+ * the ones the records cite for its exception — the disruption this case is the supply position of.
+ *
+ * @param ctx - The call's context: the records that answer the case and the chain behind it.
+ * @param solverCase - The case the reference named.
+ * @returns The case's evidence payload.
+ */
+function solverCaseEvidence(ctx: HandlerContext, solverCase: SolverCase): Evidence {
+  const records = ctx.state.records;
+  const exception = records.exceptions.find((candidate) => candidate.id === solverCase.exceptionId);
+  const scenarios = records.exceptionScenarios
+    .filter((seeded) => seeded.exceptionId === solverCase.exceptionId)
+    .flatMap((seeded) => seeded.scenarioSet.scenarios.map((scenario) => scenario.id));
+  const approvals = records.approvals
+    .filter((approval) => approval.exceptionId === solverCase.exceptionId)
+    .map((approval) => approval.id);
+  const events = ctx.state.auditEvents
+    .filter((event) => event.objectRef === solverCase.id)
+    .map((event) => event.id);
+
+  return {
+    value:
+      `Supply position of ${solverCase.exceptionId}, measured from ${solverCase.windowStart} to ` +
+      `${solverCase.windowEnd}: opening stock ${solverCase.openingStock}, ${solverCase.finishedGoods} ` +
+      `finished goods and a line rate of ${solverCase.ratePerDay} units per working day`,
+    provenance: 'first_party',
+    label: SIMULATED_DATA,
+    formula:
+      'Units late, maximum days late, orders on time, added cost, line idle days, revenue delayed, the ' +
+      'run-out, the closing-stock series, the side effects and the write-backs are the measures the ' +
+      "solver computes under contracts §4 rules 1 to 11 from this case's opening stock and finished " +
+      'goods, its line rate, its delayed purchase order, the orders it measures and the levers of the ' +
+      'option measured; this payload states the record and the rules and recomputes none of them.',
+    inputs: [
+      `exceptionId = ${solverCase.exceptionId}`,
+      `openingStock = ${solverCase.openingStock}`,
+      `finishedGoods = ${solverCase.finishedGoods}`,
+      `ratePerDay = ${solverCase.ratePerDay}`,
+      `delayedPurchaseOrderId = ${solverCase.delayedPurchaseOrderId}`,
+      `airSets = max ${solverCase.airSets.max}, step ${solverCase.airSets.step}`,
+      `transferSets = max ${solverCase.transferSets.max}, step ${solverCase.transferSets.step}`,
+      moneyInput('airFreightCostPerSetEur', solverCase.airFreightCostPerSetEur),
+      moneyInput('transferCostPerSetEur', solverCase.transferCostPerSetEur),
+      moneyInput('transferUnitPriceEur', solverCase.transferUnitPriceEur),
+      `transferProductId = ${solverCase.transferProductId}`,
+      `transferLeadTimeDays = ${solverCase.transferLeadTimeDays}`,
+      `windowStart = ${solverCase.windowStart}`,
+      `windowEnd = ${solverCase.windowEnd}`,
+      ...solverCase.orders.map(
+        (order) =>
+          `order ${order.orderId}: ${order.quantity} units of ${order.productId} at ${amountText(order.unitPriceEur)} each, due ${order.dueDate}`,
+      ),
+      ...solverCase.writeBacks.map(
+        (step) =>
+          `write-back ${step.sequence}: ${step.system} record ${step.recordRef} stands ${step.state}`,
+      ),
+    ],
+    upstream: uniqueRefs([
+      solverCase.exceptionId,
+      solverCase.delayedPurchaseOrderId,
+      solverCase.transferProductId,
+      ...solverCase.orders.map((order) => order.orderId),
+      ...solverCase.orders.map((order) => order.productId),
+    ]),
+    downstream: uniqueRefs([...scenarios, ...approvals, ...events]),
+    confidence: exception === undefined ? recordConfidence() : exception.confidence,
+    missingInputs: exception === undefined ? [] : [...exception.missingInputs],
+    documents: uniqueRefs([
+      ...documentsCiting(records, solverCase.id),
+      ...documentsCiting(records, solverCase.exceptionId),
+    ]),
   };
 }
 

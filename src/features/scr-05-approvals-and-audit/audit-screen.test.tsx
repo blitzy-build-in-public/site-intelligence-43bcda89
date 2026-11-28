@@ -372,11 +372,13 @@ const MOVED_RECORD: Problem = {
 };
 
 /**
- * The visible labels and control names this suite drives.
+ * The visible labels, control names and empty-state sentences this suite drives.
  *
  * They are the screen's own wording, which it does not export, so they are stated here once: a
  * reworded label reaches a single place in the suite. Every string an input fixes — the §5.3 labels,
  * {@link AUDIT_CHAIN_NOTE}, and the boundary's own sentences — is imported instead and never retyped.
+ * The two empty sentences are held side by side because they must never be confusable: one states a
+ * filter the reader set, the other a read nothing narrowed at all.
  */
 const UI = {
   verifyChain: 'Verify chain',
@@ -389,6 +391,8 @@ const UI = {
   to: 'To',
   previousPage: 'Previous page',
   nextPage: 'Next page',
+  emptyUnnarrowed: 'No audit events to show.',
+  emptyNarrowed: 'No audit events match these filters.',
 } as const;
 
 /** Both themes of specification §4.1, as the `data-theme` values the theme layer keys on. */
@@ -1316,6 +1320,51 @@ describe('the seven screen states', () => {
 
     expect(notice).toHaveTextContent(/audit events/iu);
     expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('T-17 states the trigger-neutral sentence when the read returns no event and no filter is set', async () => {
+    mockService.listAuditEvents.mockResolvedValue(envelope([]));
+    renderScreen();
+
+    /*
+     * The unfiltered read came back with nothing, which is the shape the demonstration control that
+     * empties every collection produces: the trail states that there is nothing to show and names no
+     * filter, because no control on this page set one and the empty answer is the only fact the screen
+     * has (rule P-4).
+     */
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: STATE_BOUNDARY_TEXT.loading })).toBeNull();
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent(UI.emptyUnnarrowed);
+    expect(screen.queryByText(UI.emptyNarrowed)).toBeNull();
+  });
+
+  it('T-17 states the filter sentence when a filter narrows the read to no event', async () => {
+    const user = userEvent.setup();
+
+    /*
+     * The trail answers with events first, so the reader has a trail to narrow, and with nothing once
+     * the filter is committed. This is the one case where the two ways an empty answer arises have to
+     * be told apart, and the sentence follows the filter the read was built from rather than the
+     * answer, which is identical either way.
+     */
+    mockService.listAuditEvents
+      .mockResolvedValueOnce(envelope(EVENTS))
+      .mockResolvedValue(envelope([]));
+    renderScreen();
+    await screen.findByRole('table');
+
+    await applyFilter(user, {
+      label: UI.actor,
+      member: 'actorId',
+      value: 'persona-alpha',
+      kind: 'text',
+    });
+
+    expect(await screen.findByText(UI.emptyNarrowed)).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByText(UI.emptyUnnarrowed)).toBeNull();
   });
 
   it('T-17 keeps the trail and names the source and its as-of time when the order book is stale', async () => {

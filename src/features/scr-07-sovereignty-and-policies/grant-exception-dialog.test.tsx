@@ -6,7 +6,8 @@
  * heading; focus moving into the first field on open, staying inside the dialog in both directions and
  * returning to the element that opened it; `Esc` and Cancel closing it without a call; the exact
  * request the port receives, once, with the reason trimmed and the expiry as the instant the port's
- * signature takes; the disabled submit naming each blocker in turn (rule P-8); the failed call keeping
+ * signature takes; the disabled submit naming every term still unmet, in the order the fields appear
+ * (rule P-8); the failed call keeping
  * the dialog open with the `Problem`'s own message and the members it carries; the in-flight state
  * refusing a second send and a withdrawal; `Enter` inside the reason field inserting a line break
  * rather than sending; both themes rendering the same dialog; and, once a request is recorded, the
@@ -24,9 +25,10 @@
  *
  * WHAT EACH CASE WOULD CATCH. Every case is written to fail on one specific regression rather than to
  * describe the markup: a dropped `label` association fails the labelled-field queries; one generic
- * sentence standing in for the three blocker sentences fails the disabled-submit case, which asserts
- * each sentence in turn; a second `requestPolicyException` call, or a reformatted term, fails the
- * exact once-only payload assertions on both the pointer and the keyboard path; a swallowed `Problem`
+ * sentence standing in for the three blocker sentences fails the disabled-submit case, which reads the
+ * explanation at each partial fill and asserts every outstanding sentence in it; a second
+ * `requestPolicyException` call, or a reformatted term, fails the exact once-only payload assertions on
+ * both the pointer and the keyboard path; a swallowed `Problem`
  * fails the failure case, which also keeps the dialog open with the submit usable again; a trap that
  * closes in one direction only, or a focus return that lands nowhere, fails the `Tab` and `Esc` cases;
  * an explanation that lives only under the pointer fails the focus case, which reads the reason off
@@ -302,6 +304,71 @@ async function completeTerms(user: ReturnType<typeof userEvent.setup>): Promise<
 }
 
 /**
+ * The explanation the disabled submit carries when `sentences` are the requirements still unmet: the
+ * dialog's own sentences, adjacent and in the order the fields appear, separated by one space.
+ *
+ * Composed from `GRANT_EXCEPTION_DIALOG_TEXT` here rather than typed out, because the dialog owns every
+ * one of these sentences (rule P-8) and a second copy would let the two drift apart.
+ */
+function unmetExplanation(...sentences: readonly string[]): string {
+  return sentences.join(' ');
+}
+
+/** One state a partial fill leaves the form in, and what the submit's explanation must say about it. */
+interface SubmitGateCase {
+  /** What has been entered, phrased as the clause the case title ends with. */
+  readonly gate: string;
+  /** Enters the terms this gate has answered. */
+  readonly fill: (user: ReturnType<typeof userEvent.setup>) => Promise<void>;
+  /** The sentences the explanation must carry, adjacent and in the order the fields appear. */
+  readonly named: readonly string[];
+  /** The sentences of the terms this gate has answered, which the explanation must have dropped. */
+  readonly cleared: readonly string[];
+}
+
+/**
+ * The gates a partial fill leaves behind, one per combination of answered and outstanding terms.
+ *
+ * The cases differ only in which terms are entered, which is why they are one parameterised case. What
+ * rule P-8 asks of the disabled submit is the same at each of them: the explanation names everything
+ * still outstanding, in the order the fields appear, and nothing that has already been answered.
+ */
+const SUBMIT_GATE_CASES: readonly SubmitGateCase[] = [
+  {
+    gate: 'no term is entered',
+    fill: async () => undefined,
+    named: [TEXT.reasonRequired, TEXT.expiryRequired, TEXT.approverRequired],
+    cleared: [],
+  },
+  {
+    gate: 'only the reason is entered',
+    fill: async (user) => {
+      await user.type(screen.getByLabelText(TEXT.reasonLabel), REASON);
+    },
+    named: [TEXT.expiryRequired, TEXT.approverRequired],
+    cleared: [TEXT.reasonRequired],
+  },
+  {
+    gate: 'the reason and an expiry that is not after the clock are entered',
+    fill: async (user) => {
+      await user.type(screen.getByLabelText(TEXT.reasonLabel), REASON);
+      fireEvent.change(screen.getByLabelText(TEXT.expiryLabel), { target: { value: CLOCK_DATE } });
+    },
+    named: [TEXT.expiryNotAfterClock, TEXT.approverRequired],
+    cleared: [TEXT.reasonRequired, TEXT.expiryRequired],
+  },
+  {
+    gate: 'the reason and an expiry after the clock are entered',
+    fill: async (user) => {
+      await user.type(screen.getByLabelText(TEXT.reasonLabel), REASON);
+      fireEvent.change(screen.getByLabelText(TEXT.expiryLabel), { target: { value: LATER_DATE } });
+    },
+    named: [TEXT.approverRequired],
+    cleared: [TEXT.reasonRequired, TEXT.expiryRequired],
+  },
+];
+
+/**
  * The text of every element a control's `aria-describedby` points at.
  *
  * `ActionButton` hands a disabled control's reason to the `Tooltip` around it, which appends its own
@@ -472,8 +539,11 @@ describe('GrantExceptionDialog', () => {
     expect(submit).toHaveFocus();
 
     /* The disabled control's explanation is painted on focus and not only under the pointer, which is
-       what makes rule P-8's reason reachable from the keyboard (rule B-3). */
-    expect(screen.getByRole('tooltip')).toHaveTextContent(TEXT.reasonRequired);
+       what makes rule P-8's reason reachable from the keyboard (rule B-3) — and what it paints is the
+       whole explanation, every requirement still unmet, not only the first. */
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      unmetExplanation(TEXT.reasonRequired, TEXT.expiryRequired, TEXT.approverRequired),
+    );
 
     await user.tab();
     expect(reason).toHaveFocus();
@@ -602,34 +672,74 @@ describe('GrantExceptionDialog', () => {
     expect(reason).toHaveValue(`${REASON}\n`);
   });
 
-  it('disables the submit with the sentence for the first term still missing, and each next one after it', async () => {
+  it.each(SUBMIT_GATE_CASES)(
+    'names every requirement still unmet, in the order the fields appear, when $gate',
+    async ({ fill, named, cleared }) => {
+      const user = userEvent.setup();
+      renderDialog();
+
+      await fill(user);
+
+      const submit = screen.getByRole('button', { name: TEXT.submit });
+      const description = describedText(submit);
+
+      expect(submit).toHaveAttribute('aria-disabled', 'true');
+
+      /* Every outstanding sentence, adjacent and in field order: an explanation that stopped at the
+         first unmet term cannot carry the pair this asserts. */
+      expect(description).toContain(unmetExplanation(...named));
+
+      /* A term the reader has answered leaves the explanation, which then speaks about what is left. */
+      for (const sentence of cleared) {
+        expect(description).not.toContain(sentence);
+      }
+    },
+  );
+
+  it('refuses an activation of the disabled submit without sending a request, and answers it', async () => {
     const user = userEvent.setup();
     renderDialog();
 
     const submit = screen.getByRole('button', { name: TEXT.submit });
 
-    expect(submit).toHaveAttribute('aria-disabled', 'true');
-    expect(describedText(submit)).toContain(TEXT.reasonRequired);
-
     await user.click(submit);
+
     expect(requestPolicyException).not.toHaveBeenCalled();
+    /* The refused attempt is answered rather than ignored: the same explanation arrives as an
+       announcement, so a reader who clicks and moves on is not left with nothing (rule P-8). */
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      unmetExplanation(TEXT.reasonRequired, TEXT.expiryRequired, TEXT.approverRequired),
+    );
+  });
 
-    await user.type(screen.getByLabelText(TEXT.reasonLabel), REASON);
-    expect(describedText(submit)).toContain(TEXT.expiryRequired);
+  it('drops the explanation and lets the submit act once every requirement is met', async () => {
+    const user = userEvent.setup();
+    renderDialog();
 
-    fireEvent.change(screen.getByLabelText(TEXT.expiryLabel), { target: { value: CLOCK_DATE } });
-    expect(describedText(submit)).toContain(TEXT.expiryNotAfterClock);
-    expect(screen.getByLabelText(TEXT.expiryLabel)).toHaveAttribute('aria-invalid', 'true');
+    await completeTerms(user);
 
-    fireEvent.change(screen.getByLabelText(TEXT.expiryLabel), { target: { value: LATER_DATE } });
-    expect(describedText(submit)).toContain(TEXT.approverRequired);
+    /* Re-queried rather than read from a node captured earlier: a disabled `ActionButton` is wrapped
+       in the hint that carries its reason and an enabled one is not, so the element that can act is a
+       new element. */
+    const submit = screen.getByRole('button', { name: TEXT.submit });
 
-    await user.selectOptions(screen.getByLabelText(TEXT.approverLabel), APPROVER_BETA.id);
+    expect(submit).not.toHaveAttribute('aria-disabled');
+    expect(describedText(submit)).toBe('');
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
 
-    /* Re-queried rather than read from the node above: a disabled `ActionButton` is wrapped in the
-       hint that carries its reason and an enabled one is not, so the element that can act is a new
-       element and the captured one is the node that was just replaced. */
-    expect(screen.getByRole('button', { name: TEXT.submit })).not.toHaveAttribute('aria-disabled');
+  it('marks the expiry invalid only for a date that was entered and cannot be accepted', async () => {
+    renderDialog();
+
+    const expiry = screen.getByLabelText(TEXT.expiryLabel);
+
+    expect(expiry).not.toHaveAttribute('aria-invalid');
+
+    fireEvent.change(expiry, { target: { value: CLOCK_DATE } });
+    expect(expiry).toHaveAttribute('aria-invalid', 'true');
+
+    fireEvent.change(expiry, { target: { value: LATER_DATE } });
+    expect(expiry).not.toHaveAttribute('aria-invalid');
   });
 
   it('names the missing capability rather than leaving a dead submit when no approver is offered', async () => {

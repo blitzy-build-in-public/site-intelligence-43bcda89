@@ -60,10 +60,11 @@
  * measurement is an outcome, that anything was verified, that the reader's data is confined or that
  * the record cannot be altered (rule P-4).
  *
- * ACCESSIBILITY. Two labelled number fields composed through `TextField` inside a named `<fieldset>`
+ * ACCESSIBILITY. Two labelled numeric entries composed through `TextField` inside a named `<fieldset>`
  * (rule B-3), each with a visible label, a 24x24 px minimum target, the 2 px
  * `--color-focus-ring` indicator on
- * `:focus-visible`, and `Enter` submitting the recompute from inside either field. Each field is
+ * `:focus-visible`, `inputMode="numeric"` so a touch keyboard offers its digits, and `Enter`
+ * submitting the recompute from inside either field. Each field is
  * described by the group's own sentences — the rule its values are held to, then the case's bound
  * statements where the option set records them — and, last, a field holding something that is not a
  * number is marked `aria-invalid` and described by the visible sentence that says so. An
@@ -84,8 +85,12 @@
  * `LeverConstraint` (a maximum and a step) sits on `SolverCase`, and no member of the port's scenario
  * reads — neither `getScenarioSet` nor `solveScenario` — carries one, so this component states no
  * `min`, `max` or `step` on its inputs rather than typing a bound of its own: a bound typed here would
- * be a second, unchecked one and a figure no record states (rule P-6). What the records do state is
- * what the panel publishes. The rule itself is `SCENARIO_SANDBOX_TEXT`'s `leverBoundsRule` sentence,
+ * be a second, unchecked one and a figure no record states (rule P-6). The same reason makes neither
+ * lever a `type="number"` entry: a number input that carries no `min` or `max` publishes an empty
+ * range in the accessibility tree, which contradicts the value the field holds, and a spinbutton's
+ * step affordance is not the case's step. `inputMode="numeric"` keeps the digits a touch keyboard
+ * offers, and the bound stays in the solver. What the records do state is what the panel publishes.
+ * The rule itself is `SCENARIO_SANDBOX_TEXT`'s `leverBoundsRule` sentence,
  * rendered above the fields and describing both of them, and the case's own bound statements — the
  * constraint messages of the option set's failed option, which name that case's maximum and its step —
  * arrive in `caseBoundStatements` from the screen that read the set, and are rendered there verbatim
@@ -96,13 +101,14 @@
  *
  * THE INPUTS ARE COMPOSED, NOT WRITTEN HERE. AAP 0.5.2 gives a raw `<input>` to the component that
  * owns it, and `TextField` in `src/components` is that owner for a single-line field: it renders the
- * platform's number input and owns its type, its controlled value and its change contract, which
- * reports the field's new text as one string rather than the DOM event. Every native prop this panel
- * needs — the `id` the label is bound to, the two `aria-*` attributes and the `Enter` handler — is
- * forwarded by the primitive untouched. This file therefore composes it with the token-built class
- * list {@link INPUT_CLASSES} declares instead of rendering the element itself, and the lever bounds
- * stay where the solver enforces them: no bound is typed here, and the only thing the panel publishes
- * about them is the records' own wording.
+ * platform's single-line input and owns its type — left at the primitive's own `text` default here —
+ * its controlled value and its change contract, which reports the field's new text as one string
+ * rather than the DOM event. Every native prop this panel needs — the `id` the label is bound to, the
+ * two `aria-*` attributes, `inputMode` and the `Enter` handler — is forwarded by the primitive
+ * untouched. This file therefore composes it with the token-built class list {@link INPUT_CLASSES}
+ * declares instead of rendering the element itself, and the lever bounds stay where the solver
+ * enforces them: no bound is typed here, and the only thing the panel publishes about them is the
+ * records' own wording.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import type {
@@ -288,7 +294,7 @@ const FIELD_CLASSES = 'flex min-w-0 flex-col gap-1';
 const LABEL_CLASSES = 'font-mono text-12 text-text-caption';
 
 /**
- * The number input: role tokens only — `rounded-control` for the 2 px radius,
+ * The lever field: role tokens only — `rounded-control` for the 2 px radius,
  * `--color-control-boundary` for its edge, the first raised surface behind it, and the type scale's
  * 13 px in the primary text role with tabular figures so a count reads like every other figure in
  * the product.
@@ -395,8 +401,8 @@ interface SandboxFailure {
 /**
  * The draft one option starts from, or the one already being edited for it.
  *
- * The seeded text is the record's own lever value written out, not a formatted figure: a number input
- * holds a plain string, and no presentation rule applies to a value the reader is about to change.
+ * The seeded text is the record's own lever value written out, not a formatted figure: the field holds
+ * a plain string, and no presentation rule applies to a value the reader is about to change.
  */
 function draftOf(state: LeverDraftState | null, option: Scenario): LeverDraft {
   if (state !== null && state.scenarioId === option.id) {
@@ -1204,14 +1210,17 @@ export function ScenarioSandbox({
                     <label htmlFor={inputId} className={LABEL_CLASSES}>
                       {field}
                     </label>
-                    {/* A number field composed through `TextField`, and deliberately without `min`,
-                        `max` or `step`: the record the port returns carries no bound for either
-                        lever, so the bounds are published as the sentences above and described by
-                        them rather than annotated with a typed one. The solver holds the bounds and
-                        reports every breach as the messages this control renders. */}
+                    {/* A numeric entry composed through `TextField` as a text field, and deliberately
+                        not a `type="number"` one: the record the port returns carries no bound for
+                        either lever, and a number input with no `min` or `max` publishes an empty
+                        range in the accessibility tree while its step affordance is not the case's
+                        step — both contradicted by the value the field holds. `inputMode="numeric"`
+                        still offers a touch keyboard's digits, the bounds are published as the
+                        sentences above, and the solver holds them and reports every breach as the
+                        messages this control renders (AAP 0.12.3, rule P-6, rule B-3). */}
                     <TextField
                       id={inputId}
-                      type="number"
+                      inputMode="numeric"
                       className={INPUT_CLASSES}
                       value={draft[field]}
                       aria-invalid={isInvalid ? true : undefined}
@@ -1241,7 +1250,17 @@ export function ScenarioSandbox({
               {SCENARIO_SANDBOX_TEXT.recomputeLabel}
             </ActionButton>
           ) : (
-            <ActionButton variant="secondary" disabled disabledReason={blocker}>
+            /* The reason opens below the control rather than above it: the two lever fields sit
+               directly over this row, so the default placement painted the messages across both of
+               the fields the reader is correcting. Opening away from them keeps those values legible
+               while the reason is read (rule P-8). It is a preference: the tooltip still moves the
+               hint to the other side when this one cannot fit it. */
+            <ActionButton
+              variant="secondary"
+              disabled
+              disabledReason={blocker}
+              hintPlacement="bottom"
+            >
               {SCENARIO_SANDBOX_TEXT.recomputeLabel}
             </ActionButton>
           )}

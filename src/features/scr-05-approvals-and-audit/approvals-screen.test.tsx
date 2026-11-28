@@ -8,6 +8,11 @@
  * already ordered left the order in effect unannounced, which is the gap this case holds shut; the
  * announcement is the caller's `defaultOrder`, so it reorders no row and reaches no `onSort`.
  *
+ * The empty state is proved on both of its branches, because the two ways a read comes back with
+ * nothing must not read alike: a read the shell's selection narrowed keeps the scope wording, and a
+ * read nothing narrowed states the trigger-neutral sentence, since an empty answer is the same answer
+ * either way and only the selection the read was built from can tell them apart.
+ *
  * HOW THE SERVICE IS REACHED — rule P-2. The provider module is replaced, not the port: `vi.mock` swaps
  * `../../services/service-provider` for the one hook the screen reads, backed by a hoisted stub whose
  * `vi.fn` is named exactly as the port's member is, so a renamed member surfaces here as a call to an
@@ -105,6 +110,24 @@ const APPROVALS: readonly Approval[] = [
  */
 const APPROVAL_COLUMN = 'Approval';
 
+/**
+ * The two sentences the inbox states when its read answered with no approval.
+ *
+ * They are the screen's own wording, which the module does not export, so they are stated here once
+ * for the same reason {@link APPROVAL_COLUMN} is: the assertion is about the sentence a reader reads,
+ * and a reworded sentence reaches a single place in the suite. Which one is stated follows the
+ * selection the read was built from, never the answer, so each case selects the scope its read is
+ * made with (`simulation.ts`: a filter that happens to match nothing must not be confusable with a
+ * control that emptied every list).
+ */
+const EMPTY_SENTENCES = {
+  /** Nothing narrowed the read: the trigger-neutral sentence. */
+  unnarrowed: 'No approvals to show.',
+
+  /** The shell's selection narrowed the read: the scope sentence. */
+  narrowed: 'No approvals in the current scope.',
+} as const;
+
 /* ---------------------------------------------------------------------------------------------
  * The harness
  * ------------------------------------------------------------------------------------------- */
@@ -112,14 +135,18 @@ const APPROVAL_COLUMN = 'Approval';
 /**
  * Renders the inbox as the shell mounts it: behind an in-memory router, inside a cache of its own with
  * retries off, so a refused read fails the same way however often it is repeated.
+ *
+ * @param scope - The selection the shell hands the screen, and so the selection its read is built
+ *   from. It defaults to the empty selection, which is what every case that does not care about the
+ *   selection uses.
  */
-function renderScreen(): void {
+function renderScreen(scope: Scope = SCOPE): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <ApprovalsScreen scope={SCOPE} />
+        <ApprovalsScreen scope={scope} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -191,5 +218,35 @@ describe('ApprovalsScreen', () => {
         .slice(1)
         .map((row) => within(row).getAllByRole('cell')[0]?.textContent),
     ).toEqual([...APPROVALS].reverse().map((approval) => approval.id));
+  });
+
+  it('states the trigger-neutral sentence when the read answers with nothing and no scope narrows it', async () => {
+    mockService.listApprovals.mockResolvedValue(envelope([]));
+    renderScreen();
+
+    /*
+     * The empty answer is the one fact the screen has, and nothing selected a plant or a product, so
+     * the sentence names no scope: the demonstration control that empties every list empties the
+     * collection this read is served from rather than narrowing it, and a scope wording would
+     * describe a constraint the reader never set.
+     */
+    expect(await screen.findByText(EMPTY_SENTENCES.unnarrowed)).toBeInTheDocument();
+    expect(screen.queryByText(EMPTY_SENTENCES.narrowed)).toBeNull();
+  });
+
+  it('states the scope sentence when the read answers with nothing under one selected plant', async () => {
+    const scope: Scope = { plants: ['plant-alpha'], products: [] };
+
+    mockService.listApprovals.mockResolvedValue(envelope([]));
+    renderScreen(scope);
+
+    /*
+     * The selection the read was built from is what the sentence follows, and it reached the port as
+     * the read's scope: the screen narrowed nothing itself, so the wording states the scope the
+     * reader set rather than a cause it inferred from the empty answer.
+     */
+    expect(await screen.findByText(EMPTY_SENTENCES.narrowed)).toBeInTheDocument();
+    expect(mockService.listApprovals).toHaveBeenCalledWith({}, scope);
+    expect(screen.queryByText(EMPTY_SENTENCES.unnarrowed)).toBeNull();
   });
 });

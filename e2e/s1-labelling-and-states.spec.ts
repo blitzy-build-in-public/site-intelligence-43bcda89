@@ -807,10 +807,11 @@ test('T-15 the Simulated data badge labels every route the shell renders', async
     policies.getByRole('table'),
     'The policy list never rendered the policies the engine evaluates.',
   );
-  /* The row's policy cell holds an evidence reference — a control that opens the drawer for the policy
-     it names (principle PR-6) — so the row is activated through a cell that carries no control of its
-     own, which is how a reader opens a record from this table. */
-  await policyRow.getByRole('cell').nth(1).click();
+  /* The row's title cell now holds the link that opens the policy's own page, and its identifier cell
+     holds the evidence reference that opens the drawer (principle PR-6), so the row's own activation —
+     the third way into a record from this table — is exercised through a cell that carries no control
+     of its own: the column stating whether the engine evaluates the policy. */
+  await policyRow.getByRole('cell').nth(2).click();
   await expect(page, 'A policy row did not open its own detail.').toHaveURL(
     /\/admin\/policies\/[^/]+$/,
   );
